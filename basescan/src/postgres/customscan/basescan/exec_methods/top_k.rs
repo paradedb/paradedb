@@ -40,6 +40,7 @@ use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, block_on_next};
 use crate::postgres::heap::VisibilityChecker;
+use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::{
     LazyParallelMode, LazySortConfig, LazySortTelemetry, LazySortTelemetryState, PgSearchScanPlan,
     ScanState, ScannerConfig, TopKSelectivity,
@@ -259,7 +260,11 @@ impl TopKScanExecState {
         let index_rel = state.indexrel.as_ref().unwrap();
         let heap_rel = state.heaprel.as_ref().unwrap();
 
-        let which_fast_fields = vec![WhichFastField::Ctid, WhichFastField::Score(None)];
+        let which_fast_fields = vec![
+            WhichFastField::Ctid,
+            WhichFastField::Score(None),
+            WhichFastField::DocAddress,
+        ];
         let ffhelper = Arc::new(FFHelper::for_ctid(search_reader));
         let visibility = state
             .visibility_checker
@@ -499,9 +504,16 @@ impl ExecMethod for TopKScanExecState {
             .downcast_ref::<Float32Array>()
             .expect("score column should be Float32Array");
 
+        let doc_address_array = record_batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("doc address column should be UInt64Array");
+
         ExecState::FromHeap {
             ctid: ctid_array.value(row_idx),
             score: score_array.value(row_idx),
+            doc_address: unpack_doc_address(doc_address_array.value(row_idx)),
         }
     }
 

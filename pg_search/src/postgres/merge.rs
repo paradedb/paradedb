@@ -21,7 +21,6 @@ use crate::index::merge_policy::{
 };
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
-use crate::postgres::PgSearchRelation;
 use crate::postgres::delete::VacuumSignal;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
@@ -30,6 +29,7 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::{MergePins, MetaPage};
+use crate::postgres::{IsLogicalWorker, PgSearchRelation};
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;
@@ -345,18 +345,11 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     warn_unsupported_vector_merge(index, skipped);
     let needs_background_merge =
         layer_sizes.user_configured_background_layers() && !candidates.is_empty();
-    let needs_foreground_backpressure = matches!(style, MergeStyle::Insert { .. })
-        && layer_sizes.visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count;
-
     let background_launched =
         needs_background_merge && try_launch_background_merger(index, largest_layer_size);
-<<<<<<< HEAD:pg_search/src/postgres/merge.rs
-    if background_launched && !needs_foreground_backpressure {
-=======
     // If a background merger launched successfully, exit before applying more backpressure
     // so foreground backpressure does not race with it to claim segments.
     if background_launched {
->>>>>>> 6f89381 (fix: prioritize background mergers over foreground backpressure (#7522)):index_write/src/postgres/merge.rs
         return Ok(());
     }
     if let MergeStyle::Insert {
@@ -364,13 +357,6 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         next_xid,
     } = style
     {
-<<<<<<< HEAD:pg_search/src/postgres/merge.rs
-        let foreground_candidate = candidates
-            .iter()
-            .filter(|(layer, _)| layer_sizes.foreground_layer_sizes.contains(layer))
-            .min_by_key(|(layer, _)| *layer)
-            .map(|(_, candidate)| candidate);
-=======
         // Stopgap: prevent apply workers from doing expensive foreground immutable merges,
         // which can stall replication and cause WAL buildup on the publisher.
         let foreground_candidate = if IsLogicalWorker() {
@@ -389,7 +375,6 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
                 .min_by_key(|(layer, _)| *layer)
                 .map(|(_, candidate)| candidate)
         };
->>>>>>> 6f89381 (fix: prioritize background mergers over foreground backpressure (#7522)):index_write/src/postgres/merge.rs
         merge_policy.prepare_backpressure(layer_sizes.backpressure_layer_size);
         let (backpressure_candidates, _, skipped) = merge_policy.simulate_supported(&merger)?;
         warn_unsupported_vector_merge(index, skipped);

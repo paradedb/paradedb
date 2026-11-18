@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795013908717,
+  "lastUpdate": 1795024201881,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -102716,6 +102716,299 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14410133524-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1795024198296,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) p50 latency",
+            "value": 29.135,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p95 latency",
+            "value": 36.641,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p99 latency",
+            "value": 44.874,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p50 latency",
+            "value": 31.669,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p95 latency",
+            "value": 37.865,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p99 latency",
+            "value": 45.234,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p50 latency",
+            "value": 53.42,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p95 latency",
+            "value": 64.312,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p99 latency",
+            "value": 71.68,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p50 latency",
+            "value": 12.231,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p95 latency",
+            "value": 16.109,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p99 latency",
+            "value": 17.933,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p50 latency",
+            "value": 19.914,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p95 latency",
+            "value": 24.873,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p99 latency",
+            "value": 27.333,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p50 latency",
+            "value": 67.036,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p95 latency",
+            "value": 81.446,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p99 latency",
+            "value": 92.728,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p50 latency",
+            "value": 19.972,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p95 latency",
+            "value": 24.378,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p99 latency",
+            "value": 25.307,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p50 latency",
+            "value": 26.846,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p95 latency",
+            "value": 31.38,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p99 latency",
+            "value": 31.863,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p50 latency",
+            "value": 454.487,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p95 latency",
+            "value": 502.012,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p99 latency",
+            "value": 543.973,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p50 latency",
+            "value": 3.4,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p95 latency",
+            "value": 3.728,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p99 latency",
+            "value": 3.793,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p50 latency",
+            "value": 3.331,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p95 latency",
+            "value": 3.367,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p99 latency",
+            "value": 3.418,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p50 latency",
+            "value": 3.348,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p95 latency",
+            "value": 3.394,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p99 latency",
+            "value": 3.446,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p50 latency",
+            "value": 10.741,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p95 latency",
+            "value": 10.983,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p99 latency",
+            "value": 11.763,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p50 latency",
+            "value": 10.739,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p95 latency",
+            "value": 10.985,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p99 latency",
+            "value": 11.792,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p50 latency",
+            "value": 10.751,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p95 latency",
+            "value": 10.996,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p99 latency",
+            "value": 11.733,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p50 latency",
+            "value": 19.909,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p95 latency",
+            "value": 22.375,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p99 latency",
+            "value": 22.852,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p50 latency",
+            "value": 33.355,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p95 latency",
+            "value": 36.244,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p99 latency",
+            "value": 37.437,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p50 latency",
+            "value": 63.577,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p95 latency",
+            "value": 67.074,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p99 latency",
+            "value": 68.161,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14456416635-latency"
       }
     ],
     "benchmarker hackernews-vector-28m-8cpu-32gb (throughput)": [
@@ -102831,6 +103124,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14410133524-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1795024199705,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) QPS",
+            "value": 33.23795495116796,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) QPS",
+            "value": 30.85024764211905,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) QPS",
+            "value": 18.391591239864823,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) QPS",
+            "value": 79.43894460551216,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) QPS",
+            "value": 49.93654150437159,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) QPS",
+            "value": 14.684341375155002,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) QPS",
+            "value": 51.16277272006498,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) QPS",
+            "value": 38.19807683174127,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) QPS",
+            "value": 2.160486668610757,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) QPS",
+            "value": 283.859908124637,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) QPS",
+            "value": 297.42019715913835,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) QPS",
+            "value": 295.8350661686682,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) QPS",
+            "value": 92.4779292517795,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) QPS",
+            "value": 92.49022819296601,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) QPS",
+            "value": 92.38065967218422,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) QPS",
+            "value": 50.57361477363203,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) QPS",
+            "value": 30.01560273157576,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) QPS",
+            "value": 15.762707149424674,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14456416635-throughput"
       }
     ],
     "benchmarker hackernews-vector-28m-8cpu-32gb (buffers)": [
@@ -102946,6 +103352,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14410133524-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1795024200806,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "range_0.1pct@r90 shared hits/query",
+            "value": 21398.74,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r95 shared hits/query",
+            "value": 24236.85,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r99 shared hits/query",
+            "value": 40118.43,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r90 shared hits/query",
+            "value": 6275.62,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r95 shared hits/query",
+            "value": 9537.47,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r99 shared hits/query",
+            "value": 25666.17,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r90 shared hits/query",
+            "value": 11194.85,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r95 shared hits/query",
+            "value": 14632.78,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r99 shared hits/query",
+            "value": 434318.51,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r90 shared hits/query",
+            "value": 1334.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r95 shared hits/query",
+            "value": 1334.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r99 shared hits/query",
+            "value": 1334.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r90 shared hits/query",
+            "value": 7413.67,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r95 shared hits/query",
+            "value": 7413.67,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r99 shared hits/query",
+            "value": 7413.67,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r90 shared hits/query",
+            "value": 9434.11,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r95 shared hits/query",
+            "value": 17095.31,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r99 shared hits/query",
+            "value": 33116.88,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14456416635-buffers"
       }
     ],
     "benchmarker hackernews-vector-28m-8cpu-32gb (index build)": [
@@ -102986,6 +103505,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14410133524-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1795024201863,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hn_items_bm25_idx build time",
+            "value": 62.02031365455,
+            "unit": "min"
+          },
+          {
+            "name": "hn_items_bm25_idx index size",
+            "value": 162537.6875,
+            "unit": "MiB"
+          },
+          {
+            "name": "hn_items_bm25_idx peak container memory",
+            "value": 19.826129913330078,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14456416635-index"
       }
     ]
   }

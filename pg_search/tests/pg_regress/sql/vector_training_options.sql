@@ -32,10 +32,11 @@ FROM (
     LIMIT 256
 ) matches;
 
--- Both endpoints are accepted; invalid fractions and retired names fail.
+-- 0 chooses the sample. Positive fractions through 1 are overrides.
+-- Invalid fractions and retired names fail.
+ALTER INDEX training_ratio_idx SET (training_sample_ratio = 0);
 ALTER INDEX training_ratio_idx SET (training_sample_ratio = 0.000001);
 ALTER INDEX training_ratio_idx SET (training_sample_ratio = 1.0);
-ALTER INDEX training_ratio_idx SET (training_sample_ratio = 0);
 ALTER INDEX training_ratio_idx SET (training_sample_ratio = -0.1);
 ALTER INDEX training_ratio_idx SET (training_sample_ratio = 1.01);
 ALTER INDEX training_ratio_idx SET (training_sample_ratio = 'NaN');

@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+The default `training_sample_ratio` is now `0`, which chooses the sample automatically for each clustered segment. For `nlist = n / target_leaf_size`, Tantivy clamps the memory budget to `[16 * nlist, 128 * nlist]` vectors and scales `target_leaf_size` by the resulting sample ratio. Set `training_sample_ratio` above `0` to override it. The default leaf size of `400` still trains on 128 vectors per list when that sample fits.

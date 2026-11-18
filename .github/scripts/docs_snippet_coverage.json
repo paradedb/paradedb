@@ -180,11 +180,11 @@
     {
       "reason": "The vector index-options CodeGroup contains 0.27 target_leaf_size examples awaiting ORM client support; its SQL fence runs in the standalone inventory.",
       "fences": [
-        ["reference/indexing/indexing-vectors.mdx::fence-014", "c445700fc389d3baed5bbd2c7f45ab2d21d7b7c0081ec9b74b8ef3395eff5e58"],
-        ["reference/indexing/indexing-vectors.mdx::fence-015", "5cab4e761805be2b46f77a7b2cc649fe55e0d6c6bdb0a6e327e6fb1246764812"],
-        ["reference/indexing/indexing-vectors.mdx::fence-016", "6f97f3753e9e5ee9034f838057c5b95826b0499bc2bfd93aa565a9a637928f0b"],
-        ["reference/indexing/indexing-vectors.mdx::fence-017", "582e688c81c32cf2ef26addb3286c298067a04f5e5250d448e6e8bc3b8aecf5f"],
-        ["reference/indexing/indexing-vectors.mdx::fence-018", "126340fc1e720d46471e7e7e121434ad4ec13784b130d13ee5b814de15becdee"]
+        ["reference/indexing/indexing-vectors.mdx::fence-014", "aa1e6db4afea2e72f2757daa31fea536143c4ed5e557055af272ec81a5db109d"],
+        ["reference/indexing/indexing-vectors.mdx::fence-015", "7e57afd74f9f8be64e29b07aa2093161b612146aa36f6cccf7f19acd636a6585"],
+        ["reference/indexing/indexing-vectors.mdx::fence-016", "702e9166c406fb0512334e4a4b8e6e9ddf0fab7835a9b0d72f138ed23bb28614"],
+        ["reference/indexing/indexing-vectors.mdx::fence-017", "171c4d1bb64ad1b8d922b7af3f38cec0fafb973f4ecabb145acad76ba57a8e11"],
+        ["reference/indexing/indexing-vectors.mdx::fence-018", "257e3cb66e896d029d371b868cda1c8f895aff2e534586ffe5bf97cb48d08e41"]
       ]
     },
     {

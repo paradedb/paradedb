@@ -402,6 +402,10 @@ async fn insert_held_before_flush(
     step!(writer, "SET enable_seqscan = off");
     step!(writer, "BEGIN ISOLATION LEVEL SERIALIZABLE");
     step!(writer, "SELECT note FROM ssi_doctors WHERE id = 1");
+    let (writer_pid,): (i32,) = sqlx::query_as("SELECT pg_backend_pid()")
+        .fetch_one(&mut writer)
+        .await
+        .expect("the writer should report its backend PID");
     let insert = async_std::task::spawn(async move {
         let inserted = run(&mut writer, INSERT_ONE).await;
         (writer, inserted)
@@ -411,8 +415,10 @@ async fn insert_held_before_flush(
     loop {
         let (held,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM pg_locks
-                            WHERE locktype = 'advisory' AND objid = 7258 AND NOT granted)",
+                            WHERE locktype = 'advisory' AND objid = 7258
+                              AND pid = $1 AND NOT granted)",
         )
+        .bind(writer_pid)
         .fetch_one(&mut gate)
         .await
         .expect("pg_locks should be readable");

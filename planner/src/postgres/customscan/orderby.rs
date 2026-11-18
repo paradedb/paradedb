@@ -424,22 +424,21 @@ unsafe fn is_varno_valid_for_relation(
     varno: pg_sys::Index,
     current_rti: pg_sys::Index,
 ) -> bool {
-    // 1. Exact match
-    if varno == current_rti {
-        return true;
-    }
-
-    // 2. Check if varno is parent of current_rti
-    if !(*root).append_rel_list.is_null() {
-        let append_rels = PgList::<pg_sys::AppendRelInfo>::from_pg((*root).append_rel_list);
-        for appinfo in append_rels.iter_ptr() {
-            if (*appinfo).parent_relid == varno && (*appinfo).child_relid == current_rti {
-                return true;
-            }
+    let mut rti = current_rti;
+    while rti != varno {
+        if rti == 0
+            || rti as i32 >= (*root).simple_rel_array_size
+            || (*root).append_rel_array.is_null()
+        {
+            return false;
         }
+        let appinfo = *(*root).append_rel_array.add(rti as usize);
+        if appinfo.is_null() {
+            return false;
+        }
+        rti = (*appinfo).parent_relid;
     }
-
-    false
+    true
 }
 
 /// Find TargetEntry by ressortgroupref
@@ -505,20 +504,41 @@ where
                 expr_to_analyze = funcexpr.cast();
             }
 
-            if let Some((sort_type, var, field_name_opt)) = analyze_sort_expression(
+            let Some(var) = extract_any_var_from_expr(expr_to_analyze.cast()) else {
+                continue;
+            };
+            let varno = (*var).varno as pg_sys::Index;
+            if !is_varno_valid_for_relation(root, varno, context.heap_rti) {
+                continue;
+            }
+            if varno != context.heap_rti {
+                let child = *(*root).simple_rel_array.add(context.heap_rti as usize);
+                let parent = *(*root).simple_rel_array.add(varno as usize);
+                if child.is_null() || parent.is_null() {
+                    continue;
+                }
+                #[cfg(feature = "pg15")]
+                let translated = pg_sys::adjust_appendrel_attrs_multilevel(
+                    root,
+                    expr_to_analyze.cast(),
+                    (*child).relids,
+                    (*parent).relids,
+                );
+                #[cfg(not(feature = "pg15"))]
+                let translated = pg_sys::adjust_appendrel_attrs_multilevel(
+                    root,
+                    expr_to_analyze.cast(),
+                    child,
+                    parent,
+                );
+                expr_to_analyze = translated.cast();
+            }
+
+            if let Some((sort_type, _, field_name_opt)) = analyze_sort_expression(
                 expr_to_analyze.cast(),
                 VarContext::from_planner(root),
                 Some(context),
             ) {
-                // Verify the var belongs to the correct relation (either the relation itself or its parent)
-                if !is_varno_valid_for_relation(
-                    root,
-                    (*var).varno as pg_sys::Index,
-                    context.heap_rti,
-                ) {
-                    continue;
-                }
-
                 match sort_type {
                     SortExpressionType::Score => {
                         pathkey_styles.push(OrderByStyle::Score {
@@ -530,9 +550,7 @@ where
                     }
                     SortExpressionType::Lower => {
                         if let Some(field_name) = field_name_opt
-                            && let Some(hf) =
-                                context.resolve_heap_field(ResTarget::Field(&field_name))
-                            && hf.data.source.heap_attno() == Some(((*var).varattno - 1) as usize)
+                            && let Some(hf) = context.resolve_column_field(&field_name)
                             && lower_sortability_check(&hf.field)
                             && sortable_at_position(&hf.field.field_type(), pathkey_styles.len())
                         {
@@ -547,9 +565,7 @@ where
                     }
                     SortExpressionType::Raw => {
                         if let Some(field_name) = field_name_opt
-                            && let Some(hf) =
-                                context.resolve_heap_field(ResTarget::Field(&field_name))
-                            && hf.data.source.heap_attno() == Some(((*var).varattno - 1) as usize)
+                            && let Some(hf) = context.resolve_column_field(&field_name)
                             && regular_sortability_check(&hf.field)
                             && sortable_at_position(&hf.field.field_type(), pathkey_styles.len())
                         {
@@ -674,15 +690,7 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
             return false;
         }
 
-        // Use analyze_sort_expression to identify the sort key type and underlying variable
-        let sort_info = unsafe {
-            analyze_sort_expression(
-                expr,
-                VarContext::from_query(parse),
-                target_relation_context.as_ref(),
-            )
-        };
-        let Some((_, var, _)) = sort_info else {
+        let Some(var) = extract_any_var_from_expr(expr) else {
             return false;
         };
 
@@ -730,7 +738,7 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
 
         // Validate sortability
         let context = target_relation_context.as_ref().unwrap();
-        let Some((sort_type, var, field_name_opt)) = (unsafe {
+        let Some((sort_type, _, field_name_opt)) = (unsafe {
             analyze_sort_expression(expr, VarContext::from_query(parse), Some(context))
         }) else {
             return false;
@@ -745,12 +753,10 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(field_name) = field_name_opt else {
                     return false;
                 };
-                let Some(hf) = context.resolve_heap_field(ResTarget::Field(&field_name.root()))
-                else {
+                let Some(hf) = context.resolve_column_field(&field_name.root()) else {
                     return false;
                 };
-                if hf.data.source.heap_attno() != Some((unsafe { (*var).varattno } - 1) as usize)
-                    || !hf.field.is_lower_sortable()
+                if !hf.field.is_lower_sortable()
                     || !sortable_at_position(&hf.field.field_type(), position)
                 {
                     return false;
@@ -760,12 +766,10 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 let Some(field_name) = field_name_opt else {
                     return false;
                 };
-                let Some(hf) = context.resolve_heap_field(ResTarget::Field(&field_name.root()))
-                else {
+                let Some(hf) = context.resolve_column_field(&field_name.root()) else {
                     return false;
                 };
-                if hf.data.source.heap_attno() != Some((unsafe { (*var).varattno } - 1) as usize)
-                    || !hf.field.is_raw_sortable()
+                if !hf.field.is_raw_sortable()
                     || !sortable_at_position(&hf.field.field_type(), position)
                 {
                     return false;

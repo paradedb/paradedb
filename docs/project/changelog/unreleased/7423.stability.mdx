@@ -2,4 +2,4 @@
 header: stability
 ---
 
-- Fixed incorrect Top K ordering for indexed `lower(text)` expressions under C collation. Expression values no longer receive implicit Unicode lowercasing, and indexes with incompatible fast-field normalization fall back to PostgreSQL sorting. Rebuild existing affected indexes with `REINDEX` to restore Top K optimization (#7054).
+- Fixed incorrect sorting and grouping of indexed text expressions when their columnar values apply additional normalization. Base, join, and aggregate scans now fall back to PostgreSQL evaluation for these expressions, including indexes created before the upgrade (#7054).

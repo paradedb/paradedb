@@ -425,6 +425,13 @@ struct LazyInfo {
     synonym_rule_field: Rc<RefCell<Option<Option<FieldName>>>>,
 }
 
+/// Identifies a PostgreSQL heap column (`(relid, attnum)`) in `pg_statistic`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HeapStatTarget {
+    pub relid: pg_sys::Oid,
+    pub attnum: pg_sys::AttrNumber,
+}
+
 #[derive(Clone, Debug)]
 pub struct BM25IndexOptions {
     indexrel: pg_sys::Relation,
@@ -554,6 +561,20 @@ impl BM25IndexOptions {
             })
             .map(|(name, _)| name.clone())
             .collect()
+    }
+
+    /// Returns the OID of the heap relation indexed by this BM25 index, when backed by a live
+    /// PostgreSQL index relation.
+    pub(crate) fn heap_relid(&self) -> Option<pg_sys::Oid> {
+        if self.indexrel.is_null() {
+            return None;
+        }
+        let rd_index = unsafe { (*self.indexrel).rd_index };
+        if rd_index.is_null() {
+            return None;
+        }
+        let relid = unsafe { (*rd_index).indrelid };
+        (relid != pg_sys::InvalidOid).then_some(relid)
     }
 
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,

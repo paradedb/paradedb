@@ -342,7 +342,7 @@ WHERE id @@@ paradedb.range(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5}},"estimated_docs":4}},"estimated_docs":4}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5}},"estimated_docs":9}},"estimated_docs":9}
 (8 rows)
 
 -- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
@@ -1229,7 +1229,7 @@ WHERE rating @@@ paradedb.range(
        "Worker Selection": "Cost model",                                                                                                                                                             +
        "Exec Method": "NormalScanExecState",                                                                                                                                                         +
        "Scores": false,                                                                                                                                                                              +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":4}},\"estimated_docs\":4}"+
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":9}},\"estimated_docs\":9}"+
      }                                                                                                                                                                                               +
    }                                                                                                                                                                                                 +
  ]

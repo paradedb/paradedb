@@ -1,9 +1,14 @@
 ---
 title: "0.26.7"
 description: "ParadeDB release notes for 0.26.7"
+noindex: true
 ---
 
 See GitHub release: [v0.26.7](https://github.com/paradedb/paradedb/releases/tag/v0.26.7)
+
+## Breaking Changes 🚨 {#breaking-changes}
+
+- A row-level security policy no longer adds a constant to `pdb.score`. Previously a policy added a constant to the score in base scans and hash joins and `0.0` in the rank join, so the same statement returned different scores depending on the plan. Conditions the statement itself writes are unchanged.
 
 ## Performance Improvements 🚀 {#performance-improvements}
 
@@ -16,7 +21,3 @@ See GitHub release: [v0.26.7](https://github.com/paradedb/paradedb/releases/tag/
 ## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed index builds and merges that produce a fast field column with more than 4 GiB of distinct string values in one segment. They failed with `assertion failed: end <= orig_range.end`.
-
-## Breaking Changes 🚨 {#breaking-changes}
-
-- A row-level security policy no longer adds a constant to `pdb.score`. Previously a policy added a constant to the score in base scans and hash joins and `0.0` in the rank join, so the same statement returned different scores depending on the plan. Conditions the statement itself writes are unchanged.

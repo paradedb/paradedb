@@ -11,11 +11,18 @@ eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. Cohere, MS MARCO, HN, Wikipedia, and Stack Exchange share
 `setup-docker-benchmark-cluster`. Cohere, MS MARCO, and HN start the `paradedb`
 service from pdbench's `datasets/<dataset>/docker-compose.yml`, which is the
-same for every dataset: CPUs 0–63, 32 GiB memory, 16 GiB shared memory, 8 GiB
-shared buffers, 8 GiB maintenance memory, a 24 GiB effective cache, and 16
-parallel workers in a 32-process pool. k6 runs on CPUs 64–67. Wikipedia and
+overridden in CI for these datasets: 8 CPUs on cores 0–7, 32 GiB memory, 16 GiB shared memory, 8 GiB
+shared buffers, 8 GiB maintenance memory, a 24 GiB effective cache, and eight
+parallel workers in a 32-process pool. Index builds can use seven parallel maintenance workers;
+queries can use four. VectorChord retains eight internal build threads. k6 runs on CPUs 64–67. Wikipedia and
 Stack Exchange keep the Compose file on S3. Both tools use the same database
 and index throughout a run.
+
+The RunsOn host remains unchanged; the CPU and memory limits apply to the
+database container. Result dataset and artifact names include `-8cpu-32gb`,
+keeping both recall/router baselines and published metrics separate from the
+previous 64-CPU runs. Run diagnostics include `runtime-compose.yml` with the
+resolved container configuration.
 
 The benchmark index enables `vector_router_quantization = true` in its
 `CREATE INDEX ... WITH (...)` clause. This boolean index option defaults to false
@@ -117,7 +124,7 @@ daily run and `benchmark-cohere-router-quality` add the router-quality section.
 Manual runs can select a size, pg_search commit, and tool refs, and add the
 router-quality section with `router_quality`. Manual runs also accept
 `engine=pg_vectorsearch`, `vectorchord`, or `vectorchord-prefilter` with `size=10m`
-and `router_quality=false`. `spot=false` selects an on-demand runner;
+and `router_quality=false`. `runner_type=on-demand` selects an on-demand runner;
 `benchmark-nonspot` controls PR-triggered pg_search runs.
 The pdbench checkout uses the ParadeDB GitHub App's read access to the private
 repository. Both tool revisions are pinned and recorded in diagnostics. The
@@ -130,8 +137,11 @@ and throughput. Index build time (minutes) and size (MiB) have a separate
 `benchmarker cohere-<size> (index build)` history. Its first run has no previous
 baseline; subsequent PR runs compare with main and do not update its baseline.
 
-Diagnostics upload after plan verification, before the longer k6 pass, so recall
-sweeps can be reviewed while latency measurements continue.
+The `cohere-<size>-load-report` artifact uploads immediately after the index build,
+before recall sweeps and k6. Download it from the running workflow's Artifacts
+section (or the Upload Load Report step's artifact URL) and open `report.html`.
+The remaining diagnostics upload after plan verification, before the longer k6
+pass, so recall sweeps can be reviewed while latency measurements continue.
 Artifacts retain index-build logs, the pdbench-load run and its `report.html`, pdbench search reports (including
 all sweep points, recall and buffer diagnostics), selected operating points,
 query vectors, checked plans, and k6 JSON/HTML dashboards. The full workload is opt-in

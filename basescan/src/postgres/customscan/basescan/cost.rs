@@ -45,9 +45,11 @@
 //! Blind spots: `fraction` is exact for sorted scans, approximate for unsorted; a write-heavy
 //! index's mutable-segment open cost and phrase `size_hint` under-counts are not modeled.
 
+use super::vector_cost::VectorWork;
 use super::*;
 use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
 pub(super) use crate::postgres::customscan::parallel::{WorkerDecisionReason, parallel_divisor};
+use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
 
 fn cpu_index_tuple_cost() -> f64 {
     unsafe { pg_sys::cpu_index_tuple_cost }
@@ -81,6 +83,41 @@ pub(super) enum WorkerPathPolicy {
 }
 
 impl WorkerPathPolicy {
+    pub(super) fn for_vector_topk(
+        strategy: VectorFilterStrategy,
+        workers: usize,
+        work: Option<VectorWork>,
+        leader_participates: bool,
+    ) -> Self {
+        let reason = WorkerDecisionReason::VectorWork;
+        let Some(nworkers) = NonZeroUsize::new(workers) else {
+            return Self::SerialOnly { reason };
+        };
+        let parallel = match strategy {
+            VectorFilterStrategy::Post {
+                stage: PostFilterStage::AfterQuantizedScoring,
+                ..
+            } => false,
+            VectorFilterStrategy::Pre {
+                uses_fast_fields: true,
+            } => true,
+            VectorFilterStrategy::Pre {
+                uses_fast_fields: false,
+            }
+            | VectorFilterStrategy::Post {
+                stage: PostFilterStage::BeforeQuantizedScoring,
+                ..
+            } => work.is_some_and(|work| {
+                work.parallel_wins(parallel_divisor(nworkers, leader_participates))
+            }),
+        };
+        if parallel {
+            Self::ParallelOnly { nworkers, reason }
+        } else {
+            Self::SerialOnly { reason }
+        }
+    }
+
     pub(super) fn reason(self) -> WorkerDecisionReason {
         match self {
             Self::SerialOnly { reason }
@@ -510,5 +547,55 @@ pub(super) fn estimate_path_cost(
 
     PathCostBasis {
         parallelizable_cost: scan_work + output_cost,
+    }
+}
+
+#[cfg(test)]
+mod vector_filter_tests {
+    use super::WorkerPathPolicy;
+    use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
+
+    #[test]
+    fn filtering_strategy_selects_vector_workers() {
+        for workers in [0, 1, 7] {
+            for (strategy, parallel) in [
+                (
+                    VectorFilterStrategy::Pre {
+                        uses_fast_fields: false,
+                    },
+                    false,
+                ),
+                (
+                    VectorFilterStrategy::Pre {
+                        uses_fast_fields: true,
+                    },
+                    workers > 0,
+                ),
+                (
+                    VectorFilterStrategy::Post {
+                        stage: PostFilterStage::BeforeQuantizedScoring,
+                        estimated_selectivity: 0.1,
+                    },
+                    false,
+                ),
+                (
+                    VectorFilterStrategy::Post {
+                        stage: PostFilterStage::AfterQuantizedScoring,
+                        estimated_selectivity: 0.1,
+                    },
+                    false,
+                ),
+            ] {
+                let serialized = serde_json::to_string(&strategy).unwrap();
+                let restored = serde_json::from_str(&serialized).unwrap();
+                assert_eq!(
+                    matches!(
+                        WorkerPathPolicy::for_vector_topk(restored, workers, None, true),
+                        WorkerPathPolicy::ParallelOnly { .. }
+                    ),
+                    parallel
+                );
+            }
+        }
     }
 }

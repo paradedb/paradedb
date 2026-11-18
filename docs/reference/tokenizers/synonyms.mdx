@@ -56,10 +56,10 @@ CREATE INDEX shop_synonyms_en_idx ON shop_synonyms
 USING paradedb ((rule::pdb.simple('stemmer=english')));
 ```
 
-A query uses a synonym index only when it has the tokenizer of the field you search. The tokenizer has to be written the
-same way on both, options included, so `pdb.simple` and `pdb.simple('lowercase=true')` count as two tokenizers. If you
-search fields with different tokenizers, create one synonym index per tokenizer on the same table, and each query uses the
-one that fits its field.
+A query uses a synonym index only when it has the tokenizer of the field you search. An option at its default value is the
+same as no option, so `pdb.simple` and `pdb.simple('lowercase=true')` are one tokenizer. If you search fields with
+different tokenizers, create one synonym index per tokenizer on the same table, and each query uses the one that fits its
+field.
 
 ### Several Sets in One Table
 
@@ -183,7 +183,7 @@ A few things stay exact:
   both match the alternatives exactly. A directed rule drops the words you typed, with or without fuzzy, and a group with
   a fuzzy word scores with the best of its alternatives.
 - `pdb.expand` takes text. A text array, such as `ARRAY['sofa']`, has no tokenizer to match the rules with.
-- Only the match operators, `|||` and `&&&`, expand. With [phrase](/reference/full-text/phrase),
+- The match operators, `|||` and `&&&`, and the [phrase](#phrases) operator, `###`, expand. With
   [term](/reference/full-text/term) or the [query parser](/reference/full-text/query-parser), `pdb.expand` is an error.
 
 The fuzzy and boost casts go on the subquery:
@@ -368,6 +368,101 @@ await dbContext
 
 </CodeGroup>
 
+### Phrases
+
+A [phrase](/reference/full-text/phrase) query takes the same subquery. The words of a phrase have to be next to each other,
+so the query searches one phrase for each combination of alternatives. With the rule `sneakers => running shoes`, a search
+for `sleek sneakers` looks for the phrase `sleek running shoes`:
+
+<CodeGroup>
+```sql SQL
+SELECT description FROM mock_items
+WHERE description ### (SELECT pdb.expand('sleek sneakers', rule) FROM shop_synonyms);
+```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({ description: mockItems.description })
+  .from(mockItems)
+  .where(
+    search.phrase(
+      mockItems.description,
+      db
+        .select({
+          query: sql`pdb.expand(${"sleek sneakers"}, ${shopSynonyms.rule})`,
+        })
+        .from(shopSynonyms),
+    ),
+  );
+```
+
+```python Django
+from django.db.models import F, Func, Subquery, TextField, Value
+from paradedb import ParadeDB, Phrase
+
+rules = Subquery(
+    ShopSynonym.objects.values(
+        query=Func(
+            Value('sleek sneakers'),
+            F('rule'),
+            function='pdb.expand',
+            output_field=TextField(),
+        )
+    )
+)
+
+MockItem.objects.filter(
+    description=ParadeDB(Phrase(rules))
+).values('description')
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+rules = select(func.pdb.expand("sleek sneakers", ShopSynonym.rule)).scalar_subquery()
+
+stmt = (
+    select(MockItem.description)
+    .where(search.phrase(MockItem.description, rules))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+rules = ShopSynonym.select(
+  Arel::Nodes::NamedFunction.new(
+    "pdb.expand",
+    [Arel::Nodes.build_quoted("sleek sneakers"), ShopSynonym.arel_table[:rule]]
+  )
+)
+
+MockItem.search(:description)
+        .phrase(Arel::Nodes::Grouping.new(rules.arel.ast))
+        .select(:description)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.FromSql(
+        $"SELECT * FROM mock_items WHERE description ### (SELECT pdb.expand('sleek sneakers', rule) FROM shop_synonyms)"
+    )
+    .Select(item => new { item.Description })
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+The [slop](/reference/full-text/phrase#adding-slop) cast goes on the subquery, and it applies to every phrase. Each word
+with a rule multiplies the phrases. The query searches at most `paradedb.synonyms_max_alternatives` of them. The phrase
+you typed stays when the rules list its words.
+
 ### Which Index a Query Uses
 
 The subquery names the table and not an index. The query uses the synonym index on the rule column that holds the rows
@@ -393,19 +488,25 @@ A group of single words scores as one term. A row that has both `sofa` and `couc
 them, and a rare synonym doesn't score above a common one. A group with a multi-word alternative scores with the best of
 its alternatives. A directed rule replaces the words you typed, so `sneakers` scores as the phrase `running shoes`.
 
+A phrase query scores a row with the best of the phrases that it finds there. A phrase of one word scores as a match on
+that word.
+
+To see which words of a group a row holds, [explain its score](/reference/full-text/score#score-explanation).
+
 ## Limits
 
 Each alternative is one more term the query has to look up, so a long rule costs more.
 
 - `paradedb.synonyms_max_alternatives` (default `32`) caps how many alternatives one run of words expands to, in sorted
-  order. The words you typed stay when a rule lists them.
+  order. For a [phrase](#phrases) query, it also caps how many phrases the query searches. The words you typed stay in
+  both cases when a rule lists them.
 - `paradedb.synonyms_max_rules_per_key` (default `1024`) caps how many rules one word reads in each segment of the synonym
   index. A word in more rules reads only the first ones. Without a synonym index, the cap counts the rules that the
   subquery returns.
 
 ## Checking an Expansion
 
-`EXPLAIN` shows the match as you wrote it, and a `Synonyms` line names the synonym index. `pdb.synonym_expansion` shows
+`EXPLAIN` shows the query as you wrote it, and a `Synonyms` line names the synonym index. `pdb.synonym_expansion` shows
 what the synonym index turns the text into, with the synonym index's own tokenizer:
 
 ```sql

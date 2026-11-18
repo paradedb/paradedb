@@ -59,6 +59,7 @@ CODEGROUP_SETUP = {
     "reference__tokenizers__synonyms__group-001": [SYNONYMS + "001", SYNONYMS + "005"],
     "reference__tokenizers__synonyms__group-002": [SYNONYMS + "001", SYNONYMS + "005"],
     "reference__tokenizers__synonyms__group-003": [SYNONYMS + "004", SYNONYMS + "005"],
+    "reference__tokenizers__synonyms__group-004": [SYNONYMS + "001", SYNONYMS + "005"],
 }
 # The rules tables that the ORM fences of the synonyms page read.
 SYNONYM_TABLES = [SYNONYMS + "001", SYNONYMS + "004"]

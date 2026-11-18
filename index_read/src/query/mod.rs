@@ -648,50 +648,6 @@ impl SearchQueryInput {
         }
     }
 
-    pub fn is_text_only(&self) -> bool {
-        let mut supported = true;
-        self.visit_ref(&mut |query| {
-            supported &= match query {
-                Self::All
-                | Self::Empty
-                | Self::Null
-                | Self::Boolean { .. }
-                | Self::WithIndex { .. }
-                | Self::Boost { .. }
-                | Self::ConstScore { .. }
-                | Self::TermSet { .. } => true,
-                Self::Parse { query_string, .. }
-                | Self::FieldedQuery {
-                    query:
-                        pdb::Query::Parse { query_string, .. }
-                        | pdb::Query::ParseWithField { query_string, .. },
-                    ..
-                } => parsed_query_is_text_only(query_string),
-                Self::FieldedQuery {
-                    query:
-                        pdb::Query::All
-                        | pdb::Query::Empty
-                        | pdb::Query::Term { .. }
-                        | pdb::Query::TermSet { .. }
-                        | pdb::Query::Match {
-                            distance: None | Some(0),
-                            ..
-                        }
-                        | pdb::Query::MatchArray {
-                            distance: None | Some(0),
-                            ..
-                        }
-                        | pdb::Query::Phrase { .. }
-                        | pdb::Query::PhraseArray { .. }
-                        | pdb::Query::TokenizedPhrase { .. },
-                    ..
-                } => true,
-                _ => false,
-            };
-        });
-        supported
-    }
-
     pub fn is_exists(&self) -> bool {
         match self {
             SearchQueryInput::WithIndex { query, .. }
@@ -1168,7 +1124,7 @@ impl SearchQueryInput {
         visit_search_query_input!(self, visitor, visit_ref, as_ref);
     }
 
-    /// The synonym indexes that the match queries of this tree name.
+    /// The synonym indexes that the match and phrase queries of this tree name.
     pub fn synonym_indexes(&self) -> Vec<pg_sys::Oid> {
         let mut indexes = Vec::new();
         self.visit_ref(&mut |input| {
@@ -1180,6 +1136,10 @@ impl SearchQueryInput {
                 query = inner;
             }
             if let pdb::Query::Match {
+                synonyms: Some(pdb::SynonymRules::Index(index)),
+                ..
+            }
+            | pdb::Query::TokenizedPhrase {
                 synonyms: Some(pdb::SynonymRules::Index(index)),
                 ..
             } = query
@@ -1197,32 +1157,6 @@ impl SearchQueryInput {
         cleanup_variabilities_from_tantivy_query(&mut cleaned_query);
         serde_json::to_string(&cleaned_query).unwrap_or_else(|_| "Error".to_string())
     }
-}
-
-fn parsed_query_is_text_only(query: &str) -> bool {
-    use tantivy::query_grammar::{UserInputAst, UserInputLeaf, parse_query};
-
-    let Ok(ast) = parse_query(query) else {
-        return false;
-    };
-    let mut nodes = vec![ast];
-    while let Some(node) = nodes.pop() {
-        match node {
-            UserInputAst::Clause(children) => {
-                nodes.extend(children.into_iter().map(|(_, child)| child));
-            }
-            UserInputAst::Boost(inner, _) => nodes.push(*inner),
-            UserInputAst::Leaf(leaf) => {
-                if !matches!(
-                    *leaf,
-                    UserInputLeaf::Literal(_) | UserInputLeaf::Set { .. } | UserInputLeaf::All
-                ) {
-                    return false;
-                }
-            }
-        }
-    }
-    true
 }
 
 /// Remove the oid from the with_index object

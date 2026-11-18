@@ -44,7 +44,7 @@ use crate::api::operator::{
     estimate_query_cost, estimate_selectivity_and_cost, expr_contains_search_predicate,
 };
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{HashMap, HashSet, Varno};
+use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
@@ -52,7 +52,7 @@ use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::{
     ExecState, fast_fields, normal::NormalScanExecState,
 };
-use crate::postgres::customscan::basescan::privdat::PrivateData;
+use crate::postgres::customscan::basescan::privdat::{PrivateData, VectorFilterPlan};
 
 use crate::postgres::customscan::basescan::projections::snippet::{
     SnippetType, snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets,
@@ -85,11 +85,11 @@ use crate::postgres::customscan::qual_inspect::{
     PlannerContext, Qual, QualExtractState, SecurityPushdown, classify_security_pushdown,
     extract_join_predicates, extract_quals, is_subplan, optimize_quals_with_heap_expr,
 };
-use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
     self, CustomScan, CustomScanState, RelPathlistHookArgs, range_table,
 };
+use crate::postgres::customscan::{explain_score_funcoid, score_funcoids};
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::pgstat::{count_heap_fetch, count_index_scan, count_index_tuples};
 use crate::postgres::rel::PgSearchRelation;
@@ -110,6 +110,7 @@ use crate::index::reader::vector::SharedVectorRouting;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
 
 use super::pullup::SourceContext;
 
@@ -202,6 +203,28 @@ impl BaseScan {
         )
         .expect("should be able to open the search index reader");
         search_reader.vector_routing_plan = state.custom_state().vector_routing_plan.clone();
+        if let Some(OrderByInfo {
+            feature: OrderByFeature::VectorDistance { name, .. },
+            ..
+        }) = state
+            .custom_state()
+            .orderby_info()
+            .as_ref()
+            .and_then(|orders| orders.first())
+        {
+            search_reader.vector_filter_strategy = Some(
+                match state
+                    .custom_state()
+                    .vector_filter_plan
+                    .expect("vector scan requires a filter plan")
+                {
+                    VectorFilterPlan::Planned(strategy) => strategy,
+                    VectorFilterPlan::Deferred => search_reader
+                        .plan_vector_filter(name)
+                        .expect("runtime vector filter planning should succeed"),
+                },
+            );
+        }
         // Per-segment vector statistics are read by EXPLAIN ANALYZE's stage accounting, its I/O
         // trace and the `paradedb.vector_stats` display; otherwise nothing reads them.
         search_reader.vector_segment_info = gucs::vector_stats()
@@ -212,6 +235,7 @@ impl BaseScan {
             checker.set_ffhelper(Arc::clone(&ffhelper));
         }
         state.custom_state_mut().search_reader = Some(search_reader);
+        state.custom_state_mut().score_explanation_weight.take();
 
         let parallel_aware = unsafe { (*(*state.planstate()).plan).parallel_aware };
         if !parallel_aware
@@ -1140,10 +1164,11 @@ impl CustomScan for BaseScan {
             // reuses that open instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
             let mut precomputed_segment_count: Option<usize> = None;
+            let mut vector_filter_plan = None;
 
             let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
 
-            let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
+            let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY && !is_vector_topk {
                 // we can use the norm_selec that already happened
                 norm_selec
             } else {
@@ -1156,12 +1181,27 @@ impl CustomScan for BaseScan {
                             source_context.indexrel().unwrap(),
                             indexable.clone(),
                             None,
+                            vector_field.as_ref(),
                         );
                         precomputed_query_cost = estimated.query_cost;
                         precomputed_segment_count = estimated.segment_count;
-                        estimated.selectivity.unwrap_or(UNKNOWN_SELECTIVITY)
+                        vector_filter_plan =
+                            vector_field.as_ref().map(|_| {
+                                VectorFilterPlan::Planned(estimated.vector_filter_strategy.expect(
+                                    "vector filter strategy must be selected during planning",
+                                ))
+                            });
+                        if norm_selec != UNASSIGNED_SELECTIVITY {
+                            norm_selec
+                        } else {
+                            estimated.selectivity.unwrap_or(UNKNOWN_SELECTIVITY)
+                        }
                     }
-                    Err(guess) => guess,
+                    Err(guess) => {
+                        vector_filter_plan =
+                            vector_field.as_ref().map(|_| VectorFilterPlan::Deferred);
+                        guess
+                    }
                 }
             };
 
@@ -1177,6 +1217,8 @@ impl CustomScan for BaseScan {
             // contribute a non-zero row estimate (otherwise the parallel-worker
             // estimator collapses).
             let float_limit = limit_offset.as_ref().map(|lo| lo.planning_estimate());
+
+            custom_private.set_vector_filter_plan(vector_filter_plan);
 
             custom_private.set_heaprelid(source_context.heaprel.oid());
             custom_private.set_indexrelid(source_context.indexrel().unwrap().oid());
@@ -1275,16 +1317,27 @@ impl CustomScan for BaseScan {
                 };
 
                 // Decide the policy first: its reason gates the path cost below.
-                let policy = if let Some(field) = vector_field.as_ref() {
+                let policy = if let Some(VectorFilterPlan::Planned(strategy)) = vector_filter_plan {
+                    let work = vector_field.as_ref().and_then(|field| {
+                        vector_cost::VectorWork::for_query(
+                            strategy,
+                            estimation_query.resolve(&query).unwrap_or(&query),
+                            (*rel).tuples.max(1.0),
+                            selectivity,
+                            field,
+                            source_context.indexrel().unwrap().options(),
+                        )
+                    });
                     WorkerPathPolicy::for_vector_topk(
-                        estimation_query.resolve(&query).unwrap_or(&query),
-                        (*rel).tuples.max(1.0),
-                        selectivity,
-                        field,
-                        source_context.indexrel().unwrap().options(),
+                        strategy,
                         available_workers(segment_count),
+                        work,
                         parallel_leader_participates,
                     )
+                } else if matches!(vector_filter_plan, Some(VectorFilterPlan::Deferred)) {
+                    WorkerPathPolicy::SerialOnly {
+                        reason: WorkerDecisionReason::VectorWork,
+                    }
                 } else {
                     decide_scan_parallelism(ScanParallelismInputs {
                         prunability: topk_can_prune_for_method(&method, root, &quals),
@@ -1503,6 +1556,7 @@ impl CustomScan for BaseScan {
             let funcoids: Vec<pg_sys::Oid> = score_funcoids()
                 .iter()
                 .copied()
+                .chain([explain_score_funcoid()])
                 .chain(snippet_funcoids().iter().copied())
                 .chain(snippets_funcoids().iter().copied())
                 .chain(snippet_positions_funcoids().iter().copied())
@@ -1674,6 +1728,7 @@ impl CustomScan for BaseScan {
         builder.custom_state().segment_count = builder.custom_private().segment_count();
         builder.custom_state().worker_selection_reason =
             builder.custom_private().worker_selection_reason();
+        builder.custom_state().vector_filter_plan = builder.custom_private().vector_filter_plan();
         builder.custom_state().var_attname_lookup = builder
             .custom_private()
             .var_attname_lookup()
@@ -1690,10 +1745,17 @@ impl CustomScan for BaseScan {
         builder.custom_state().snippet_funcoids = snippet_funcoids;
         builder.custom_state().snippets_funcoids = snippets_funcoids;
         builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
-        builder.custom_state().need_scores = builder
+        builder.custom_state().need_score_explanation = builder
             .target_list()
             .as_ptr()
-            .contains_score_for_relation(score_funcoids, builder.custom_state().execution_rti);
+            .contains_explain_score_for_relation(builder.custom_state().execution_rti);
+        // A query can call `pdb.explain_score` and not `pdb.score`. The scan must still score the
+        // rows, because the explanation is of that score.
+        builder.custom_state().need_scores = builder.custom_state().need_score_explanation
+            || builder
+                .target_list()
+                .as_ptr()
+                .contains_score_for_relation(score_funcoids, builder.custom_state().execution_rti);
 
         // Store join snippet predicates in the scan state
         builder.custom_state().join_predicates = builder.custom_private().join_predicates().clone();
@@ -1811,6 +1873,38 @@ impl CustomScan for BaseScan {
             && let Some(reason) = state.custom_state().worker_selection_reason
         {
             explainer.add_text("Worker Selection", reason.to_string());
+        }
+
+        if explainer.is_verbose()
+            && let Some(plan) = state.custom_state().vector_filter_plan
+        {
+            explainer.add_text(
+                "Vector Filtering",
+                match state
+                    .custom_state()
+                    .search_reader
+                    .as_ref()
+                    .and_then(|reader| reader.vector_filter_strategy)
+                    .map(VectorFilterPlan::Planned)
+                    .unwrap_or(plan)
+                {
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Pre {
+                        uses_fast_fields: false,
+                    }) => "Pre (postings)",
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Pre {
+                        uses_fast_fields: true,
+                    }) => "Pre (fast fields)",
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Post {
+                        stage: PostFilterStage::BeforeQuantizedScoring,
+                        ..
+                    }) => "Post (before quantized scoring)",
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Post {
+                        stage: PostFilterStage::AfterQuantizedScoring,
+                        ..
+                    }) => "Post (after quantized scoring)",
+                    VectorFilterPlan::Deferred => "Deferred until execution",
+                },
+            );
         }
 
         if explainer.is_analyze() {
@@ -2164,7 +2258,11 @@ impl CustomScan for BaseScan {
                 }
 
                 // SearchResults found a match
-                ExecState::FromHeap { ctid, score } => {
+                ExecState::FromHeap {
+                    ctid,
+                    score,
+                    doc_address,
+                } => {
                     unsafe {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
@@ -2251,6 +2349,15 @@ impl CustomScan for BaseScan {
                                     estate,
                                 );
 
+                                if state.custom_state().need_score_explanation {
+                                    let explanation =
+                                        state.custom_state().explain_score(doc_address);
+                                    projection.set(
+                                        placeholders.score_explanation,
+                                        explanation.into_datum(),
+                                    );
+                                }
+
                                 projection.project(slot)
                             });
                             finish_result_assembly_accounting(state, result_assembly_accounting);
@@ -2291,6 +2398,7 @@ impl CustomScan for BaseScan {
         state.custom_state_mut().drop_exec_method();
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().doc_from_heap_state.take());
+        drop(state.custom_state_mut().score_explanation_weight.take());
         drop(state.custom_state_mut().search_reader.take());
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
@@ -2839,10 +2947,11 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     // the forced projection we must do later.
     let mut columns = PlaceholderColumns::default();
 
-    let (targetlist, score, snippets) = inject_placeholders(
+    let (targetlist, score, score_explanation, snippets) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
         state.custom_state().score_funcoids,
+        explain_score_funcoid(),
         state.custom_state().snippet_funcoids,
         state.custom_state().snippets_funcoids,
         state.custom_state().snippet_positions_funcoids,
@@ -2881,6 +2990,7 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     state.custom_state_mut().placeholders = Some(BasePlaceholders {
         projection,
         score,
+        score_explanation,
         snippets,
         window_aggs,
     });

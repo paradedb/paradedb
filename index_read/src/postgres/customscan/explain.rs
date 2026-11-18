@@ -53,8 +53,13 @@ pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
 
             // The oid of a synonym index differs between databases. EXPLAIN names the index on
             // its own line.
-            if let Some(query) = obj.get_mut("match").and_then(|query| query.as_object_mut()) {
-                query.remove("synonyms");
+            for expanded in ["match", "tokenized_phrase"] {
+                if let Some(query) = obj
+                    .get_mut(expanded)
+                    .and_then(|query| query.as_object_mut())
+                {
+                    query.remove("synonyms");
+                }
             }
 
             // Clean up HeapFieldFilter objects: remove raw expr_node (internal node representation)

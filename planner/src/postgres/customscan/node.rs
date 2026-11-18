@@ -20,7 +20,7 @@ use crate::postgres::customscan::basescan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids,
 };
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
-use crate::postgres::customscan::score_funcoids;
+use crate::postgres::customscan::{explain_score_funcoid, score_funcoids};
 use crate::postgres::node::NodeExt;
 use pgrx::{PgList, pg_sys};
 
@@ -50,14 +50,20 @@ pub trait CustomScanNodeExt: NodeExt {
         })
     }
 
+    fn contains_explain_score_for_relation(self, rti: pg_sys::Index) -> bool {
+        self.contains_score_for_relation([explain_score_funcoid(); 2], rti)
+    }
+
     fn maybe_needs_const_projections(self) -> bool {
         let score_funcoids = score_funcoids();
+        let explain_score_funcoid = explain_score_funcoid();
         let snippet_funcoids = snippet_funcoids();
         let snippet_positions_funcoids = snippet_positions_funcoids();
         self.any(|node| {
             unsafe { nodecast!(FuncExpr, node) }.is_some_and(|expr| {
                 let funcid = unsafe { (*expr).funcid };
                 score_funcoids.contains(&funcid)
+                    || funcid == explain_score_funcoid
                     || snippet_funcoids.contains(&funcid)
                     || snippet_positions_funcoids.contains(&funcid)
             })

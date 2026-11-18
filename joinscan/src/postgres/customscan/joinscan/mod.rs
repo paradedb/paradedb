@@ -182,6 +182,7 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::explain_score_funcoid;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::{
     distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
@@ -640,6 +641,16 @@ impl JoinScan {
 
         if (*(*root).parse).hasAggs {
             return Err(JoinDeclineReason::ContainsAggregate);
+        }
+
+        // Only the Base Scan has the document and the query that an explanation needs.
+        if (*(*root).parse)
+            .targetList
+            .contains_functions(&[explain_score_funcoid()])
+        {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: pdb.explain_score is not supported",
+            ));
         }
 
         if (*(*root).parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES {

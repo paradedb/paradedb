@@ -78,7 +78,7 @@ jobs:
     env:
       COHERE_SIZE: ${{ matrix.size }}
       RESULTS_DATASET: cohere-${{ matrix.size }}-8cpu-32gb
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'fb13b9ad8a98f0f21efaf277e6c7e05edca4cec3' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '376d023d1f42d31f7f54ef98ea023c5a8d21771f' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
       # The router-quality section runs on the daily main run, with the
@@ -481,7 +481,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       COHERE_SIZE: 10m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'fb13b9ad8a98f0f21efaf277e6c7e05edca4cec3' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '376d023d1f42d31f7f54ef98ea023c5a8d21771f' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
       BENCHMARK_ENGINE: ${{ matrix.engine }}

@@ -68,7 +68,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       HN_SIZE: 28m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'fb13b9ad8a98f0f21efaf277e6c7e05edca4cec3' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '376d023d1f42d31f7f54ef98ea023c5a8d21771f' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       BENCHMARK_ENGINE: ${{ matrix.engine }}
@@ -354,7 +354,7 @@ jobs:
               printf 'VectorChord revision: %s. One global cosine vchordrq index, 30,000 lists, residual quantization, spherical centroids, and integer probes 1..30000.\n\n' "$VECTORCHORD_REF"
               printf 'Partitioning uses eight threads, hierarchical k-means in 100 dimensions, and sampling_factor=64. epsilon=1.9; max_scan_tuples=-1. vchordrq.prefilter=%s throughout the sweep and k6 for all six predicates. Executed plans must use vchordrq; result names identify prefilter or postfilter mode.\n\n' "$VECTORCHORD_PREFILTER"
             else
-              printf "Eight index segments, training_sample_ratio=0.32, and quantized routing. Tantivy: \`%s\`.\n\n" "$TANTIVY_SHA"
+              printf "Eight index segments, automatic training sampling, and quantized routing. Tantivy: \`%s\`.\n\n" "$TANTIVY_SHA"
             fi
             printf 'Uses the existing heap snapshot and 100 held-out vectors. All engines use the shared pg_search Docker service: 8 CPUs on cores 0-7, 32 GiB RAM, 16 GiB shared memory, 8 GiB shared buffers, 8 GiB maintenance_work_mem, 24 GiB effective_cache_size, 256 MiB work_mem, seven parallel maintenance workers, four query workers, eight parallel workers and a 32-process pool. k6 runs on cores 64-67. Scheduled/manual main runs without a commit override update a separate baseline per engine.\n\n'
             cat benchmark-artifacts/operating_points.md

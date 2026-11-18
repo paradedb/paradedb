@@ -616,8 +616,11 @@ impl PgSearchRelation {
 
     /// The cost of a scan of an index that no scan can read, or `None` for any other index. The
     /// rule field of a synonym index holds the keys of rules, so it can't answer a query on its
-    /// own table.
+    /// own table, and hot-standby or post-promotion blocked indexes cannot serve queries either.
     pub fn unusable_scan_cost(&self) -> Option<f64> {
+        if crate::postgres::utils::in_hot_standby() || self.blocked_after_promotion() {
+            return Some(SYNONYM_INDEX_SCAN_COST);
+        }
         match self.index_type() {
             IndexType::Search => None,
             IndexType::Synonym => Some(SYNONYM_INDEX_SCAN_COST),

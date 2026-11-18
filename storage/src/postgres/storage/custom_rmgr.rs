@@ -17,6 +17,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::block::block_number_is_valid;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::{pg_guard, pg_sys};
 use std::ffi::CStr;
@@ -50,6 +51,9 @@ unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
         return;
     }
     let payload = std::ptr::read_unaligned((*decoded).main_data.cast::<InitIndexPayload>());
+    if !block_number_is_valid(payload.taint_block) {
+        return;
+    }
     let locator = payload.locator;
     let buffer = pg_sys::XLogReadBufferExtended(
         locator,
@@ -67,7 +71,7 @@ unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
     #[cfg(not(feature = "pg15"))]
     let page = pg_sys::BufferGetPage(buffer);
     let lsn = (*record).EndRecPtr;
-    if lsn <= page_lsn(page) {
+    if lsn <= page_lsn(page) || MetaPage::is_page_tainted(page) {
         pg_sys::UnlockReleaseBuffer(buffer);
         return;
     }

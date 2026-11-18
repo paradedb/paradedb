@@ -195,10 +195,6 @@ impl MetaPage {
     }
 
     pub fn open(indexrel: &PgSearchRelation) -> Self {
-        if crate::postgres::utils::in_hot_standby() {
-            crate::postgres::utils::report_hot_standby();
-        }
-
         let mut bman = BufferManager::new(indexrel);
         let buffer = bman.get_buffer(METAPAGE);
         let page = buffer.page();
@@ -554,6 +550,14 @@ impl MetaPage {
     pub fn standby_taint_block(&self) -> pg_sys::BlockNumber {
         assert!(block_number_is_valid(self.data.standby_taint));
         self.data.standby_taint
+    }
+
+    /// True when a raw taint page already carries the taint flag.
+    pub unsafe fn is_page_tainted(page: pg_sys::Page) -> bool {
+        let contents = pgrx::PageGetContents!(pgrx::cmacros::c::Pointer::from(page))
+            .get()
+            .cast::<StandbyTaintData>();
+        (*contents).tainted == STANDBY_TAINTED
     }
 
     /// Sets the taint on a raw taint page during WAL replay, where no relation can be opened.

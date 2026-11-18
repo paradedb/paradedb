@@ -40,7 +40,8 @@ pub(crate) fn register_hook() {
             if let Some(previous_hook) = PREV_HOOK {
                 previous_hook(root, rel, rti, rte);
             }
-            if !pg_sys::enable_indexonlyscan || !pg_search_extension_installed() {
+            if !pg_sys::enable_indexonlyscan || in_hot_standby() || !pg_search_extension_installed()
+            {
                 return;
             }
 
@@ -56,7 +57,10 @@ pub(crate) fn register_hook() {
                 }
                 let path = &*path.cast::<pg_sys::IndexPath>();
                 let index = &*path.indexinfo;
-                if index.hypothetical || !index.relam.is_paradedb_am() {
+                if index.hypothetical
+                    || !index.relam.is_paradedb_am()
+                    || PgSearchRelation::open(index.indexoid).blocked_after_promotion()
+                {
                     continue;
                 }
                 let Some(target) = index_only_target(root, path) else {
@@ -280,8 +284,9 @@ pub(super) extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i
         }
 
         // Planning any query on the table asks every index this question; on a standby the
-        // schema read would refuse and fail the whole statement.
-        if in_hot_standby() {
+        // schema read would refuse and fail the whole statement, and a promoted server must not
+        // offer index-only scans on a tainted index.
+        if in_hot_standby() || indexrel.blocked_after_promotion() {
             return false;
         }
 

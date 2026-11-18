@@ -1036,11 +1036,11 @@ pub fn pg_search_extension_installed() -> bool {
 
 /// True in a backend of a hot standby that is still replaying WAL. ParadeDB Community does not
 /// serve its indexes there: `rel_get_bm25_index` and `amcanreturn` answer "no index" so the
-/// planner never opens one for a query that does not need it, and `MetaPage::open` refuses for
-/// the statements that do.
+/// planner never opens one for a query that does not need it, and `RelationBufferAccess::open`
+/// refuses for the statements that do.
 pub fn in_hot_standby() -> bool {
-    // `XLogInsertAllowed` is a backend-local flag; `HotStandbyActive` takes a spinlock on a primary.
-    unsafe { !pg_sys::XLogInsertAllowed() && pg_sys::HotStandbyActive() }
+    // `RecoveryInProgress` latches `LocalRecoveryInProgress` false on a primary without a lock.
+    unsafe { pg_sys::RecoveryInProgress() }
 }
 
 /// The error a statement that needs a ParadeDB index gets on a hot standby.

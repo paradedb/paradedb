@@ -7,9 +7,7 @@ canonical: https://www.paradedb.com/docs/reference/aggregates/metrics/count
 ## Count Rows
 
 Use `{"filter": "*"}` to count all matching rows, including rows with missing or null field values.
-This is the recommended `pdb.agg` form for row counts: it counts documents without opening or reading a field's columnar data, so it is faster than `value_count`.
-The `"*"` matches every document passed to the aggregation; the query's `WHERE` clause and transaction visibility rules still apply.
-The result is returned in `doc_count`, rather than the `value` property used by `value_count`.
+This is the recommended `pdb.agg` form for row counts.
 
 <CodeGroup>
 ```sql SQL
@@ -76,13 +74,7 @@ await dbContext
 ## Count Non-Null Field Values
 
 Use `value_count` when you need to count field values and ignore documents where a particular field is missing or null.
-For a scalar field, this is equivalent to `COUNT(field)`. For an array field, it counts the field's values, so a single row can contribute more than one value.
-
-<Warning>
-  `value_count` opens and reads the field's columnar data to determine which values are present.
-  This adds a performance cost compared to `{"filter": "*"}`, even when the field is non-null in every row.
-  Use it when you need field-value semantics; use `{"filter": "*"}` for row counts.
-</Warning>
+This adds a performance cost compared to `{"filter": "*"}` because it needs to check for null values.
 
 <CodeGroup>
 ```sql SQL

@@ -468,14 +468,11 @@ impl PgSearchRelation {
             .into_iter()
     }
 
-    /// True when this index must not serve queries: its metapage carries the standby taint
-    /// that a standby's WAL replay set when the primary named the index in its rmgr record, at
-    /// build and at every VACUUM that removes rows. That VACUUM is the only routine writer of
-    /// the page and its record follows the write, so the taint outlives the full-page images
-    /// replication delivers; the one-time metapage upgrade of an index built by an old release
-    /// clears it until then, and `REINDEX` starts from a fresh metapage. Always false while the
-    /// server is in recovery, where the standby read gate applies instead, and for a partitioned
-    /// index, which has no metapage; each leaf answers for itself when it is scanned.
+    /// True when this index must not serve queries: its taint page carries the flag that a
+    /// standby's WAL replay set when the primary named the index in its rmgr record. Only
+    /// `REINDEX` clears it, by starting a fresh file. Always false while the server is in
+    /// recovery, where the standby read gate applies instead, and for a partitioned index, which
+    /// has no pages; each leaf answers for itself when it is scanned.
     pub fn blocked_after_promotion(&self) -> bool {
         if unsafe { pg_sys::RecoveryInProgress() } || is_partitioned_index(self.oid()) {
             return false;

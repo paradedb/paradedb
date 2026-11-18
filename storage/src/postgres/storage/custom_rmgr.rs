@@ -28,27 +28,33 @@ const RMGR_NAME: &CStr = c"pg_search";
 const XLOG_PG_SEARCH_INIT_INDEX: u8 = 0x10;
 const XLOG_PG_SEARCH_INIT_INDEX_NAME: &CStr = c"INIT_INDEX";
 
-/// The record's payload: where the index's files are, which is what replay can reach without
-/// a catalog.
 #[cfg(feature = "pg15")]
 type IndexLocator = pg_sys::RelFileNode;
 #[cfg(not(feature = "pg15"))]
 type IndexLocator = pg_sys::RelFileLocator;
 
-/// Sets the standby taint in block 0 of the named index, following the shape of
+/// The record's payload: what replay can reach without a catalog.
+#[repr(C)]
+struct InitIndexPayload {
+    locator: IndexLocator,
+    taint_block: pg_sys::BlockNumber,
+}
+
+/// Sets the standby taint on the taint page of the named index, following the shape of
 /// `XLogReadBufferForRedo`: a block that does not exist is skipped without logging an invalid
 /// page, and a page already at or past this record's LSN is left alone. A primary on a release
 /// whose record carried no locator wrote a single zero byte, which is skipped.
 unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
     let decoded = (*record).record;
-    if ((*decoded).main_data_len as usize) < std::mem::size_of::<IndexLocator>() {
+    if ((*decoded).main_data_len as usize) < std::mem::size_of::<InitIndexPayload>() {
         return;
     }
-    let locator = std::ptr::read_unaligned((*decoded).main_data.cast::<IndexLocator>());
+    let payload = std::ptr::read_unaligned((*decoded).main_data.cast::<InitIndexPayload>());
+    let locator = payload.locator;
     let buffer = pg_sys::XLogReadBufferExtended(
         locator,
         pg_sys::ForkNumber::MAIN_FORKNUM,
-        0,
+        payload.taint_block,
         pg_sys::ReadBufferMode::RBM_NORMAL_NO_LOG,
         pg_sys::InvalidBuffer as pg_sys::Buffer,
     );
@@ -137,24 +143,28 @@ unsafe extern "C-unwind" fn rm_mask(
 }
 
 /// Writes the `INIT_INDEX` record naming `index`. A standby replaying it taints the index's
-/// metapage; see `PgSearchRelation::blocked_after_promotion`. An unlogged index has no pages on
-/// a standby and writes nothing.
+/// taint page; see `PgSearchRelation::blocked_after_promotion`. An unlogged index has no pages
+/// on a standby and writes nothing.
 pub fn emit_init_record(index: &PgSearchRelation) {
     if !index.need_wal() {
         return;
     }
+    let taint_block = MetaPage::open(index).standby_taint_block();
     // XLogRegisterData's signature varies across Postgres versions
     // (data is `*mut c_char` on pg15-17 vs `*const c_void` on pg18, and len is `c_int`
     // on pg15 vs `uint32` later). `as _` lets each build infer the right types.
-    #[cfg(feature = "pg15")]
-    let mut locator: IndexLocator = index.rd_node;
-    #[cfg(not(feature = "pg15"))]
-    let mut locator: IndexLocator = index.rd_locator;
+    let mut payload = InitIndexPayload {
+        #[cfg(feature = "pg15")]
+        locator: index.rd_node,
+        #[cfg(not(feature = "pg15"))]
+        locator: index.rd_locator,
+        taint_block,
+    };
     unsafe {
         pg_sys::XLogBeginInsert();
         pg_sys::XLogRegisterData(
-            &mut locator as *mut IndexLocator as _,
-            std::mem::size_of::<IndexLocator>() as _,
+            &mut payload as *mut InitIndexPayload as _,
+            std::mem::size_of::<InitIndexPayload>() as _,
         );
         pg_sys::XLogInsert(RMGR_ID, XLOG_PG_SEARCH_INIT_INDEX);
     }

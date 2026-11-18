@@ -658,11 +658,14 @@ fn assert_feature_not_supported(connection: &mut PgConnection, query: &str, frag
 #[async_std::test]
 async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     // Primary Postgres setup + insert data
+    // wal_consistency_checking makes the standby compare every page a record touches with the
+    // primary's image; the taint set during replay must live where no record ever looks.
     let postgresql_conf = "
         listen_addresses = 'localhost'
         wal_level = replica
         max_wal_senders = 4
         shared_preload_libraries = 'pg_search'
+        wal_consistency_checking = 'all'
         # It's often helpful to have a short wal_keep_size or max_wal_senders for testing
     ";
     let pg_hba_conf = "
@@ -698,12 +701,19 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         ('4K television', 'Electronics', NOW())"
         .execute(&mut source_conn);
 
-    // An index built before the standby is cloned: the clone carries its files and replays no
-    // build record for it. A VACUUM that removes rows on the primary names it to the standby.
+    // Indexes built before the standby is cloned: the clone carries their files and replays no
+    // build record for them. A VACUUM or ANALYZE on the primary names them to the standby,
+    // whether or not VACUUM finds a dead row.
     "
     CREATE TABLE early (id INT, body TEXT);
     INSERT INTO early VALUES (1, 'early shoes'), (2, 'early boots');
     CREATE INDEX early_idx ON early USING paradedb (id, body);
+    CREATE TABLE append_only (id INT, body TEXT);
+    INSERT INTO append_only VALUES (1, 'appended shoes');
+    CREATE INDEX append_only_idx ON append_only USING paradedb (id, body);
+    CREATE TABLE analyzed (id INT, body TEXT);
+    INSERT INTO analyzed VALUES (1, 'analyzed shoes');
+    CREATE INDEX analyzed_idx ON analyzed USING paradedb (id, body);
     "
     .execute(&mut source_conn);
 
@@ -771,9 +781,17 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     "
     .execute(&mut source_conn);
 
-    // The dead row makes ambulkdelete rewrite the metapage before the record names the index.
+    // Two rounds on `early`, so the primary rewrites its metapage twice after the taint and the
+    // standby compares both images. `append_only` gives VACUUM no dead row. `analyzed` is only
+    // analyzed.
     "DELETE FROM early WHERE id = 2".execute(&mut source_conn);
     "VACUUM early".execute(&mut source_conn);
+    "INSERT INTO early VALUES (3, 'early sandals')".execute(&mut source_conn);
+    "DELETE FROM early WHERE id = 3".execute(&mut source_conn);
+    "VACUUM early".execute(&mut source_conn);
+    "INSERT INTO append_only VALUES (2, 'appended boots')".execute(&mut source_conn);
+    "VACUUM append_only".execute(&mut source_conn);
+    "ANALYZE analyzed".execute(&mut source_conn);
 
     // Replay continues past the records: heap WAL written after them still arrives.
     "INSERT INTO items (description, category, created_at) VALUES
@@ -828,14 +846,16 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         |result| result.first().is_some_and(|(in_recovery,)| !in_recovery),
     );
 
-    // The tainted indexes refuse queries on the promoted server, with a REINDEX hint. The
-    // vacuumed index predates the clone; VACUUM's record is what tainted it.
+    // The tainted indexes refuse queries on the promoted server, with a REINDEX hint. Three of
+    // them predate the clone; the VACUUM and ANALYZE records are what tainted them.
     for query in [
         "SELECT description FROM items WHERE description ||| 'shoes'",
         "SELECT id FROM items WHERE description @@@ 'shoes'",
         "SELECT body FROM events WHERE body ||| 'shoes'",
         "SELECT body FROM events_1 WHERE body ||| 'shoes'",
         "SELECT body FROM early WHERE body ||| 'shoes'",
+        "SELECT body FROM append_only WHERE body ||| 'shoes'",
+        "SELECT body FROM analyzed WHERE body ||| 'shoes'",
     ] {
         assert_feature_not_supported(&mut standby_conn, query, "has since been promoted");
     }
@@ -855,19 +875,37 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
 
     // REINDEX builds a fresh index on this server, which clears the mark. On a partitioned
     // index it rebuilds every leaf.
-    "REINDEX INDEX items_search_idx".execute(&mut standby_conn);
-    let rows: Vec<(String,)> =
-        "SELECT description FROM items WHERE description ||| 'shoes' ORDER BY id"
-            .fetch(&mut standby_conn);
-    assert_eq!(rows.len(), 3);
-    "REINDEX INDEX events_idx".execute(&mut standby_conn);
-    let rows: Vec<(String,)> =
-        "SELECT body FROM events WHERE body ||| 'shoes' ORDER BY id".fetch(&mut standby_conn);
-    assert_eq!(rows.len(), 2);
-    "REINDEX INDEX early_idx".execute(&mut standby_conn);
-    let rows: Vec<(String,)> =
-        "SELECT body FROM early WHERE body ||| 'shoes'".fetch(&mut standby_conn);
-    assert_eq!(rows.len(), 1);
+    for (index, query, matches) in [
+        (
+            "items_search_idx",
+            "SELECT description FROM items WHERE description ||| 'shoes'",
+            3,
+        ),
+        (
+            "events_idx",
+            "SELECT body FROM events WHERE body ||| 'shoes'",
+            2,
+        ),
+        (
+            "early_idx",
+            "SELECT body FROM early WHERE body ||| 'shoes'",
+            1,
+        ),
+        (
+            "append_only_idx",
+            "SELECT body FROM append_only WHERE body ||| 'shoes'",
+            1,
+        ),
+        (
+            "analyzed_idx",
+            "SELECT body FROM analyzed WHERE body ||| 'shoes'",
+            1,
+        ),
+    ] {
+        format!("REINDEX INDEX {index}").execute(&mut standby_conn);
+        let rows: Vec<(String,)> = query.fetch(&mut standby_conn);
+        assert_eq!(rows.len(), matches, "{index}");
+    }
 
     // An index built after promotion is usable at once.
     "CREATE TABLE after_promotion (id SERIAL PRIMARY KEY, body TEXT)".execute(&mut standby_conn);

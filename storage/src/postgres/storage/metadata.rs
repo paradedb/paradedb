@@ -103,12 +103,20 @@ pub struct MetaPageData {
 
     created_at: pg_sys::TimestampTz,
 
-    /// Nonzero once a standby's WAL replay found this index named by the primary
-    /// (`PgSearchRelation::blocked_after_promotion`). Indexes built on this server read zero.
-    standby_taint: u32,
+    /// The block that holds [`StandbyTaintData`]; zero on an index built before the field existed.
+    standby_taint: pg_sys::BlockNumber,
 }
 
-/// The value `taint_page` stores in `standby_taint`; a fresh metapage reads zero.
+/// Contents of the standby-taint block. The primary writes this page once, when it allocates
+/// the block, so a flag that a standby's WAL replay sets here is never overwritten by a later
+/// page image from the primary and is never compared by `wal_consistency_checking`.
+#[derive(Copy, Clone)]
+#[repr(C, packed)]
+struct StandbyTaintData {
+    tainted: u32,
+}
+
+/// The flag replay writes; the page the primary allocated reads zero.
 const STANDBY_TAINTED: u32 = 1;
 
 /// Provides read access to the metadata page
@@ -164,6 +172,7 @@ impl MetaPage {
             metadata.active_vacuum_list = init_new_buffer(indexrel).number();
             metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
             metadata.merge_lock = init_new_buffer(indexrel).number();
+            metadata.standby_taint = init_new_buffer(indexrel).number();
             metadata.v2_fsm = crate::postgres::storage::fsm::v2::V2FSM::create(indexrel);
             metadata.segment_meta_garbage =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
@@ -208,6 +217,7 @@ impl MetaPage {
         let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
             || !block_number_is_valid(metadata.ambulkdelete_sentinel)
             || !block_number_is_valid(metadata.merge_lock)
+            || !block_number_is_valid(metadata.standby_taint)
             || !block_number_is_valid(metadata.v2_fsm)
             || !block_number_is_valid(metadata.segment_meta_garbage);
 
@@ -231,6 +241,10 @@ impl MetaPage {
 
                 if !block_number_is_valid(metadata.merge_lock) {
                     metadata.merge_lock = init_new_buffer(indexrel).number();
+                }
+
+                if !block_number_is_valid(metadata.standby_taint) {
+                    metadata.standby_taint = init_new_buffer(indexrel).number();
                 }
 
                 if !block_number_is_valid(metadata.v2_fsm) {
@@ -531,16 +545,24 @@ impl MetaPage {
 
     /// True once a standby's WAL replay set the taint; see `PgSearchRelation::blocked_after_promotion`.
     pub fn standby_tainted(&self) -> bool {
-        self.data.standby_taint == STANDBY_TAINTED
+        let buffer = self.bman.get_buffer(self.standby_taint_block());
+        let tainted = buffer.page().contents::<StandbyTaintData>().tainted;
+        tainted == STANDBY_TAINTED
     }
 
-    /// Sets the taint on a raw metapage during WAL replay, where no relation can be opened.
+    /// The block the `INIT_INDEX` record names, so replay finds the taint page without a catalog.
+    pub fn standby_taint_block(&self) -> pg_sys::BlockNumber {
+        assert!(block_number_is_valid(self.data.standby_taint));
+        self.data.standby_taint
+    }
+
+    /// Sets the taint on a raw taint page during WAL replay, where no relation can be opened.
     pub unsafe fn taint_page(page: pg_sys::Page) {
         let contents = pgrx::PageGetContents!(pgrx::cmacros::c::Pointer::from(page))
             .get()
-            .cast::<MetaPageData>();
-        (*contents).standby_taint = STANDBY_TAINTED;
-        crate::postgres::storage::buffer::set_pd_lower_for::<MetaPageData>(page);
+            .cast::<StandbyTaintData>();
+        (*contents).tainted = STANDBY_TAINTED;
+        crate::postgres::storage::buffer::set_pd_lower_for::<StandbyTaintData>(page);
     }
 
     pub fn increment_ambulkdelete_epoch(&mut self) {

@@ -4,6 +4,7 @@
 # Run Cohere vector benchmarks and router diagnostics.
 
 name: Benchmark pg_search (Benchmarker Cohere)
+run-name: Cohere ${{ inputs.size || 'all' }} ${{ inputs.experiment_variant || github.event_name }}
 
 on:
   schedule:
@@ -45,6 +46,14 @@ on:
         description: "Add the router-quality section"
         type: boolean
         default: false
+      training_sample_ratio:
+        description: "Experiment training sample ratio (0 selects automatic sampling)"
+        type: choice
+        options: ["0", "0.32"]
+        default: "0"
+      experiment_variant:
+        description: "Sampling/splitting experiment variant (empty disables experiment overrides)"
+        default: ""
 
 permissions:
   actions: read
@@ -77,7 +86,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
     env:
       COHERE_SIZE: ${{ matrix.size }}
-      RESULTS_DATASET: cohere-${{ matrix.size }}-8cpu-32gb
+      RESULTS_DATASET: cohere-${{ matrix.size }}-8cpu-32gb${{ inputs.experiment_variant != '' && format('-{0}', inputs.experiment_variant) || '' }}
       PDBENCH_REF: ${{ inputs.pdbench_ref || '376d023d1f42d31f7f54ef98ea023c5a8d21771f' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
@@ -147,12 +156,74 @@ jobs:
           token: ${{ steps.pdbench_token.outputs.token }}
           persist-credentials: false
 
+      - name: Configure Sampling and Splitting Experiment
+        if: inputs.experiment_variant != ''
+        env:
+          TRAINING_SAMPLE_RATIO: ${{ inputs.training_sample_ratio }}
+          EXPERIMENT_VARIANT: ${{ inputs.experiment_variant }}
+          RUNNER_TYPE: ${{ inputs.runner_type }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          variants = {
+              "A-fixed-no-split": ("0.32", False),
+              "B-auto-no-split": ("0", False),
+              "C-fixed-split": ("0.32", True),
+              "D-auto-split": ("0", True),
+          }
+          variant = os.environ["EXPERIMENT_VARIANT"]
+          ratio = os.environ["TRAINING_SAMPLE_RATIO"]
+          source = Path("index_write/src/postgres/build_partitioning.rs").read_text()
+          aggressive_split = "use_aggressive_split: true" in source
+          assert variants[variant] == (ratio, aggressive_split), "Experiment source/settings mismatch"
+          assert os.environ["COHERE_SIZE"] == "10m", "Experiment requires Cohere 10m"
+          assert os.environ["RUNNER_TYPE"] == "on-demand", "Experiment requires nonspot runners"
+
+          load_profile = Path("pdbench/configs/load/cohere-10m-paradedb.yaml")
+          profile = load_profile.read_text()
+          options = "target_segment_count = 8, vector_router_quantization = true"
+          assert profile.count(options) == 1 and "training_sample_ratio" not in profile
+          profile = profile.replace(options, f"training_sample_ratio = {ratio}, {options}")
+          load_profile.write_text(profile)
+
+          search_profile = Path("benchmarks/cohere/10m.toml")
+          profile = search_profile.read_text()
+          assert profile.count("[index]\n") == 1 and "training_sample_ratio" not in profile
+          search_profile.write_text(profile.replace("[index]\n", f"[index]\ntraining_sample_ratio = {ratio}\n"))
+
+          artifacts = Path("benchmark-artifacts")
+          artifacts.mkdir(exist_ok=True)
+          tantivy = re.search(r'name = "tantivy"\nversion = "[^"]+"\nsource = "[^\n]+#([0-9a-f]+)"', Path("Cargo.lock").read_text()).group(1)
+          metadata = {
+              "variant": variant,
+              "extension_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "workflow_commit": os.environ["GITHUB_SHA"],
+              "tantivy_commit": tantivy,
+              "pdbench_commit": os.environ["PDBENCH_REF"],
+              "benchmarker_commit": os.environ["BENCHMARKER_REF"],
+              "training_sample_ratio": float(ratio),
+              "use_aggressive_split": aggressive_split,
+              "runner_type": os.environ["RUNNER_TYPE"],
+          }
+          (artifacts / "experiment.json").write_text(json.dumps(metadata, indent=2) + "\n")
+          (artifacts / "load-config.yaml").write_text(load_profile.read_text())
+          (artifacts / "config.toml").write_text(search_profile.read_text())
+          print(json.dumps(metadata, indent=2))
+          PYTHON
+
       - name: Set Up Docker Benchmark Cluster
         uses: ./.github/actions/setup-docker-benchmark-cluster
         with:
           ref: ${{ env.BENCHMARK_REF }}
+          base_image: ${{ inputs.experiment_variant != '' && 'paradedb/paradedb@sha256:97a698fdf5dbd1748052f60eaf19befb716fe6313c990d91b365715e3d6532d9' || 'paradedb/paradedb:latest-pg18' }}
           dataset: cohere
           size: ${{ matrix.size }}
+          backup: ${{ inputs.experiment_variant != '' && '20260724-202418F' || '' }}
           compose_file: pdbench/datasets/cohere/docker-compose.yml
           cpu_limit: "8"
           max_parallel_workers: "8"
@@ -191,6 +262,9 @@ jobs:
 
       - name: Verify Default Boundary Replication
         run: |
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+            -c "SELECT to_json(reloptions) FROM pg_class WHERE oid = 'cohere_wiki_bm25_idx'::regclass" \
+            > benchmark-artifacts/index-options.json
           psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
             -c "SELECT json_agg(v) FROM paradedb.vector_info('cohere_wiki_bm25_idx', 'emb') AS v" \
             > benchmark-artifacts/vector-info.json
@@ -315,6 +389,12 @@ jobs:
       - name: Verify k6 Query Plans and Filter Pushdown
         run: python3 benchmarks/cohere/verify_plans.py benchmark-artifacts
 
+      - name: Save Database Log
+        if: always()
+        run: |
+          mkdir -p benchmark-artifacts
+          docker logs paradedb > benchmark-artifacts/postgres.log 2>&1 || true
+
       - name: Upload Index, Recall, and Buffer Diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -432,6 +512,10 @@ jobs:
         run: |
           set -euo pipefail
           printf 'Database resources: 8 CPUs on cores 0-7, 32 GiB RAM, seven parallel maintenance workers, four query workers, and eight global parallel workers. k6 runs on cores 64-67.\n\n' > benchmark-artifacts/context.md
+          if [ -f benchmark-artifacts/experiment.json ]; then
+            jq -r '"Experiment: \(.variant); training_sample_ratio=\(.training_sample_ratio); use_aggressive_split=\(.use_aggressive_split).\n"' \
+              benchmark-artifacts/experiment.json >> benchmark-artifacts/context.md
+          fi
           cat benchmark-artifacts/operating_points.md >> benchmark-artifacts/context.md
           if [ -f benchmark-artifacts/plan-modes.md ]; then
             cat benchmark-artifacts/plan-modes.md >> benchmark-artifacts/context.md

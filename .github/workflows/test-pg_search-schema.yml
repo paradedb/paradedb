@@ -9,6 +9,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - ".github/workflows/classify-cargo-lock.yml"
+      - ".github/scripts/ci_lockfile_scope.py"
+      - ".github/actions/setup-postgres/**"
+      - ".cargo/config.toml"
+      - "macros/**"
+      - "tokenizers/**"
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-pg_search-schema.yml"
       - "Cargo.lock"
@@ -35,7 +41,12 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    uses: ./.github/workflows/classify-cargo-lock.yml
+
   test-pg_search-schema:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.standalone_only != 'true') }}
     name: SchemaBot
     runs-on:
       # Compute-optimized c-family — Rust schema generation is CPU-bound.

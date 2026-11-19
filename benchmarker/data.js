@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795024201881,
+  "lastUpdate": 1795054006302,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -101831,6 +101831,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14439485356-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9545f064d8c22f6fcec604149cfa629476ed77eb",
+          "message": "fix: keep the positions of the tokens in a phrase query (#7538)\n\n## Ticket(s) Closed\n\nN/A\n\n## What\n\nThis PR makes a phrase query keep the positions that the tokenizer gave\nits tokens.\n\n```sql\n-- finds `sofa of leather` on a field that removes stop words\nSELECT id FROM notes WHERE note ### 'sofa of leather';\n```\n\n## Why\n\n`###` and `pdb.phrase` numbered the tokens of a phrase 0, 1, 2. The\nquery parser uses the position of each token.\n\n- A stop word leaves a gap. `note ### 'sofa of leather'` found `sofa\nleather`, and not the text that was typed.\n- `pdb.edge_ngram` gives the grams of a word one position. `name ###\n'sofa'` found no row.\n- With `pdb.expand`, a synonym of several grams was a phrase at\npositions 0, 1, 2. So `|||` found no row on a `pdb.edge_ngram` field,\nnot even the typed word.\n\n## How\n\n- `###` and `pdb.phrase` take the position of each token from the\ntokenizer.\n- A rule term keeps only its tokens. So a synonym of several tokens is\nan error when the tokenizer of the query is `edge_ngram`, the same as on\nan ngram field with no positions. A search tokenizer that keeps words\nwhole expands as before.\n\n## Tests\n\n- `phrase_positions.sql`",
+          "timestamp": "2026-11-19T00:59:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9545f064d8c22f6fcec604149cfa629476ed77eb"
+        },
+        "date": 1795054000196,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 7.974,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 9.022,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 9.369,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 12.32,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 14.329,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 15.049,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 32.639,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 38.645,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 40.31,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 6.597,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 8.501,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 8.854,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 10.84,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 14.407,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 14.727,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 30.462,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 38.291,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 39.358,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.824,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 4.559,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 4.88,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 6.608,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.856,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.381,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 17.458,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 19.886,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 20.518,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14491003853-latency"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (throughput)": [
@@ -101969,6 +102127,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14439485356-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9545f064d8c22f6fcec604149cfa629476ed77eb",
+          "message": "fix: keep the positions of the tokens in a phrase query (#7538)\n\n## Ticket(s) Closed\n\nN/A\n\n## What\n\nThis PR makes a phrase query keep the positions that the tokenizer gave\nits tokens.\n\n```sql\n-- finds `sofa of leather` on a field that removes stop words\nSELECT id FROM notes WHERE note ### 'sofa of leather';\n```\n\n## Why\n\n`###` and `pdb.phrase` numbered the tokens of a phrase 0, 1, 2. The\nquery parser uses the position of each token.\n\n- A stop word leaves a gap. `note ### 'sofa of leather'` found `sofa\nleather`, and not the text that was typed.\n- `pdb.edge_ngram` gives the grams of a word one position. `name ###\n'sofa'` found no row.\n- With `pdb.expand`, a synonym of several grams was a phrase at\npositions 0, 1, 2. So `|||` found no row on a `pdb.edge_ngram` field,\nnot even the typed word.\n\n## How\n\n- `###` and `pdb.phrase` take the position of each token from the\ntokenizer.\n- A rule term keeps only its tokens. So a synonym of several tokens is\nan error when the tokenizer of the query is `edge_ngram`, the same as on\nan ngram field with no positions. A search tokenizer that keeps words\nwhole expands as before.\n\n## Tests\n\n- `phrase_positions.sql`",
+          "timestamp": "2026-11-19T00:59:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9545f064d8c22f6fcec604149cfa629476ed77eb"
+        },
+        "date": 1795054002273,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 126.70978036674855,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 81.63138037265796,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 32.0844545045196,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 147.42944835112704,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 88.53648156710499,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 32.209221446510426,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 258.5102046822547,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 151.73052468857838,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 63.70306916619673,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14491003853-throughput"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (buffers)": [
@@ -102107,6 +102333,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14439485356-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9545f064d8c22f6fcec604149cfa629476ed77eb",
+          "message": "fix: keep the positions of the tokens in a phrase query (#7538)\n\n## Ticket(s) Closed\n\nN/A\n\n## What\n\nThis PR makes a phrase query keep the positions that the tokenizer gave\nits tokens.\n\n```sql\n-- finds `sofa of leather` on a field that removes stop words\nSELECT id FROM notes WHERE note ### 'sofa of leather';\n```\n\n## Why\n\n`###` and `pdb.phrase` numbered the tokens of a phrase 0, 1, 2. The\nquery parser uses the position of each token.\n\n- A stop word leaves a gap. `note ### 'sofa of leather'` found `sofa\nleather`, and not the text that was typed.\n- `pdb.edge_ngram` gives the grams of a word one position. `name ###\n'sofa'` found no row.\n- With `pdb.expand`, a synonym of several grams was a phrase at\npositions 0, 1, 2. So `|||` found no row on a `pdb.edge_ngram` field,\nnot even the typed word.\n\n## How\n\n- `###` and `pdb.phrase` take the position of each token from the\ntokenizer.\n- A rule term keeps only its tokens. So a synonym of several tokens is\nan error when the tokenizer of the query is `edge_ngram`, the same as on\nan ngram field with no positions. A search tokenizer that keeps words\nwhole expands as before.\n\n## Tests\n\n- `phrase_positions.sql`",
+          "timestamp": "2026-11-19T00:59:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9545f064d8c22f6fcec604149cfa629476ed77eb"
+        },
+        "date": 1795054004284,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 2626.92,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 5276.16,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 16424.68,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 3213.46,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 5869.04,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 18616.83,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1433.02,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2507.2,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 6295.71,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14491003853-buffers"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (router)": [
@@ -102421,6 +102715,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14439485356-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9545f064d8c22f6fcec604149cfa629476ed77eb",
+          "message": "fix: keep the positions of the tokens in a phrase query (#7538)\n\n## Ticket(s) Closed\n\nN/A\n\n## What\n\nThis PR makes a phrase query keep the positions that the tokenizer gave\nits tokens.\n\n```sql\n-- finds `sofa of leather` on a field that removes stop words\nSELECT id FROM notes WHERE note ### 'sofa of leather';\n```\n\n## Why\n\n`###` and `pdb.phrase` numbered the tokens of a phrase 0, 1, 2. The\nquery parser uses the position of each token.\n\n- A stop word leaves a gap. `note ### 'sofa of leather'` found `sofa\nleather`, and not the text that was typed.\n- `pdb.edge_ngram` gives the grams of a word one position. `name ###\n'sofa'` found no row.\n- With `pdb.expand`, a synonym of several grams was a phrase at\npositions 0, 1, 2. So `|||` found no row on a `pdb.edge_ngram` field,\nnot even the typed word.\n\n## How\n\n- `###` and `pdb.phrase` take the position of each token from the\ntokenizer.\n- A rule term keeps only its tokens. So a synonym of several tokens is\nan error when the tokenizer of the query is `edge_ngram`, the same as on\nan ngram field with no positions. A search tokenizer that keeps words\nwhole expands as before.\n\n## Tests\n\n- `phrase_positions.sql`",
+          "timestamp": "2026-11-19T00:59:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9545f064d8c22f6fcec604149cfa629476ed77eb"
+        },
+        "date": 1795054006284,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 9.237751683466666,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 45941.1171875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "14491003853-index"
       }
     ],
     "benchmarker hackernews-vector-28m-8cpu-32gb (latency)": [

@@ -42,6 +42,7 @@ use std::time::{Duration, Instant};
 
 static INTERVAL_MS: GucSetting<i32> = GucSetting::<i32>::new(1000);
 const SWEEP_MERGE_MULTIPLIER: usize = 2;
+const BACKGROUND_MERGE_COOLDOWN: Duration = Duration::from_secs(30);
 
 // Check for missing workers and new databases independently of the sweep interval.
 const WORKER_CHECK_INTERVAL: Duration = Duration::from_secs(30);
@@ -195,12 +196,14 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
     let mut next_sweep = Instant::now();
     let mut interval = INTERVAL_MS.get();
     let mut previous_counts = HashMap::default();
+    let mut merge_retry_after = HashMap::default();
     loop {
         reload();
         if INTERVAL_MS.get() != interval {
             interval = INTERVAL_MS.get();
             next_sweep = Instant::now();
             previous_counts.clear();
+            merge_retry_after.clear();
         }
         if interval == 0 {
             return;
@@ -235,6 +238,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
             return;
         }
         if sweeping {
+            merge_retry_after.retain(|_, deadline| *deadline > Instant::now());
             let observed_counts = pass_context.switch_to(|_| {
                 let indexes = BackgroundWorker::transaction(|| {
                     if lookup_extension_version(c"pg_search").as_deref()
@@ -269,7 +273,8 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             });
                             let needs_merge = visible_segment_count
                                 > SWEEP_MERGE_MULTIPLIER * index.target_segment_count()
-                                && !index.options().background_layer_sizes().is_empty();
+                                && !index.options().background_layer_sizes().is_empty()
+                                && !merge_retry_after.contains_key(&index.oid());
                             (!idle_mutable_segments.is_empty() || needs_merge)
                                 .then_some((index.oid(), idle_mutable_segments))
                         })
@@ -282,6 +287,9 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                     reload();
                     if INTERVAL_MS.get() == 0 {
                         break;
+                    }
+                    if idle_mutable_segments.is_empty() {
+                        merge_retry_after.insert(index, Instant::now() + BACKGROUND_MERGE_COOLDOWN);
                     }
                     BackgroundWorker::transaction(|| {
                         let Some(index) = free_leaf_partition_indexes(&[index]).next() else {

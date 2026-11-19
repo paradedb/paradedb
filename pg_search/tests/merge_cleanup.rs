@@ -28,6 +28,7 @@ const SWEEP_INTERVAL_MS: i32 = 1000;
 const SWEEP_MERGE_THRESHOLD: i32 = 2;
 const SWEEP_PRESSURE_SEGMENT_COUNT: i32 = SWEEP_MERGE_THRESHOLD + 1;
 const IMMUTABLE_SEGMENT_ROWS: i32 = 250;
+const WAIT_TIMEOUT: Duration = Duration::from_secs(60);
 
 fn connect() -> Client {
     let mut client = if let Ok(url) = std::env::var("PG_SEARCH_TEST_DATABASE_URL") {
@@ -52,7 +53,7 @@ fn connect() -> Client {
 }
 
 fn wait_until(description: &str, mut condition: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + WAIT_TIMEOUT;
     while !condition() {
         assert!(
             Instant::now() < deadline,

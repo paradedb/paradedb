@@ -3,10 +3,7 @@ description: Build and install pg_vectorsearch in the benchmark container
 
 inputs:
   ref:
-    description: "paradedb/pg_vectorsearch commit"
-    required: true
-  github_token:
-    description: "Token with read access to paradedb/pg_vectorsearch"
+    description: "timescale/pg_vectorsearch commit"
     required: true
 
 runs:
@@ -15,10 +12,9 @@ runs:
     - name: Checkout pg_vectorsearch
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
-        repository: paradedb/pg_vectorsearch
+        repository: timescale/pg_vectorsearch
         ref: ${{ inputs.ref }}
         path: pg-vectorsearch
-        token: ${{ inputs.github_token }}
         persist-credentials: false
 
     - name: Build and Install pg_vectorsearch

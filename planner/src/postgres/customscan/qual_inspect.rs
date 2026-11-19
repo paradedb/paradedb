@@ -39,7 +39,10 @@ use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
 use crate::schema::SearchIndexSchemaQueryExt;
 use pg_sys::BoolExprType;
-use pgrx::{FromDatum, IntoDatum, PgList, pg_guard, pg_sys};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{
+    FromDatum, IntoDatum, PgList, PgLogLevel, PgSqlErrorCode, function_name, pg_guard, pg_sys,
+};
 use std::ops::Bound;
 
 #[derive(Debug, Clone)]
@@ -1477,6 +1480,29 @@ unsafe fn opexpr(
     }
 }
 
+/// A search operator works on a field of the index, so an expression that the index does not
+/// have can't be its left side.
+unsafe fn report_unindexed_lhs(
+    context: &PlannerContext,
+    indexrel: &PgSearchRelation,
+    opexpr: &OpExpr,
+) -> ! {
+    // The first argument of the operator still has the casts that the user wrote.
+    let lhs = opexpr.args().get_ptr(0).unwrap_or(std::ptr::null_mut());
+    ErrorReport::new(
+        PgSqlErrorCode::ERRCODE_UNDEFINED_COLUMN,
+        format!(
+            "expression \"{}\" is not included in ParadeDB index \"{}\"",
+            deparse_expr(Some(context), indexrel, lhs),
+            indexrel.name()
+        ),
+        function_name!(),
+    )
+    .set_hint("Recreate the index including this expression to search it with a ParadeDB operator.")
+    .report(PgLogLevel::ERROR);
+    unreachable!("an ERROR report does not return")
+}
+
 #[allow(clippy::too_many_arguments)]
 unsafe fn node_opexpr(
     context: &PlannerContext,
@@ -1498,6 +1524,15 @@ unsafe fn node_opexpr(
 
     let is_our_operator = is_anyelement_search_opoid(opexpr.opno());
 
+    // The support function leaves a search operator as written when its left side is not a field
+    // of the index. Only the planner sees the result, since the planner hook runs before it.
+    let rhs_type = pg_sys::exprType(rhs);
+    let unindexed_lhs = is_our_operator
+        && matches!(context, PlannerContext::Planner(_))
+        && rhs_type != searchqueryinput_typoid()
+        && !(opexpr.use_or().is_some()
+            && pg_sys::get_element_type(rhs_type) == searchqueryinput_typoid());
+
     if rhs_as_const.is_none() {
         // the rhs expression is not a Const, so it's some kind of expression
         // that we'll need to execute during query execution, if we can
@@ -1508,6 +1543,9 @@ unsafe fn node_opexpr(
                 // so indicate we can't handle this expression at all
                 return None;
             } else {
+                if unindexed_lhs {
+                    report_unindexed_lhs(context, indexrel, &opexpr);
+                }
                 // it uses our operator, so we directly know how to handle it
                 // this is the case of:  field @@@ paradedb.xxx(EXPR) where EXPR likely includes something
                 // that's parameterized
@@ -1548,6 +1586,9 @@ unsafe fn node_opexpr(
     if is_our_operator {
         // the rhs expression is a Const, so we can use it directly
         if is_node_range_table_entry(lhs, rti) {
+            if unindexed_lhs {
+                report_unindexed_lhs(context, indexrel, &opexpr);
+            }
             // the node comes from this range table entry, so we can use the full expression directly
             state.uses_tantivy_to_query = true;
             Some(Qual::OpExpr {

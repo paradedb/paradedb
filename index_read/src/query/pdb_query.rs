@@ -227,8 +227,8 @@ pub mod pdb {
         /// This variant is constructed first, then the "SUPPORT" function for our various operators
         /// will rewrite it to the [`Query`] variant that is correct for its usage.
         ///
-        /// For example, the `===` operator will rewrite it to a [`Query::TermSet`] and `@@@` to
-        /// a [`Query::ParseWithField`].
+        /// For example, the `===` operator will rewrite it to a [`Query::TermSet`] and `|||` to
+        /// a [`Query::MatchArray`]. The `@@@` operator does not take an array.
         UnclassifiedArray {
             array: Vec<String>,
             #[serde(skip_serializing_if = "Option::is_none")]

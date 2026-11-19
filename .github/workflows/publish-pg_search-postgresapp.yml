@@ -91,14 +91,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ASSET=$(gh release view --repo PostgresApp/PostgresApp --json assets \
-            --jq '.assets[] | select(.name | test("Postgres-.*-${{ matrix.pg_version }}\\.dmg$")) | .name' | head -1)
+          RELEASE=$(gh release view --repo PostgresApp/PostgresApp --json tagName,assets)
+          TAG=$(jq -r '.tagName' <<< "$RELEASE")
+          # The version list can include other PostgreSQL majors after the requested one.
+          ASSET=$(jq -r 'first(.assets[].name |
+            select(test("^Postgres-[^-]+(-[0-9]+)*-${{ matrix.pg_version }}(-[0-9]+)*\\.dmg$"))) // empty' <<< "$RELEASE")
           if [ -z "$ASSET" ]; then
             echo "Could not find a Postgres.app DMG for PostgreSQL ${{ matrix.pg_version }}"
             exit 1
           fi
           echo "Downloading $ASSET"
-          gh release download --repo PostgresApp/PostgresApp --pattern "$ASSET" --output postgres.dmg
+          gh release download "$TAG" --repo PostgresApp/PostgresApp --pattern "$ASSET" --output postgres.dmg
           MOUNT=$(hdiutil attach -nobrowse -noverify -noautoopen postgres.dmg | tail -1 | awk '{print $3}')
           cp -R "$MOUNT/Postgres.app" /Applications/Postgres.app
           hdiutil detach "$MOUNT"
@@ -140,6 +143,7 @@ jobs:
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
         env:
+          CLANG_NO_DEFAULT_CONFIG: "1"
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |

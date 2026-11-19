@@ -288,10 +288,8 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                     if INTERVAL_MS.get() == 0 {
                         break;
                     }
-                    if idle_mutable_segments.is_empty() {
-                        merge_retry_after.insert(index, Instant::now() + BACKGROUND_MERGE_COOLDOWN);
-                    }
-                    BackgroundWorker::transaction(|| {
+                    let mut no_candidates = false;
+                    BackgroundWorker::transaction(AssertUnwindSafe(|| {
                         let Some(index) = free_leaf_partition_indexes(&[index]).next() else {
                             return;
                         };
@@ -301,7 +299,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             }
                             PgTryBuilder::new(AssertUnwindSafe(|| {
                                 if idle_mutable_segments.is_empty() {
-                                    do_merge(&index, MergeStyle::Background)
+                                    no_candidates = do_merge(&index, MergeStyle::Background)
                                         .expect("should be able to schedule a background merge");
                                     return;
                                 }
@@ -373,7 +371,10 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             })
                             .execute();
                         }
-                    });
+                    }));
+                    if no_candidates {
+                        merge_retry_after.insert(index, Instant::now() + BACKGROUND_MERGE_COOLDOWN);
+                    }
                 }
                 Some(current_counts)
             });

@@ -326,26 +326,27 @@ fn backpressure(
 /// Kick off a merge of the index, if needed.
 ///
 /// Prefer a background worker; help with one eligible merge when workers are busy or unavailable.
-pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::Result<()> {
+/// Returns true only for an empty background selection with no temporary exclusions.
+pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::Result<bool> {
     // don't kick off merges for invalid indexes
     if !index.is_valid() {
-        return Ok(());
+        return Ok(false);
     }
 
     if matches!(style, MergeStyle::Background)
         && index.options().background_layer_sizes().is_empty()
     {
-        return Ok(());
+        return Ok(false);
     }
     let layer_sizes = IndexLayerSizes::from(index);
     let target_segment_count = index.target_segment_count();
     let metadata = MetaPage::open(index);
     let (merge_pins, merge_lock) = if matches!(style, MergeStyle::Background) {
         if VacuumSignal::new(index.oid()).wants_cancel() {
-            return Ok(());
+            return Ok(false);
         }
         let Some(locks) = metadata.try_pin_and_lock_merge() else {
-            return Ok(());
+            return Ok(false);
         };
         locks
     } else {
@@ -358,6 +359,10 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
     let (candidates, largest_layer_size, skipped) = merge_policy.simulate_supported(&merger)?;
     warn_unsupported_vector_merge(index, skipped);
+    let no_candidates = matches!(style, MergeStyle::Background)
+        && candidates.is_empty()
+        && merge_lock.merge_list().list_segment_ids().next().is_none()
+        && metadata.vacuum_list().read_list().is_empty();
     let needs_background_merge =
         layer_sizes.user_configured_background_layers() && !candidates.is_empty();
     let background_launched =
@@ -365,7 +370,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     // If a background merger launched successfully, exit before applying more backpressure
     // so foreground backpressure does not race with it to claim segments.
     if background_launched {
-        return Ok(());
+        return Ok(false);
     }
     if let MergeStyle::Insert {
         current_xid,
@@ -412,7 +417,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
             );
         }
     }
-    Ok(())
+    Ok(no_candidates)
 }
 
 /// Try to launch a background process to merge down the index.

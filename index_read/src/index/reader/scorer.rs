@@ -18,7 +18,11 @@
 use crate::index::reader::index::enable_scoring;
 use std::sync::{Arc, OnceLock};
 use tantivy::query::{BooleanQuery, Occur, PruningScorer, Query, Scorer, Weight};
-use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
+use tantivy::schema::IndexRecordOption;
+use tantivy::{
+    DocAddress, DocId, DocSet, Result as TantivyResult, Score, Searcher, SegmentOrdinal,
+    SegmentReader,
+};
 
 #[cfg(any(test, feature = "pg_test"))]
 pub mod test_support {
@@ -62,6 +66,33 @@ impl LazyWeight {
             self.need_scores,
             self.searcher.clone(),
         )
+    }
+
+    pub(super) fn ra_scorer(
+        &self,
+        reader: &SegmentReader,
+        boost: Score,
+        threshold: Score,
+    ) -> TantivyResult<Box<dyn Scorer>> {
+        let schema = reader.schema();
+        let mut basic_postings = false;
+        if let Some((field, _)) = schema.fields().next() {
+            self.query.query_terms(field, reader, &mut |term, _| {
+                basic_postings |= schema
+                    .get_field_entry(term.field())
+                    .field_type()
+                    .get_index_record_option()
+                    == Some(IndexRecordOption::Basic);
+            });
+        }
+        // Basic postings lack the stored frequencies required by block-max score bounds.
+        if basic_postings {
+            self.get().scorer(reader, boost)
+        } else {
+            self.get()
+                .pruning_scorer(reader, boost, threshold)
+                .map(|scorer| scorer as Box<dyn Scorer>)
+        }
     }
 
     pub(super) fn get(&self) -> &dyn Weight {

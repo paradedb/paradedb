@@ -114,9 +114,7 @@ impl SlabPool {
             let order_val = max_order + 1 - depth;
             let start = 1 << depth;
             let end = 1 << (depth + 1);
-            for node in start..end {
-                self.tree[node] = order_val;
-            }
+            self.tree[start..end].fill(order_val);
         }
     }
 

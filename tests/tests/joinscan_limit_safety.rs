@@ -354,3 +354,43 @@ fn limit_pushdown_safety(
 
     Ok(())
 }
+
+#[rstest]
+#[case(0)]
+#[case(3)]
+fn rank_join_score_ties_across_partitioned_segments(#[case] offset: usize, mut conn: PgConnection) {
+    r#"
+    SET max_parallel_workers_per_gather = 0;
+    SET max_parallel_maintenance_workers = 0;
+    SET paradedb.enable_join_custom_scan = on;
+    SET paradedb.enable_range_partitioned_join = off;
+    SET paradedb.rank_join_min_rows = 0;
+    CREATE TABLE rank_left(id bigint, name text, color text, age int);
+    CREATE TABLE rank_right(LIKE rank_left);
+    INSERT INTO rank_left SELECT i, 'bob', 'blue', i::int FROM generate_series(1, 10) i;
+    INSERT INTO rank_right SELECT * FROM rank_left;
+    CREATE INDEX ON rank_left USING paradedb(id, (name::pdb.literal), (color::pdb.literal), age)
+        WITH (target_segment_count=2, sort_by='age DESC NULLS LAST', partition_by='age');
+    CREATE INDEX ON rank_right USING paradedb(id, (name::pdb.literal), (color::pdb.literal), age)
+        WITH (target_segment_count=2, sort_by='age DESC NULLS LAST', partition_by='age');
+    "#
+    .execute(&mut conn);
+
+    let query = format!(
+        "SELECT l.id, r.id FROM rank_left l JOIN rank_right r USING(name)
+        WHERE l.color === 'blue' AND r.color === 'blue'
+        ORDER BY pdb.score(l.id) + pdb.score(r.id) DESC, l.id, r.id LIMIT 2 OFFSET {offset}"
+    );
+    "SET paradedb.enable_rank_join = off".execute(&mut conn);
+    assert!(explain(&mut conn, &query).contains("HashJoinExec"));
+    let expected: Vec<(i64, i64)> = query.as_str().fetch(&mut conn);
+    assert_eq!(
+        expected,
+        vec![(1, offset as i64 + 1), (1, offset as i64 + 2)]
+    );
+
+    "SET paradedb.enable_rank_join = on".execute(&mut conn);
+    assert!(explain(&mut conn, &query).contains("RankJoinExec"));
+    let actual: Vec<(i64, i64)> = query.as_str().fetch(&mut conn);
+    assert_eq!(actual, expected);
+}

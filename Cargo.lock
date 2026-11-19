@@ -5351,6 +5351,7 @@ dependencies = [
  "postgres",
  "proptest 1.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.10.3",
+ "rstest",
  "serde",
  "serde_json",
  "serde_path_to_error",

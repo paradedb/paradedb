@@ -1969,9 +1969,12 @@ fn tokenized_phrase(
     let field_type = search_field.field_entry().field_type();
     let mut analyzer = resolve_search_tokenizer(&search_field, schema, searcher)?;
     let mut tokens = Vec::new();
+    // A token that the tokenizer removes, such as a stop word, leaves a gap in the positions.
+    let mut offsets = Vec::new();
     {
         let mut stream = analyzer.token_stream(phrase);
         while stream.advance() {
+            offsets.push(stream.token().position);
             tokens.push(stream.token().text.clone());
         }
     }
@@ -1979,11 +1982,16 @@ fn tokenized_phrase(
         return Ok(Box::new(EmptyQuery));
     }
 
-    let offsets: Vec<usize> = (0..tokens.len()).collect();
     let variants = match synonyms {
         Some(rules) => {
             let expansions =
                 expand_tokens(&rules, &search_field, schema, None, &mut analyzer, &tokens)?;
+            check_phrase_positions(
+                field,
+                &search_field,
+                || Ok(query_tokenizer(&search_field, schema)),
+                &expansions,
+            )?;
             phrase_variants(&offsets, &expansions)
         }
         None => vec![offsets.into_iter().zip(tokens).collect()],
@@ -2141,12 +2149,17 @@ fn phrase(
     let mut terms = Vec::new();
     let mut analyzer = resolve_search_tokenizer(&search_field, schema, searcher)?;
     let mut should_warn = false;
+    let mut next_offset = 0;
 
     for phrase in phrases.into_iter() {
         let mut stream = analyzer.token_stream(&phrase);
         let len_before = terms.len();
+        // An element with no token, such as a stop word, keeps its place in the phrase.
+        let mut width = 1;
 
         while stream.advance() {
+            let position = stream.token().position;
+            width = width.max(position + 1);
             let token = stream.token().text.clone();
             let term = value_to_term(
                 search_field.field(),
@@ -2156,8 +2169,9 @@ fn phrase(
                 index_created_by_version,
             )?;
 
-            terms.push(term);
+            terms.push((next_offset + position, term));
         }
+        next_offset += width;
 
         if len_before + 1 < terms.len() {
             should_warn = true;
@@ -2174,11 +2188,10 @@ fn phrase(
         );
     }
 
-    let mut query = PhraseQuery::new(terms);
-    if let Some(slop) = slop {
-        query.set_slop(slop)
-    }
-    Ok(query)
+    Ok(PhraseQuery::new_with_offset_and_slop(
+        terms,
+        slop.unwrap_or(0),
+    ))
 }
 
 fn phrase_array(
@@ -2471,9 +2484,12 @@ fn expand_parsed_query(
             let expansions = expansions
                 .next()
                 .expect("each parsed leaf should have its expansions");
-            for expansion in &expansions {
-                check_phrase_positions(field, search_field, expansion)?;
-            }
+            check_phrase_positions(
+                field,
+                search_field,
+                || Ok(parser_tokenizer(search_field)),
+                &expansions,
+            )?;
             let term_of = |token: &str| {
                 let mut term = parsed.prefix.clone();
                 term.append_bytes(token.as_bytes());
@@ -2663,10 +2679,16 @@ fn match_query(
         Occur::Should
     };
 
+    check_phrase_positions(
+        field,
+        &search_field,
+        || match_tokenizer(tokenizer.as_ref(), &search_field, schema),
+        &expansions,
+    )?;
+
     let clauses = expansions
         .iter()
         .map(|expansion| {
-            check_phrase_positions(field, &search_field, expansion)?;
             let query = match (distance, prefix) {
                 (0, _) => expansion_query(expansion, term)?,
                 (d, prefix) => {
@@ -2754,14 +2776,23 @@ fn expand_tokens(
     let mut expansions = expand_token_lists(
         rules,
         search_field,
-        || match tokenizer {
-            Some(tokenizer) => Ok(Some(SearchTokenizer::from_json_value(tokenizer)?)),
-            None => Ok(query_tokenizer(search_field, schema)),
-        },
+        || match_tokenizer(tokenizer, search_field, schema),
         analyzer,
         &[tokens],
     )?;
     Ok(expansions.remove(0))
+}
+
+/// The tokenizer that a match on `search_field` gives, or else the one from the index options.
+fn match_tokenizer(
+    tokenizer: Option<&Value>,
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+) -> anyhow::Result<Option<SearchTokenizer>> {
+    match tokenizer {
+        Some(tokenizer) => Ok(Some(SearchTokenizer::from_json_value(tokenizer)?)),
+        None => Ok(query_tokenizer(search_field, schema)),
+    }
 }
 
 /// The expansions of each list of tokens. `analyzer` is the one that made the tokens, and
@@ -2881,28 +2912,33 @@ pub fn synonym_index_of_column(
         .map(|candidate| candidate.oid())
 }
 
-/// A multi-token alternative is a phrase, which needs positions.
+/// A multi-token alternative is a phrase with its tokens at consecutive positions. So the field
+/// needs positions, and the tokenizer of the query must give each token its own position.
 fn check_phrase_positions(
     field: &FieldName,
     search_field: &SearchField,
-    expansion: &Expansion,
+    query_tokenizer: impl FnOnce() -> anyhow::Result<Option<SearchTokenizer>>,
+    expansions: &[Expansion],
 ) -> anyhow::Result<()> {
-    if search_field.supports_positions() {
+    let Some((expansion, phrase)) = expansions.iter().find_map(|expansion| {
+        let mut alternatives = expansion.alternatives.iter().flatten();
+        let phrase = alternatives.find(|alternative| alternative.len() > 1)?;
+        Some((expansion, phrase))
+    }) else {
         return Ok(());
-    }
-    if let Some(phrase) = expansion
-        .alternatives
-        .iter()
-        .flatten()
-        .find(|alternative| alternative.len() > 1)
-    {
-        return Err(anyhow::anyhow!(
-            "the synonym `{}` of `{}` is a phrase, and field `{field}` is not indexed with positions",
-            phrase.join(" "),
-            expansion.tokens.join(" "),
-        ));
-    }
-    Ok(())
+    };
+    let reason = if !search_field.supports_positions() {
+        format!("field `{field}` is not indexed with positions")
+    } else if matches!(query_tokenizer()?, Some(SearchTokenizer::EdgeNgram { .. })) {
+        "the `edge_ngram` tokenizer of the query gives the grams of a word one position".to_string()
+    } else {
+        return Ok(());
+    };
+    Err(anyhow::anyhow!(
+        "the synonym `{}` of `{}` is a phrase, and {reason}",
+        phrase.join(" "),
+        expansion.tokens.join(" "),
+    ))
 }
 
 /// Only the typed tokens are fuzzy. An alternative comes from a rule, so the query matches it

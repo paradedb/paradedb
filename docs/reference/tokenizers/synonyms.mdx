@@ -35,7 +35,9 @@ a search for `shoes` also finds `sneakers`, `trainers` and `kicks`, but a search
 
 A term can be more than one word, on either side. A multi-word term is matched as a phrase, so the field you search has to
 keep positions. Every tokenizer keeps them except [ngrams](/reference/tokenizers/available-tokenizers/ngrams), which needs
-`positions=true`. If a term needs a comma, escape it with a backslash. Comments and blank lines are fine, so a synonym file
+`positions=true`. [Edge ngrams](/reference/tokenizers/available-tokenizers/edge-ngrams) give the grams of one word the same
+position, so search such a field with a [search tokenizer](/reference/tokenizers/search-tokenizer) that keeps words
+whole. If a term needs a comma, escape it with a backslash. Comments and blank lines are fine, so a synonym file
 can go in line by line. A rule that does not parse is rejected at `INSERT`, and the error tells you which rule and why.
 
 If you have a synonym file, load it with a delimiter and a quote character that never appear in the file, so each line

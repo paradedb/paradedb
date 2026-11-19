@@ -11,6 +11,7 @@ SET paradedb.vector_cluster_max_probe = 100;
 ```
 
 <ParamField body="paradedb.vector_cluster_max_probe" default={100}>
-  Accepts integers between `1` and `1000000`. A higher number increases recall
-  at the cost of higher latency.
+  Controls the global probe budget in units of an average cluster's search cost,
+  adjusted for filter selectivity. Accepts integers between `1` and `1000000`. A
+  higher number increases recall at the cost of higher latency.
 </ParamField>

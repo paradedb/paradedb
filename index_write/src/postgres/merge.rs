@@ -42,7 +42,6 @@ use tantivy::index::SegmentMeta;
 use tantivy::indexer::MergeCandidate;
 
 const BACKPRESSURE_MULTIPLIER: usize = 4;
-const MUTABLE_BACKPRESSURE_SEGMENT_COUNT: usize = 2;
 
 thread_local! {
     static WARNED_VECTOR_INDEXES: RefCell<HashSet<pg_sys::Oid>> = RefCell::new(HashSet::default());
@@ -265,7 +264,9 @@ impl IndexLayerSizes {
             // indexes on hosts with many cores, where the default `target_segment_count` is large.
             if background_layer_sizes.is_empty() {
                 background_layer_sizes.push(target_segment_byte_size);
-            } else if has_larger_layer && needs_backpressure(segment_cnt, target_segment_count) {
+            } else if has_larger_layer
+                && segment_cnt > BACKPRESSURE_MULTIPLIER * target_segment_count
+            {
                 backpressure_layer_size = Some(target_segment_byte_size);
             }
         }
@@ -298,10 +299,6 @@ impl IndexLayerSizes {
     }
 }
 
-fn needs_backpressure(visible_segment_count: usize, target_segment_count: usize) -> bool {
-    visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count
-}
-
 #[inline]
 fn backpressure(
     candidates: &[LayeredMergeCandidate],
@@ -317,9 +314,9 @@ fn backpressure(
                     .iter()
                     .map(|(_, MergeCandidate(segment_ids))| segment_ids.len())
                     .sum();
-                eligible_segment_count > MUTABLE_BACKPRESSURE_SEGMENT_COUNT
+                eligible_segment_count > 2
             } else {
-                needs_backpressure(visible_segment_count, target_segment_count)
+                visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count
             }
         })
         .min_by_key(|layer| layer[0].0)

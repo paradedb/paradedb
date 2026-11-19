@@ -159,7 +159,7 @@ pub enum SearchQueryInput {
     TermSet {
         /// Also reads the legacy `terms: [{"field": ..., "value": ...}, ...]` form.
         #[serde(alias = "terms", deserialize_with = "deserialize_termset")]
-        termset: Arc<std::collections::HashMap<FieldName, Vec<PdbOwnedValue>>>,
+        termset: Arc<std::collections::BTreeMap<FieldName, Vec<PdbOwnedValue>>>,
     },
     WithIndex {
         oid: pg_sys::Oid,
@@ -1293,23 +1293,23 @@ struct TermInputWire {
 /// `terms` list of [`TermInputWire`] entries (grouped by field as it is read).
 fn deserialize_termset<'de, D>(
     deserializer: D,
-) -> Result<Arc<std::collections::HashMap<FieldName, Vec<PdbOwnedValue>>>, D::Error>
+) -> Result<Arc<std::collections::BTreeMap<FieldName, Vec<PdbOwnedValue>>>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     struct TermSetVisitor;
 
     impl<'de> Visitor<'de> for TermSetVisitor {
-        type Value = Arc<HashMap<FieldName, Vec<PdbOwnedValue>>>;
+        type Value = Arc<BTreeMap<FieldName, Vec<PdbOwnedValue>>>;
 
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             f.write_str("a map of field to term values, or a legacy list of term set entries")
         }
 
         fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-            let mut termset: HashMap<FieldName, Vec<PdbOwnedValue>> = HashMap::new();
+            let mut termset: BTreeMap<FieldName, Vec<PdbOwnedValue>> = BTreeMap::new();
             while let Some((field, values)) = map.next_entry::<FieldName, Vec<PdbOwnedValue>>()? {
                 termset.entry(field).or_default().extend(values);
             }
@@ -1320,7 +1320,7 @@ where
             self,
             mut seq: A,
         ) -> Result<Self::Value, A::Error> {
-            let mut termset: HashMap<FieldName, Vec<PdbOwnedValue>> = HashMap::new();
+            let mut termset: BTreeMap<FieldName, Vec<PdbOwnedValue>> = BTreeMap::new();
             while let Some(TermInputWire { field, value, .. }) = seq.next_element()? {
                 termset.entry(field).or_default().push(value);
             }
@@ -2579,7 +2579,7 @@ mod tests {
     }
 
     fn create_term_query() -> SearchQueryInput {
-        let mut termset = std::collections::HashMap::new();
+        let mut termset = std::collections::BTreeMap::new();
         termset.insert("test".into(), vec![PdbOwnedValue::Str("value".to_string())]);
         SearchQueryInput::TermSet {
             termset: Arc::new(termset),

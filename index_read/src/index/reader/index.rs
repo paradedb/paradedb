@@ -1370,7 +1370,7 @@ impl SearchIndexReader {
             schema,
             underlying_reader: reader,
             underlying_index: index,
-            query: Arc::new(query),
+            query: Arc::from(query),
             estimate_from_statistics,
             segment_stats_snapshot,
             pruning_query,
@@ -1495,7 +1495,7 @@ impl SearchIndexReader {
             return self;
         };
         if replace_query {
-            self.query = Arc::new(disjunct_union);
+            self.query = Arc::from(disjunct_union);
             self.pruning_estimate = OnceLock::new();
             self.estimate_from_statistics = false;
             self
@@ -4519,7 +4519,7 @@ mod tests {
                     },
                 },
                 SearchQueryInput::TermSet {
-                    termset: Arc::new(std::collections::HashMap::from([(
+                    termset: Arc::new(std::collections::BTreeMap::from([(
                         field.clone(),
                         vec![value],
                     )])),
@@ -5063,7 +5063,7 @@ mod tests {
     #[pg_test]
     fn term_sets_read_each_field_at_most_once_per_segment() {
         use crate::index::segment_pruning::EMPIRICAL_READS;
-        use std::collections::HashMap;
+        use std::collections::BTreeMap;
         use std::sync::atomic::Ordering::Relaxed;
 
         Spi::run("CREATE TABLE grouped_term_proofs (id bigint PRIMARY KEY, x bigint NOT NULL, title text NOT NULL);
@@ -5075,7 +5075,7 @@ mod tests {
             INSERT INTO grouped_term_proofs SELECT g, g + 1000, 'alpha beta' FROM generate_series(11, 20) g;
             RESET paradedb.global_mutable_segment_rows;").unwrap();
         let index_rel = open_index("grouped_term_proofs_idx");
-        let mut same_field: HashMap<FieldName, Vec<PdbOwnedValue>> = HashMap::from([(
+        let mut same_field: BTreeMap<FieldName, Vec<PdbOwnedValue>> = BTreeMap::from([(
             FieldName::from("id"),
             (1000..1512).map(PdbOwnedValue::I64).collect(),
         )]);
@@ -5091,7 +5091,7 @@ mod tests {
             vec![PdbOwnedValue::Str("alpha".into())],
         );
         for (termset, expected, candidates, passes) in [
-            (Arc::new(HashMap::new()), 0, 0, 0),
+            (Arc::new(BTreeMap::new()), 0, 0, 0),
             (Arc::new(same_field), 1, 1, 1),
             (Arc::new(mixed_fields), 2, 2, 2),
             (Arc::new(unsupported), 20, 2, 2),
@@ -5763,7 +5763,7 @@ mod tests {
             ),
             (
                 SearchQueryInput::TermSet {
-                    termset: Arc::new(std::collections::HashMap::from([(
+                    termset: Arc::new(std::collections::BTreeMap::from([(
                         FieldName::from("id"),
                         vec![PdbOwnedValue::I64(1)],
                     )])),

@@ -212,7 +212,7 @@ pub unsafe fn terms_with_operator(
                 Ok(value.0)
             })
             .collect::<Result<Vec<_>, TantivyValueError>>()?;
-        let mut termset = std::collections::HashMap::new();
+        let mut termset = std::collections::BTreeMap::new();
         termset.insert(field, values);
         Ok(SearchQueryInput::TermSet {
             termset: Arc::new(termset),
@@ -314,9 +314,9 @@ term_fn_unsupported!(
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(terms: Vec<SearchQueryInput>) -> SearchQueryInput {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
-    let mut termset: HashMap<FieldName, Vec<PdbOwnedValue>> = HashMap::new();
+    let mut termset: BTreeMap<FieldName, Vec<PdbOwnedValue>> = BTreeMap::new();
     for input in terms {
         match input {
             SearchQueryInput::FieldedQuery {

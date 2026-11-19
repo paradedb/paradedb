@@ -419,11 +419,14 @@ fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
     }
 
     // PostgreSQL computes the select list of an inheritance parent above the scan of
-    // each table, so no ParadeDB scan can compute `pdb.agg()` for it.
-    if has_paradedb_agg_current_level && unsafe { query_has_inheritance_parent(parse) } {
-        pgrx::error!(
-            "Cannot execute window aggregate: pdb.agg() does not support the parent of an inheritance tree. Use FROM ONLY to read the parent table alone"
-        );
+    // each table, so no ParadeDB scan can compute a window function for it.
+    if unsafe { query_reads_inheritance_parent(parse) } {
+        if has_paradedb_agg_current_level {
+            pgrx::error!(
+                "Cannot execute window aggregate: pdb.agg() does not support the parent of an inheritance tree. Use FROM ONLY to read the parent table alone, or run ANALYZE on the table if it has no child tables left"
+            );
+        }
+        return false;
     }
 
     // Check if WHERE clause can be handled
@@ -473,10 +476,15 @@ fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
     false
 }
 
-/// True if the query reads the parent of an inheritance tree without `ONLY`.
-unsafe fn query_has_inheritance_parent(parse: *mut pg_sys::Query) -> bool {
+/// True if the query, or a subquery or view in its range table, reads the parent of an
+/// inheritance tree without `ONLY`.
+unsafe fn query_reads_inheritance_parent(parse: *mut pg_sys::Query) -> bool {
     for rte in PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable).iter_ptr() {
-        if range_table::is_inheritance_parent(rte) {
+        if range_table::is_inheritance_parent(rte)
+            || ((*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
+                && !(*rte).subquery.is_null()
+                && query_reads_inheritance_parent((*rte).subquery))
+        {
             return true;
         }
     }

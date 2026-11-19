@@ -1570,6 +1570,17 @@ impl CustomScan for BaseScan {
                 }
             }
 
+            // The scan's own target list holds the calls that PostgreSQL places in this scan,
+            // such as the PlaceHolderVar of an inheritance parent, translated to this table.
+            let own_tlist: Vec<*mut pg_sys::TargetEntry> = tlist.iter_ptr().collect();
+            for te in own_tlist {
+                for (_, var, attname) in
+                    pullout_funcexprs(te.cast(), &funcoids, rti, builder.args().root)
+                {
+                    attname_lookup.insert((rti as Varno, (*var).varattno), attname);
+                }
+            }
+
             // Extract join-level snippet predicates for this relation
             // Get values we need before the mutable borrow
 

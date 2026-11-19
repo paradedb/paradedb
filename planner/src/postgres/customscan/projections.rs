@@ -297,12 +297,18 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
                     })
             });
 
-        if !has_joins && !has_aggs {
-            // No joins and no aggregates - PlaceHolderVar provides no benefit
+        let mut vars = (*srs).fcall.collect_nodes::<pg_sys::Var>();
+
+        // PostgreSQL computes the select list of an inheritance parent above the `Append`.
+        // The PlaceHolderVar makes it compute the call in the scan of each table instead.
+        let reads_inheritance_parent =
+            vars.len() == 1 && var_reads_inheritance_parent(root, vars[0]);
+
+        if !has_joins && !has_aggs && !reads_inheritance_parent {
+            // No joins, no aggregates and no inheritance parent - PlaceHolderVar provides no benefit
             return ReturnedNodePointer::unsupported();
         }
 
-        let mut vars = (*srs).fcall.collect_nodes::<pg_sys::Var>();
         assert!(vars.len() == 1, "function is improperly defined or called");
         let var = vars.pop().unwrap();
 
@@ -332,6 +338,30 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
     }
 
     ReturnedNodePointer::unsupported()
+}
+
+/// True if `var` reads the parent of an inheritance tree that the query names without `ONLY`.
+/// `subquery_planner` has already cleared `inh` on a table that has no children. A
+/// partitioned table returns false: PostgreSQL pushes its select list into each scan.
+unsafe fn var_reads_inheritance_parent(
+    root: *mut pg_sys::PlannerInfo,
+    var: *mut pg_sys::Var,
+) -> bool {
+    if (*var).varlevelsup != 0
+        || (*var).varno <= 0
+        || (*root).parse.is_null()
+        || (*(*root).parse).commandType != pg_sys::CmdType::CMD_SELECT
+    {
+        return false;
+    }
+    let rtable = (*(*root).parse).rtable;
+    if (*var).varno as usize > PgList::<pg_sys::RangeTblEntry>::from_pg(rtable).len() {
+        return false;
+    }
+    let rte = pgrx::rt_fetch!((*var).varno as pg_sys::Index, rtable).get();
+    (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION
+        && (*rte).inh
+        && (*rte).relkind as u8 == pg_sys::RELKIND_RELATION
 }
 
 /// find all [`pg_sys::FuncExpr`] nodes matching a set of known function Oids that also contain

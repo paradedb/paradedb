@@ -169,9 +169,9 @@ SELECT id, kind FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
   2 | b
 (2 rows)
 
--- `pdb.score` and `pdb.snippet` on the parent fail. PostgreSQL computes the select
--- list of an inheritance parent above the `Append`: it pushes the list into each
--- table's scan only for a partitioned table. No Base Scan computes the functions.
+-- PostgreSQL computes the select list of an inheritance parent above the `Append`.
+-- `pdb.score` and `pdb.snippet` are wrapped in a PlaceHolderVar, so the Base Scan of
+-- each table computes them.
 EXPLAIN (COSTS OFF)
 SELECT id, kind, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
 FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
@@ -197,7 +197,36 @@ FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
 
 SELECT id, kind, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
 FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
-ERROR:  `pdb.score` must be evaluated by a ParadeDB scan. If the query does apply a ParadeDB operator, please report it at https://github.com/paradedb/paradedb/issues/new/choose
+ id | kind | scored | snippet  
+----+------+--------+----------
+  1 | a    | t      | <b>a</b>
+  3 | c    | t      | <b>c</b>
+(2 rows)
+
+SELECT id, pdb.score(id) > 0 AS scored FROM inh_parent
+WHERE kind ||| 'a c' ORDER BY pdb.score(id) DESC, id LIMIT 2;
+ id | scored 
+----+--------
+  1 | t
+  3 | t
+(2 rows)
+
+-- The same with an aggregate above the `Append`.
+SELECT count(*), max(pdb.score(id)) > 0 AS scored FROM inh_parent WHERE kind ||| 'a c';
+ count | scored 
+-------+--------
+     2 | t
+(1 row)
+
+SELECT max(pdb.snippet(kind)) FROM inh_parent WHERE kind ||| 'a c';
+   max    
+----------
+ <b>c</b>
+(1 row)
+
+-- `pdb.snippets` has no PlaceHolderVar, so it fails on the parent.
+SELECT id, pdb.snippets(kind) FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
+ERROR:  `pdb.snippets` must be evaluated by a ParadeDB scan. If the query does apply a ParadeDB operator, please report it at https://github.com/paradedb/paradedb/issues/new/choose
 -- With `FROM ONLY`, the parent's Base Scan computes them.
 SELECT id, kind, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
 FROM ONLY inh_parent WHERE kind ||| 'a c' ORDER BY id;
@@ -228,10 +257,27 @@ FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
 -- PostgreSQL computes it above the `Append`, where no Base Scan can.
 SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
 FROM inh_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
-ERROR:  Cannot execute window aggregate: pdb.agg() does not support the parent of an inheritance tree. Use FROM ONLY to read the parent table alone
+ERROR:  Cannot execute window aggregate: pdb.agg() does not support the parent of an inheritance tree. Use FROM ONLY to read the parent table alone, or run ANALYZE on the table if it has no child tables left
 SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
 FROM inh_parent WHERE id @@@ paradedb.all() LIMIT 2;
-ERROR:  Cannot execute window aggregate: pdb.agg() does not support the parent of an inheritance tree. Use FROM ONLY to read the parent table alone
+ERROR:  Cannot execute window aggregate: pdb.agg() does not support the parent of an inheritance tree. Use FROM ONLY to read the parent table alone, or run ANALYZE on the table if it has no child tables left
+-- The same through a view or a subquery over the parent.
+CREATE VIEW inh_parent_v AS SELECT id, kind FROM inh_parent;
+SELECT id, kind, count(*) OVER () AS total
+FROM inh_parent_v WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+ id | kind | total 
+----+------+-------
+  1 | a    |     4
+  2 | b    |     4
+(2 rows)
+
+SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
+FROM inh_parent_v WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+ERROR:  Cannot execute window aggregate: pdb.agg() does not support the parent of an inheritance tree. Use FROM ONLY to read the parent table alone, or run ANALYZE on the table if it has no child tables left
+SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
+FROM (SELECT id, kind FROM inh_parent) s WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+ERROR:  Cannot execute window aggregate: pdb.agg() does not support the parent of an inheritance tree. Use FROM ONLY to read the parent table alone, or run ANALYZE on the table if it has no child tables left
+DROP VIEW inh_parent_v;
 -- With `FROM ONLY`, `pdb.agg()` counts the parent's rows.
 SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
 FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
@@ -284,6 +330,25 @@ SELECT id, kind FROM inh_former_parent WHERE id @@@ paradedb.all() ORDER BY id L
   2 | b
 (2 rows)
 
+-- `pdb.score` and `pdb.snippet` work on it. `pdb.agg()` fails until ANALYZE.
+SELECT id, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
+FROM inh_former_parent WHERE kind ||| 'a' ORDER BY id;
+ id | scored | snippet  
+----+--------+----------
+  1 | t      | <b>a</b>
+(1 row)
+
+SELECT id, pdb.score(id) > 0 AS scored FROM inh_former_parent
+WHERE kind ||| 'a b' ORDER BY pdb.score(id) DESC, id LIMIT 2;
+ id | scored 
+----+--------
+  1 | t
+  2 | t
+(2 rows)
+
+SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
+FROM inh_former_parent WHERE kind ||| 'a' LIMIT 2;
+ERROR:  Cannot execute window aggregate: pdb.agg() does not support the parent of an inheritance tree. Use FROM ONLY to read the parent table alone, or run ANALYZE on the table if it has no child tables left
 -- ANALYZE clears `relhassubclass`, and the scan gets the LIMIT again.
 ANALYZE inh_former_parent;
 EXPLAIN (COSTS OFF)

@@ -51,14 +51,23 @@ EXPLAIN (COSTS OFF)
 SELECT id, kind FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
 SELECT id, kind FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
 
--- `pdb.score` and `pdb.snippet` on the parent fail. PostgreSQL computes the select
--- list of an inheritance parent above the `Append`: it pushes the list into each
--- table's scan only for a partitioned table. No Base Scan computes the functions.
+-- PostgreSQL computes the select list of an inheritance parent above the `Append`.
+-- `pdb.score` and `pdb.snippet` are wrapped in a PlaceHolderVar, so the Base Scan of
+-- each table computes them.
 EXPLAIN (COSTS OFF)
 SELECT id, kind, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
 FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
 SELECT id, kind, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
 FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
+SELECT id, pdb.score(id) > 0 AS scored FROM inh_parent
+WHERE kind ||| 'a c' ORDER BY pdb.score(id) DESC, id LIMIT 2;
+
+-- The same with an aggregate above the `Append`.
+SELECT count(*), max(pdb.score(id)) > 0 AS scored FROM inh_parent WHERE kind ||| 'a c';
+SELECT max(pdb.snippet(kind)) FROM inh_parent WHERE kind ||| 'a c';
+
+-- `pdb.snippets` has no PlaceHolderVar, so it fails on the parent.
+SELECT id, pdb.snippets(kind) FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
 
 -- With `FROM ONLY`, the parent's Base Scan computes them.
 SELECT id, kind, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
@@ -78,6 +87,16 @@ SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
 FROM inh_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
 SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
 FROM inh_parent WHERE id @@@ paradedb.all() LIMIT 2;
+
+-- The same through a view or a subquery over the parent.
+CREATE VIEW inh_parent_v AS SELECT id, kind FROM inh_parent;
+SELECT id, kind, count(*) OVER () AS total
+FROM inh_parent_v WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
+FROM inh_parent_v WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
+FROM (SELECT id, kind FROM inh_parent) s WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+DROP VIEW inh_parent_v;
 
 -- With `FROM ONLY`, `pdb.agg()` counts the parent's rows.
 SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
@@ -102,6 +121,14 @@ CREATE INDEX inh_former_parent_idx ON inh_former_parent USING paradedb (id, kind
 EXPLAIN (COSTS OFF)
 SELECT id, kind FROM inh_former_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
 SELECT id, kind FROM inh_former_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+
+-- `pdb.score` and `pdb.snippet` work on it. `pdb.agg()` fails until ANALYZE.
+SELECT id, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
+FROM inh_former_parent WHERE kind ||| 'a' ORDER BY id;
+SELECT id, pdb.score(id) > 0 AS scored FROM inh_former_parent
+WHERE kind ||| 'a b' ORDER BY pdb.score(id) DESC, id LIMIT 2;
+SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
+FROM inh_former_parent WHERE kind ||| 'a' LIMIT 2;
 
 -- ANALYZE clears `relhassubclass`, and the scan gets the LIMIT again.
 ANALYZE inh_former_parent;

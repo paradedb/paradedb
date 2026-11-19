@@ -35,7 +35,6 @@ use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::node::CustomScanNodeExt;
-use crate::postgres::customscan::range_table;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::index::is_partitioned_index;
 use crate::postgres::rel::PgSearchRelation;
@@ -712,12 +711,6 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
             // A partitioned table is read by one scan per partition, so no single scan
             // sees its whole Top K, and its index has no storage to read a schema from.
             if is_partitioned_index(bm25_index.oid()) {
-                return false;
-            }
-
-            // The parent of an inheritance tree is also read by one scan per table.
-            let rte = unsafe { pgrx::rt_fetch!(varno, (*parse).rtable).get() };
-            if unsafe { range_table::is_inheritance_parent(rte) } {
                 return false;
             }
 

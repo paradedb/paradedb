@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795075617662,
+  "lastUpdate": 1795075644698,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -184344,6 +184344,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14409040208-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "078a6e2dc4885a3d7fbba64cab50af0160664e2c",
+          "message": "chore: Sync `0.27.0` release artifacts to main.",
+          "timestamp": "2026-11-19T06:41:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/078a6e2dc4885a3d7fbba64cab50af0160664e2c"
+        },
+        "date": 1795075642218,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 156.44159520026045,
+            "unit": "median tps",
+            "extra": "avg tps: 154.29496877943137, max tps: 164.89436334612665, count: 59072"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 544.2780779030231,
+            "unit": "median tps",
+            "extra": "avg tps: 558.6427795698601, max tps: 5044.786050089211, count: 59072"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3011.1292625579495,
+            "unit": "median tps",
+            "extra": "avg tps: 2998.345241799129, max tps: 3249.5471665618684, count: 59072"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 194.48161213712618,
+            "unit": "median tps",
+            "extra": "avg tps: 192.26089732623194, max tps: 213.88574273445923, count: 59072"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 270.3972952510285,
+            "unit": "median tps",
+            "extra": "avg tps: 374.9282636624567, max tps: 2640.3574262633056, count: 118144"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 30.101018994921375,
+            "unit": "median tps",
+            "extra": "avg tps: 29.763123665333907, max tps: 45.33583768500705, count: 59072"
+          }
+        ],
+        "publication_id": "14508234331-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -234824,6 +234883,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14409040208-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "078a6e2dc4885a3d7fbba64cab50af0160664e2c",
+          "message": "chore: Sync `0.27.0` release artifacts to main.",
+          "timestamp": "2026-11-19T06:41:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/078a6e2dc4885a3d7fbba64cab50af0160664e2c"
+        },
+        "date": 1795075644619,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.572103,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.900038806050786, max cpu: 36.606293, count: 59072"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 52.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.11600686979449, max mem: 52.1171875, count: 59072"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.320017692016321, max cpu: 36.363636, count: 59072"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 32.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 32.47907810066529, max mem: 32.48046875, count: 59072"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.819744094124265, max cpu: 13.793103, count: 59072"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 46.625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.556136274906045, max mem: 50.625, count: 59072"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2494,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2502.58218783857, max block_count: 2540.0, count: 59072"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.676084,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8789522644941985, max cpu: 4.676084, count: 59072"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 29.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.676890595375134, max mem: 29.78125, count: 59072"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.723303764897075, max segment_count: 35.0, count: 59072"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.160305,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.312166617818697, max cpu: 32.030506, count: 59072"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 62.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.83147631280471, max mem: 62.84765625, count: 59072"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.435787728358366, max cpu: 36.363636, count: 118144"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.20128518349429, max mem: 58.38671875, count: 118144"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.812366214633254, max cpu: 22.630835, count: 59072"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 50.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.5023029364589, max mem: 52.140625, count: 59072"
+          }
+        ],
+        "publication_id": "14508234331-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

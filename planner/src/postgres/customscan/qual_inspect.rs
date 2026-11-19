@@ -1205,6 +1205,17 @@ pub fn extract_quals(
 
         pg_sys::NodeTag::T_NullTest => {
             let nulltest = unsafe { nodecast!(NullTest, node) }?;
+            // Generic plans keep optional-filter guards as parameter expressions,
+            // which can include casts. Evaluate them at execution like OpExpr predicates.
+            if unsafe { (*nulltest).arg.contains_param() } {
+                state.uses_heap_expr = true;
+                state.uses_tantivy_to_query = true;
+                return Some(Qual::HeapExpr {
+                    expr_node: node,
+                    expr_desc: deparse_expr(Some(context), indexrel, node),
+                    search_query_input: Box::new(SearchQueryInput::All),
+                });
+            }
             // Note: PushdownField::try_new requires PlannerInfo
             if let Some(root) = context.planner_info() {
                 if let Some(field) =

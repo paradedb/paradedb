@@ -602,7 +602,7 @@ impl PgSearchTableProvider {
         &self,
         state: Option<ScanState>,
         schema: SchemaRef,
-        resolved_query: SearchQueryInput,
+        resolved_query: Arc<SearchQueryInput>,
         ffhelper: Arc<FFHelper>,
         partition_count: usize,
         parallel_state: Option<*mut ParallelScanState>,
@@ -798,13 +798,14 @@ impl PgSearchTableProvider {
         // rather than earlier because each process (leader and workers) independently
         // deserializes the logical plan in its own executor context. The
         // planstate and expr_context are injected by the execution codec.
-        let base_query = self.scan_info.mode.query().clone();
-        let combined_base_query = self.combine_query_with_filters(base_query, filters);
+        let base_query = self.scan_info.mode.query();
+        let combined_base_query =
+            self.combine_query_with_filters(Arc::unwrap_or_clone(base_query), filters);
         let mut scan_mode = self
             .scan_info
             .mode
             .clone()
-            .with_base_query(combined_base_query);
+            .with_base_query(Arc::new(combined_base_query));
         let has_runtime_expressions =
             scan_mode.has_postgres_expressions() || scan_mode.has_parameters();
         if has_runtime_expressions && !self.explain_only {
@@ -837,7 +838,7 @@ impl PgSearchTableProvider {
         // the query above and opens its reader with the actual runtime value.
         let reader_query =
             if self.explain_only && (query.has_postgres_expressions() || query.has_parameters()) {
-                SearchQueryInput::All
+                Arc::new(SearchQueryInput::All)
             } else {
                 query.clone()
             };

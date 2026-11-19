@@ -18,6 +18,7 @@
 //! Aggregate functions for ParadeDB search.
 
 use std::error::Error;
+use std::sync::Arc;
 
 use pgrx::{Json, JsonB, default, pg_extern};
 
@@ -35,7 +36,7 @@ use planner::api::aggregate::MvccVisibility;
 
 fn aggregate_impl(
     index: IndexOid,
-    query: SearchQueryInput,
+    query: Arc<SearchQueryInput>,
     agg: Json,
     visibility: MvccVisibility,
     memory_limit: i64,
@@ -153,7 +154,14 @@ pub fn aggregate(
     let bucket_limit = bucket_limit.unwrap_or_else(|| gucs::max_term_agg_buckets() as i64);
     let visibility = resolve_udf_visibility(solve_mvcc, visibility);
 
-    aggregate_impl(index, query, agg, visibility, memory_limit, bucket_limit)
+    aggregate_impl(
+        index,
+        Arc::new(query),
+        agg,
+        visibility,
+        memory_limit,
+        bucket_limit,
+    )
 }
 
 #[pgrx::pg_schema]

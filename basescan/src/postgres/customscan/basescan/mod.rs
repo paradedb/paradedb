@@ -260,12 +260,14 @@ impl BaseScan {
                 if let Some(ref join_predicate) = state.custom_state().join_predicates {
                     // Combine base query with join predicate for snippet generation
                     let base_query = state.custom_state().search_query_input();
-                    Some(SearchQueryInput::Boolean {
-                        must: vec![base_query.clone()],
-                        should: vec![join_predicate.clone()],
+                    let base_query = Arc::unwrap_or_clone(base_query);
+                    let join_predicate = Arc::unwrap_or_clone(join_predicate.clone());
+                    Some(Arc::new(SearchQueryInput::Boolean {
+                        must: vec![base_query],
+                        should: vec![join_predicate],
                         must_not: vec![],
                         minimum_should_match: None,
-                    })
+                    }))
                 } else {
                     None
                 };
@@ -274,6 +276,7 @@ impl BaseScan {
                 // Use enhanced query if available, otherwise use base query
                 let query_to_use = enhanced_query_for_snippets
                     .as_ref()
+                    .map(Arc::clone)
                     .unwrap_or_else(|| state.custom_state().search_query_input());
 
                 let mut new_generator = state
@@ -283,7 +286,7 @@ impl BaseScan {
                     .unwrap()
                     .snippet_generator(
                         snippet_type.field().root(),
-                        query_to_use,
+                        &query_to_use,
                         std::ptr::NonNull::new(expr_context),
                     );
 
@@ -1131,7 +1134,7 @@ impl CustomScan for BaseScan {
                 .collect(),
             );
 
-            let mut query = SearchQueryInput::from(&quals);
+            let mut query = Arc::new(SearchQueryInput::from(&quals));
             let vector_field =
                 topk_pathkey_info
                     .pathkeys()
@@ -1163,7 +1166,7 @@ impl CustomScan for BaseScan {
                 // we can use the norm_selec that already happened
                 norm_selec
             } else {
-                match estimation_query.resolve(&query) {
+                match estimation_query.resolve(query.clone()) {
                     Ok(indexable) => {
                         // Ask the index. This is the one branch that opens, so reuse that same
                         // open's cost and segment count for the worker decision instead of opening
@@ -1200,7 +1203,7 @@ impl CustomScan for BaseScan {
                 SearchIndexReader::estimate_segment_count(
                     source_context.indexrel().unwrap(),
                     &source_context.schema().unwrap(),
-                    estimation_query.resolve(&query).ok(),
+                    estimation_query.resolve(query.clone()).ok(),
                 )
             });
             let parallel_structure = ScanParallelStructure {
@@ -1268,7 +1271,7 @@ impl CustomScan for BaseScan {
             )
             .and_then(|planner| planner.harvest());
             if let Some(harvested) = &harvested_bitmap {
-                harvested.rewrite_query(&mut query);
+                harvested.rewrite_query(Arc::make_mut(&mut query));
                 custom_private.set_query(query.clone());
             }
 
@@ -1309,7 +1312,7 @@ impl CustomScan for BaseScan {
                 let drive_cost = match row_estimate {
                     _ if is_vector_topk => None,
                     RowEstimate::Known(_) => costable_drive_cost(
-                        &query,
+                        query.clone(),
                         &estimation_query,
                         source_context.indexrel().unwrap(),
                         &quals,
@@ -1324,7 +1327,9 @@ impl CustomScan for BaseScan {
                     let work = vector_field.as_ref().and_then(|field| {
                         vector_cost::VectorWork::for_query(
                             strategy,
-                            estimation_query.resolve(&query).unwrap_or(&query),
+                            estimation_query
+                                .resolve(query.clone())
+                                .unwrap_or(query.clone()),
                             (*rel).tuples.max(1.0),
                             selectivity,
                             field,
@@ -1599,7 +1604,8 @@ impl CustomScan for BaseScan {
                 rti as pg_sys::Index,
                 &indexrel,
                 true,
-            );
+            )
+            .map(Arc::new);
 
             builder
                 .custom_private_mut()
@@ -1769,7 +1775,6 @@ impl CustomScan for BaseScan {
         let base_query = builder
             .custom_private()
             .query()
-            .clone()
             .expect("should have a SearchQueryInput");
         builder
             .custom_state()
@@ -1786,13 +1791,13 @@ impl CustomScan for BaseScan {
 
                 // Only enhance scoring if the base query doesn't already have search predicates
                 // If base query has @@@ conditions, it already provides scoring context
-                if !base_query_has_search_predicates(original_base_query, state.indexrelid) {
+                if !base_query_has_search_predicates(&original_base_query, state.indexrelid) {
                     // Combine base query with join predicate using Boolean structure
                     // This provides enhanced search context for scoring while maintaining
                     // the same filtering behavior as the base query
                     enhanced_score_query = Some(SearchQueryInput::Boolean {
-                        must: vec![original_base_query.clone()],
-                        should: vec![join_predicate.clone()],
+                        must: vec![Arc::unwrap_or_clone(original_base_query)],
+                        should: vec![Arc::unwrap_or_clone(join_predicate.clone())],
                         must_not: vec![],
                         minimum_should_match: None,
                     });
@@ -1804,7 +1809,7 @@ impl CustomScan for BaseScan {
             if let Some(enhanced_score_query) = enhanced_score_query {
                 builder
                     .custom_state()
-                    .set_base_search_query_input(enhanced_score_query);
+                    .set_base_search_query_input(Arc::new(enhanced_score_query));
             }
         }
 
@@ -2015,7 +2020,7 @@ impl CustomScan for BaseScan {
 
         // Only process the query if it's initialized
         // For EXPLAIN without ANALYZE, the query might not be initialized yet
-        if !matches!(base_query, SearchQueryInput::Uninitialized) {
+        if !matches!(&*base_query, SearchQueryInput::Uninitialized) {
             if base_query.is_full_scan_query() {
                 explainer.add_bool("Full Index Scan", true);
             }
@@ -2045,7 +2050,7 @@ impl CustomScan for BaseScan {
                             SearchIndexReader::mvcc_for_estimation(indexrel, &query_for_estimates);
                         let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
-                            query_for_estimates.clone(),
+                            Arc::new(query_for_estimates.clone()),
                             false,      // don't need scores for estimates
                             mvcc_style, // Use snapshot when prunable, largest segment otherwise
                             None,       // No expr_context needed for estimates
@@ -2063,7 +2068,7 @@ impl CustomScan for BaseScan {
                 explainer.add_query_with_estimates(&query_tree);
             } else {
                 // Regular display without estimates
-                explainer.add_query(base_query);
+                explainer.add_query(&base_query);
             }
         } else {
             explainer.add_text("Tantivy Query", "(query not yet initialized)");

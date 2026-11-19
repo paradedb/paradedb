@@ -1379,6 +1379,7 @@ mod tests {
     use crate::index::reader::index::test_support::{range_query, segmented_index_fixture};
     use crate::index::segment_pruning::STATS_OPENS;
     use pgrx::prelude::*;
+    use std::sync::Arc;
     use std::sync::atomic::Ordering::Relaxed;
 
     #[pg_test]
@@ -1416,7 +1417,7 @@ mod tests {
         let (index_rel, _heap) = segmented_index_fixture("lazy_claim_pruning", 4, false);
         let reader = SearchIndexReader::open(
             &index_rel,
-            range_query("id", 11, 20),
+            Arc::new(range_query("id", 11, 20)),
             false,
             MvccSatisfies::Snapshot,
         )

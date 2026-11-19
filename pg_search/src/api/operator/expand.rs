@@ -33,6 +33,7 @@ use crate::query::SearchQueryInput;
 use crate::query::pdb_query::{pdb, synonym_index_of_column};
 use pgrx::{FromDatum, IntoDatum, PgList, direct_function_call, pg_extern, pg_sys};
 use std::ffi::CStr;
+use std::sync::Arc;
 
 /// The planner calls this function in place of a `pdb.expand` subquery that a synonym index
 /// holds. The text of a prepared statement can be a parameter, which has a value only at run time.
@@ -114,7 +115,7 @@ pub(super) unsafe fn selectivity_now(
     );
     let input = nodecast!(Const, input)?;
     let input = SearchQueryInput::from_datum((*input).constvalue, (*input).constisnull)?;
-    estimate_selectivity(index, input)
+    estimate_selectivity(index, Arc::new(input))
 }
 
 /// The run for the estimate reads and compiles every rule a second time, so it is only for a

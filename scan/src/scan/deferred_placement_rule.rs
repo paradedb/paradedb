@@ -962,7 +962,7 @@ mod tests {
                 Field::new("id", DataType::Int64, true),
                 Field::new("title", DataType::Utf8View, true),
             ])),
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             vec![DeferredField {
                 name: "title".into(),
                 is_bytes: false,
@@ -1125,7 +1125,7 @@ mod tests {
         let scan = Arc::new(PgSearchScanPlan::new(
             None,
             Arc::new(Schema::new(schema)),
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             columns
                 .iter()
                 .enumerate()
@@ -1248,7 +1248,7 @@ mod tests {
                 Field::new("id", DataType::Int64, true),
                 deferred_field("title"),
             ])),
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             vec![DeferredField {
                 name: "title".into(),
                 is_bytes: false,

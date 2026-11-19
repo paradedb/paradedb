@@ -21,6 +21,7 @@
 
 use std::os::raw::c_void;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 use crate::index::reader::io_stats::Trace;
 use crate::postgres::ParallelScanState;
@@ -231,7 +232,9 @@ impl ParallelQueryCapable for BaseScan {
             .expect("should be able to read the query from the ParallelScanState");
         state.custom_state_mut().vector_routing_pending =
             state.custom_state().needs_vector_routing();
-        state.custom_state_mut().set_base_search_query_input(query);
+        state
+            .custom_state_mut()
+            .set_base_search_query_input(Arc::new(query));
     }
 }
 
@@ -251,7 +254,7 @@ unsafe fn leader_publish_query(
     state: &mut CustomScanStateWrapper<BaseScan>,
     pscan_state: &mut ParallelScanState,
 ) {
-    let query = serde_json::to_vec(state.custom_state().search_query_input())
+    let query = serde_json::to_vec(&state.custom_state().search_query_input())
         .expect("should be able to serialize query");
     unsafe { pscan_state.publish_query(query_area(state), &query) };
 }

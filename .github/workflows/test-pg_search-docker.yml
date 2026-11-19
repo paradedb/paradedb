@@ -13,9 +13,15 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/workflows/test-pg_search-docker.yml"
-      - "docker/**"
-      - "!docker/manifests/**"
-      - "!docker/Dockerfile.stressgres"
+      - "docker/Dockerfile.paradedb-18"
+      - "docker/Dockerfile.official-18"
+      - "docker/Dockerfile.extension"
+      - "docker/bootstrap.sh"
+      - "docker/bootstrap_official.sh"
+      - "docker/.dockerignore"
+      - "docker/Dockerfile.paradedb-18.dockerignore"
+      - "docker/Dockerfile.official-18.dockerignore"
+      - "docker/Dockerfile.extension.dockerignore"
   workflow_dispatch:
     inputs:
       ref:
@@ -49,7 +55,49 @@ permissions:
   contents: read
 
 jobs:
+  image-changes:
+    if: github.event_name == 'pull_request' && inputs.ref == ''
+    runs-on: ubuntu-latest
+    outputs:
+      flavors: ${{ steps.scope.outputs.flavors }}
+      extension: ${{ steps.scope.outputs.extension }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --no-renames --name-only -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/docker-paths"
+          paradedb=false
+          official=false
+          extension=false
+          while IFS= read -r -d '' file; do
+            case "$file" in
+              docker/Dockerfile.paradedb-18)
+                paradedb=true
+                extension=true # The extension test gets the pinned release version from this file.
+                ;;
+              docker/bootstrap.sh|docker/Dockerfile.paradedb-18.dockerignore) paradedb=true ;;
+              docker/Dockerfile.official-18|docker/bootstrap_official.sh|docker/Dockerfile.official-18.dockerignore) official=true ;;
+              docker/Dockerfile.extension|docker/Dockerfile.extension.dockerignore) extension=true ;;
+              .github/workflows/test-pg_search-docker.yml|docker/.dockerignore)
+                paradedb=true
+                official=true
+                extension=true
+                ;;
+            esac
+          done < "$RUNNER_TEMP/docker-paths"
+          flavors=$(jq -cn --argjson paradedb "$paradedb" --argjson official "$official"             '[if $paradedb then "paradedb" else empty end, if $official then "official" else empty end]')
+          echo "flavors=$flavors" >> "$GITHUB_OUTPUT"
+          echo "extension=$extension" >> "$GITHUB_OUTPUT"
+
   test-paradedb:
+    needs: image-changes
+    if: ${{ !cancelled() && needs.image-changes.outputs.flavors != '[]' }}
     name: Test ${{ matrix.flavor }} Docker Image (${{ matrix.arch }})
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
@@ -65,9 +113,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        flavor:
-          - paradedb
-          - official
+        flavor: ${{ fromJSON(needs.image-changes.outputs.flavors || '["paradedb","official"]') }}
         arch:
           - amd64
           - arm64
@@ -442,6 +488,8 @@ jobs:
   # until a publish fails. Building per arch natively keeps it consistent with the
   # runnable-image job above.
   test-extension-image:
+    needs: image-changes
+    if: ${{ !cancelled() && needs.image-changes.outputs.extension != 'false' }}
     name: Test Extension Image Build (${{ matrix.arch }})
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:

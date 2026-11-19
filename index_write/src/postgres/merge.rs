@@ -99,9 +99,9 @@ pub enum MergeStyle {
         current_xid: pg_sys::FullTransactionId,
         next_xid: pg_sys::FullTransactionId,
     },
-    /// Only a background merge may follow.
-    Background,
-    /// Retry background scheduling without waiting for merge admission or selection.
+    /// VACUUM finished; wait for scheduling locks before attempting a background merge.
+    Vacuum,
+    /// Attempt a background merge, skipping busy indexes until the next sweep.
     Sweep,
 }
 

@@ -32,7 +32,7 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
         let next_xid = pg_sys::ReadNextFullTransactionId();
         garbage_collect_index(&index, next_xid, next_xid);
     }
-    do_merge(&index, MergeStyle::Background).expect("should be able to merge");
+    do_merge(&index, MergeStyle::Vacuum).expect("should be able to merge");
     // Names the index to a standby cloned after the build; see
     // `PgSearchRelation::blocked_after_promotion`.
     custom_rmgr::emit_init_record(&index);

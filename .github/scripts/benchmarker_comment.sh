@@ -47,7 +47,7 @@ rows="$(jq -nc \
   | .[] as $current
   | ([$current.baseline.benches[]? | select(.name == $current.name)][0]) as $previous
   | (if $previous != null and $previous.value > 0 then
-       if $current.unit == "queries/s" then
+       if ($current.unit == "queries/s" or $current.unit == "updates/s") then
          if $current.value > 0 then $previous.value / $current.value else null end
        else $current.value / $previous.value end
      else null end) as $ratio
@@ -90,7 +90,7 @@ else
   printf '✅ No regressions above %sx.\n' "$THRESHOLD"
 fi
 footnote="Ratio: current/previous for latency, shared hits/query, build time, and index size;"
-footnote+=" previous/current for QPS. Below 1 is better. ⚠️ marks regressions above ${THRESHOLD}x."
+footnote+=" previous/current for QPS and updates/sec. Below 1 is better. ⚠️ marks regressions above ${THRESHOLD}x."
 footnote+=" n/a means no comparable baseline."
 printf '\n%s\n\n' "$footnote"
 

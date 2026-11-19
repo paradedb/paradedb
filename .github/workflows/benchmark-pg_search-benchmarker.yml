@@ -277,6 +277,9 @@ jobs:
           # Restore the heap below; do not download the corpus through download.yaml.
           aws s3 sync "${DATASET_CONFIG_S3}" "$dataset_dir" --exclude download.yaml --no-sign-request
           test -f "${dataset_dir}/k6/search.js"
+          if [ "${DATASET}" = stackexchange ]; then
+            cp ../benchmarks/assets/stackexchange/concurrent-updates.js "${dataset_dir}/k6/"
+          fi
 
       - name: Set Up Docker Benchmark Cluster
         id: build_image
@@ -305,6 +308,8 @@ jobs:
       - name: Run ${{ env.DATASET }} Benchmark
         working-directory: benchmarker
         env:
+          WARMUP_SECONDS: 30
+          DURATION_SECONDS: 300
           BENCHMARKER_META: >-
             {"commit":"${{ steps.build_image.outputs.commit_sha }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
         run: |
@@ -316,6 +321,7 @@ jobs:
           run_benchmark() {
             workload="$1"
             style="$2"
+            name="${workload}-${style}${3:+-${3}}"
             echo "== Running workload=${workload} query_style=${style} =="
             (
               cd "$root/results"
@@ -324,25 +330,34 @@ jobs:
                 -e PARADEDB_CONTAINER=paradedb \
                 -e WORKLOAD="${workload}" \
                 -e QUERY_STYLE="${style}" \
-                -e VUS=1 \
-                -e WARMUP_SECONDS=30 \
-                -e DURATION_SECONDS=300 \
-                "$root/datasets/_ci_config/k6/search.js"
-            )
+                -e VUS="${4:-1}" \
+                -e WARMUP_SECONDS="${WARMUP_SECONDS}" \
+                -e DURATION_SECONDS="${DURATION_SECONDS}" \
+                "$root/datasets/_ci_config/k6/${3:-search}.js"
+            ) 2>&1 | tee "$root/results/${name}.log"
+            if [ -n "${3:-}" ] && grep -Eq "[1-9][0-9]* interrupted iterations" "$root/results/${name}.log"; then
+              echo "Interrupted benchmark iterations in ${name}" >&2
+              exit 1
+            fi
             dashboard_json=("$root"/results/dashboard_*.json)
             dashboard_html=("$root"/results/dashboard_*.html)
             if [ ${#dashboard_json[@]} -ne 1 ] || [ ${#dashboard_html[@]} -ne 1 ]; then
               echo "Expected one JSON and HTML dashboard for ${workload}/${style}" >&2
               exit 1
             fi
-            mv "${dashboard_json[0]}" "$root/results/${workload}-${style}.json"
-            mv "${dashboard_html[0]}" "$root/results/${workload}-${style}.html"
+            mv "${dashboard_json[0]}" "$root/results/${name}.json"
+            mv "${dashboard_html[0]}" "$root/results/${name}.html"
           }
 
           for style in conjunction disjunction phrase mixed; do
             run_benchmark topk "${style}"
           done
           run_benchmark count mixed
+          if [ "${DATASET}" = stackexchange ]; then
+            BENCHMARKER_META="$(jq -c --argjson seconds "$DURATION_SECONDS" '. + {measurement_seconds: $seconds}' <<< "$BENCHMARKER_META")"
+            export BENCHMARKER_META
+            run_benchmark topk disjunction concurrent-updates 8
+          fi
 
       - name: Dump Database Logs on Failure
         if: failure() || cancelled()

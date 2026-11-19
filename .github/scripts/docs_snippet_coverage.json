@@ -178,16 +178,6 @@
       ]
     },
     {
-      "reason": "The vector index-options CodeGroup contains 0.27 target_leaf_size examples awaiting ORM client support; its SQL fence runs in the standalone inventory.",
-      "fences": [
-        ["reference/indexing/indexing-vectors.mdx::fence-014", "aa1e6db4afea2e72f2757daa31fea536143c4ed5e557055af272ec81a5db109d"],
-        ["reference/indexing/indexing-vectors.mdx::fence-015", "7e57afd74f9f8be64e29b07aa2093161b612146aa36f6cccf7f19acd636a6585"],
-        ["reference/indexing/indexing-vectors.mdx::fence-016", "702e9166c406fb0512334e4a4b8e6e9ddf0fab7835a9b0d72f138ed23bb28614"],
-        ["reference/indexing/indexing-vectors.mdx::fence-017", "171c4d1bb64ad1b8d922b7af3f38cec0fafb973f4ecabb145acad76ba57a8e11"],
-        ["reference/indexing/indexing-vectors.mdx::fence-018", "257e3cb66e896d029d371b868cda1c8f895aff2e534586ffe5bf97cb48d08e41"]
-      ]
-    },
-    {
       "reason": "Loads the reader's own synonym file, which the smoke test doesn't have.",
       "fences": [
         ["reference/tokenizers/synonyms.mdx::fence-002", "1ff5d12e241ddd9ca7a92b1f42720315ecd09b53d5afa3d23962c3b6f3a27f74"]

@@ -111,9 +111,10 @@ await db
 ```python Django
 from paradedb import Expand, MatchAny, ParadeDB
 
-MockItem.objects.filter(
+results = MockItem.objects.filter(
     description=ParadeDB(MatchAny(Expand('sofa', ShopSynonym, 'rule')))
 ).values('description')
+list(results)
 ```
 
 ```python SQLAlchemy
@@ -136,6 +137,7 @@ with Session(engine) as session:
 MockItem.search(:description)
         .match_any(ParadeDB.expand("sofa", ShopSynonym, :rule))
         .select(:description)
+        .to_a
 ```
 
 ```cs EF Core
@@ -194,9 +196,10 @@ await db
 ```python Django
 from paradedb import Expand, Fuzzy, MatchAny, ParadeDB
 
-MockItem.objects.filter(
+results = MockItem.objects.filter(
     description=ParadeDB(MatchAny(Fuzzy(Expand('sofa', ShopSynonym, 'rule'), 1)))
 ).values('description')
+list(results)
 ```
 
 ```python SQLAlchemy
@@ -219,6 +222,7 @@ with Session(engine) as session:
 MockItem.search(:description)
         .match_any(ParadeDB.fuzzy(ParadeDB.expand("sofa", ShopSynonym, :rule), 1))
         .select(:description)
+        .to_a
 ```
 
 ```cs EF Core
@@ -268,9 +272,10 @@ from paradedb import Expand, MatchAny, ParadeDB
 
 rules = Expand('sofa', Synonym.objects.filter(set_name='shop'), 'rule')
 
-MockItem.objects.filter(
+results = MockItem.objects.filter(
     description=ParadeDB(MatchAny(rules))
 ).values('description')
+list(results)
 ```
 
 ```python SQLAlchemy
@@ -295,6 +300,7 @@ rules = ParadeDB.expand("sofa", Synonym.where(set_name: "shop"), :rule)
 MockItem.search(:description)
         .match_any(rules)
         .select(:description)
+        .to_a
 ```
 
 ```cs EF Core
@@ -343,9 +349,10 @@ await db
 ```python Django
 from paradedb import Expand, ParadeDB, Phrase
 
-MockItem.objects.filter(
+results = MockItem.objects.filter(
     description=ParadeDB(Phrase(Expand('sleek sneakers', ShopSynonym, 'rule')))
 ).values('description')
+list(results)
 ```
 
 ```python SQLAlchemy
@@ -368,6 +375,7 @@ with Session(engine) as session:
 MockItem.search(:description)
         .phrase(ParadeDB.expand("sleek sneakers", ShopSynonym, :rule))
         .select(:description)
+        .to_a
 ```
 
 ```cs EF Core
@@ -417,9 +425,10 @@ await db
 ```python Django
 from paradedb import Expand, ParadeDB, Parse
 
-MockItem.objects.filter(
+results = MockItem.objects.filter(
     description=ParadeDB(Parse(Expand('sleek AND sneakers', ShopSynonym, 'rule')))
 ).values('description')
+list(results)
 ```
 
 ```python SQLAlchemy
@@ -442,6 +451,7 @@ with Session(engine) as session:
 MockItem.search(:description)
         .parse(ParadeDB.expand("sleek AND sneakers", ShopSynonym, :rule))
         .select(:description)
+        .to_a
 ```
 
 ```cs EF Core

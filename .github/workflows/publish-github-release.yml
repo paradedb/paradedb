@@ -32,7 +32,7 @@ on:
         default: false
 
 concurrency:
-  group: publish-github-release-${{ github.head_ref || github.ref }}
+  group: publish-github-release-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 permissions:

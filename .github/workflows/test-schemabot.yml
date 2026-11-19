@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: test-schemabot-${{ github.event.pull_request.number || github.ref }}
+  group: test-schemabot-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 permissions:

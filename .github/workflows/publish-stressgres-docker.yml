@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: publish-stressgres-docker-${{ github.event.pull_request.number || github.ref }}
+  group: publish-stressgres-docker-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 # id-token: write lets cosign sign and attest the image keylessly via Sigstore.

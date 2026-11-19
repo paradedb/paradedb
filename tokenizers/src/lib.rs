@@ -73,7 +73,7 @@ pub struct StoredFieldTokenizer {
 /// The current names go in first, then each field's analyzer is registered under the name its
 /// index stores, so a stored name takes precedence over a default and, as everywhere in the
 /// registry, the last registration under a name wins. That keeps an index built with a tokenizer whose
-/// default settings have changed but has kept the same name using the tokenizer settings that it 
+/// default settings have changed but has kept the same name using the tokenizer settings that it
 /// was built with.
 pub fn register_index_tokenizers_into(
     tokenizer_manager: &TokenizerManager,

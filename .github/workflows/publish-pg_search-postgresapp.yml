@@ -39,20 +39,24 @@ jobs:
         pg_version: [18]
 
     steps:
-      # Force reinstall git to make sure it is in PATH. gettext provides envsubst,
-      # which sigstore/cosign-installer needs and which isn't on PATH by default.
+      # gettext provides envsubst, which sigstore/cosign-installer needs and which
+      # is not on PATH by default.
       - name: Install Dependencies
         run: |
           # The GitHub macOS runner images ship with aws/tap pre-tapped but untrusted,
           # which makes Homebrew print a "taps are not trusted" warning on every brew
           # invocation. We don't use it, so untap it to keep the logs clean.
           brew untap aws/tap || true
-          brew reinstall git
           brew install gettext
           echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"
+          echo "/usr/bin" >> "$GITHUB_PATH"
+          /usr/bin/git --version
 
       - name: Checkout Git Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Verify Git Checkout
+        run: git rev-parse --is-inside-work-tree
 
       # Used to query/update the GitHub Release and open the PostgresApp/PostgresApp PR.
       - name: Install GitHub CLI
@@ -87,14 +91,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ASSET=$(gh release view --repo PostgresApp/PostgresApp --json assets \
-            --jq '.assets[] | select(.name | test("Postgres-.*-${{ matrix.pg_version }}\\.dmg$")) | .name' | head -1)
+          RELEASE=$(gh release view --repo PostgresApp/PostgresApp --json tagName,assets)
+          TAG=$(jq -r '.tagName' <<< "$RELEASE")
+          # The version list can include other PostgreSQL majors after the requested one.
+          ASSET=$(jq -r 'first(.assets[].name |
+            select(test("^Postgres-[^-]+(-[0-9]+)*-${{ matrix.pg_version }}(-[0-9]+)*\\.dmg$"))) // empty' <<< "$RELEASE")
           if [ -z "$ASSET" ]; then
             echo "Could not find a Postgres.app DMG for PostgreSQL ${{ matrix.pg_version }}"
             exit 1
           fi
           echo "Downloading $ASSET"
-          gh release download --repo PostgresApp/PostgresApp --pattern "$ASSET" --output postgres.dmg
+          gh release download "$TAG" --repo PostgresApp/PostgresApp --pattern "$ASSET" --output postgres.dmg
           MOUNT=$(hdiutil attach -nobrowse -noverify -noautoopen postgres.dmg | tail -1 | awk '{print $3}')
           cp -R "$MOUNT/Postgres.app" /Applications/Postgres.app
           hdiutil detach "$MOUNT"
@@ -104,11 +111,11 @@ jobs:
 
       # Pull the upstream Postgres.app build assets (Resources/, Scripts/, distribution.xml)
       # so the produced pkg matches what PostgresApp/Extensions ships for other extensions.
-      # See https://github.com/PostgresApp/Extensions/tree/main/pg_search.
+      # See https://github.com/PostgresApp/Extensions/tree/main/pg18/pg_search.
       - name: Fetch Postgres.app Extensions Build Assets
         run: |
           git clone --depth=1 https://github.com/PostgresApp/Extensions.git /tmp/postgresapp-extensions
-          ls -la /tmp/postgresapp-extensions/pg_search
+          ls -la /tmp/postgresapp-extensions/pg${{ matrix.pg_version }}/pg_search
 
       - name: Extract pgrx Version
         id: pgrx
@@ -136,13 +143,18 @@ jobs:
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
         env:
+          CLANG_NO_DEFAULT_CONFIG: "1"
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           PG_CONFIG=/Applications/Postgres.app/Contents/Versions/${{ matrix.pg_version }}/bin/pg_config
           # Workaround for inttypes.h not being found under the default sysroot
           export BINDGEN_EXTRA_CLANG_ARGS="$(xcrun --show-sdk-path | xargs -I{} echo -isysroot {})"
-          cargo pgrx package --pg-config $PG_CONFIG
+          PACKAGE_FLAGS=""
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            PACKAGE_FLAGS="--no-assemble-unreleased"
+          fi
+          cargo pgrx package $PACKAGE_FLAGS --pg-config $PG_CONFIG
 
       # Import the Developer ID Application + Installer certificates into a dedicated
       # temporary keychain so codesign/pkgbuild/productbuild can sign with them. The
@@ -188,7 +200,7 @@ jobs:
           PG_MAJOR_VERSION=${{ matrix.pg_version }}
           PREFIX=/Applications/Postgres.app/Contents/Versions/$PG_MAJOR_VERSION
           INSTALL_ROOT="${GITHUB_WORKSPACE}/target/release/${EXTENSION_NAME}-pg${PG_MAJOR_VERSION}${PREFIX}"
-          UPSTREAM=/tmp/postgresapp-extensions/pg_search
+          UPSTREAM=/tmp/postgresapp-extensions/pg${{ matrix.pg_version }}/pg_search
 
           if [ ! -d "$INSTALL_ROOT/lib/postgresql" ] || [ ! -d "$INSTALL_ROOT/share/postgresql/extension" ]; then
             echo "Expected pgrx package layout not found under $INSTALL_ROOT"
@@ -205,7 +217,7 @@ jobs:
           mkdir -p "$BUILD/Resources" "$BUILD/Scripts"
 
           # Substitute templated values into the upstream Resources and distribution.xml.
-          # Mirrors the sed pipeline in https://github.com/PostgresApp/Extensions/blob/main/pg_search/build.zsh.
+          # Mirrors the sed pipeline in https://github.com/PostgresApp/Extensions/blob/main/pg18/pg_search/build.zsh.
           for file in "$UPSTREAM"/Resources/*.html "$UPSTREAM"/distribution.xml; do
             base=$(basename "$file")
             case "$file" in

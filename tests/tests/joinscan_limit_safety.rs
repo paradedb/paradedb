@@ -43,13 +43,32 @@ fn setup(conn: &mut PgConnection) {
     CREATE TABLE ls_parent (id int PRIMARY KEY, kind text);
     CREATE TABLE ls_child  (id bigint PRIMARY KEY, parent_id bigint);
 
-    INSERT INTO ls_parent
-    SELECT g, CASE WHEN g % 3 = 0 THEN 'novel' ELSE 'manga' END
-    FROM generate_series(1, 2000) g;
-    INSERT INTO ls_child SELECT g, ((g - 1) % 1000) + 1 FROM generate_series(1, 2000) g;
-
     CREATE INDEX ls_parent_bm25 ON ls_parent USING paradedb (id, kind);
     CREATE INDEX ls_child_bm25  ON ls_child  USING paradedb (id, parent_id);
+
+    -- Insert across 4 flushed segments per table so DataFusion spawns multiple
+    -- concurrent partition tasks that are still in flight when a pushed LIMIT
+    -- or early executor shutdown ends the scan.
+    SET paradedb.global_mutable_segment_rows = 0;
+    INSERT INTO ls_parent
+    SELECT g, CASE WHEN g % 3 = 0 THEN 'novel' ELSE 'manga' END
+    FROM generate_series(1, 500) g;
+    INSERT INTO ls_parent
+    SELECT g, CASE WHEN g % 3 = 0 THEN 'novel' ELSE 'manga' END
+    FROM generate_series(501, 1000) g;
+    INSERT INTO ls_parent
+    SELECT g, CASE WHEN g % 3 = 0 THEN 'novel' ELSE 'manga' END
+    FROM generate_series(1001, 1500) g;
+    INSERT INTO ls_parent
+    SELECT g, CASE WHEN g % 3 = 0 THEN 'novel' ELSE 'manga' END
+    FROM generate_series(1501, 2000) g;
+
+    INSERT INTO ls_child SELECT g, ((g - 1) % 1000) + 1 FROM generate_series(1, 500) g;
+    INSERT INTO ls_child SELECT g, ((g - 1) % 1000) + 1 FROM generate_series(501, 1000) g;
+    INSERT INTO ls_child SELECT g, ((g - 1) % 1000) + 1 FROM generate_series(1001, 1500) g;
+    INSERT INTO ls_child SELECT g, ((g - 1) % 1000) + 1 FROM generate_series(1501, 2000) g;
+    RESET paradedb.global_mutable_segment_rows;
+
     ANALYZE ls_parent;
     ANALYZE ls_child;
     "#
@@ -70,6 +89,7 @@ enum LimitSafetyCase {
     ParameterizedLimit,
     WindowAboveSubquery,
     PlainDistinct,
+    RepeatedEarlyExitAndRescan,
 }
 
 #[rstest]
@@ -80,6 +100,7 @@ enum LimitSafetyCase {
 #[case::parameterized_limit(LimitSafetyCase::ParameterizedLimit)]
 #[case::window_above_subquery(LimitSafetyCase::WindowAboveSubquery)]
 #[case::plain_distinct(LimitSafetyCase::PlainDistinct)]
+#[case::repeated_early_exit_and_rescan(LimitSafetyCase::RepeatedEarlyExitAndRescan)]
 fn limit_pushdown_safety(
     #[case] case: LimitSafetyCase,
     mut conn: PgConnection,
@@ -216,6 +237,118 @@ fn limit_pushdown_safety(
 
             let rows = query.fetch_result::<(i32,)>(&mut conn)?;
             assert_eq!(rows, vec![(1,), (2,), (4,), (5,), (7,)]);
+        }
+        LimitSafetyCase::RepeatedEarlyExitAndRescan => {
+            // Repeatedly exercise early-exit teardown (`LIMIT 1`, `EXISTS`, cursor
+            // `FETCH 1` + `CLOSE`, and `LATERAL` rescan) across multi-segment
+            // `JoinScan` (with `PgExprUdf` expressions and MPP `DistributedExec`),
+            // `AggregateScan`, and `BaseScan` on the same backend connection.
+            // Without `quiesce_tasks()` and strict drop ordering, background tasks
+            // left in flight at `LIMIT 1` either block on `run_on_main_thread` and
+            // corrupt the next query on the connection, or drop `FFHelper` /
+            // `PgExprState` / `VisibilityChecker` after the scan closes its
+            // relations and `EState`.
+            r#"
+            SET paradedb.mpp_min_rows = 0;
+            SET max_parallel_workers_per_gather = 2;
+            SET min_parallel_table_scan_size = 0;
+            SET parallel_setup_cost = 0;
+            SET parallel_tuple_cost = 0;
+            "#
+            .execute(&mut conn);
+
+            let join_udf_limit = r#"
+                SELECT p.id, upper(p.kind) || '_' || (c.id + 1)::text
+                FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
+                WHERE p.kind @@@ pdb.term('manga')
+                  AND c.id @@@ pdb.all()
+                  AND length(p.kind) >= 5
+                  AND (c.id + 1) > 0
+                ORDER BY p.id
+                LIMIT 1
+            "#;
+            assert!(explain(&mut conn, join_udf_limit).contains(JOIN_SCAN));
+
+            let agg_group_limit = r#"
+                SELECT p.id, count(*)
+                FROM ls_parent p
+                WHERE p.kind @@@ pdb.term('manga')
+                GROUP BY p.id
+                LIMIT 1
+            "#;
+            assert!(
+                explain(&mut conn, agg_group_limit)
+                    .contains("Custom Scan (ParadeDB Aggregate Scan)")
+            );
+
+            let base_topk_limit = r#"
+                SELECT p.id
+                FROM ls_parent p
+                WHERE p.kind @@@ pdb.term('manga')
+                ORDER BY p.id DESC
+                LIMIT 1
+            "#;
+            assert!(
+                explain(&mut conn, base_topk_limit).contains("Custom Scan (ParadeDB Base Scan)")
+            );
+
+            let base_columnar_exists = r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM ls_parent p
+                    WHERE p.kind @@@ pdb.term('manga')
+                      AND p.id + 0 > 10
+                )
+            "#;
+            assert!(
+                explain(&mut conn, base_columnar_exists)
+                    .contains("Custom Scan (ParadeDB Base Scan)")
+            );
+
+            let lateral_rescan = r#"
+                SELECT g.v, sub.id
+                FROM (VALUES (1), (2), (4), (5)) AS g(v)
+                CROSS JOIN LATERAL (
+                    SELECT p.id
+                    FROM ls_parent p
+                    WHERE p.kind @@@ pdb.term('manga')
+                      AND p.id >= g.v
+                    ORDER BY p.id ASC
+                    LIMIT 1
+                ) sub
+                ORDER BY g.v
+            "#;
+
+            for _ in 0..10 {
+                let join_rows = join_udf_limit.fetch_result::<(i32, String)>(&mut conn)?;
+                assert_eq!(join_rows.len(), 1);
+
+                let agg_rows = agg_group_limit.fetch_result::<(i32, i64)>(&mut conn)?;
+                assert_eq!(agg_rows.len(), 1);
+
+                let topk_rows = base_topk_limit.fetch_result::<(i32,)>(&mut conn)?;
+                assert_eq!(topk_rows, vec![(2000,)]);
+
+                let exists_rows = base_columnar_exists.fetch_result::<(bool,)>(&mut conn)?;
+                assert_eq!(exists_rows, vec![(true,)]);
+
+                let rescan_rows = lateral_rescan.fetch_result::<(i32, i32)>(&mut conn)?;
+                assert_eq!(rescan_rows, vec![(1, 1), (2, 2), (4, 4), (5, 5)]);
+
+                r#"
+                BEGIN;
+                DECLARE early_join_cur NO SCROLL CURSOR FOR
+                    SELECT p.id, upper(p.kind)
+                    FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
+                    WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
+                    ORDER BY p.id
+                    LIMIT 100;
+                FETCH 1 FROM early_join_cur;
+                CLOSE early_join_cur;
+                COMMIT;
+                "#
+                .execute(&mut conn);
+            }
         }
     }
 

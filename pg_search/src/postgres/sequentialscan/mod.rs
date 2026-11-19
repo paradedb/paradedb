@@ -19,10 +19,9 @@
 
 mod args;
 mod inline;
-mod keyset;
 
+pub(crate) use index_read::postgres::sequentialscan::keyset::KeySet;
 pub(crate) use inline::MaybeInlineRow;
-pub(crate) use keyset::KeySet;
 
 use self::args::{FakeAnyElement, FakeCtid, FakeRecord, FakeRow, FakeSearchQueryInput};
 use self::inline::RowMatcher;
@@ -37,16 +36,18 @@ use crate::postgres::pgstat::count_index_scan;
 use crate::postgres::planner_warnings::{warn_filter_spilled, warn_sequential_scan};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::Ctid;
+use crate::postgres::utils::{Ctid, pg_getarg_datum};
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchemaQueryExt;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::htup::heap_getattr_raw;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     Array, FromDatum, PgLogLevel, PgMemoryContexts, PgSqlErrorCode, PgTupleDesc, default,
-    function_name, pg_extern, pg_func_extra, pg_getarg_datum, pg_getarg_datum_raw, pg_sys,
+    fcinfo::pg_get_nullable_datum, function_name, pg_extern, pg_func_extra, pg_sys,
 };
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 struct QueryCacheEntry {
     matches: KeySet,
@@ -96,7 +97,7 @@ pub fn search_with_query_input(
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
     if unsafe {
-        pgrx::is_a(
+        crate::postgres::utils::is_a(
             (*(*fcinfo).flinfo).fn_expr,
             pg_sys::NodeTag::T_ScalarArrayOpExpr,
         )
@@ -167,7 +168,7 @@ pub fn search_with_query_input_ctid_or_row(
     let ctid = unsafe { Ctid::from_fcinfo(fcinfo, 2) }?;
     fallback_row?;
     let rows = unsafe {
-        pg_sys::pg_detoast_datum(pg_getarg_datum_raw(fcinfo, 3).cast_mut_ptr())
+        pg_sys::pg_detoast_datum(pg_get_nullable_datum(fcinfo, 3).value.cast_mut_ptr())
             .cast::<pg_sys::ArrayType>()
     };
     // Check the empty-array marker without unpacking or materializing a heap row.
@@ -204,7 +205,7 @@ pub fn search_with_query_input_ctid_or_row(
             any_leaf_partition_index(parent)
                 .unwrap_or_else(|| report_missing_partition_index(None, parent.oid()))
         });
-        unsafe { build_row_matcher(fcinfo, index_relation, query) }
+        unsafe { build_row_matcher(fcinfo, index_relation, Arc::new(query)) }
     });
 
     unsafe { matcher.matches(row) }
@@ -296,7 +297,7 @@ fn search_with_query_input_impl(
         let index_relation = resolve_index(&search_query_input, tableoid, |_| {
             report_missing_row_identity()
         });
-        build_query_cache_entry(fcinfo, ctid, index_relation, search_query_input)
+        build_query_cache_entry(fcinfo, ctid, index_relation, Arc::new(search_query_input))
     });
 
     // Reaching this function at all means the search-operator predicate is being applied as a
@@ -343,7 +344,7 @@ fn build_query_cache_entry(
     fcinfo: pg_sys::FunctionCallInfo,
     ctid: Option<Ctid>,
     index_relation: PgSearchRelation,
-    search_query_input: SearchQueryInput,
+    search_query_input: Arc<SearchQueryInput>,
 ) -> QueryCacheEntry {
     let is_partial =
         unsafe { !pg_sys::RelationGetIndexPredicate(index_relation.as_ptr()).is_null() };
@@ -413,7 +414,7 @@ fn build_query_cache_entry(
     let missing_values = if let Some(null_guard) = null_guard {
         // Collect rows where the field is absent (the complement of `exists`). Membership in
         // this set means SQL NULL for negation semantics.
-        let complement_query = SearchQueryInput::WithIndex {
+        let complement_query = Arc::new(SearchQueryInput::WithIndex {
             oid: index_relation.oid(),
             query: Box::new(SearchQueryInput::Boolean {
                 must: vec![SearchQueryInput::All],
@@ -421,7 +422,7 @@ fn build_query_cache_entry(
                 must_not: vec![null_guard],
                 minimum_should_match: None,
             }),
-        };
+        });
 
         let complement_reader = SearchIndexReader::open(
             &index_relation,
@@ -472,7 +473,7 @@ fn resolve_index(
 unsafe fn build_row_matcher(
     fcinfo: pg_sys::FunctionCallInfo,
     index_relation: PgSearchRelation,
-    query: SearchQueryInput,
+    query: Arc<SearchQueryInput>,
 ) -> RowMatcher {
     unsafe {
         count_index_scan(&index_relation);
@@ -506,25 +507,22 @@ unsafe fn record_tableoid(
             return None;
         }
         let record = pg_getarg_datum(fcinfo, nargs as usize - 1)?;
-        let header =
-            pg_sys::pg_detoast_datum(record.cast_mut_ptr()).cast::<pg_sys::HeapTupleHeaderData>();
+        let tuple = pgrx::composite_row_type_make_tuple(record);
+        let header = tuple.t_data;
         let field = field
             .get_or_insert_with(|| {
                 let (attno, _) =
                     PgHeapTuple::from_composite_datum(record).get_attribute_by_name("tableoid")?;
                 let record_desc = PgTupleDesc::from_pg(pg_sys::lookup_rowtype_tupdesc(
-                    pgrx::heap_tuple_header_get_type_id(header),
-                    pgrx::heap_tuple_header_get_typmod(header),
+                    pgrx::HeapTupleHeaderGetTypeId!(header).into(),
+                    pgrx::HeapTupleHeaderGetTypMod!(header).get(),
                 ));
                 let tupdesc = PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt)
                     .switch_to(|_| pg_sys::CreateTupleDescCopy(record_desc.as_ptr()));
                 Some(TableOidField { attno, tupdesc })
             })
             .as_ref()?;
-        let mut tuple: pg_sys::HeapTupleData = std::mem::zeroed();
-        tuple.t_len = pgrx::heap_tuple_header_get_datum_length(header) as u32;
-        tuple.t_data = header;
-        let datum = heap_getattr_raw(&mut tuple, field.attno, field.tupdesc)?;
+        let datum = heap_getattr_raw(tuple.as_ptr(), field.attno, field.tupdesc)?;
         pg_sys::Oid::from_datum(datum, false)
     }
 }

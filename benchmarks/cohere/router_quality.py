@@ -1,0 +1,1346 @@
+"""Compare the index's stored router with a flat ranking of every centroid.
+
+Every arm runs on the same index with every segment routed. The flat arm scores every centroid of
+every segment exactly (`paradedb.vector_router_audit = flat`), so the clusters and vectors it needs
+at a recall target are the reference the stored router (Router) is measured against; each Ratio
+is Router / Flat. Both run with adaptive probing off; a third arm repeats the stored router with
+adaptive probing on.
+
+    configs  write router-<arm>.toml for every arm from a Cohere profile
+    sweep    find each arm's budget per query and recall target with pdbench, seeding the ranges
+    measure  rerun pdbench's selected budgets under EXPLAIN and record per-segment work
+    render   write router_quality.{json,md,html} and the router history metrics
+"""
+
+import argparse
+import collections
+import hashlib
+import html
+import json
+import math
+import os
+import re
+import subprocess
+import sys
+import time
+import tomllib
+from pathlib import Path
+
+from prepare_k6 import PROBE, QUERIES, TARGETS
+
+AUDIT = "paradedb.vector_router_audit"
+ADAPTIVE = "paradedb.vector_adaptive_probing"
+# Arm name -> (router audit, adaptive probing).
+ARMS = {
+    "stored": ("stored", "off"),
+    "flat": ("flat", "off"),
+    "stored-adaptive": ("stored", "on"),
+}
+FIXED = ("stored", "flat")
+FLAT, ROUTER, ROUTER_ADAPTIVE = "flat", "stored", "stored-adaptive"
+UNFILTERED = "knn_top10_unfiltered"
+# The `termination` value of a segment the adaptive stop ended; `Ceiling` and `Exhausted` are not.
+ADAPTIVE_STOP = "QuantizedRecall"
+LABELS = {
+    "knn_top10_unfiltered": "Unfiltered",
+    "knn_top10_10pct": "Filter 10%",
+    "knn_top10_1pct": "Filter 1%",
+}
+QVEC = "current_setting('cohere.qvec')"
+
+# Per-query sums over segments and workers, from each segment's vector statistics.
+SUMS = {
+    "clusters": ("postings_row", "postings_skipped"),
+    "vectors_probed": ("vectors_visited",),
+    "valid_vectors": ("layer0_eligible",),
+    "empty_clusters": ("clusters_skipped_empty",),
+    "layer0_scored": ("candidates_scored",),
+    "exact_rows": ("exact_rows",),
+    "routing_ns": ("routing_ns",),
+    "centroids_1bit": ("routing_approximate_scored",),
+    "centroids_exact": ("routing_exact_scored",),
+}
+# Router counters a segment omits when its router does not produce them.
+OPTIONAL = {"routing_approximate_scored", "routing_exact_scored"}
+MEANS = (
+    "clusters",
+    "vectors_probed",
+    "valid_vectors",
+    "empty_clusters",
+    "layer0_scored",
+    "exact_rows",
+    "routing_ms",
+    "centroids_1bit",
+    "centroids_exact",
+    "query_ms",
+)
+CHECKS = {
+    "routed": "every segment reports access_path Routed in both arms",
+    "flat_mode": "routing_mode is flat on every flat-arm segment and never in the stored arm",
+    "filtered_rows": (
+        "filtered queries: vectors_visited = layer0_eligible + pruned_filter + pruned_dead"
+    ),
+    "unfiltered_rows": "unfiltered query: vectors_visited > 0 and pruned_filter = 0",
+    "fixed_no_adaptive_stop": f"fixed-probe arms: no segment reports termination {ADAPTIVE_STOP}",
+    "plan_length_rule": (
+        "per query, every arm and target runs all-parallel or all-serial plans, so every arm "
+        "gets the same candidate-list bound"
+    ),
+}
+
+
+def label(target):
+    return f"r{round(target * 100)}"
+
+
+# --- configs ---
+
+
+def arm_profile(text, arm):
+    """The profile with the arm's router-audit and adaptive-probing settings added to
+    [search.session], otherwise unchanged."""
+    lines = text.splitlines(keepends=True)
+    header = next(
+        (i for i, line in enumerate(lines) if line.strip() == "[search.session]"), None
+    )
+    if header is None:
+        raise ValueError("profile has no [search.session] table")
+    expected = tomllib.loads(text)
+    session = expected["search"]["session"]
+    if AUDIT in session or ADAPTIVE in session:
+        raise ValueError("profile already sets the router-audit session settings")
+    audit, adaptive = ARMS[arm]
+    session.update({AUDIT: audit, ADAPTIVE: adaptive})
+    added = [f'"{AUDIT}" = "{audit}"\n', f'"{ADAPTIVE}" = "{adaptive}"\n']
+    result = "".join(lines[: header + 1] + added + lines[header + 1 :])
+    if tomllib.loads(result) != expected:
+        raise ValueError("arm profile differs from the source beyond its session settings")
+    return result
+
+
+def configs(profile, output):
+    output.mkdir(parents=True, exist_ok=True)
+    text = profile.read_text()
+    for arm in ARMS:
+        (output / f"router-{arm}.toml").write_text(arm_profile(text, arm))
+
+
+# --- sweep ---
+
+SWEEPS = "sweeps.json"
+TOLERATED_ERROR = "representative layer0 has no scan stage"
+# Policy, not derived: a seeded range reaches SEED_SPAN times past its seed on each open side. A
+# target outside it is not bracketed and is swept again over the profile's full range.
+SEED_SPAN = 2.0
+# pdbench stops at the first probed budget whose recall equals the target, so the selected budget can
+# lie anywhere on that recall plateau, not at its lowest budget.
+BUDGET_NOTE = (
+    "Budgets are the first probed value that meets the target, not the minimum. At r99 the selected "
+    "budget can sit a few percent above the minimum."
+)
+# The unfiltered query's only predicate matches every row.
+MATCH_ALL = re.compile(r"\bWHERE\s+\w+\s+@@@\s+paradedb\.all\(\)\s+ORDER\s+BY\b", re.IGNORECASE)
+
+
+def seeded_range(arm, seed):
+    """pdbench's [search.sweep] start, min and max for one target, seeded at budget `seed`.
+
+    pdbench probes `start`; while every probe lies on one side of the target it steps to `min` or
+    `max` (both within its 8x gallop of `start`), then bisects. A target past `min` or `max` is not
+    bracketed (see `bracketed`).
+    """
+    seed = float(seed)
+    low, high = math.floor(seed / SEED_SPAN), math.ceil(seed * SEED_SPAN)
+    if arm == ROUTER:
+        # Seeded from the existing sweep, the stored router with adaptive probing on. Off, the
+        # router probes every cluster up to the budget, a superset of what it probes on, so it needs
+        # at most the seed: an exact seed costs a probe below it and the seed.
+        start, high = seed - 1, seed
+    elif arm == ROUTER_ADAPTIVE:
+        # Seeded from the stored arm: adaptive probing stops early, so it needs at least the seed:
+        # an exact seed costs the seed and a probe below it.
+        start, low = seed, seed - 1
+    else:
+        # Flat has no order against the stored router.
+        start = seed
+    low = max(1.0, float(low))
+    high = max(float(high), low + 1)
+    return {"start": min(max(float(start), low), high), "min": low, "max": high}
+
+
+def bracketed(report, query, target, floor):
+    """The point pdbench selected for `target` when the run bracketed it: an exact hit, a selection
+    at `floor` (the profile's own minimum, so a full-range sweep cannot go lower), or a selection
+    at or above the target with a probe below it. Otherwise pdbench settled on `min`, which says
+    only that the answer may lie under the range."""
+    variant = report["data"]["variants"][query]
+    selected = variant["targets"].get(str(target))
+    if selected is None:
+        return None
+    tolerance = report["config"]["search"]["sweep"]["tolerance"]
+    if abs(selected["recall"] - target) <= tolerance or float(selected["value"]) <= floor:
+        return selected
+    recalls = [point["metrics"]["recall"]["recall"] for point in variant["points"]]
+    return selected if any(recall < target - tolerance for recall in recalls) else None
+
+
+def comparable_config(report):
+    """The report's configuration without what varies per run: the query, k and the sweep range."""
+    config = json.loads(json.dumps(report["config"]))
+    for key in ("query", "k", "sweep"):
+        config["search"].pop(key, None)
+    return config
+
+
+def without_arm_settings(config):
+    """A comparable configuration without the router-audit and adaptive-probing settings."""
+    config = json.loads(json.dumps(config))
+    config["search"]["session"].pop(AUDIT, None)
+    config["search"]["session"].pop(ADAPTIVE, None)
+    return config
+
+
+def stand_in_refusal(existing, stored):
+    """Why the existing sweep's unfiltered report cannot stand in for stored-adaptive, or None.
+
+    The existing sweep runs the profile's session: the stored router with adaptive probing on, the
+    arm's settings except the audit. The audit only forces routing, so the report stands in when
+    the query has no filter, every segment routed at every point, and its configuration matches the
+    stored arm's beyond those two settings.
+    """
+    if existing is None:
+        return "the existing sweep has no unfiltered report"
+    variant = existing["data"]["variants"][UNFILTERED]
+    if not MATCH_ALL.search(variant["query"]):
+        return "the unfiltered query has a filter"
+    if variant["query"] != stored["data"]["variants"][UNFILTERED]["query"]:
+        return "the existing sweep ran other SQL than the stored arm"
+    session = existing["config"]["search"]["session"]
+    if session.get(AUDIT, "off") != "off" or session.get(ADAPTIVE, "on") not in ("on", "true"):
+        return "the existing sweep sets the router audit or turns adaptive probing off"
+    if without_arm_settings(comparable_config(existing)) != without_arm_settings(
+        comparable_config(stored)
+    ):
+        return "the existing sweep's configuration differs from the stored arm's"
+    for point in variant["points"]:
+        probes = point["metrics"]["probes"]
+        routed = probes["per_query"].get("segments_routed_mean")
+        if not probes["queries_measured"] or routed != probes["execution"]["segment_count_mean"]:
+            return f"not every segment routed at {PROBE} = {point['value']}"
+    return None
+
+
+class Pdbench:
+    """`pdbench search` for the router sweeps. Each run gets a fresh runs directory, so no run
+    revalidates another's cached sweep values, and skips pg_prewarm, which affects timing but not
+    which rows a query returns."""
+
+    def __init__(self, configs, assets, url, run=subprocess.run, summary=None):
+        self.configs, self.assets, self.url, self.run, self.summary = (
+            configs,
+            assets,
+            url,
+            run,
+            summary,
+        )
+
+    def search(self, arm, query, runs, sweep):
+        """One search into `runs`, a directory that must not exist yet, with `sweep` overriding
+        [search.sweep] keys. Returns (report path, report, tolerated, seconds).
+
+        pdbench saves the report before building its console projection, which can fail on a
+        parallel plan with TOLERATED_ERROR. That failure is tolerated when the run saved its
+        report; any other failure raises.
+        """
+        runs.mkdir(parents=True)
+        command = [
+            "pdbench", "search", "--url", self.url,
+            "--config", str(self.configs / f"router-{arm}.toml"),
+            "--assets-dir", str(self.assets), "--runs-dir", str(runs),
+            "--query", query, "--no-compare", "--no-prewarm",
+        ]  # fmt: skip
+        for key, value in sweep.items():
+            command += ["--set", f"search.sweep.{key}={value}"]
+        print(f"::group::{arm} {query} {runs.name}", flush=True)
+        started = time.monotonic()
+        result = self.run(command, stderr=subprocess.PIPE, text=True)
+        seconds = time.monotonic() - started
+        sys.stderr.write(result.stderr or "")
+        print("::endgroup::", flush=True)
+        saved = [
+            path
+            for path in sorted(runs.rglob("*_search.json"))
+            if query in json.loads(path.read_text())["data"]["variants"]
+        ]
+        if result.returncode != 0 and (TOLERATED_ERROR not in (result.stderr or "") or not saved):
+            raise RuntimeError(f"pdbench search {arm} {query} failed with exit {result.returncode}")
+        if len(saved) != 1:
+            raise ValueError(f"expected one {query} report under {runs}")
+        tolerated = result.returncode != 0
+        if tolerated:
+            self.note(
+                f"- Tolerated pdbench exit {result.returncode} for `{arm}` `{query}`: "
+                f'"{TOLERATED_ERROR}"; report saved to `{saved[0]}`.'
+            )
+        return saved[0], json.loads(saved[0].read_text()), tolerated, seconds
+
+    def floor(self, arm):
+        """The arm profile's own sweep minimum."""
+        profile = tomllib.loads((self.configs / f"router-{arm}.toml").read_text())
+        return profile["search"]["sweep"]["min"]
+
+    def note(self, line):
+        if self.summary is not None:
+            with open(self.summary, "a") as summary:
+                summary.write(line + "\n")
+
+
+def target_list(targets):
+    return "[" + ", ".join(str(target) for target in targets) + "]"
+
+
+def existing_reports(directory):
+    """The existing sweep's report path per query."""
+    found = {}
+    for path in sorted(directory.glob("*_search.json")):
+        (query,) = json.loads(path.read_text())["data"]["variants"]
+        if query in found:
+            raise ValueError(f"two existing sweeps of {query} under {directory}")
+        found[query] = path
+    return found
+
+
+def sweep(runs, existing, pdbench):
+    """Sweeps every arm per query and writes runs/SWEEPS: every pdbench run, and the point that
+    resolved each arm, query and target.
+
+    Per query the stored arm runs first: seeded from the existing sweep's budgets on the unfiltered
+    query, and over the profile's full range on the filtered ones, whose existing sweep may take
+    the located path. Flat and stored-adaptive follow, seeded from the budgets the stored arm
+    selected. Seeded sweeps run one target each; a target its range does not bracket is swept
+    again over the full range. On the unfiltered query the existing sweep's report stands in for
+    stored-adaptive unless `stand_in_refusal` gives a reason.
+    """
+    existing_paths = existing_reports(existing)
+    log = {"runs": [], "selected": {}, "stand_in": None}
+
+    def run(arm, query, name, targets, kind, seed=None, sweep_range=None):
+        overrides = {"targets": target_list(targets)} | (sweep_range or {})
+        path, report, tolerated, seconds = pdbench.search(
+            arm, query, runs / arm / query / name, overrides
+        )
+        log["runs"].append(
+            {
+                "arm": arm,
+                "query": query,
+                "targets": list(targets),
+                "kind": kind,
+                "seed": seed,
+                "range": sweep_range,
+                "report": str(path),
+                "probes": len(report["data"]["variants"][query]["points"]),
+                "seconds": round(seconds, 1),
+                "tolerated": tolerated,
+            }
+        )
+        return path, report
+
+    def select(arm, query, target, path, report):
+        point = report["data"]["variants"][query]["targets"].get(str(target))
+        if point is not None:
+            log["selected"].setdefault(arm, {}).setdefault(query, {})[str(target)] = point | {
+                "report": str(path)
+            }
+
+    def seeds(arm, query):
+        """Seed budget per target, or None for a full-range sweep of every target."""
+        if arm != ROUTER:
+            chosen = log["selected"].get(ROUTER, {}).get(query, {})
+            return {t: chosen[str(t)]["value"] if str(t) in chosen else None for t in TARGETS}
+        if query != UNFILTERED or query not in existing_paths:
+            return None
+        report = json.loads(existing_paths[query].read_text())
+        chosen = report["data"]["variants"][query]["targets"]
+        return {t: chosen[str(t)]["value"] if str(t) in chosen else None for t in TARGETS}
+
+    for query in QUERIES:
+        for arm in ARMS:
+            if arm == ROUTER_ADAPTIVE and query == UNFILTERED:
+                stored = next(r for r in log["runs"] if r["arm"] == ROUTER and r["query"] == query)
+                existing_path = existing_paths.get(query)
+                refusal = stand_in_refusal(
+                    json.loads(existing_path.read_text()) if existing_path else None,
+                    json.loads(Path(stored["report"]).read_text()),
+                )
+                log["stand_in"] = {"arm": arm, "query": query, "refusal": refusal}
+                if refusal is None:
+                    report = json.loads(existing_path.read_text())
+                    log["runs"].append(
+                        {
+                            "arm": arm,
+                            "query": query,
+                            "targets": list(TARGETS),
+                            "kind": "existing",
+                            "seed": None,
+                            "range": None,
+                            "report": str(existing_path),
+                            "probes": 0,
+                            "seconds": 0.0,
+                            "tolerated": False,
+                        }
+                    )
+                    for target in TARGETS:
+                        select(arm, query, target, existing_path, report)
+                    continue
+                pdbench.note(f"- `{arm}` `{query}` swept: {refusal}.")
+            budgets = seeds(arm, query)
+            if budgets is None:
+                path, report = run(arm, query, "all", TARGETS, "full")
+                for target in TARGETS:
+                    select(arm, query, target, path, report)
+                continue
+            for target in TARGETS:
+                seed = budgets[target]
+                name = label(target)
+                if seed is None:
+                    path, report = run(arm, query, f"{name}-full", [target], "full")
+                else:
+                    sweep_range = seeded_range(arm, seed)
+                    path, report = run(arm, query, name, [target], "seeded", seed, sweep_range)
+                    if bracketed(report, query, target, pdbench.floor(arm)) is None:
+                        pdbench.note(
+                            f"- `{arm}` `{query}` {name}: the range seeded at {seed} did not "
+                            "bracket the target; swept again over the full range."
+                        )
+                        path, report = run(arm, query, f"{name}-full", [target], "fallback", seed)
+                select(arm, query, target, path, report)
+    (runs / SWEEPS).write_text(json.dumps(log, indent=2) + "\n")
+    return log
+
+
+# --- measure ---
+
+
+def plan_nodes(plan):
+    nodes = [plan[0]["Plan"]]
+    while nodes:
+        node = nodes.pop()
+        yield node
+        nodes.extend(node.get("Plans", []))
+
+
+def segment_entries(plan):
+    """(segment id, statistics) for every segment of every ParadeDB scan in one EXPLAIN
+    (FORMAT JSON) plan. The leader's Segment Info already holds the segments its parallel workers
+    scanned."""
+    entries = []
+    for node in plan_nodes(plan):
+        info = node.get("Segment Info")
+        if info is not None:
+            entries.extend((json.loads(info) if isinstance(info, str) else info).items())
+    return entries
+
+
+def segment_stats(plan):
+    return [stats for _, stats in segment_entries(plan)]
+
+
+def workers(plan):
+    """(planned, launched) parallel workers. A planned Gather makes the scan parallel, which
+    caps the routed candidate list at the router's k; a serial scan takes the whole ranking."""
+    planned = launched = 0
+    for node in plan_nodes(plan):
+        planned += node.get("Workers Planned", 0)
+        launched += node.get("Workers Launched", 0)
+    return planned, launched
+
+
+def query_totals(plan):
+    """One query's work summed over its segments, and those segments."""
+    segments = segment_stats(plan)
+    totals = {
+        name: sum(
+            segment.get(key, 0) if key in OPTIONAL else segment[key]
+            for segment in segments
+            for key in keys
+        )
+        for name, keys in SUMS.items()
+    }
+    totals["routing_ms"] = totals.pop("routing_ns") / 1e6
+    totals["query_ms"] = plan[0]["Execution Time"]
+    totals["adaptive_stop"] = any(s.get("termination") == ADAPTIVE_STOP for s in segments)
+    planned, launched = workers(plan)
+    totals["parallel"] = planned > 0
+    totals["workers_launched"] = launched
+    return totals, segments
+
+
+def summarize(per_query):
+    """Means over the query vectors, the routing-time p95, and routing's share of query time."""
+    count = len(per_query)
+    summary = {key: sum(query[key] for query in per_query) / count for key in MEANS}
+    routing = sorted(query["routing_ms"] for query in per_query)
+    summary["routing_ms_p95"] = routing[math.ceil(0.95 * count) - 1]
+    summary["routing_share"] = (
+        summary["routing_ms"] / summary["query_ms"] if summary["query_ms"] else None
+    )
+    summary["adaptive_stops"] = sum(query["adaptive_stop"] for query in per_query)
+    summary["parallel_plans"] = sum(query["parallel"] for query in per_query)
+    summary["workers_launched"] = sum(query["workers_launched"] for query in per_query) / count
+    return summary
+
+
+class Checks:
+    """Confirms each statistic means what the comment's tables say it means."""
+
+    def __init__(self):
+        self.results = {
+            name: {"description": text, "checked": 0, "failed": 0, "example": None}
+            for name, text in CHECKS.items()
+        }
+
+    def record(self, name, ok, example):
+        result = self.results[name]
+        result["checked"] += 1
+        if not ok:
+            result["failed"] += 1
+            result["example"] = result["example"] or example
+
+    def observe(self, arm, query, segments):
+        filtered = not query.endswith("_unfiltered")
+        where = {"arm": arm, "query": query}
+        for segment in segments:
+            example = where | {"segment": segment}
+            self.record("routed", segment.get("access_path") == "Routed", example)
+            self.record(
+                "flat_mode",
+                (segment.get("routing_mode") == "flat") == (ARMS[arm][0] == "flat"),
+                example,
+            )
+            if arm in FIXED:
+                self.record(
+                    "fixed_no_adaptive_stop", segment.get("termination") != ADAPTIVE_STOP, example
+                )
+            if filtered:
+                self.record(
+                    "filtered_rows",
+                    segment["vectors_visited"]
+                    == segment["layer0_eligible"]
+                    + segment["pruned_filter"]
+                    + segment["pruned_dead"],
+                    example,
+                )
+            else:
+                self.record("unfiltered_rows", segment["pruned_filter"] == 0, example)
+        if not filtered:
+            visited = sum(segment["vectors_visited"] for segment in segments)
+            self.record("unfiltered_rows", visited > 0, where | {"vectors_visited": visited})
+
+    def passed(self):
+        return all(result["failed"] == 0 for result in self.results.values())
+
+
+def explain_script(session, sql, vectors, dims):
+    """psql input: the arm's settings, one discarded warm pass, then the measured pass."""
+    settings = "".join(f"SET {key} = '{value}';\n" for key, value in session.items())
+    explains = "".join(
+        f"EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) EXECUTE router_quality('{vector}');\n"
+        for vector in vectors
+    )
+    return (
+        f"{settings}PREPARE router_quality(vector({dims})) AS {sql.rstrip().rstrip(';')};\n"
+        f"\\o /dev/null\n{explains}\\o\n{explains}"
+    )
+
+
+def parse_plans(text):
+    """Consecutive EXPLAIN (FORMAT JSON) documents from psql's unaligned output."""
+    decoder = json.JSONDecoder()
+    plans = []
+    index = 0
+    while True:
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index == len(text):
+            return plans
+        plan, index = decoder.raw_decode(text, index)
+        plans.append(plan)
+
+
+def psql(script):
+    return subprocess.run(
+        ["psql", os.environ["PARADEDB_URL"], "-XqAt", "-v", "ON_ERROR_STOP=1"],
+        input=script,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def fingerprint(configs_by_arm):
+    canonical = json.dumps(configs_by_arm, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def measure(runs, vectors, run=psql):
+    """Every arm x query x target at the budget its sweep selected (runs/SWEEPS), plus index facts
+    and checks."""
+    log = json.loads((runs / SWEEPS).read_text())
+    loaded = {}
+
+    def report_at(path):
+        if path not in loaded:
+            loaded[path] = json.loads(Path(path).read_text())
+            if loaded[path]["data"]["sweep_param"] != PROBE:
+                raise ValueError(f"{path}: expected a {PROBE} sweep")
+        return loaded[path]
+
+    configs_by_arm = {}
+    for arm, (audit, adaptive) in ARMS.items():
+        # A stand-in report ran the profile's session, not the arm's; `sweep` compared it already.
+        found = {
+            json.dumps(comparable_config(report_at(entry["report"])), sort_keys=True)
+            for entry in log["runs"]
+            if entry["arm"] == arm and entry["kind"] != "existing"
+        }
+        if len(found) != 1:
+            raise ValueError(f"{arm}: sweeps used different configurations")
+        configs_by_arm[arm] = json.loads(found.pop())
+        session = configs_by_arm[arm]["search"]["session"]
+        if session.get(AUDIT) != audit or session.get(ADAPTIVE) != adaptive:
+            raise ValueError(f"{arm}: sweeps were not run with the arm's settings")
+    shared = [without_arm_settings(config) for config in configs_by_arm.values()]
+    if any(config != shared[0] for config in shared):
+        raise ValueError(f"the arms differ beyond {AUDIT} and {ADAPTIVE}")
+
+    checks = Checks()
+    terminations = {arm: collections.Counter() for arm in ARMS}
+    segments_seen = {}
+    rerank_factor = None
+    shapes = collections.defaultdict(set)
+    results = {}
+    for arm in ARMS:
+        arm_session = configs_by_arm[arm]["search"]["session"]
+        for query in QUERIES:
+            for target in TARGETS:
+                selected = log["selected"].get(arm, {}).get(query, {}).get(str(target))
+                cell = {"reached": selected is not None}
+                if selected:
+                    report = report_at(selected["report"])
+                    variant = report["data"]["variants"][query]
+                    if variant["query"].count(QVEC) != 1:
+                        raise ValueError(f"{arm}/{query}: expected exactly one query-vector operand")
+                    sql = variant["query"].replace(QVEC, "$1")
+                    dims = report["config"]["dataset"].get("dims", 1024)
+                    session = arm_session | {PROBE: selected["value"], "paradedb.vector_stats": "on"}
+                    plans = parse_plans(run(explain_script(session, sql, vectors, dims)))
+                    if len(plans) != len(vectors):
+                        raise ValueError(f"{arm}/{query}: expected {len(vectors)} plans")
+                    per_query = []
+                    for plan in plans:
+                        totals, segments = query_totals(plan)
+                        checks.observe(arm, query, segments)
+                        terminations[arm].update(s.get("termination") for s in segments)
+                        per_query.append(totals)
+                        if arm == ROUTER:
+                            segments_seen.update(segment_entries(plan))
+                    if rerank_factor is None and arm == ROUTER:
+                        rerank_factor = run(
+                            "".join(f"SET {k} = '{v}';\n" for k, v in session.items())
+                            + "SHOW paradedb.vector_router_rerank_factor;\n"
+                        ).strip()
+                    cell |= {
+                        "budget": selected["value"],
+                        "recall": selected["recall"],
+                    } | summarize(per_query)
+                    shapes[query].add(plan_shape(cell["parallel_plans"], len(vectors)))
+                results.setdefault(query, {}).setdefault(str(target), {})[arm] = cell
+    for query in QUERIES:
+        checks.record(
+            "plan_length_rule",
+            len(shapes[query]) == 1 and "mixed" not in shapes[query],
+            {"query": query, "shapes": sorted(shapes[query])},
+        )
+    index = index_facts(segments_seen.values()) if segments_seen else None
+    if index is not None:
+        index["rerank_factor"] = rerank_factor
+    return {
+        "dataset": configs_by_arm[ROUTER]["dataset"],
+        "fingerprint": fingerprint(configs_by_arm),
+        "query_vectors": len(vectors),
+        "arms": {arm: {"session": configs_by_arm[arm]["search"]["session"]} for arm in ARMS},
+        "index": index,
+        "checks": checks.results,
+        "checks_passed": checks.passed(),
+        # Segment `termination` values seen per arm; only ADAPTIVE_STOP counts as the adaptive stop.
+        "adaptive_stop": ADAPTIVE_STOP,
+        "terminations": {arm: dict(counter) for arm, counter in terminations.items()},
+        "plan_shapes": {query: sorted(shapes[query]) for query in QUERIES},
+        # Every pdbench run behind the selected budgets, and whether the existing sweep stood in.
+        "sweeps": log["runs"],
+        "stand_in": log["stand_in"],
+        # pdbench runs whose console projection failed after their report was saved.
+        "tolerated": [
+            {"arm": r["arm"], "query": r["query"], "report": r["report"]}
+            for r in log["runs"]
+            if r["tolerated"]
+        ],
+        "results": results,
+    }
+
+
+def plan_shape(parallel_plans, count):
+    if parallel_plans == count:
+        return "parallel"
+    return "serial" if parallel_plans == 0 else "mixed"
+
+
+def index_facts(segments):
+    """Segment count, K and rows per cluster over every segment id the stored arm reported."""
+    segments = list(segments)
+    clusters = sum(segment["segment_clusters"] for segment in segments)
+    return {
+        "segments": len(segments),
+        "clusters": clusters,
+        "rows_per_cluster": sum(segment["segment_rows"] for segment in segments) / clusters,
+        "routing_kind": "/".join(
+            sorted({segment.get("routing_kind", "none") for segment in segments})
+        ),
+    }
+
+
+# --- render ---
+
+# Policy thresholds for flagging unfiltered rows, set for review rather than derived.
+MAX_RATIO = 1.15  # A Ratio above this is ⚠️ at every target.
+RATIO_RISE = 0.15  # With a baseline, a Ratio flags (either mark) only past main's by more than this.
+MAIN_TARGETS = (0.9, 0.95)  # Against-main flags apply at these targets only.
+FLAT_WORSE = 0.10  # Flat clusters or Flat vectors, relative increase against main.
+ADAPTIVE_RATIO_RISE = 0.05  # Adaptive on vs off, absolute increase against main.
+ROUTING_WORSE = 0.25  # Routing ms, relative increase against main ...
+ROUTING_WORSE_MS = 0.1  # ... and absolute increase in ms.
+# Where to look, per kind of flag, in the order the verdict lists them.
+AREAS = {
+    "ratio": "router",
+    "flat": "clustering",
+    "adaptive": "adaptive stopping",
+    "routing": "router speed",
+}
+
+
+def count(value_):
+    if value_ >= 10_000:
+        return f"{value_ / 1000:.1f}k"
+    if value_ >= 10:
+        return f"{value_:,.0f}"
+    return f"{value_:.1f}"
+
+
+def ms(value_):
+    return f"{value_:.1f}" if value_ < 10 else f"{value_:.0f}"
+
+
+def ratio_text(value_):
+    return "∞" if value_ == math.inf else f"{value_:.2f}x"
+
+
+def vectors_key(query):
+    """Unfiltered rows count vectors probed; filtered rows count filter-valid vectors."""
+    return "vectors_probed" if query == UNFILTERED else "valid_vectors"
+
+
+def value(report, query, target, arm, key):
+    """An arm's mean at a target, or None when the report lacks it or the arm missed the target."""
+    if report is None:
+        return None
+    cell = report["results"].get(query, {}).get(str(target), {}).get(arm)
+    return cell.get(key) if cell and cell.get("reached") else None
+
+
+def ratio_of(report, query, target, key, numerator=ROUTER, denominator=FLAT):
+    top = value(report, query, target, numerator, key)
+    bottom = value(report, query, target, denominator, key)
+    if top is None or bottom is None:
+        return None
+    if bottom == 0:
+        return 1.0 if top == 0 else math.inf
+    return top / bottom
+
+
+def clusters_ratio(report, query, target):
+    """Router / Flat on clusters probed."""
+    return ratio_of(report, query, target, "clusters")
+
+
+def vectors_ratio(report, query, target):
+    """Router / Flat on the row's vectors."""
+    return ratio_of(report, query, target, vectors_key(query))
+
+
+def adaptive_vs_fixed(report, query, target):
+    """Router with adaptive probing on / off, on the row's vectors."""
+    return ratio_of(report, query, target, vectors_key(query), ROUTER_ADAPTIVE, ROUTER)
+
+
+def arm_value(arm, key):
+    return lambda report, query, target: value(report, query, target, arm, key)
+
+
+def arm_vectors(arm):
+    return lambda report, query, target: value(report, query, target, arm, vectors_key(query))
+
+
+# The comment's columns: (id, header, getter, formatter, arm). A column with an arm prints
+# `not reached` when that arm missed the target; a ratio column (no arm) is then empty.
+COLUMNS = (
+    ("flat:clusters", "Flat clusters", arm_value(FLAT, "clusters"), count, FLAT),
+    ("router:clusters", "Router clusters", arm_value(ROUTER, "clusters"), count, ROUTER),
+    ("ratio:clusters", "Ratio", clusters_ratio, ratio_text, None),
+    ("flat:vectors", "Flat vectors", arm_vectors(FLAT), count, FLAT),
+    ("router:vectors", "Router vectors", arm_vectors(ROUTER), count, ROUTER),
+    ("ratio:vectors", "Ratio", vectors_ratio, ratio_text, None),
+    ("ratio:adaptive", "Adaptive on vs off", adaptive_vs_fixed, ratio_text, None),
+    ("router:routing", "Routing ms", arm_value(ROUTER, "routing_ms"), ms, ROUTER),
+)
+HEADERS = {column: header for column, header, *_ in COLUMNS}
+GETTERS = {column: getter for column, _, getter, *_ in COLUMNS}
+FORMATTERS = {column: formatter for column, _, _, formatter, _ in COLUMNS}
+# The Router / Flat columns, with the work each one counts.
+RATIOS = (("ratio:clusters", "clusters"), ("ratio:vectors", "vectors"))
+TABLE_SUMMARY = "Router quality table"
+FOOTNOTE = (
+    "Each Ratio is Router divided by Flat for the two columns before it. Flat and Router use fixed "
+    "probes (adaptive off). Adaptive on vs off is the router's vectors probed with adaptive probing "
+    "on, divided by off. Vectors in filtered rows count only vectors that pass the filter. Routing "
+    "ms is the router's time, with its share of query time in brackets. ⚠️ marks an unfiltered "
+    f"ratio above {ratio_text(MAX_RATIO)}; filtered rows are informational."
+)
+
+
+def flags(current, baseline):
+    """Flags on unfiltered rows, keyed by (column id, target). Filtered rows never flag.
+
+    Either Ratio above MAX_RATIO is ⚠️ at every target. With a main baseline it also needs to be
+    past main's by more than RATIO_RISE, and a cell main did not reach keeps the absolute rule.
+    Against main, at MAIN_TARGETS, a cell is ⚠️ when Flat clusters or Flat vectors rose by more
+    than FLAT_WORSE, Adaptive on vs off by more than ADAPTIVE_RATIO_RISE, or Routing ms by more
+    than ROUTING_WORSE and ROUTING_WORSE_MS.
+    """
+    query, found = UNFILTERED, {}
+    for target in TARGETS:
+        for column, noun in RATIOS:
+            now = GETTERS[column](current, query, target)
+            before = GETTERS[column](baseline, query, target)
+            if (
+                now is not None
+                and now > MAX_RATIO
+                and (before is None or now - before > RATIO_RISE)
+            ):
+                found[(column, target)] = {
+                    "column": column,
+                    "target": target,
+                    "mark": "⚠️",
+                    "kind": "ratio",
+                    "noun": noun,
+                    "value": now,
+                    "before": before,
+                }
+    if baseline is None:
+        return found
+
+    def worse(column, kind, target, rule):
+        before = GETTERS[column](baseline, query, target)
+        after = GETTERS[column](current, query, target)
+        if before is not None and after is not None and rule(before, after):
+            found[(column, target)] = {
+                "column": column,
+                "target": target,
+                "mark": "⚠️",
+                "kind": kind,
+                "before": before,
+                "after": after,
+                "change": (after - before) / before if before else math.inf,
+            }
+
+    for target in MAIN_TARGETS:
+        for column in ("flat:clusters", "flat:vectors"):
+            worse(column, "flat", target, lambda a, b: b > a * (1 + FLAT_WORSE))
+        worse("ratio:adaptive", "adaptive", target, lambda a, b: b - a > ADAPTIVE_RATIO_RISE)
+        worse(
+            "router:routing",
+            "routing",
+            target,
+            lambda a, b: b > a * (1 + ROUTING_WORSE) and b - a > ROUTING_WORSE_MS,
+        )
+    return found
+
+
+def router_needs(ratio_flags):
+    """The worst flagged Ratio as `Router needs <x>x flat's <work> at <target>`, naming clusters
+    whenever the clusters ratio flagged. Ties go to the lowest target."""
+    clusters = [f for f in ratio_flags if f["noun"] == "clusters"]
+    worst = max(clusters or ratio_flags, key=lambda f: (f["value"], -f["target"]))
+    return (
+        f"{worst['mark']} Router needs {ratio_text(worst['value'])} flat's {worst['noun']} at "
+        f"{label(worst['target'])}"
+    )
+
+
+def ratio_cells(report):
+    """Every reached unfiltered Ratio over both ratio columns and every target, as (ratio, target,
+    column)."""
+    cells = [
+        (GETTERS[column](report, UNFILTERED, target), target, column)
+        for target in TARGETS
+        for column, _ in RATIOS
+    ]
+    return [cell for cell in cells if cell[0] is not None]
+
+
+def highest(cells):
+    """The cell with the highest Ratio, or None. Ties go to the lowest target."""
+    return max(cells, key=lambda cell: (cell[0], -cell[1])) if cells else None
+
+
+def verdict(current, flagged, baseline_note, baseline_commit, baseline=None):
+    """The verdict line and its mark. `baseline_note` ends the line when main has no comparable
+    baseline."""
+    ratio_flags = [f for f in flagged.values() if f["kind"] == "ratio"]
+    against_main = [f for f in flagged.values() if f["kind"] != "ratio"]
+    cells = ratio_cells(current)
+    worst = highest(cells)
+    above = highest([cell for cell in cells if cell[0] > MAX_RATIO])
+    period = True
+    if against_main:
+        flag = max(against_main, key=lambda f: (f["change"], -f["target"]))
+        kinds = {f["kind"] for f in flagged.values()}
+        areas = ", ".join(area for kind, area in AREAS.items() if kind in kinds)
+        render_value = FORMATTERS[flag["column"]]
+        text = (
+            f"⚠️ {HEADERS[flag['column']]} at {label(flag['target'])} up {flag['change']:.0%} "
+            f"against main ({render_value(flag['before'])} → {render_value(flag['after'])}). "
+            f"Look at: {areas}"
+        )
+        mark = "⚠️"
+    elif ratio_flags:
+        text, mark = router_needs(ratio_flags), "⚠️"
+    elif baseline_note is None and above is not None:
+        # Above MAX_RATIO without a flag: within RATIO_RISE of main's ratio for the same cell.
+        now, target, column = above
+        before = GETTERS[column](baseline, UNFILTERED, target)
+        main_text = f" (main {ratio_text(before)})" if before is not None else ""
+        text = (
+            f"✅ No regression against main {baseline_commit[:7]}. Router is at "
+            f"{ratio_text(now)} flat at {label(target)}{main_text}"
+        )
+        mark = "✅"
+    else:
+        worst_text = (
+            f"worst {ratio_text(worst[0])} at {label(worst[1])}" if worst else "no ratios"
+        )
+        text = f"✅ Router matches flat ordering ({worst_text})"
+        if baseline_note is None:
+            text += f" · no regression against main {baseline_commit[:7]}"
+        mark, period = "✅", False
+    if baseline_note is not None:
+        text += f" · {baseline_note}"
+    return text + ("." if period else ""), mark
+
+
+def routing_share(report, query, target):
+    share = value(report, query, target, ROUTER, "routing_share")
+    return "" if share is None else f" ({share:.0%})"
+
+
+def table_cell(value_, render_value, suffix, flag, is_ratio):
+    """A cell; a flagged cell is bold, marked and, with a baseline, shows main's value."""
+    if value_ is None:
+        return "" if is_ratio else "not reached"
+    text = render_value(value_)
+    if flag:
+        text = f"**{text}**"
+    text += suffix
+    if flag:
+        text += f" {flag['mark']}"
+        if flag.get("before") is not None:
+            text += f" (main {render_value(flag['before'])})"
+    return text
+
+
+def markdown(report):
+    """The PR comment section: heading and verdict, then one row per filter level and target, the
+    footnote and the report link, collapsed under a summary line."""
+    size = report["dataset"].get("size", "")
+    flagged = {(f["column"], f["target"]): f for f in report["flags"]}
+    lines = [
+        "",
+        f"#### Router quality · Cohere {size}",
+        "",
+        f"**{report['verdict_line']}**",
+        "",
+        # GitHub renders Markdown inside <details> only with a blank line after the summary.
+        f"<details><summary>{TABLE_SUMMARY}</summary>",
+        "",
+        "| | " + " | ".join(HEADERS.values()) + " |",
+        "|---|" + "---:|" * len(COLUMNS),
+    ]
+    for query in QUERIES:
+        for target in TARGETS:
+            cells = [
+                table_cell(
+                    getter(report, query, target),
+                    render_value,
+                    routing_share(report, query, target) if column == "router:routing" else "",
+                    flagged.get((column, target)) if query == UNFILTERED else None,
+                    arm is None,
+                )
+                for column, _, getter, render_value, arm in COLUMNS
+            ]
+            lines.append(f"| {LABELS[query]} {label(target)} | " + " | ".join(cells) + " |")
+    lines += ["", FOOTNOTE]
+    if report.get("report_url"):
+        lines.append(f"[Full report]({report['report_url']})")
+    lines += ["", "</details>"]
+    return "\n".join(lines) + "\n"
+
+
+RATIO_HISTORY = ("router vs flat, clusters", "adaptive on vs off, vectors probed")
+
+
+def history_metrics(report):
+    """Unfiltered metrics for the benchmark history, lower is better: `{name, unit, value}`. The
+    RATIO_HISTORY pair forms the alerting `(router)` suite; the rest form `(router detail)`."""
+    metrics = []
+    for target in TARGETS:
+        tag = f"{UNFILTERED}@{label(target)}"
+        for name, unit, metric in (
+            ("router vs flat, clusters", "ratio", clusters_ratio(report, UNFILTERED, target)),
+            (
+                "adaptive on vs off, vectors probed",
+                "ratio",
+                adaptive_vs_fixed(report, UNFILTERED, target),
+            ),
+            (
+                "flat vectors probed",
+                "vectors/query",
+                value(report, UNFILTERED, target, FLAT, "vectors_probed"),
+            ),
+            (
+                "router vectors probed, adaptive on",
+                "vectors/query",
+                value(report, UNFILTERED, target, ROUTER_ADAPTIVE, "vectors_probed"),
+            ),
+            ("router routing time", "ms", value(report, UNFILTERED, target, ROUTER, "routing_ms")),
+        ):
+            if metric is not None and math.isfinite(metric):
+                metrics.append({"name": f"{tag} {name}", "unit": unit, "value": metric})
+    return metrics
+
+
+REPORT_COLUMNS = (
+    ("budget", "Budget", str),
+    ("recall", "Recall", lambda v: f"{v:.3f}"),
+    ("clusters", "Clusters", count),
+    ("vectors_probed", "Vectors probed", count),
+    ("valid_vectors", "Valid vectors", count),
+    ("empty_clusters", "Empty clusters", count),
+    ("layer0_scored", "Layer-0 scored", count),
+    ("exact_rows", "Exact rows", count),
+    ("routing_ms", "Routing ms mean", ms),
+    ("routing_ms_p95", "Routing ms p95", ms),
+    ("centroids_1bit", "Centroids scored, 1-bit", count),
+    ("centroids_exact", "Centroids scored, exact", count),
+    ("adaptive_stops", "Adaptive stops", str),
+    ("parallel_plans", "Parallel plans", str),
+    ("workers_launched", "Workers launched", lambda v: f"{v:.1f}"),
+)
+
+
+MAIN_ROWS = (
+    ("Flat clusters", arm_value(FLAT, "clusters"), count),
+    ("Router clusters", arm_value(ROUTER, "clusters"), count),
+    ("Clusters ratio", clusters_ratio, ratio_text),
+    ("Flat vectors", arm_vectors(FLAT), count),
+    ("Router vectors", arm_vectors(ROUTER), count),
+    ("Vectors ratio", vectors_ratio, ratio_text),
+    ("Adaptive on vs off", adaptive_vs_fixed, ratio_text),
+    ("Router, adaptive on clusters", arm_value(ROUTER_ADAPTIVE, "clusters"), count),
+    ("Router, adaptive on vectors", arm_vectors(ROUTER_ADAPTIVE), count),
+    ("Flat routing ms", arm_value(FLAT, "routing_ms"), ms),
+    ("Router routing ms", arm_value(ROUTER, "routing_ms"), ms),
+)
+
+
+def stand_in_text(stand_in):
+    if not stand_in:
+        return ""
+    where = f"{stand_in['arm']} on {LABELS[stand_in['query']]}"
+    if stand_in["refusal"] is None:
+        return f"{where}: budgets from the existing sweep, which runs the same router and settings."
+    return f"{where}: swept, because {stand_in['refusal']}."
+
+
+def fallback_text(sweeps):
+    fallbacks = [r for r in sweeps if r["kind"] == "fallback"]
+    if not fallbacks:
+        return "none fell back"
+    return "fell back: " + ", ".join(
+        f"{r['arm']} {LABELS[r['query']]} {label(r['targets'][0])}" for r in fallbacks
+    )
+
+
+def html_report(report, baseline=None):
+    """Everything the comment leaves out, as one self-contained page, with main side by side."""
+    e = html.escape
+
+    def table(head, body):
+        return (
+            "<table><thead><tr>"
+            + "".join(f"<th>{e(str(h))}</th>" for h in head)
+            + "</tr></thead><tbody>"
+            + "".join("<tr>" + "".join(f"<td>{e(str(c))}</td>" for c in row) + "</tr>" for row in body)
+            + "</tbody></table>"
+        )
+
+    size = report["dataset"].get("size", "")
+    parts = [
+        "<!doctype html><html><head><meta charset='utf-8'>",
+        f"<title>Router quality · Cohere {e(size)}</title>",
+        "<style>body{font:14px system-ui,sans-serif;margin:24px;color:#222}"
+        "table{border-collapse:collapse;margin:8px 0 24px}"
+        "th,td{border:1px solid #ccc;padding:3px 8px;text-align:right}"
+        "th:first-child,td:first-child,th:nth-child(2),td:nth-child(2),th:nth-child(3),"
+        "td:nth-child(3){text-align:left}code{font-size:12px}</style></head><body>",
+        f"<h1>Router quality · Cohere {e(size)}</h1>",
+        f"<p><b>{e(report['verdict_line'])}</b></p>",
+        f"<p>pg_search <code>{e(report['commit'])}</code> · pdbench <code>{e(report['pdbench'])}</code>"
+        f" · main baseline <code>{e(report.get('baseline_commit') or 'none')}</code></p>",
+    ]
+    index = report.get("index") or {}
+    if index:
+        parts.append(
+            f"<p>K = {index['clusters']:,} · {index['rows_per_cluster']:,.0f} rows per cluster (mean) · "
+            f"{e(index['routing_kind'])} router · rerank factor {e(str(index['rerank_factor']))} · "
+            f"{index['segments']} segments</p>"
+        )
+    parts.append("<h2>Per query, target and arm</h2>")
+    for query in QUERIES:
+        body = []
+        for target in TARGETS:
+            for arm in ARMS:
+                cell = report["results"][query][str(target)][arm]
+                body.append(
+                    [label(target), arm, "reached" if cell["reached"] else "not reached"]
+                    + [
+                        render_value(cell[key]) if cell["reached"] and key in cell else ""
+                        for key, _, render_value in REPORT_COLUMNS
+                    ]
+                )
+        parts += [
+            f"<h3>{e(LABELS[query])}</h3>",
+            table(["Target", "Arm", "Target reached"] + [h for _, h, _ in REPORT_COLUMNS], body),
+        ]
+    parts.append("<h2>Against main</h2>")
+    if baseline is None:
+        parts.append(f"<p>{e(report.get('baseline_note') or 'No main baseline.')}</p>")
+    else:
+        parts.append(f"<p>Main <code>{e(baseline['commit'])}</code>. Vectors are vectors probed "
+                     "for Unfiltered and filter-valid vectors for the filtered levels.</p>")
+        for query in QUERIES:
+            body = []
+            for target in TARGETS:
+                for name, getter, render_value in MAIN_ROWS:
+                    now, before = getter(report, query, target), getter(baseline, query, target)
+                    change = (
+                        f"{(now - before) / before:+.1%}"
+                        if now is not None and before not in (None, 0)
+                        else ""
+                    )
+                    body.append(
+                        [
+                            label(target),
+                            name,
+                            "not reached" if now is None else render_value(now),
+                            "not reached" if before is None else render_value(before),
+                            change,
+                        ]
+                    )
+            parts += [
+                f"<h3>{e(LABELS[query])}</h3>",
+                table(["Target", "Value", "This commit", "Main", "Change"], body),
+            ]
+    sweeps = report.get("sweeps", [])
+
+    def bounds(run):
+        if run["range"] is None:
+            return ["", "", ""]
+        return [f"{run['range'][key]:g}" for key in ("start", "min", "max")]
+
+    def probes(arm, query):
+        return sum(run["probes"] for run in sweeps if (run["arm"], run["query"]) == (arm, query))
+
+    parts += [
+        "<h2>Checks</h2>",
+        table(
+            ["Check", "Failed", "Checked", "Description"],
+            [
+                [name, check["failed"], check["checked"], check["description"]]
+                for name, check in report["checks"].items()
+            ],
+        ),
+        "<h2>Plan shapes</h2>",
+        table(
+            ["Query", "Shape"],
+            [[LABELS[q], "/".join(report.get("plan_shapes", {}).get(q, []))] for q in QUERIES],
+        ),
+        "<p>Parallel plans cap each arm's candidate list at the router's k; serial plans take the "
+        "whole ranking.</p>",
+        "<h2>Sweeps</h2>",
+        f"<p>{e(stand_in_text(report.get('stand_in')))} Seeded ranges reach {SEED_SPAN:g}x past "
+        "their seed; a target a seeded range does not bracket is swept again over the full range "
+        f"({e(fallback_text(sweeps))}).</p>",
+        f"<p>{e(BUDGET_NOTE)}</p>",
+        table(
+            ["Arm", "Query", "Targets", "Kind", "Seed", "Start", "Min", "Max", "Probes", "Seconds"],
+            [
+                [
+                    run["arm"],
+                    LABELS[run["query"]],
+                    " ".join(label(t) for t in run["targets"]),
+                    run["kind"],
+                    "" if run["seed"] is None else run["seed"],
+                    *bounds(run),
+                    run["probes"],
+                    run["seconds"],
+                ]
+                for run in sweeps
+            ],
+        ),
+        table(
+            ["Arm", "Query", "Probes"],
+            [[arm, LABELS[query], probes(arm, query)] for query in QUERIES for arm in ARMS],
+        ),
+        "<h2>Tolerated pdbench runs</h2>",
+        table(
+            ["Arm", "Query", "Report"],
+            [[run["arm"], run["query"], run["report"]] for run in report.get("tolerated", [])],
+        )
+        if report.get("tolerated")
+        else "<p>None.</p>",
+        "<h2>Segment terminations</h2>",
+        table(
+            ["Arm", "Termination", "Segments"],
+            [
+                [arm, name, number]
+                for arm, counts in report.get("terminations", {}).items()
+                for name, number in sorted(counts.items())
+            ],
+        ),
+        f"<p>{e(ADAPTIVE_STOP)} counts as the adaptive stop.</p>",
+        "<h2>Config</h2>",
+        table(
+            ["Arm", "Session settings"],
+            [
+                [arm, ", ".join(f"{k} = {v}" for k, v in report["arms"][arm]["session"].items())]
+                for arm in ARMS
+            ],
+        ),
+        f"<p>Artifact <code>{e(report['artifact'])}</code> · config fingerprint "
+        f"<code>{e(report['fingerprint'][:12])}</code></p>",
+        "</body></html>",
+    ]
+    return "\n".join(parts) + "\n"
+
+
+def render(measurements, output, commit, pdbench, baseline=None, report_url=None):
+    """Writes router_quality.{json,md,html}, router-metrics.json and router-detail-metrics.json."""
+    report = dict(measurements)
+    size = report["dataset"].get("size", "")
+    note = None
+    if baseline is None:
+        note = "no main baseline yet"
+    elif baseline.get("fingerprint") != report["fingerprint"]:
+        note, baseline = "main baseline configuration differs", None
+    flagged = flags(report, baseline)
+    line, mark = verdict(report, flagged, note, baseline["commit"] if baseline else "", baseline)
+    report |= {
+        "commit": commit,
+        "pdbench": pdbench,
+        "artifact": f"cohere-{size}-router-quality",
+        "report_url": report_url,
+        "baseline_commit": baseline["commit"] if baseline else None,
+        "max_ratio": MAX_RATIO,
+        "flags": sorted(flagged.values(), key=lambda f: (f["column"], f["target"])),
+        "baseline_note": note,
+        "verdict": mark,
+        "verdict_line": line,
+    }
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "router_quality.json").write_text(json.dumps(report, indent=2, default=str) + "\n")
+    (output / "router_quality.md").write_text(markdown(report))
+    (output / "router_quality.html").write_text(html_report(report, baseline))
+    metrics = history_metrics(report)
+    ratios = [m for m in metrics if m["name"].split(" ", 1)[1] in RATIO_HISTORY]
+    details = [m for m in metrics if m not in ratios]
+    (output / "router-metrics.json").write_text(json.dumps(ratios, indent=2) + "\n")
+    (output / "router-detail-metrics.json").write_text(json.dumps(details, indent=2) + "\n")
+    return report
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    command = commands.add_parser("configs")
+    command.add_argument("--profile", type=Path, required=True)
+    command.add_argument("--output", type=Path, required=True)
+    command = commands.add_parser("sweep")
+    command.add_argument("--runs", type=Path, required=True, help="holds router-<arm>.toml")
+    command.add_argument("--existing", type=Path, required=True, help="existing sweep's reports")
+    command.add_argument("--assets-dir", type=Path, required=True)
+    command = commands.add_parser("measure")
+    command.add_argument("--runs", type=Path, required=True)
+    command.add_argument("--vectors", type=Path, required=True)
+    command.add_argument("--output", type=Path, required=True)
+    command = commands.add_parser("render")
+    command.add_argument("--measurements", type=Path, required=True)
+    command.add_argument("--output", type=Path, required=True)
+    command.add_argument("--commit", required=True)
+    command.add_argument("--pdbench", required=True)
+    command.add_argument("--baseline", type=Path)
+    command.add_argument("--report-url")
+    args = parser.parse_args()
+    if args.command == "configs":
+        configs(args.profile, args.output)
+    elif args.command == "sweep":
+        pdbench = Pdbench(
+            args.runs,
+            args.assets_dir,
+            os.environ["PARADEDB_URL"],
+            summary=os.environ.get("GITHUB_STEP_SUMMARY"),
+        )
+        log = sweep(args.runs, args.existing, pdbench)
+        for entry in log["runs"]:
+            print(
+                f"{entry['arm']} {entry['query']} {entry['kind']} "
+                f"{' '.join(label(t) for t in entry['targets'])}: {entry['probes']} probes, "
+                f"{entry['seconds']} s"
+            )
+    elif args.command == "measure":
+        result = measure(args.runs, json.loads(args.vectors.read_text()))
+        args.output.write_text(json.dumps(result, indent=2) + "\n")
+        for name, check in result["checks"].items():
+            state = "ok" if check["failed"] == 0 else f"FAILED {check['failed']}"
+            print(f"check {name}: {state} of {check['checked']} ({check['description']})")
+    else:
+        previous = None
+        if args.baseline is not None:
+            path = args.baseline / "router_quality.json"
+            previous = json.loads(path.read_text()) if path.exists() else None
+        render(
+            json.loads(args.measurements.read_text()),
+            args.output,
+            args.commit,
+            args.pdbench,
+            previous,
+            args.report_url,
+        )

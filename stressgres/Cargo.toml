@@ -28,7 +28,7 @@ image = { version = "0.25.9", optional = true }
 libc = "0.2.190"
 openssl = "0.10.78"
 parking_lot = "0.13.0"
-pgrx-pg-config = "=0.19.3"
+pgrx-pg-config = "=0.20.0"
 plotters = { version = "0.3.7", optional = true }
 postgres = "0.19.13"
 postgres-openssl = "0.5.3"
@@ -40,6 +40,8 @@ serde_json = { version = "1.0.149", features = [
 ] }
 shutdown_hooks = "0.1.0"
 sysinfo = { version = "0.40.1", features = ["multithread"] }
+tokio = { version = "1.54.1", features = ["rt", "time"] }
+tokio-postgres = "0.7.18"
 toml = "1.1.6"
 url = "2.5.8"
 

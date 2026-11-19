@@ -10,6 +10,8 @@ ParadeDB uses a **fragment-based workflow** for release artifacts:
 
 At release time, the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml) automatically assembles these fragments into the versioned SQL upgrade script and changelog page.
 
+Changelog sections follow the order in `.changelog_headers.json`: breaking changes, new features, performance improvements, stability improvements, documentation, and other changes. Empty sections are omitted.
+
 ## Enterprise: Community Sync
 
 Commits from `paradedb/paradedb` are automatically synced to `paradedb/paradedb-enterprise` via GitHub Actions.
@@ -82,7 +84,7 @@ To publish a patch release from a stable branch:
    - Bump `Cargo.toml` and synchronize `Cargo.lock` on the stable branch.
    - Open a manual approval issue for `@pg_search-maintainers` displaying the release details and rendered changelog.
    - Upon approval (by commenting `approved` on the issue), commit, tag `v<version>`, and publish the GitHub release.
-   - **Sync to `main`:** Check out `main`, copy the assembled SQL script and changelog page, update `docs/docs.json`, delete the consumed fragments from `main`, and push the sync commit to `main`.
+   - **Sync to `main`:** Check out `main`, copy the assembled SQL script and changelog page, update `docs/docs.json`, delete the consumed fragments from `main`, bump `Cargo.toml`, `Cargo.lock`, and `nix/pg_search.nix` when this release is the latest version (never downgrading `main`), and push the sync commit to `main`.
 
 ## Enterprise Release
 

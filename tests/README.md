@@ -47,7 +47,7 @@ export DATABASE_URL="postgresql://$(whoami)@localhost:28818/pg_search"
 export PG_CONFIG="$HOME/.pgrx/18.6/pgrx-install/bin/pg_config"
 export RUST_BACKTRACE=1
 cargo pgrx stop --package pg_search
-./scripts/dev-install.sh --package pg_search --pg-config "$PG_CONFIG"
+cargo pgrx install --package pg_search --pg-config "$PG_CONFIG"
 cargo pgrx start --package pg_search
 createdb -h localhost -p 28818 pg_search || true
 
@@ -69,7 +69,7 @@ export PG_CONFIG=/opt/homebrew/opt/postgresql@18/bin/pg_config
 export RUST_BACKTRACE=1
 
 createdb pg_search || true
-./scripts/dev-install.sh --package pg_search --pg-config "$PG_CONFIG"
+cargo pgrx install --package pg_search --pg-config "$PG_CONFIG"
 
 cargo test --package tests
 ```
@@ -79,3 +79,5 @@ To run a single test, use the following command (replace `<testname>` with the t
 ```shell
 cargo test --package tests --test <testname>
 ```
+
+When unreleased SQL fragments are installed, pgrx may use a temporary extension version. Debug builds let the mutable sweep worker use that version. Release builds require `pg_extension.extversion` to match the loaded library's compiled version. To exercise sweeps with `cargo pgrx install --release`, assemble the fragments and set the crate version to the target first.

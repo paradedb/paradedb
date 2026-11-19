@@ -9,6 +9,12 @@ GRANT USAGE ON SCHEMA permission_access TO permission_access_reader;
 CREATE TABLE permission_access.docs(id integer PRIMARY KEY, email text);
 INSERT INTO permission_access.docs VALUES (1, 'first'), (2, 'second');
 CREATE INDEX docs_idx ON permission_access.docs USING paradedb (id, (email::pdb.literal));
+-- The reader can search this table, so only the index whose oid the query value holds denies it.
+-- It is outside the schema, so the inventory counts below see only `docs_idx`.
+CREATE TABLE permission_access_searched(id integer PRIMARY KEY, body text);
+INSERT INTO permission_access_searched VALUES (1, 'sofa');
+CREATE INDEX permission_access_searched_idx ON permission_access_searched USING paradedb (id, body);
+GRANT SELECT ON permission_access_searched TO permission_access_reader;
 
 CREATE FUNCTION permission_access.assert_denied(queries text[]) RETURNS integer
 LANGUAGE plpgsql SECURITY INVOKER AS $$
@@ -39,6 +45,8 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
   'SELECT paradedb.fsm_size(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.index_info(''permission_access.docs_idx'')',
   'SELECT * FROM pdb.index_segments(''permission_access.docs_idx'')',
+  'SELECT * FROM pdb.synonym_expansion(''permission_access.docs_idx'', ''sofa'')',
+  'SELECT * FROM permission_access_searched WHERE body ||| format(''{"unclassified_string":{"string":"sofa","synonyms":%s}}'', ''permission_access.docs_idx''::regclass::oid)::pdb.query',
   'SELECT * FROM paradedb.vector_info(''permission_access.docs_idx'', ''missing'')',
   'SELECT * FROM paradedb.vector_config(''permission_access.docs_idx'', ''missing'')',
   'SELECT * FROM paradedb.vector_clusters(''permission_access.docs_idx'', ''missing'')',
@@ -52,7 +60,7 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
 
 -- Audit every regclass overload, including functions that do not read an index.
 -- A new signature must be classified and its access/lock policy covered explicitly.
--- Exceptions: with_index constructs query input; deprecated bgmerger_state,
+-- Exceptions: with_index and expand_with_index construct query input; deprecated bgmerger_state,
 -- reset_bgworker_state and both force_merge overloads read no index data.
 -- SQL signatures cannot distinguish IndexOid from pgrx's implicitly locking PgRelation;
 -- the lock-order tests independently check that argument decoding takes no index lock.

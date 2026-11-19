@@ -14,8 +14,9 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- =============================================================================
 DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS suppliers CASCADE;
+-- Omit PRIMARY KEY on `id` so PG 18.7+ keeps Test 6's `IN (SELECT ...)` as a Semi join.
 CREATE TABLE suppliers (
-    id INTEGER PRIMARY KEY,
+    id INTEGER,
     name TEXT,
     region TEXT
 ) WITH (autovacuum_enabled = false);
@@ -353,28 +354,27 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'premium'
 ORDER BY p.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.id, p.name, s.name
    Sort Key: p.id
-   ->  Nested Loop
+   ->  Hash Join
          Output: p.id, p.name, s.name
-         Inner Unique: true
-         ->  Custom Scan (ParadeDB Base Scan) on public.products p
-               Output: p.id, p.name, p.supplier_id
-               Table: products
-               Index: products_bm25_idx
-               Worker Selection: Row-capped
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-         ->  Bitmap Heap Scan on public.suppliers s
+         Hash Cond: (s.id = p.supplier_id)
+         ->  Seq Scan on public.suppliers s
                Output: s.id, s.name, s.region
-               Recheck Cond: (p.supplier_id = s.id)
-               ->  Bitmap Index Scan on suppliers_pkey
-                     Index Cond: (s.id = p.supplier_id)
-(19 rows)
+         ->  Hash
+               Output: p.id, p.name, p.supplier_id
+               ->  Custom Scan (ParadeDB Base Scan) on public.products p
+                     Output: p.id, p.name, p.supplier_id
+                     Table: products
+                     Index: products_bm25_idx
+                     Worker Selection: Row-capped
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(18 rows)
 
 -- =============================================================================
 -- CLEANUP (products/suppliers)
@@ -396,8 +396,9 @@ DROP TABLE suppliers CASCADE;
 -- =============================================================================
 DROP TABLE IF EXISTS bench_files CASCADE;
 DROP TABLE IF EXISTS bench_documents CASCADE;
+-- Omit PRIMARY KEY on `id` so PG 18.7+ keeps Test 8's `IN (SELECT ...)` as a Semi join.
 CREATE TABLE bench_documents (
-    id TEXT PRIMARY KEY,
+    id TEXT,
     category TEXT,
     title TEXT
 ) WITH (autovacuum_enabled = false);

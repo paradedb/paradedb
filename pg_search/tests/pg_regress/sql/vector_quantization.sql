@@ -2,9 +2,13 @@ SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
 
+SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_clustering_threshold = 64;
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 100000;
 SET paradedb.vector_stats = on;
+
+SELECT pg_get_function_result('paradedb.vector_clusters(regclass,text)'::regprocedure)
+    = 'TABLE(segno text, cluster_sizes bigint[])' AS cluster_columns;
 
 CREATE FUNCTION quant_fixture_vector(d integer, n integer)
 RETURNS vector
@@ -73,7 +77,7 @@ CREATE TABLE q_cal_unquantized (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":false}}'
+    quantization = '0'
 );
 INSERT INTO q_cal_unquantized
 SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
@@ -94,7 +98,7 @@ CREATE TABLE q_explicit_below_floor (id integer PRIMARY KEY, vec vector(63));
 CREATE INDEX q_explicit_below_floor_idx ON q_explicit_below_floor
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":true}}'
+    quantization = '[1,1]'
 );
 DROP TABLE q_explicit_below_floor;
 
@@ -107,12 +111,22 @@ CREATE TABLE q_schedule_validation (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX q_too_many_layers_idx ON q_schedule_validation
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[1,1,1,1]}}}'
+    quantization = '[1,1,1,1]'
 );
+CREATE INDEX q_zero_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '[0,0]');
+CREATE INDEX q_wide_layer_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '[5]');
+CREATE INDEX q_empty_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '[]');
+CREATE INDEX q_json_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '{"layers":[1,1]}');
+CREATE INDEX q_legacy_fields_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (vector_fields = '{"vec":{"quantization":false}}');
 CREATE INDEX q_grid_first_idx ON q_schedule_validation
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[4]}}}'
+    quantization = '[4]'
 );
 DROP TABLE q_schedule_validation;
 
@@ -120,7 +134,8 @@ CREATE TABLE q_cosine (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_cosine_idx ON q_cosine
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    max_leaf_size = 5,
+    replication = 1,
+    target_leaf_size = 5,
     training_sample_ratio = 1.0,
     target_segment_count = 1,
     mutable_segment_rows = 0,
@@ -135,7 +150,8 @@ CREATE TABLE q_estimator (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_estimator_idx ON q_estimator
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    max_leaf_size = 5,
+    replication = 1,
+    target_leaf_size = 5,
     training_sample_ratio = 1.0,
     target_segment_count = 1,
     mutable_segment_rows = 0,
@@ -198,7 +214,7 @@ FROM q_estimator_held_out held_out
 JOIN q_estimator_provided provided USING (depth)
 ORDER BY depth;
 
-SET paradedb.vector_cluster_max_probe = 0.25;
+SET paradedb.vector_cluster_max_probe = 10;
 CREATE TEMP TABLE q_cosine_unquantized_ivf AS
 SELECT
     row_number() OVER (ORDER BY distance, id) AS ordinal,
@@ -227,7 +243,7 @@ SELECT
     jsonb_path_query_first(value, '$.**.exact_scan_ns') IS NULL
         AS diagnostics_absent_skips_ivf_exact
 FROM segment_info;
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 100000;
 
 WITH plan AS (
     SELECT quant_explain(
@@ -291,6 +307,7 @@ SELECT
         AS layer0_populated,
     (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
         = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+            + (jsonb_path_query_first(value, '$.**.layer0_exact_rows') #>> '{}')::bigint
         AS layer0_selection_accounted,
     (jsonb_path_query_first(value, '$.**.layer0_survivors') #>> '{}')::bigint
         < (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
@@ -299,8 +316,10 @@ SELECT
         AS exact_populated,
     (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0
         AS routing_flat,
-    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NOT NULL
-        AS bound_flat,
+    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NULL
+        AND jsonb_path_query_first(value, '$.**.bounds_skips') IS NULL
+        AND jsonb_path_query_first(value, '$.**.bound_armed_probe_sum') IS NULL
+        AS no_radii,
     jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_hits')) = 'number'
         AND jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_reads')) = 'number'
         AS io_flat,
@@ -356,7 +375,7 @@ SELECT
 -- 120 of 200 documents match, well above the probe budget's rows: the segment routes, and
 -- admission scores and charges only rows that pass the filter. Skipping a cluster whose rows all
 -- fail the filter is asserted in tantivy's filtered_empty_cluster_skips_band_reads.
-SET paradedb.vector_cluster_max_probe = 0.25;
+SET paradedb.vector_cluster_max_probe = 10;
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine '
@@ -393,14 +412,14 @@ SELECT
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) AS routed_matches_exhaustive;
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 100000;
 DROP TABLE q_cosine_oracle;
 
 CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_l2_idx ON q_l2
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
+    quantization = '[1,4]',
     target_segment_count = 1,
     mutable_segment_rows = 0,
     layer_sizes = '400kb',
@@ -427,7 +446,7 @@ CREATE TABLE q_odd (id integer PRIMARY KEY, vec vector(100));
 CREATE INDEX q_odd_idx ON q_odd
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
+    quantization = '[1,4]',
     target_segment_count = 1,
     mutable_segment_rows = 0,
     layer_sizes = '50kb',
@@ -456,7 +475,7 @@ USING paradedb (id, vec vector_cosine_ops);
 INSERT INTO q_flat SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 32) g;
 
 SET paradedb.max_scan_levels = 0;
-SET paradedb.vector_cluster_max_probe = 0.25;
+SET paradedb.vector_cluster_max_probe = 10;
 
 CREATE TEMP TABLE q_cosine_lvl0 AS
 SELECT
@@ -549,6 +568,7 @@ RESET paradedb.vector_stats;
 DROP FUNCTION quant_explain_has_segment_info();
 
 RESET paradedb.vector_cluster_max_probe;
+RESET paradedb.vector_adaptive_probing;
 RESET paradedb.vector_clustering_threshold;
 
 DROP TABLE q_cosine;

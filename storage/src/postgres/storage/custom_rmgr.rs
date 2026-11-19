@@ -1,0 +1,149 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
+
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::buffer::{BufferMut, IndexLocator};
+use crate::postgres::storage::metadata::MetaPage;
+use pgrx::{pg_guard, pg_sys};
+use std::ffi::CStr;
+
+// see https://wiki.postgresql.org/wiki/CustomWALResourceManagers
+pub const RMGR_ID: pg_sys::RmgrId = 137;
+const RMGR_NAME: &CStr = c"pg_search";
+
+const XLOG_PG_SEARCH_INIT_INDEX: u8 = 0x10;
+const XLOG_PG_SEARCH_INIT_INDEX_NAME: &CStr = c"INIT_INDEX";
+
+/// The record's payload: what replay can reach without a catalog.
+#[repr(C)]
+struct InitIndexPayload {
+    locator: IndexLocator,
+    taint_block: pg_sys::BlockNumber,
+}
+
+/// Sets the standby taint on the taint page of the named index, following the shape of
+/// `XLogReadBufferForRedo`: a block that does not exist is skipped without logging an invalid
+/// page, and a page already at or past this record's LSN (or already tainted) is left alone. A
+/// primary on a release whose record carried no locator wrote a single zero byte, which is
+/// skipped.
+unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
+    let decoded = (*record).record;
+    if ((*decoded).main_data_len as usize) < std::mem::size_of::<InitIndexPayload>() {
+        return;
+    }
+    let payload = std::ptr::read_unaligned((*decoded).main_data.cast::<InitIndexPayload>());
+    let locator = payload.locator;
+    let lsn = (*record).EndRecPtr;
+    let Some(mut buffer) = BufferMut::read_for_redo(locator, payload.taint_block, lsn) else {
+        return;
+    };
+    let page = buffer.page();
+    if lsn <= page.lsn() || MetaPage::is_tainted(&page) {
+        return;
+    }
+    MetaPage::taint(&mut buffer.page_mut());
+    drop(buffer);
+    pgrx::debug1!("tainted ParadeDB index {locator:?} for the promotion gate");
+}
+
+#[pg_guard]
+unsafe extern "C-unwind" fn rm_redo(record: *mut pg_sys::XLogReaderState) {
+    let info = (*(*record).record).header.xl_info & !(pg_sys::XLR_INFO_MASK as u8);
+    // The index pages reached the standby as full-page images before this record. An ERROR in
+    // the startup process is FATAL and stops replay for the whole cluster, so nothing here errors.
+    if info == XLOG_PG_SEARCH_INIT_INDEX && pg_sys::StandbyMode {
+        taint_replicated_index(record);
+    }
+}
+
+#[pg_guard]
+unsafe extern "C-unwind" fn rm_desc(
+    _buf: pg_sys::StringInfo,
+    _record: *mut pg_sys::XLogReaderState,
+) {
+}
+
+#[pg_guard]
+unsafe extern "C-unwind" fn rm_identify(info: u8) -> *const ::core::ffi::c_char {
+    match info & !(pg_sys::XLR_INFO_MASK as u8) {
+        XLOG_PG_SEARCH_INIT_INDEX => XLOG_PG_SEARCH_INIT_INDEX_NAME.as_ptr(),
+        _ => std::ptr::null(),
+    }
+}
+
+#[pg_guard]
+unsafe extern "C-unwind" fn rm_startup() {}
+
+#[pg_guard]
+unsafe extern "C-unwind" fn rm_cleanup() {}
+
+#[pg_guard]
+unsafe extern "C-unwind" fn rm_mask(
+    _pagedata: *mut ::core::ffi::c_char,
+    _blkno: pg_sys::BlockNumber,
+) {
+}
+
+/// Writes the `INIT_INDEX` record naming `index`. A standby replaying it taints the index's
+/// taint page; see `PgSearchRelation::blocked_after_promotion`. An unlogged index has no pages
+/// on a standby and writes nothing.
+pub fn emit_init_record(index: &PgSearchRelation) {
+    if !index.need_wal() {
+        return;
+    }
+    let taint_block = MetaPage::open(index).standby_taint_block();
+    // XLogRegisterData's signature varies across Postgres versions
+    // (data is `*mut c_char` on pg15-17 vs `*const c_void` on pg18, and len is `c_int`
+    // on pg15 vs `uint32` later). `as _` lets each build infer the right types.
+    let mut payload = InitIndexPayload {
+        #[cfg(feature = "pg15")]
+        locator: index.rd_node,
+        #[cfg(not(feature = "pg15"))]
+        locator: index.rd_locator,
+        taint_block,
+    };
+    unsafe {
+        pg_sys::XLogBeginInsert();
+        pg_sys::XLogRegisterData(
+            &mut payload as *mut InitIndexPayload as _,
+            std::mem::size_of::<InitIndexPayload>() as _,
+        );
+        pg_sys::XLogInsert(RMGR_ID, XLOG_PG_SEARCH_INIT_INDEX);
+    }
+}
+
+pub fn register() {
+    // `mut` because RegisterCustomRmgr takes `*mut RmgrData` on pg15 (vs `*const` later).
+    // The function only reads the struct, but the C signature was tightened post-15.
+    let mut rmgr = pg_sys::RmgrData {
+        rm_name: RMGR_NAME.as_ptr(),
+        rm_redo: Some(rm_redo),
+        rm_desc: Some(rm_desc),
+        rm_identify: Some(rm_identify),
+        rm_startup: Some(rm_startup),
+        rm_cleanup: Some(rm_cleanup),
+        rm_mask: Some(rm_mask),
+        // Postgres decode.c line 77: every record's xid needs to be processed by reorderbuffer
+        // If this is set to none, Postgres will invoke reorderbuffer for us
+        rm_decode: None,
+    };
+
+    unsafe {
+        pg_sys::RegisterCustomRmgr(RMGR_ID, &mut rmgr as *mut _);
+    }
+}

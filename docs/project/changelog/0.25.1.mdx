@@ -13,7 +13,7 @@ See GitHub release: [v0.25.1](https://github.com/paradedb/paradedb/releases/tag/
   indexes built with `0.25.0` must be rebuilt with `REINDEX` after upgrading.
 </Warning>
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 ### Faster Vector Search, One Less Knob
 
@@ -58,7 +58,7 @@ vector index build options:
 JoinScan now supports `LEFT`, `RIGHT`, and `FULL` joins, extending the join shapes that execute inside the
 ParadeDB index.
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Vector index builds hand training vectors to the clusterer by value, halving training memory.
 - Vector index build parallelism is capped at 4 workers to prevent memory spikes on large builds.
@@ -68,7 +68,7 @@ ParadeDB index.
   to 8MB.
 - Range partitioning is now wired into join planning.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - AggregateScan join predicates are now normalized and validated.
 - Fixed a spurious `datetime_fields` error.

@@ -12,11 +12,6 @@ canonical: https://www.paradedb.com/docs/project/roadmap
 - **Incremental index maintenance**. Vector search quality currently degrades as indexed rows are updated. We are implementing SPFresh to maintain index quality incrementally.
 - **Remaining pgvector types**. Implement support for pgvector's `halfvec`, `sparsevec`, and `bit` types.
 
-### JOIN Improvements
-
-- **[Accelerated JOINs (beta)](/reference/joins/overview)**. Apply search filters and aggregates directly in the index to speed up queries that join tables.
-- **Smarter JOIN planning for search indexes**. Apply index-aware optimizations and cost estimation strategies when multiple ParadeDB-indexed tables are joined.
-
 ### Ecosystem Integrations
 
 - **ORMs**. Official support for Prisma, Diesel, and others is coming. [Drizzle](https://github.com/paradedb/drizzle-paradedb), [Django](https://github.com/paradedb/django-paradedb), [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb), [Rails](https://github.com/paradedb/rails-paradedb), and [Entity Framework Core](https://github.com/paradedb/efcore-paradedb) are already available.

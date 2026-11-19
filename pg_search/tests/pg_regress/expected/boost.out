@@ -1,342 +1,342 @@
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(3);
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":3.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":3.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(3.14159);
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":3.140625}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":3.140625}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(0.5);
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":0.5}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":0.5}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(0);
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":0.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":0.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(-100);
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":-100.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":-100.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.boost(3);
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Boost":3.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"factor":3.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.boost(3.14159);
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Boost":3.140625}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"factor":3.140625}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.boost(0.5);
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Boost":0.5}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"factor":0.5}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.boost(0);
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Boost":0.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"factor":0.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.boost(-100);
-                                                                                                                           QUERY PLAN                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Boost":-100.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"factor":-100.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(3);
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":3.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":3.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(3.14159);
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":3.140625}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":3.140625}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(0.5);
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":0.5}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":0.5}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(0);
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":0.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":0.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(-100);
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":-100.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":-100.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(3);
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"score":{"Boost":3.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null}},"factor":3.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(3.14159);
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"score":{"Boost":3.140625}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null}},"factor":3.140625}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(0.5);
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"score":{"Boost":0.5}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null}},"factor":0.5}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(0);
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"score":{"Boost":0.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null}},"factor":0.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(-100);
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"score":{"Boost":-100.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null}},"factor":-100.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.boost(3);
-                                                                  QUERY PLAN                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Boost":3.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"term":{"field":"description","value":"shoes"}},"factor":3.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.boost(3.14159);
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Boost":3.140625}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"term":{"field":"description","value":"shoes"}},"factor":3.140625}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.boost(0.5);
-                                                                  QUERY PLAN                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Boost":0.5}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"term":{"field":"description","value":"shoes"}},"factor":0.5}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.boost(0);
-                                                                  QUERY PLAN                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Boost":0.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"term":{"field":"description","value":"shoes"}},"factor":0.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.boost(-100);
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Boost":-100.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"term":{"field":"description","value":"shoes"}},"factor":-100.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.term('shoes')::pdb.boost(-100);
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Boost":-100.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"term":{"field":"description","value":"shoes"}},"factor":-100.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ ('running' ##3## 'shoes')::pdb.boost(3);
-                                                                                                    QUERY PLAN                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"proximity":{"left":{"term":"running"},"distance":{"any_order":3},"right":{"term":"shoes"}}},"score":{"Boost":3.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"proximity":{"field":"description","left":{"term":"running"},"distance":{"any_order":3},"right":{"term":"shoes"}}},"factor":3.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& ARRAY['running', 'shoes']::pdb.boost(3);
-                                                                                                                      QUERY PLAN                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match_array":{"tokens":["running","shoes"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Boost":3.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match_array":{"field":"description","tokens":["running","shoes"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"factor":3.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| ARRAY['running', 'shoes']::pdb.boost(3);
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match_array":{"tokens":["running","shoes"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":3.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match_array":{"field":"description","tokens":["running","shoes"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":3.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### ARRAY['running', 'shoes']::pdb.boost(3);
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"phrase_array":{"tokens":["running","shoes"],"slop":null}},"score":{"Boost":3.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"phrase_array":{"field":"description","tokens":["running","shoes"],"slop":null}},"factor":3.0}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === ARRAY['running', 'shoes']::pdb.boost(3);
-                                                                          QUERY PLAN                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term_set":{"terms":["running","shoes"]}},"score":{"Boost":3.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"term_set":{"field":"description","terms":["running","shoes"]}},"factor":3.0}}}}
 (6 rows)
 
 --

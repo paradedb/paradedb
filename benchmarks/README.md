@@ -1,6 +1,21 @@
 # ParadeDB Benchmarks
 
-For Cohere vector CI, see [the pdbench and k6 pipeline](cohere/README.md).
+Vector CI uses pdbench for recall calibration and k6 for latency and throughput:
+
+- [Cohere](cohere/README.md)
+- [Hacker News](hn/README.md)
+- [MS MARCO](msmarco/README.md)
+
+SQL assets live under `assets/<dataset>/`, with engine-specific queries in
+`assets/<dataset>/<engine>/`. Shared CI actions build pdbench, start the cluster,
+install comparison extensions, report index builds, and run k6 with profiling.
+Dataset workflows own fixture checks, recall profiles, and result context.
+For MS MARCO 113M vector CI, see [the MS MARCO pipeline](msmarco/README.md).
+
+RunsOn benchmarks default to Spot. For on-demand, add `benchmark-nonspot`
+before the PR benchmark trigger label, or select `runner_type=on-demand` in
+**Run workflow** (CLI: `-f runner_type=on-demand`). Stack Overflow comment-triggered
+runs also honor the label. Scheduled runs remain on Spot.
 
 This is a basic, single-query latency, benchmarking suite for ParadeDB. It executes all of the queries belonging to a dataset, capturing both hot and cold measurements of their performance. After setup, queries are executed until a 3-run window shows <0.1% variance/mean (or 10 runs pass). Then `--runs` samples are taken for the hot measurements. The cold measurement is always recorded from the first query run.
 
@@ -86,6 +101,7 @@ cargo run -- --help
 - `--clear-caches` must be set to `false` if you're running on a non-Linux system. (It defaults to `true`).
 - `--skip-index`: Including this skips index creation (and the after-create-index hook). Useful for iterating on queries against an already-indexed database.
 - `--runs`: How many warm samples to capture from each query. Defaults to 3.
+- `--query-filter`: Runs only the queries whose name (`{query}` or `{query} - {variant}`) matches this regex. The dirty (`% visible`) runs of a matching query also run.
 - `--vacuum`: Controls whether `VACUUM FULL ANALYZE`, followed by `VACUUM ANALYZE` to update the visibility map, runs before the queries. Defaults to `true`.
 
 ## Notable Heap Options
@@ -95,6 +111,22 @@ cargo run -- --help
 - `snapshot-heap --pgdata` / `restore-heap --pgdata`: Points pgBackRest at the stopped Postgres data directory. This can also be provided with `PGDATA`.
 - `snapshot-heap --config` / `restore-heap --config`: Uses an existing pgBackRest config instead of generating one.
 - `snapshot-heap --repo-*` / `restore-heap --repo-*`: Provides the S3 repository settings when generating a pgBackRest config.
+
+## Benchmarking a PR
+
+The `benchmark-stackoverflow` label runs every Stack Overflow query on a PR. To run only some of them, add a conversation comment (not a review comment) with a regex. The workflow passes it to `--query-filter`:
+
+```text
+@paradedb stackoverflow ^count_filter
+```
+
+With a size before the regex, the workflow runs only that dataset size. The `20m` size takes most of a full run, so `100k` or `1m` gives a faster result:
+
+```text
+@paradedb stackoverflow 1m ^count_filter
+```
+
+The commenter needs write access, and the PR branch must be in `paradedb/paradedb`. The workflow replies with a link to the run. Then it posts the results to the PR, one comment for each dataset size.
 
 ## Datasets
 

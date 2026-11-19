@@ -1,0 +1,28 @@
+[
+  {
+    "Plan": {
+      "Node Type": "Limit",
+      "Parallel Aware": false,
+      "Plans": [
+        {
+          "Node Type": "Gather Merge",
+          "Parallel Aware": false,
+          "Workers Planned": 7,
+          "Plans": [
+            {
+              "Node Type": "Custom Scan",
+              "Custom Plan Provider": "ParadeDB Base Scan",
+              "Parallel Aware": true,
+              "Relation Name": "cohere_wiki",
+              "Index": "cohere_wiki_bm25_idx",
+              "Exec Method": "TopKScanExecState",
+              "   TopK Order By": "emb <=> vector asc",
+              "   TopK Limit": 10,
+              "Tantivy Query": "{\"postgres_expression\":{\"expr\":{\"expr_desc\":\"paradedb.with_index('cohere_wiki_bm25_idx'::regclass, paradedb.parse_with_field('text'::paradedb.fieldname, current_setting('cohere.titles_10pct'::text), NULL::boolean, NULL::boolean))\"}}}"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

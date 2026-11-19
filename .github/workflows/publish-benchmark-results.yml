@@ -122,6 +122,8 @@ jobs:
           sweep_reports_dir: ${{ fromJSON(steps.metadata.outputs.json).sweep_reports_dir || '' }}
           buffer_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).buffer_metrics_file || '' }}
           index_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).index_metrics_file || '' }}
+          router_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).router_metrics_file || '' }}
+          router_detail_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).router_detail_metrics_file || '' }}
           publish_baseline: ${{ fromJSON(steps.metadata.outputs.json).publish_baseline }}
 
       - name: Publish Query Results
@@ -153,10 +155,12 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          # Keep generated benchmark commits separate from GitHub account contributions.
-          git -c user.name='ParadeDB Benchmarks' -c user.email='benchmarks@paradedb.invalid' \
-            commit -m "Publish benchmark results ${BENCHMARK_PUBLICATION_ID}"
           auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          # git commit needs auth to fetch missing objects from the sparse checkout.
+          # Keep generated benchmark commits separate from GitHub account contributions.
+          git -c http.extraheader="$auth" \
+            -c user.name='ParadeDB Benchmarks' -c user.email='benchmarks@paradedb.invalid' \
+            commit -m "Publish benchmark results ${BENCHMARK_PUBLICATION_ID}"
           git -c http.extraheader="$auth" push "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:gh-pages
 
       - name: Record Successful Publication

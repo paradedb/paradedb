@@ -1,0 +1,118 @@
+-- Show actionable diagnostics only when field resolution or collection fails.
+\set VERBOSITY default
+SET max_parallel_workers_per_gather = 0;
+CREATE TABLE field_requirements (
+    id int PRIMARY KEY,
+    description text,
+    omitted text,
+    metadata jsonb
+);
+INSERT INTO field_requirements VALUES (1, 'Running shoes', 'shoes', '{"color":"Blue"}');
+CREATE INDEX field_requirements_idx ON field_requirements
+USING paradedb (id, description, metadata);
+-- Typed queries can execute without inferring a field from the left-hand side.
+SET paradedb.planner_warnings = off;
+SELECT count(*) AS empty_matches FROM field_requirements
+WHERE omitted @@@ paradedb.empty();
+ empty_matches 
+---------------
+             0
+(1 row)
+
+SELECT count(*) AS all_matches FROM field_requirements
+WHERE omitted @@@ paradedb.with_index('field_requirements_idx', paradedb.all());
+ all_matches 
+-------------
+           1
+(1 row)
+
+-- Field-based searches still fail when performance warnings are disabled.
+SELECT id FROM field_requirements WHERE omitted ||| 'shoes';
+ERROR:  column "omitted" is not included in ParadeDB index "field_requirements_idx"
+HINT:  Recreate the index including column "omitted" to search it with a ParadeDB operator.
+RESET paradedb.planner_warnings;
+SELECT id FROM field_requirements WHERE omitted ||| 'shoes';
+ERROR:  column "omitted" is not included in ParadeDB index "field_requirements_idx"
+HINT:  Recreate the index including column "omitted" to search it with a ParadeDB operator.
+SELECT id FROM field_requirements WHERE omitted &&& ARRAY['shoes'];
+ERROR:  column "omitted" is not included in ParadeDB index "field_requirements_idx"
+HINT:  Recreate the index including column "omitted" to search it with a ParadeDB operator.
+SELECT id FROM field_requirements WHERE omitted === 'shoes';
+ERROR:  column "omitted" is not included in ParadeDB index "field_requirements_idx"
+HINT:  Recreate the index including column "omitted" to search it with a ParadeDB operator.
+SELECT id FROM field_requirements WHERE omitted ### 'shoes';
+ERROR:  column "omitted" is not included in ParadeDB index "field_requirements_idx"
+HINT:  Recreate the index including column "omitted" to search it with a ParadeDB operator.
+SELECT id FROM field_requirements WHERE omitted @@@ 'shoes';
+ERROR:  column "omitted" is not included in ParadeDB index "field_requirements_idx"
+HINT:  Recreate the index including column "omitted" to search it with a ParadeDB operator.
+SET plan_cache_mode = force_generic_plan;
+PREPARE omitted_search(text) AS SELECT id FROM field_requirements WHERE omitted ||| $1;
+EXECUTE omitted_search('shoes');
+ERROR:  column "omitted" is not included in ParadeDB index "field_requirements_idx"
+HINT:  Recreate the index including column "omitted" to search it with a ParadeDB operator.
+DEALLOCATE omitted_search;
+RESET plan_cache_mode;
+-- These fields exist, but default text and JSON fields lack columnar storage.
+SELECT pdb.agg('{"terms":{"field":"description"}}')
+FROM field_requirements WHERE id @@@ pdb.all();
+ERROR:  field "description" requires columnar storage
+HINT:  Recreate the index with 'columnar=true' on the field's tokenizer, or use pdb.literal or pdb.literal_normalized, which enable columnar storage by default. For a JSON path, configure its parent JSON field.
+SELECT pdb.agg('{"terms":{"field":"metadata.color"}}')
+FROM field_requirements WHERE id @@@ pdb.all();
+ERROR:  field "metadata.color" requires columnar storage
+HINT:  Recreate the index with 'columnar=true' on the field's tokenizer, or use pdb.literal or pdb.literal_normalized, which enable columnar storage by default. For a JSON path, configure its parent JSON field.
+SELECT pdb.agg('{"terms":{"field":"id"},"aggs":{"colors":{"terms":{"field":"metadata.color"}}}}')
+FROM field_requirements WHERE id @@@ pdb.all();
+ERROR:  field "metadata.color" requires columnar storage
+HINT:  Recreate the index with 'columnar=true' on the field's tokenizer, or use pdb.literal or pdb.literal_normalized, which enable columnar storage by default. For a JSON path, configure its parent JSON field.
+SELECT pdb.agg('{"terms":{"field":"description"}}', 'raw'::text)
+FROM field_requirements WHERE id @@@ pdb.all();
+ERROR:  field "description" requires columnar storage
+HINT:  Recreate the index with 'columnar=true' on the field's tokenizer, or use pdb.literal or pdb.literal_normalized, which enable columnar storage by default. For a JSON path, configure its parent JSON field.
+-- A Top K window aggregate uses the other segment collection path.
+SELECT id, pdb.agg('{"terms":{"field":"metadata.color"}}') OVER ()
+FROM field_requirements WHERE description ||| 'shoes'
+ORDER BY paradedb.score(id) DESC LIMIT 1;
+ERROR:  field "metadata.color" requires columnar storage
+HINT:  Recreate the index with 'columnar=true' on the field's tokenizer, or use pdb.literal or pdb.literal_normalized, which enable columnar storage by default. For a JSON path, configure its parent JSON field.
+-- An unrelated collection failure must retain the underlying error.
+\set VERBOSITY terse
+SELECT pdb.agg('{"histogram":{"field":"id","interval":0}}')
+FROM field_requirements WHERE id @@@ pdb.all();
+ERROR:  should be able to collect in segment: InvalidArgument("interval must be a positive value")
+\set VERBOSITY default
+-- Both explicit columnar storage and literal's default support aggregation.
+DROP INDEX field_requirements_idx;
+CREATE INDEX field_requirements_idx ON field_requirements
+USING paradedb (id, (description::pdb.unicode_words('columnar=true')), (metadata::pdb.literal));
+SELECT id FROM field_requirements WHERE description ||| 'shoes';
+ id 
+----
+  1
+(1 row)
+
+SELECT pdb.agg('{"terms":{"field":"description"}}')->'buckets'
+FROM field_requirements WHERE id @@@ pdb.all();
+                  ?column?                  
+--------------------------------------------
+ [{"key": "Running shoes", "doc_count": 1}]
+(1 row)
+
+SELECT pdb.agg('{"terms":{"field":"metadata.color"}}')->'buckets'
+FROM field_requirements WHERE id @@@ pdb.all();
+             ?column?              
+-----------------------------------
+ [{"key": "Blue", "doc_count": 1}]
+(1 row)
+
+SELECT id, pdb.agg('{"terms":{"field":"metadata.color"}}') OVER ()
+FROM field_requirements WHERE description ||| 'shoes'
+ORDER BY paradedb.score(id) DESC LIMIT 1;
+ id |                                                    agg                                                     
+----+------------------------------------------------------------------------------------------------------------
+  1 | {"buckets": [{"key": "Blue", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+DROP TABLE field_requirements;
+RESET max_parallel_workers_per_gather;

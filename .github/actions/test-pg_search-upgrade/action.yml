@@ -161,7 +161,8 @@ runs:
         ./scripts/release.sh set-version "$SYNTHETIC_VERSION" --skip-nix
         # Extend the actual chain tip, including a release commit whose tag is missing.
         PREV_VERSION=$(./scripts/release.sh latest-sql-version)
-        ./scripts/release.sh sql "$SYNTHETIC_VERSION" --prev-version "$PREV_VERSION" --preserve-fragments
+        cargo pgrx migrate assemble "$SYNTHETIC_VERSION" --package pg_search \
+          --prev-version "${PREV_VERSION#v}" --preserve-fragments --allow-empty
 
     - name: Compile & install pg_search
       working-directory: pg_search/

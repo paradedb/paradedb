@@ -210,7 +210,7 @@ fn draw_metric(
 
 fn pretty(s: &str) -> String {
     let has_mb = s.ends_with(":MB");
-    let s = s.split(":MB").next().unwrap();
+    let s = s.trim_suffix(":MB");
 
     let mut pretty = s.to_string();
     if pretty.len() == 3 {

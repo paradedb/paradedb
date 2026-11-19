@@ -1,0 +1,497 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use std::sync::Arc;
+
+use arrow_schema::SchemaRef;
+use datafusion::catalog::TableProvider;
+use datafusion::common::{DFSchemaRef, DataFusionError, Result, TableReference};
+use datafusion::execution::TaskContext;
+use datafusion::functions_aggregate as dfa;
+use datafusion::logical_expr::{AggregateUDF, Extension, LogicalPlan, ScalarUDF};
+use datafusion_proto::logical_plan::LogicalExtensionCodec;
+use datafusion_proto::protobuf::DfSchema;
+use pgrx::pg_sys::{ExprContext, Oid, PlanState};
+
+use crate::index::reader::index::SearchIndexManifest;
+use crate::postgres::ParallelScanState;
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
+use crate::scan::late_materialization::{DeferredField, LateMaterializeNode};
+use crate::scan::table_provider::PgSearchTableProvider;
+use crate::scan::udf_codec::{try_decode_pg_search_udf, try_encode_pg_search_udf};
+
+/// Datafusion `LogicalPlan`s are serialized/deserialized with protobuf.
+/// Any custom nodes (e.g. UDFs, table providers) must use this codec to instruct
+/// DataFusion how to serialize/deserialize them.
+#[derive(Debug, Default)]
+struct PgSearchExtensionCodec {
+    /// Shared state for parallel scans, containing the list of segments to be processed.
+    parallel_state: Option<*mut ParallelScanState>,
+    /// Postgres expression context, needed for heap filtering and runtime parameters.
+    expr_context: Option<*mut ExprContext>,
+    /// Executor planstate, needed to initialize runtime Postgres expressions in source queries.
+    planstate: Option<*mut PlanState>,
+    /// The leader's captured manifest of every join source, indexed by plan_position. A
+    /// decoded provider builds its reader from its source's manifest, so packed addresses
+    /// stay comparable across the leader and its workers.
+    source_manifests: Vec<SearchIndexManifest>,
+    /// Build a display plan without resolving executor-time expressions.
+    explain_only: bool,
+}
+
+// SAFETY: Logical plan serialization/deserialization runs synchronously on the Postgres main
+// thread during query planning/execution setup, so the process-local fields (raw pointers and
+// reference-counted manifests) are only ever dereferenced on the main thread.
+unsafe impl Send for PgSearchExtensionCodec {}
+unsafe impl Sync for PgSearchExtensionCodec {}
+
+impl LogicalExtensionCodec for PgSearchExtensionCodec {
+    fn try_decode(
+        &self,
+        buf: &[u8],
+        inputs: &[LogicalPlan],
+        _ctx: &TaskContext,
+    ) -> Result<Extension> {
+        if buf.is_empty() {
+            return Err(DataFusionError::Internal(
+                "Empty buffer for Extension decode".into(),
+            ));
+        }
+
+        // TODO: This uses a manual byte-tagging scheme to identify custom Extension nodes.
+        // If we add more custom node types, we should switch this payload to a proper Serde
+        // enum (e.g. `bincode` or `serde_json` of an enum wrapper) to cleanly handle variants.
+        let tag = buf[0];
+        if tag == 1 {
+            if inputs.len() != 1 {
+                return Err(DataFusionError::Internal(
+                    "LateMaterializeNode requires exactly one input".into(),
+                ));
+            }
+            let input_plan = inputs[0].clone();
+
+            let mut offset = 1;
+
+            let schema_len_bytes = buf.get(offset..offset + 4).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: missing schema length".into())
+            })?;
+            let schema_len = u32::from_le_bytes(schema_len_bytes.try_into().unwrap()) as usize;
+            offset += 4;
+
+            let schema_bytes = buf.get(offset..offset + schema_len).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: incomplete schema data".into())
+            })?;
+            offset += schema_len;
+
+            let df_schema_proto: DfSchema = prost::Message::decode(schema_bytes).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to decode schema: {}", e))
+            })?;
+
+            let output_schema: DFSchemaRef =
+                Arc::new((&df_schema_proto).try_into().map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to parse schema: {}", e))
+                })?);
+
+            let deferred_len_bytes = buf.get(offset..offset + 4).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: missing deferred fields length".into())
+            })?;
+            let deferred_len = u32::from_le_bytes(deferred_len_bytes.try_into().unwrap()) as usize;
+            offset += 4;
+
+            let deferred_fields_bytes =
+                buf.get(offset..offset + deferred_len).ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "truncated buffer: incomplete deferred fields data".into(),
+                    )
+                })?;
+            let deferred_fields: Vec<DeferredField> = serde_json::from_slice(deferred_fields_bytes)
+                .map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to deserialize deferred fields: {}",
+                        e
+                    ))
+                })?;
+
+            let node = Arc::new(LateMaterializeNode {
+                input: input_plan,
+                output_schema,
+                deferred_fields,
+            });
+
+            return Ok(Extension { node });
+        }
+
+        if tag == 2 {
+            if inputs.len() != 1 {
+                return Err(DataFusionError::Internal(
+                    "VisibilityFilterNode requires exactly one input".into(),
+                ));
+            }
+            let input_plan = inputs[0].clone();
+            let payload_len_bytes = buf.get(1..5).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: missing visibility length".into())
+            })?;
+            let payload_len = u32::from_le_bytes(payload_len_bytes.try_into().unwrap()) as usize;
+            let payload = buf.get(5..5 + payload_len).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: incomplete visibility payload".into())
+            })?;
+            let (plan_pos_oids, table_names): (Vec<(usize, Oid)>, Vec<String>) =
+                serde_json::from_slice(payload).map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to deserialize visibility payload: {e}"
+                    ))
+                })?;
+            return Ok(Extension {
+                node: Arc::new(VisibilityFilterNode::new(
+                    input_plan,
+                    plan_pos_oids,
+                    table_names,
+                )),
+            });
+        }
+
+        Err(DataFusionError::NotImplemented(format!(
+            "Extension node decoding not implemented for tag {}",
+            tag
+        )))
+    }
+
+    fn try_encode(&self, node: &Extension, buf: &mut Vec<u8>) -> Result<()> {
+        if let Some(mat_node) = node.node.as_any().downcast_ref::<LateMaterializeNode>() {
+            let schema_proto: DfSchema =
+                mat_node.output_schema.as_ref().try_into().map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to convert schema: {}", e))
+                })?;
+
+            let bytes = serde_json::to_vec(&mat_node.deferred_fields).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to serialize deferred fields: {}", e))
+            })?;
+
+            buf.push(1);
+            let schema_bytes = prost::Message::encode_to_vec(&schema_proto);
+
+            buf.extend_from_slice(&(schema_bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&schema_bytes);
+            buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&bytes);
+            return Ok(());
+        }
+
+        if let Some(vis_node) = node.node.as_any().downcast_ref::<VisibilityFilterNode>() {
+            let payload: (&[(usize, Oid)], &[String]) =
+                (&vis_node.plan_pos_oids, &vis_node.table_names);
+            let bytes = serde_json::to_vec(&payload).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "Failed to serialize visibility plan positions: {e}"
+                ))
+            })?;
+            buf.push(2);
+            buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&bytes);
+            return Ok(());
+        }
+
+        Err(DataFusionError::NotImplemented(format!(
+            "Extension node encoding not implemented for {:?}",
+            node.node.name()
+        )))
+    }
+
+    fn try_decode_table_provider(
+        &self,
+        buf: &[u8],
+        _table_ref: &TableReference,
+        _schema: SchemaRef,
+        _ctx: &TaskContext,
+    ) -> Result<Arc<dyn TableProvider>> {
+        let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
+            DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
+        })?;
+        if let Some(plan_position) = provider.source_idx() {
+            // MPP sources also call `checkout_segment_for_source` against
+            // `parallel_state`, so inject the pointer for them too.
+            provider.set_parallel_state(self.parallel_state);
+
+            // An empty list means this decode has no manifests to offer (plain EXPLAIN), but
+            // a short list is a bug, and falling back to a snapshot open would silently break
+            // the address exchange with the workers.
+            if !self.source_manifests.is_empty() {
+                let manifest = self.source_manifests.get(plan_position).ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "missing captured manifest for plan_position {plan_position}"
+                    ))
+                })?;
+                provider.set_manifest(manifest.clone());
+            }
+        }
+        provider.set_expr_context(self.expr_context);
+        provider.set_planstate(self.planstate);
+        provider.set_explain_only(self.explain_only);
+        Ok(Arc::new(provider))
+    }
+
+    fn try_encode_table_provider(
+        &self,
+        _table_ref: &TableReference,
+        node: Arc<dyn TableProvider>,
+        buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        let provider = node
+            .downcast_ref::<PgSearchTableProvider>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "TableProvider is not a PgSearchTableProvider".to_string(),
+                )
+            })?;
+        let bytes = serde_json::to_vec(provider).map_err(|e| {
+            DataFusionError::Internal(format!("Failed to serialize PgSearchTableProvider: {e}"))
+        })?;
+        buf.extend_from_slice(&bytes);
+        Ok(())
+    }
+
+    fn try_decode_udaf(&self, name: &str, _buf: &[u8]) -> Result<Arc<AggregateUDF>> {
+        use crate::postgres::customscan::datafusion::udaf_by_name;
+
+        match name {
+            "min" => Ok(dfa::min_max::min_udaf()),
+            "max" => Ok(dfa::min_max::max_udaf()),
+            "count" => Ok(dfa::count::count_udaf()),
+            "sum" => Ok(dfa::sum::sum_udaf()),
+            "avg" => Ok(dfa::average::avg_udaf()),
+            _ => udaf_by_name(name).ok_or_else(|| {
+                DataFusionError::NotImplemented(format!(
+                    "LogicalExtensionCodec is not provided for aggregate function {name}"
+                ))
+            }),
+        }
+    }
+
+    fn try_encode_udaf(&self, node: &AggregateUDF, buf: &mut Vec<u8>) -> Result<()> {
+        // Built-in aggregates are looked up by name on decode, no state to serialize
+        buf.extend_from_slice(node.name().as_bytes());
+        Ok(())
+    }
+
+    fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
+        try_decode_pg_search_udf(name, buf)?.ok_or_else(|| {
+            DataFusionError::NotImplemented(format!("UDF '{name}' deserialization not implemented"))
+        })
+    }
+
+    fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> Result<()> {
+        if try_encode_pg_search_udf(node, buf)? {
+            return Ok(());
+        }
+
+        Err(DataFusionError::NotImplemented(format!(
+            "UDF '{}' serialization not implemented",
+            node.name()
+        )))
+    }
+}
+
+/// Serializes a DataFusion `LogicalPlan` to bytes using the `PgSearchExtensionCodec`.
+pub fn serialize_logical_plan(plan: &LogicalPlan) -> Result<bytes::Bytes> {
+    datafusion_proto::bytes::logical_plan_to_bytes_with_extension_codec(
+        plan,
+        &PgSearchExtensionCodec::default(),
+    )
+}
+
+/// Deserializes a DataFusion `LogicalPlan` using a codec populated with the
+/// runtime state required by execution.
+pub fn deserialize_logical_plan_with_runtime(
+    bytes: &[u8],
+    ctx: &TaskContext,
+    parallel_state: Option<*mut ParallelScanState>,
+    expr_context: Option<*mut ExprContext>,
+    planstate: Option<*mut PlanState>,
+    source_manifests: Vec<SearchIndexManifest>,
+) -> Result<LogicalPlan> {
+    let codec = PgSearchExtensionCodec {
+        parallel_state,
+        expr_context,
+        planstate,
+        source_manifests,
+        explain_only: false,
+    };
+    datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
+}
+
+/// Deserializes a logical plan for plain EXPLAIN without solving runtime expressions.
+pub fn deserialize_logical_plan_for_explain(
+    bytes: &[u8],
+    ctx: &TaskContext,
+    expr_context: *mut ExprContext,
+) -> Result<LogicalPlan> {
+    let codec = PgSearchExtensionCodec {
+        expr_context: Some(expr_context),
+        explain_only: true,
+        ..Default::default()
+    };
+    datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+
+    /// The reuse property end to end through the codec seam: a decoded provider builds its
+    /// reader from the injected manifest, so planning performs zero additional index opens
+    /// and the scan still streams every row. If `set_manifest` stopped being called, the
+    /// provider would fall back to a fresh snapshot open with correct results, and only the
+    /// open counter can catch that.
+    #[pg_test]
+    fn decoded_provider_reuses_the_injected_manifest() {
+        use datafusion::catalog::default_table_source::DefaultTableSource;
+        use datafusion::execution::TaskContext;
+        use datafusion::logical_expr::LogicalPlanBuilder;
+        use futures::TryStreamExt;
+
+        use crate::index::fast_fields_helper::WhichFastField;
+        use crate::index::mvcc::MvccSatisfies;
+        use crate::index::reader::index::SearchIndexManifest;
+        use crate::index::reader::index::test_support::{
+            INDEX_COMPONENT_OPENS, segmented_index_fixture,
+        };
+        use crate::scan::info::ScanInfo;
+        use crate::scan::table_provider::PgSearchTableProvider;
+        use crate::schema::SearchFieldType;
+
+        let (index_rel, heap_oid) = segmented_index_fixture("codec_manifest_test", 2, false);
+        unsafe {
+            pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot());
+        }
+        let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot)
+            .expect("manifest capture");
+
+        let fields = vec![WhichFastField::eager_scalar(
+            "id",
+            SearchFieldType::I64(pg_sys::INT8OID),
+        )];
+        let provider = PgSearchTableProvider::new(
+            ScanInfo::new(1, heap_oid, index_rel.oid(), crate::scan::ScanMode::all()),
+            fields,
+            Some(0),
+        );
+        let plan = LogicalPlanBuilder::scan(
+            "codec_manifest_test",
+            Arc::new(DefaultTableSource::new(Arc::new(provider))),
+            None,
+        )
+        .expect("scan builder")
+        .build()
+        .expect("logical plan");
+        let bytes = serialize_logical_plan(&plan).expect("serialize");
+
+        let opens_before = INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed);
+        let task_ctx = TaskContext::default();
+        let decoded = deserialize_logical_plan_with_runtime(
+            &bytes,
+            &task_ctx,
+            None,
+            None,
+            None,
+            vec![manifest],
+        )
+        .expect("deserialize with manifest");
+
+        let session = datafusion::prelude::SessionContext::new();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
+        let physical = runtime
+            .block_on(session.state().create_physical_plan(&decoded))
+            .expect("physical plan (runs the provider's scan)");
+        assert_eq!(
+            INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            opens_before,
+            "a decoded provider with an injected manifest must not open the index again"
+        );
+
+        let stream = physical
+            .execute(0, Arc::new(TaskContext::default()))
+            .expect("execute");
+        let batches = runtime
+            .block_on(stream.try_collect::<Vec<_>>())
+            .expect("stream");
+        assert_eq!(batches.iter().map(|b| b.num_rows()).sum::<usize>(), 20);
+
+        unsafe { pg_sys::PopActiveSnapshot() };
+    }
+
+    #[pg_test]
+    fn visibility_node_codec_roundtrip() -> Result<()> {
+        use crate::index::fast_fields_helper::WhichFastField;
+        use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
+        use crate::scan::{PgSearchTableProvider, ScanInfo, VisibilityMode};
+        use datafusion::catalog::default_table_source::DefaultTableSource;
+        use datafusion::execution::TaskContext;
+        use datafusion::logical_expr::LogicalPlanBuilder;
+
+        const TEST_PLAN_POS: usize = 0;
+        let scan_info = ScanInfo::new(
+            1,
+            pg_sys::Oid::from(42),
+            pgrx::pg_sys::InvalidOid,
+            crate::scan::ScanMode::all(),
+        )
+        .with_alias("test_table");
+        let mut provider = PgSearchTableProvider::new(scan_info, vec![WhichFastField::Ctid], None);
+        provider.configure_deferred_outputs(
+            &crate::api::HashSet::default(),
+            VisibilityMode::Deferred {
+                plan_position: TEST_PLAN_POS,
+            },
+        );
+        let plan = LogicalPlanBuilder::scan(
+            "test_table",
+            Arc::new(DefaultTableSource::new(Arc::new(provider))),
+            None,
+        )?
+        .build()?;
+        let wrapped = LogicalPlan::Extension(datafusion::logical_expr::Extension {
+            node: std::sync::Arc::new(VisibilityFilterNode::new(
+                plan,
+                vec![(TEST_PLAN_POS, pg_sys::Oid::from(42))],
+                vec!["test_table".to_string()],
+            )),
+        });
+
+        let bytes =
+            serialize_logical_plan(&wrapped).expect("VisibilityFilterNode should serialize");
+        let ctx = TaskContext::default();
+        let decoded = deserialize_logical_plan_with_runtime(&bytes, &ctx, None, None, None, vec![])
+            .expect("VisibilityFilterNode should deserialize");
+
+        let LogicalPlan::Extension(ext) = &decoded else {
+            panic!("decoded root should be Extension");
+        };
+        let vis = ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("decoded node should be VisibilityFilterNode");
+        assert_eq!(
+            vis.plan_pos_oids,
+            vec![(TEST_PLAN_POS, pg_sys::Oid::from(42))]
+        );
+        assert_eq!(vis.table_names, vec!["test_table".to_string()]);
+        Ok(())
+    }
+}

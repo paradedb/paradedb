@@ -759,8 +759,8 @@ fn top_k_completes_issue2511(mut conn: PgConnection) {
 
 #[rstest]
 fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
-    // Note: We use a very small mutable segment size to force multiple segments to be created.
     r#"
+        SET paradedb.global_mutable_segment_rows = 0;
         DROP TABLE IF EXISTS test;
         CREATE TABLE test (
             id SERIAL8 NOT NULL PRIMARY KEY,
@@ -768,7 +768,8 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
             severity INTEGER
         ) WITH (autovacuum_enabled = false);
 
-        CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (layer_sizes = '1GB, 1GB', mutable_segment_rows=1);
+        CREATE INDEX idxtest ON test USING paradedb (id, message, severity)
+            WITH (layer_sizes = '0', background_layer_sizes = '0');
 
         INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
         INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
@@ -785,7 +786,8 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
         INSERT INTO test (message, severity) VALUES ('wine a', 6);
         INSERT INTO test (message, severity) VALUES ('cheese a', 7);
         ANALYZE test;
-    "#.execute(&mut conn);
+    "#
+    .execute(&mut conn);
 
     r#"
         SET enable_indexonlyscan to OFF;
@@ -813,14 +815,12 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
         limit 10;
     "#.fetch_one::<(serde_json::Value, )>(&mut conn);
 
-    eprintln!("{plan:#?}");
-    let node = plan
-        .pointer("/0/Plan/Plans/0/Plans/0/Parallel Aware")
-        .unwrap();
-    let parallel_aware = node
-        .as_bool()
-        .expect("should have gotten the `Parallel Aware` node");
-    assert_eq!(parallel_aware, true);
+    assert_eq!(
+        plan.pointer("/0/Plan/Plans/0/Plans/0/Parallel Aware")
+            .and_then(Value::as_bool),
+        Some(true),
+        "expected a parallel custom scan: {plan:#?}"
+    );
 }
 
 #[rstest]
@@ -1232,4 +1232,92 @@ fn custom_scan_respects_parentheses_issue2526(mut conn: PgConnection) {
 
     let result: Vec<(i64,)> = "SELECT COUNT(*) from mock_items WHERE description ||| 'shoes' AND (description ||| 'keyboard' OR description ||| 'hat')".fetch(&mut conn);
     assert_eq!(result, vec![(0,)]);
+}
+
+/// The plan's segment count for a query matching everything and the snapshot's segments, as
+/// `paradedb.index_info` lists them.
+fn planned_and_visible_segments(conn: &mut PgConnection) -> (i64, i64) {
+    fn segment_count(node: &Value) -> Option<i64> {
+        node.get("Segment Count")
+            .and_then(Value::as_i64)
+            .or_else(|| {
+                node.get("Plans")?
+                    .as_array()?
+                    .iter()
+                    .find_map(segment_count)
+            })
+    }
+
+    let (plan,) =
+        "EXPLAIN (FORMAT JSON) SELECT id FROM planned_segments WHERE id @@@ paradedb.all()"
+            .fetch_one::<(Value,)>(conn);
+    let planned = segment_count(&plan[0]["Plan"]).expect("a ParadeDB scan with a segment count");
+    let (visible,) =
+        "SELECT count(*) FROM paradedb.index_info('planned_segments_idx') WHERE NOT recyclable"
+            .fetch_one::<(i64,)>(conn);
+    (planned, visible)
+}
+
+#[rstest]
+fn planned_segment_count_follows_the_segment_list(mut conn: PgConnection) {
+    r#"
+        SET max_parallel_workers_per_gather = 0;
+        SET paradedb.global_mutable_segment_rows = 0;
+        CREATE TABLE planned_segments (id bigint, body text) WITH (autovacuum_enabled = false);
+        CREATE INDEX planned_segments_idx ON planned_segments USING paradedb (id, body)
+            WITH (layer_sizes = '0', background_layer_sizes = '0');
+    "#
+    .execute(&mut conn);
+    let insert = |conn: &mut PgConnection, batch: i64| {
+        format!(
+            "INSERT INTO planned_segments SELECT g, 'body ' || g FROM generate_series({}, {}) g",
+            batch * 10 + 1,
+            batch * 10 + 10
+        )
+        .execute(conn)
+    };
+
+    assert_eq!(planned_and_visible_segments(&mut conn), (0, 0), "empty");
+
+    insert(&mut conn, 0);
+    assert_eq!(
+        planned_and_visible_segments(&mut conn),
+        (1, 1),
+        "one segment"
+    );
+
+    for batch in 1..8 {
+        insert(&mut conn, batch);
+    }
+    assert_eq!(
+        planned_and_visible_segments(&mut conn),
+        (8, 8),
+        "eight segments"
+    );
+
+    "DELETE FROM planned_segments WHERE id <= 10 OR id % 10 = 3".execute(&mut conn);
+    "VACUUM planned_segments".execute(&mut conn);
+    let (planned, visible) = planned_and_visible_segments(&mut conn);
+    assert_eq!(planned, visible, "after DELETE + VACUUM");
+
+    // A layer two or three of these segments fill: the next insert merges them.
+    let before_merge = visible;
+    "ALTER INDEX planned_segments_idx SET (layer_sizes = '2kb')".execute(&mut conn);
+    insert(&mut conn, 8);
+    let (planned, after_merge) = planned_and_visible_segments(&mut conn);
+    assert!(
+        after_merge < before_merge,
+        "the merge left {after_merge} of {before_merge} segments and the inserted one"
+    );
+    assert_eq!(planned, after_merge, "after a merge");
+
+    "BEGIN".execute(&mut conn);
+    "ALTER INDEX planned_segments_idx SET (layer_sizes = '0')".execute(&mut conn);
+    insert(&mut conn, 9);
+    assert_eq!(
+        planned_and_visible_segments(&mut conn),
+        (after_merge + 1, after_merge + 1),
+        "inside the transaction that created a segment"
+    );
+    "ROLLBACK".execute(&mut conn);
 }

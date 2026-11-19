@@ -1,0 +1,58 @@
+[package]
+name = "joinscan"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["pg18"]
+pg15 = ["pgrx/pg15", "scan/pg15", "planner/pg15"]
+pg16 = ["pgrx/pg16", "scan/pg16", "planner/pg16"]
+pg17 = ["pgrx/pg17", "scan/pg17", "planner/pg17"]
+pg18 = ["pgrx/pg18", "scan/pg18", "planner/pg18"]
+pg_test = ["dep:proptest", "scan/pg_test", "planner/pg_test"]
+
+# Leaf crate for multi-table `JoinScan`, `AggregateScan`, DataFusion plan translation, and MPP
+# distributed worker execution. Do NOT add `basescan` or `index_write` here so all three leaf
+# crates (`index_write`, `basescan`, `joinscan`) compile in parallel.
+[dependencies]
+scan = { path = "../scan", default-features = false }
+planner = { path = "../planner", default-features = false }
+anyhow.workspace = true
+arrow-array.workspace = true
+arrow-buffer.workspace = true
+arrow-schema.workspace = true
+arrow-select.workspace = true
+async-trait.workspace = true
+bigdecimal.workspace = true
+bytes.workspace = true
+datafusion.workspace = true
+datafusion-distributed.workspace = true
+datafusion-proto.workspace = true
+decimal-bytes.workspace = true
+futures.workspace = true
+hyper-util.workspace = true
+parking_lot.workspace = true
+pgrx.workspace = true
+proptest = { workspace = true, optional = true }
+prost.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tantivy.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+tower.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+scan = { path = "../scan", default-features = false, features = ["pg_test"] }
+planner = { path = "../planner", default-features = false, features = [
+  "pg_test",
+] }
+pgrx-tests.workspace = true
+proptest.workspace = true

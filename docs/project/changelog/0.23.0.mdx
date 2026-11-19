@@ -6,7 +6,7 @@ noindex: true
 
 See GitHub release: [v0.23.0](https://github.com/paradedb/paradedb/releases/tag/v0.23.0)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - Aggregate-on-JOIN support: a full pipeline for running aggregates over join results, including:
   - 3+ table join support and `DISTINCT` aggregates in AggregateScan.
@@ -24,7 +24,7 @@ See GitHub release: [v0.23.0](https://github.com/paradedb/paradedb/releases/tag/
 - `keep_whitespace` option for Lindera tokenizers.
 - Support for the `citext` Postgres type.
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Lazily set up tokenizers, avoiding unnecessary initialization overhead.
 - Conditionally enable scoring in row estimation for faster planning.
@@ -32,7 +32,7 @@ See GitHub release: [v0.23.0](https://github.com/paradedb/paradedb/releases/tag/
 - Cache `score`/`snippet` function OIDs.
 - Cache `segment_id` to `segment_ordinal` mapping during `SearchIndexReader` construction.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Suppress LIMIT pushdown when non-pushable post-filters are present.
 - Fix Top K for prepared statements.

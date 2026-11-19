@@ -6,9 +6,10 @@
 # Beta releases require an -rc.N version and create a prerelease without advancing the branch.
 # The new version tag triggers the other publishing workflows.
 #
-# Release files are prepared without secrets and passed as a patch to separate
-# approval and publishing jobs. Both validate the patch before using credentials.
-# Only the publishing job gets the signing key. Slack notifications run separately.
+# Release files (and stable-branch syncs to main) are prepared without secrets
+# and passed as patches to separate approval and publishing jobs. Every
+# credentialed job validates its patch before using credentials. Only the
+# release publishing job gets the signing key. Slack notifications run separately.
 # Backport this workflow and its validation scripts together to stable branches.
 #
 # Conditionals checking for `paradedb/paradedb` ensure that artifact assembly,
@@ -136,6 +137,12 @@ jobs:
           IS_LATEST=$(./scripts/release.sh is-latest "${INPUTS_VERSION}" $FLAGS)
           echo "is_latest=${IS_LATEST}"
           echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
+
+      - name: Install cargo-pgrx
+        if: github.repository == 'paradedb/paradedb'
+        run: |
+          PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
+          cargo install --locked cargo-pgrx --version "$PGRX_VERSION" --debug
 
       - name: Assemble Release Artifacts
         if: github.repository == 'paradedb/paradedb'
@@ -413,35 +420,98 @@ jobs:
           gh release create "v$RELEASE_VERSION" --verify-tag \
             --title "v$RELEASE_VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" "${FLAGS[@]}"
 
-      - name: Stage Release Artifacts on Main
-        if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
+      - name: Create Stable Branch
+        if: github.ref_name == 'main' && github.event.inputs.beta != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          VERSION="${INPUTS_VERSION}"
+          MAJOR_MINOR=$(echo "$VERSION" | awk -F. '{print $1"."$2}')
+          STABLE_BRANCH="${MAJOR_MINOR}.x"
+          sha=$(git rev-parse HEAD)
+
+          echo "Checking if stable branch refs/heads/${STABLE_BRANCH} exists..."
+          if ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${STABLE_BRANCH}" > /dev/null 2>&1; then
+            echo "Creating stable branch refs/heads/${STABLE_BRANCH} pointing at $sha"
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/heads/${STABLE_BRANCH}" \
+              -f sha="$sha"
+            echo "✅ Created stable branch ${STABLE_BRANCH}"
+          else
+            echo "ℹ️ Stable branch ${STABLE_BRANCH} already exists."
+          fi
+
+  prepare-main-sync:
+    name: Prepare Main Sync Without Publishing Credentials
+    needs: [prepare-release, publish-github-release]
+    if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      cargo_tree_fingerprint: ${{ steps.cargo_fingerprint.outputs.fingerprint }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Main Branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Fetch Release Tag
+        env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ github.event.inputs.version }}
-          IS_LATEST: ${{ steps.release_latest.outputs.is_latest }}
+        run: |
+          gh auth setup-git
+          git fetch --depth=2 --no-tags origin "refs/tags/v${RELEASE_VERSION}:refs/tags/v${RELEASE_VERSION}"
+
+      - name: Record Cargo Tree Fingerprint
+        id: cargo_fingerprint
+        run: |
+          FINGERPRINT=$(git rev-parse HEAD:Cargo.toml HEAD:Cargo.lock HEAD:nix/pg_search.nix | tr '\n' ' ')
+          echo "fingerprint=${FINGERPRINT% }" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust
+        if: needs.prepare-release.outputs.is_latest == 'true'
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
+        with:
+          cache: false
+          rustflags: ""
+
+      - name: Install Determinate Nix
+        if: needs.prepare-release.outputs.is_latest == 'true'
+        uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3.24.1
+
+      - name: Stage Release Artifacts on Main
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.version }}
+          IS_LATEST: ${{ needs.prepare-release.outputs.is_latest }}
         run: |
           CLEAN_VERSION="${RELEASE_VERSION%%-*}"
+          RELEASE_TAG="v${RELEASE_VERSION}"
 
-          # Record newly created release files and consumed fragment paths from the release commit
-          NEW_SQL="pg_search/sql/pg_search--*--${CLEAN_VERSION}.sql"
+          # Resolve newly created SQL migration script from the release tag
+          NEW_SQL=$(git ls-tree -r --name-only "$RELEASE_TAG" -- pg_search/sql | grep -E "^pg_search/sql/pg_search--[^/]+--${CLEAN_VERSION//./\\.}\.sql$" | head -n 1 || true)
+          if [[ -z "$NEW_SQL" ]]; then
+            echo "::error::Could not find assembled SQL migration for ${CLEAN_VERSION} in ${RELEASE_TAG}."
+            exit 1
+          fi
 
           # Determine changelog location on the release branch
           # TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
           # On 0.25.x, changelog was created in docs/changelog/; on post-reorg branches, in docs/project/changelog/
-          if git ls-tree -r --name-only HEAD | grep -q "^docs/project/changelog/${CLEAN_VERSION}\.mdx$"; then
+          if git ls-tree -r --name-only "$RELEASE_TAG" | grep -q "^docs/project/changelog/${CLEAN_VERSION}\.mdx$"; then
             BRANCH_CHANGELOG="docs/project/changelog/${CLEAN_VERSION}.mdx"
           else
             BRANCH_CHANGELOG="docs/changelog/${CLEAN_VERSION}.mdx"
           fi
 
-          DELETED_FRAGMENTS=$(git diff HEAD~1 --diff-filter=D --name-only -- 'pg_search/sql/unreleased/' 'docs/changelog/unreleased/' 'docs/project/changelog/unreleased/')
+          DELETED_FRAGMENTS=$(git diff "${RELEASE_TAG}~1" "$RELEASE_TAG" --diff-filter=D --name-only -- 'pg_search/sql/unreleased/' 'docs/changelog/unreleased/' 'docs/project/changelog/unreleased/')
 
-          echo "Switching to main branch to sync release artifacts..."
-          git fetch --depth=1 --no-tags origin main:main
-          git checkout main
-
-          echo "Checking out assembled release files from the release commit..."
-          git checkout "v${RELEASE_VERSION}" -- ${NEW_SQL} "${BRANCH_CHANGELOG}"
+          echo "Checking out assembled release files from ${RELEASE_TAG}..."
+          git checkout "$RELEASE_TAG" -- "$NEW_SQL" "$BRANCH_CHANGELOG"
 
           # TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
           # Move changelog to docs/project/changelog/ if it was checked out from docs/changelog/
@@ -479,54 +549,109 @@ jobs:
             ./scripts/release.sh changelog "${CLEAN_VERSION}" --register-only --no-is-latest
           fi
 
+      - name: Update Cargo Version, Lockfile, and Nix Hash on Main
+        if: needs.prepare-release.outputs.is_latest == 'true'
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          CLEAN_VERSION="${RELEASE_VERSION%%-*}"
+          ./scripts/release.sh set-version "${CLEAN_VERSION}" --if-newer
+
+      - name: Export Main Sync Changes
+        run: |
           git add -A
+          git diff --cached --binary --no-renames > "$RUNNER_TEMP/main-sync.patch"
+
+      - name: Upload Main Sync Changes
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: main-sync-preparation
+          path: ${{ runner.temp }}/main-sync.patch
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-main-sync:
+    name: Validate and Publish Main Sync
+    needs: [prepare-release, publish-github-release, prepare-main-sync]
+    if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Main Branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Download This Run's Main Sync Changes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: main-sync-preparation
+          path: ${{ runner.temp }}/main-sync-preparation
+
+      - name: Verify Main Cargo Tree Unchanged
+        if: needs.prepare-release.outputs.is_latest == 'true'
+        env:
+          EXPECTED_FINGERPRINT: ${{ needs.prepare-main-sync.outputs.cargo_tree_fingerprint }}
+        run: |
+          CURRENT_FINGERPRINT=$(git rev-parse HEAD:Cargo.toml HEAD:Cargo.lock HEAD:nix/pg_search.nix | tr '\n' ' ')
+          CURRENT_FINGERPRINT="${CURRENT_FINGERPRINT% }"
+          if [[ "$CURRENT_FINGERPRINT" != "$EXPECTED_FINGERPRINT" ]]; then
+            echo "::error::Cargo.toml, Cargo.lock, or nix/pg_search.nix changed on main while preparing the sync patch. Re-sync main with the updated Nix cargoHash."
+            exit 1
+          fi
+
+      - name: Validate and Import Main Sync Changes
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python3 .github/scripts/apply_release_patch.py \
+            "$RUNNER_TEMP/main-sync-preparation/main-sync.patch" "$RELEASE_VERSION"
+
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.2.0; Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Authenticate Main Sync Push
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh auth setup-git
 
       - name: Commit Release Artifacts on Main
         id: sync-commit
-        if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
         uses: ./.github/actions/commit-with-paradedb-github-app
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           message: "chore: Sync `${{ github.event.inputs.version }}` release artifacts to main."
 
       - name: Push Release Artifacts on Main
-        if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           COMMIT_CREATED: ${{ steps.sync-commit.outputs.created }}
         run: |
           if [[ "$COMMIT_CREATED" == "true" ]]; then
-            git push origin main
+            git push origin HEAD:main
             echo "✅ Successfully synced release artifacts to main."
           else
             echo "No changes needed on main."
           fi
 
-      - name: Create Stable Branch
-        if: github.ref_name == 'main' && github.event.inputs.beta != 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          INPUTS_VERSION: ${{ github.event.inputs.version }}
-        run: |
-          VERSION="${INPUTS_VERSION}"
-          MAJOR_MINOR=$(echo "$VERSION" | awk -F. '{print $1"."$2}')
-          STABLE_BRANCH="${MAJOR_MINOR}.x"
-          sha=$(git rev-parse HEAD)
-
-          echo "Checking if stable branch refs/heads/${STABLE_BRANCH} exists..."
-          if ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${STABLE_BRANCH}" > /dev/null 2>&1; then
-            echo "Creating stable branch refs/heads/${STABLE_BRANCH} pointing at $sha"
-            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f ref="refs/heads/${STABLE_BRANCH}" \
-              -f sha="$sha"
-            echo "✅ Created stable branch ${STABLE_BRANCH}"
-          else
-            echo "ℹ️ Stable branch ${STABLE_BRANCH} already exists."
-          fi
-
   notify-failure:
     name: Notify Release Failure
-    needs: [prepare-release, approve-release, publish-github-release]
+    needs:
+      - prepare-release
+      - approve-release
+      - publish-github-release
+      - prepare-main-sync
+      - publish-main-sync
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions: {}

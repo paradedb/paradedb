@@ -281,6 +281,8 @@ await dbContext
 
 <Note>
   Native vector search support for ParadeDB requires version `0.25.0` or above.
+  We strongly recommend `0.27.0` or later for substantial vector search
+  improvements.
 </Note>
 
 The `mock_items` table also contains an `embedding` column. Let's execute the same query above, but order results by vector similarity
@@ -588,7 +590,7 @@ For example, the following query returns the top 3 results as well as the total 
 ```sql SQL
 SELECT
      description, rating, category,
-     pdb.agg('{"value_count": {"field": "id"}}') OVER ()
+     pdb.agg('{"filter": "*"}') OVER ()
 FROM mock_items
 WHERE description ||| 'running shoes'
 ORDER BY rating
@@ -603,7 +605,7 @@ await db
     description: mockItems.description,
     rating: mockItems.rating,
     category: mockItems.category,
-    agg: search.agg({ value_count: { field: "id" } }).over(),
+    agg: search.agg({ filter: "*" }).over(),
   })
   .from(mockItems)
   .where(search.matchAny(mockItems.description, "running shoes"))
@@ -619,7 +621,7 @@ from paradedb import MatchAny, ParadeDB
     .filter(description=ParadeDB(MatchAny('running shoes')))
     .order_by('rating')
     .values('description', 'rating', 'category')[:5]
-    .facets(agg='{"value_count": {"field": "id"}}')
+    .facets(agg='{"filter": "*"}')
 )
 ```
 
@@ -635,7 +637,7 @@ base = (
     .limit(5)
 )
 
-stmt = facets.with_rows(base, agg=facets.value_count(field="id"), field=MockItem.id)
+stmt = facets.with_rows(base, agg={"filter": "*"}, field=MockItem.id)
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
@@ -645,7 +647,7 @@ with Session(engine) as session:
 ```ruby Rails
 relation = MockItem.search(:description)
                    .match_any("running shoes")
-                   .with_agg(agg: ParadeDB::Aggregations.value_count(:id))
+                   .with_agg(agg: { filter: "*" })
                    .order(:rating)
                    .select(:description, :rating, :category)
                    .limit(5)
@@ -663,7 +665,7 @@ await dbContext
         item.Description,
         item.Rating,
         item.Category,
-        Agg = EF.Functions.AggOver(new { value_count = new { field = "id" } })
+        Agg = EF.Functions.AggOver(new { filter = "*" })
     })
     .Take(5)
     .ToListAsync();
@@ -674,9 +676,9 @@ await dbContext
 ```ini Expected Response
      description     | rating | category |      agg
 ---------------------+--------+----------+----------------
- White jogging shoes |      3 | Footwear | {"value": 3.0}
- Generic shoes       |      4 | Footwear | {"value": 3.0}
- Sleek running shoes |      5 | Footwear | {"value": 3.0}
+ White jogging shoes |      3 | Footwear | {"doc_count": 3}
+ Generic shoes       |      4 | Footwear | {"doc_count": 3}
+ Sleek running shoes |      5 | Footwear | {"doc_count": 3}
 (3 rows)
 ```
 

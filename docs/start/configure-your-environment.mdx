@@ -144,7 +144,7 @@ To start you'll need a [Django](https://www.djangoproject.com/) project with [Ps
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install django "psycopg[binary]" django-paradedb==0.15.0
+pip install django "psycopg[binary]" django-paradedb==0.16.0
 python3 -m django startproject myproject .
 python3 manage.py startapp myapp
 ```
@@ -233,7 +233,7 @@ To get started, install [SQLAlchemy](https://www.sqlalchemy.org/), [Alembic](htt
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install sqlalchemy "psycopg[binary]" alembic sqlalchemy-paradedb==0.13.0
+pip install sqlalchemy "psycopg[binary]" alembic sqlalchemy-paradedb==0.14.0
 ```
 
 Initialize Alembic:
@@ -490,9 +490,9 @@ To get started, create a .NET project with [EF Core](https://learn.microsoft.com
 ```bash
 dotnet new console --framework net10.0
 dotnet new tool-manifest
-dotnet tool install dotnet-ef
-dotnet add package Microsoft.EntityFrameworkCore.Design
-dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
+dotnet tool install dotnet-ef --version 10.0.15
+dotnet add package Microsoft.EntityFrameworkCore.Design --version 10.0.15
+dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL --version 10.0.3
 dotnet add package ParadeDB.EntityFrameworkCore --version 0.5.0
 ```
 

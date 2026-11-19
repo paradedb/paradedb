@@ -35,6 +35,14 @@ inputs:
     description: "Optional JSON metrics for shared buffer hits per query"
     required: false
     default: ""
+  router_metrics_file:
+    description: "Optional JSON router-quality ratios; published with regression alerts, not added to the comment table"
+    required: false
+    default: ""
+  router_detail_metrics_file:
+    description: "Optional JSON router-quality detail metrics; published without alerts, not added to the comment table"
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -59,6 +67,8 @@ runs:
         THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
         INDEX_METRICS_FILE: ${{ inputs.index_metrics_file }}
         BUFFER_METRICS_FILE: ${{ inputs.buffer_metrics_file }}
+        ROUTER_METRICS_FILE: ${{ inputs.router_metrics_file }}
+        ROUTER_DETAIL_METRICS_FILE: ${{ inputs.router_detail_metrics_file }}
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -74,6 +84,14 @@ runs:
         fi
         if [ -n "$BUFFER_METRICS_FILE" ]; then
           cp "$BUFFER_METRICS_FILE" _buffer_metrics.json
+        fi
+        printf '[]\n' > _router_metrics.json
+        printf '[]\n' > _router_detail_metrics.json
+        if [ -n "$ROUTER_METRICS_FILE" ]; then
+          cp "$ROUTER_METRICS_FILE" _router_metrics.json
+        fi
+        if [ -n "$ROUTER_DETAIL_METRICS_FILE" ]; then
+          cp "$ROUTER_DETAIL_METRICS_FILE" _router_detail_metrics.json
         fi
         for j in "${RESULTS_DIR}"/*.json; do
           case "$(basename "$j")" in
@@ -131,6 +149,8 @@ runs:
         fi
         echo "present=$(jq 'length > 0' "${METRICS_FILE}")" >> "$GITHUB_OUTPUT"
         echo "buffers_present=$(jq 'length > 0' _buffer_metrics.json)" >> "$GITHUB_OUTPUT"
+        echo "router_present=$(jq 'length > 0' _router_metrics.json)" >> "$GITHUB_OUTPUT"
+        echo "router_detail_present=$(jq 'length > 0' _router_detail_metrics.json)" >> "$GITHUB_OUTPUT"
 
     - name: Publish Latency Metrics (p50, p95, and p99)
       id: publish_latency
@@ -201,6 +221,34 @@ runs:
       run: |
         sed '1s/^window.BENCHMARK_DATA = //' "${{ steps.publish_buffers.outputs.comparison_file }}" |
           jq --arg suite "benchmarker ${DATASET} (buffers)" '.entries[$suite][-2] // {}' > _buffer_baseline.json
+
+    # Router-quality history: two suites so only the ratios alert. Neither is read back for the
+    # comment's results table.
+    - name: Publish Router Ratio Metrics
+      if: steps.metrics.outputs.router_present == 'true'
+      uses: ./.github/actions/publish-benchmark-results
+      with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-router
+        name: "benchmarker ${{ inputs.dataset }} (router)"
+        ref: ${{ inputs.ref }}
+        metrics_file: _router_metrics.json
+        github_token: ${{ inputs.github_token }}
+        pages_directory: benchmarker
+        publish_baseline: ${{ inputs.publish_baseline == 'true' }}
+        comment_on_regression: ${{ inputs.pr_number == '' }}
+
+    - name: Publish Router Detail Metrics
+      if: steps.metrics.outputs.router_detail_present == 'true'
+      uses: ./.github/actions/publish-benchmark-results
+      with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-router-detail
+        name: "benchmarker ${{ inputs.dataset }} (router detail)"
+        ref: ${{ inputs.ref }}
+        metrics_file: _router_detail_metrics.json
+        github_token: ${{ inputs.github_token }}
+        pages_directory: benchmarker
+        publish_baseline: ${{ inputs.publish_baseline == 'true' }}
+        comment_on_regression: false
 
     - name: Publish Index Build Metrics
       id: publish_index
@@ -274,83 +322,7 @@ runs:
         SWEEP_REPORTS_DIR: ${{ inputs.sweep_reports_dir }}
       run: |
         set -euo pipefail
-        shopt -s nullglob
-        BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker-runs/${COMMIT_SHA}/${DATASET}"
-        OVERTIME="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker/"
-        links=""
-        for h in _ghpages_html/*.html; do
-          nm="$(basename "$h" .html)"
-          links="${links}- [${nm}](${BASE}/${nm}.html)"$'\n'
-        done
-        {
-          printf '### 📊 Benchmarker results (%s): `%s`\n\n' "${DATASET}" "${COMMIT_SHA:0:7}"
-          if [ -n "$CONTEXT_FILE" ]; then
-            cat "$CONTEXT_FILE"
-            printf '\n'
-          fi
-          jq -nr --slurpfile latency _latency_baseline.json --slurpfile throughput _throughput_baseline.json \
-            --slurpfile buffers _buffer_baseline.json --slurpfile buffer_metrics _buffer_metrics.json \
-            --slurpfile index _index_baseline.json --slurpfile index_metrics _index_metrics.json '
-            "Baselines: latency `\(($latency[0].commit.id // "n/a") | .[0:7])`, QPS `\(($throughput[0].commit.id // "n/a") | .[0:7])`" +
-            (if ($buffer_metrics[0] | length) > 0 then ", shared hits/query `\(($buffers[0].commit.id // "n/a") | .[0:7])`" else "" end) +
-            (if ($index_metrics[0] | length) > 0 then ", index build `\(($index[0].commit.id // "n/a") | .[0:7])`" else "" end) + ".\n"
-          '
-          printf '| Benchmark | Current | Previous | Ratio |\n|---|---:|---:|---:|\n'
-          jq -nr \
-            --slurpfile latency "${METRICS_FILE}" \
-            --slurpfile throughput "${THROUGHPUT_METRICS_FILE}" \
-            --slurpfile latency_baseline _latency_baseline.json \
-            --slurpfile index _index_metrics.json \
-            --slurpfile index_baseline _index_baseline.json \
-            --slurpfile buffers _buffer_metrics.json \
-            --slurpfile buffer_baseline _buffer_baseline.json \
-            --slurpfile throughput_baseline _throughput_baseline.json '
-            def display: "\(.value * 1000 | round / 1000) \(.unit)";
-            (($latency[0] | map(. + {baseline: $latency_baseline[0]})) +
-             ($throughput[0] | map(. + {baseline: $throughput_baseline[0]})) +
-             ($buffers[0] | map(. + {baseline: $buffer_baseline[0]})) +
-             ($index[0] | map(. + {baseline: $index_baseline[0]})))
-            | sort_by((.name | sub(" (p[0-9]+ latency|QPS|shared hits/query)$"; "")), .unit == "queries/s", .name)
-            | .[] as $current
-            | ([$current.baseline.benches[]? | select(.name == $current.name)][0]) as $previous
-            | (if $previous != null and $previous.value > 0 then
-                 if $current.unit == "queries/s" then
-                   if $current.value > 0 then $previous.value / $current.value else null end
-                 else $current.value / $previous.value end
-               else null end) as $ratio
-            | (if $ratio == null then "n/a" else
-                 "\($ratio * 100 | round / 100)x" + (if $ratio > 1.15 then " ⚠️" else "" end)
-               end) as $ratio_text
-            | "| `\($current.name)` | \($current | display) | \(if $previous == null then "n/a" else $previous | display end) | \($ratio_text) |"
-          '
-          printf '\nRatio: current/previous for latency, shared hits/query, build time, and index size; previous/current for QPS. Below 1 is better. ⚠️ marks regressions above 1.15x. n/a means no comparable baseline.\n'
-          printf '\n'
-          printf '#### Reports\n\n'
-          if [ -n "$SWEEP_REPORTS_DIR" ]; then
-            printf '##### Sweep\n\n'
-            if [ -f "$SWEEP_REPORTS_DIR/metadata.json" ]; then
-              jq -r '"Compared with [main `\(.baseline_commit[0:7])`](\(.baseline_url)) at matched recall.\n"' \
-                "$SWEEP_REPORTS_DIR/metadata.json"
-            fi
-            sweep_htmls=(_ghpages_html/sweep/*.html)
-            for h in "${sweep_htmls[@]}"; do
-              nm="$(basename "$h" .html)"
-              printf -- '- [%s](%s/sweep/%s.html)\n' "$nm" "$BASE" "$nm"
-            done
-            if [ -f "$SWEEP_REPORTS_DIR/metadata.json" ]; then
-              jq -r '.queries | to_entries[] | select(.value.skipped) |
-                "- `\(.key)`: skipped (\(.value.skipped))."' "$SWEEP_REPORTS_DIR/metadata.json"
-            elif [ ${#sweep_htmls[@]} -eq 0 ]; then
-              printf 'No comparable mainline sweep results are available for this run.\n'
-            fi
-            printf '\n'
-          fi
-          printf '##### Search\n\n'
-          printf 'Interactive per-script graphs (latency timeline, throughput, and resource metrics when available):\n\n'
-          printf '%s\n' "$links"
-          printf 'Over-time tracking (latency, QPS, and available buffer and index build metrics across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
-          printf '_gh-pages may take ~a minute to deploy after this run._\n'
-        } > _comment.md
+        bash .github/scripts/benchmarker_comment.sh > _comment.md
         cat _comment.md >> "${GITHUB_STEP_SUMMARY}"
         gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body-file _comment.md
 

@@ -86,8 +86,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, COUNT(*)::text || category AS mixed
 FROM mixed_check WHERE mixed_check @@@ paradedb.all()
 GROUP BY id ORDER BY id;
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, ((((count(*)))::text || category))
    Sort Key: mixed_check.id
@@ -95,12 +95,12 @@ GROUP BY id ORDER BY id;
          Output: id, (((count(*)))::text || category)
          Backend: DataFusion
          Indexes: mixed_check_idx (mixed_check)
-         Group By: category, id
+         Group By: id
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[id@0 as id, category@1 as category], aggr=[count(1) as agg_0]
+           : AggregateExec: mode=Single, gby=[id@0 as id], aggr=[count(1) as agg_0, pdb_carry_value(mixed_check_0.category) as row_1]
            :   CooperativeExec
-           :     PgSearchScan: table=mixed_check, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":"all"}}
+           :     PgSearchScan: table=mixed_check, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
 (13 rows)
 
 SELECT id, COUNT(*)::text || category AS mixed

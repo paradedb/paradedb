@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
 
 use crate::api::tokenizers::typmod::{ParsedTypmod, save_typmod};
 use pgrx::pg_sys::panic::ErrorReport;
@@ -24,8 +25,8 @@ use std::ffi::{CStr, CString};
 pub(crate) mod pdb {
     use crate::api::operator::{boost, const_score, fuzzy, slop};
     use crate::api::tokenizers::{
-        DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker, TextArrayMarker,
-        UuidMarker, VarcharArrayMarker, tokenize,
+        DatumWithType, DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker,
+        TextArrayMarker, UuidMarker, VarcharArrayMarker, tokenize,
     };
     use macros::generate_tokenizer_sql;
     use paste::paste;
@@ -41,162 +42,6 @@ pub(crate) mod pdb {
 
     pub trait TokenizerCtor {
         fn make_search_tokenizer() -> SearchTokenizer;
-    }
-
-    /// Internal structure to store bytes from any type along with the info
-    /// needed to recover what type it is.
-    #[repr(C)]
-    pub struct DatumWithType {
-        // varlena header
-        vl_len_: pg_sys::varlena,
-        // contents, separate for convenience with vardata functions.
-        contents: DatumWithTypeContents,
-    }
-
-    #[repr(C)]
-    struct DatumWithTypeContents {
-        // magic number to identify wrapped datums
-        magic: u32,
-        // Metadata needed when extracting the wrapped data
-        elem_length: i16,
-        elem_by_val: bool,
-        // Reserved padding; always written as 0.
-        _padding: u8,
-        // original type OID
-        typoid: pg_sys::Oid,
-        // underlying types data goes here
-    }
-
-    // Check that there's no extra padding
-    const _: () = assert!(
-        std::mem::size_of::<DatumWithType>()
-            == std::mem::size_of::<i32>()
-                + std::mem::size_of::<u32>()
-                + std::mem::size_of::<i16>()
-                + std::mem::size_of::<bool>()
-                + std::mem::size_of::<u8>()
-                + std::mem::size_of::<pg_sys::Oid>()
-    );
-
-    // Magic number: "err\0" - includes null bytes to ensure no valid text string can match
-    // (PostgreSQL text values cannot contain embedded nulls). Prints as the string "err" if
-    // interpreted as TEXT, making it a bit easier to catch.
-    const ALIAS_MAGIC: u32 = u32::from_ne_bytes(*b"err\0");
-
-    impl DatumWithType {
-        unsafe fn new(mut datum: pg_sys::Datum, typoid: pg_sys::Oid) -> *mut Self {
-            use pgrx::varlena::varsize_any;
-            use std::mem::size_of;
-
-            // load metadata about the underlying type.
-            let mut elem_length = 0;
-            let mut elem_by_val = false;
-            // Check that the data section is sufficiently aligned to store any
-            // type. So we don't need to use `elem_align`
-            const _: () = assert!(std::mem::size_of::<DatumWithType>().is_multiple_of(8));
-            let mut _elem_align = 0;
-            pg_sys::get_typlenbyvalalign(
-                typoid,
-                &mut elem_length,
-                &mut elem_by_val,
-                &mut _elem_align,
-            );
-
-            // Ensure that the data isn't TOASTed.
-            if elem_length == -1 {
-                datum = pg_sys::pg_detoast_datum(datum.cast_mut_ptr()).into();
-            }
-
-            // based on Postgres's `att_addlength_datum`
-            // (specifically `att_addlength_pointer` which it calls)
-            let data_len = if elem_length > 0 {
-                elem_length as usize
-            } else if elem_length == -1 {
-                varsize_any(datum.cast_mut_ptr::<pg_sys::varlena>())
-            } else {
-                unreachable!("tried to pass a C string as a tokenizer")
-            };
-
-            // DatumWithType is a multiple of 8bytes (the largest alignment
-            // postgres uses) so we don't need any additional aligning.
-            let size = size_of::<DatumWithType>() + data_len;
-            let ptr = pg_sys::palloc(size).cast::<DatumWithType>();
-
-            *ptr = DatumWithType {
-                vl_len_: pg_sys::varlena::default(),
-                contents: DatumWithTypeContents {
-                    // Set the magic number to identify this as a wrapped datum
-                    // This prevents false positives when text happens to be the same size
-                    magic: ALIAS_MAGIC,
-                    elem_length,
-                    elem_by_val,
-                    _padding: 0,
-                    // set the original type OID and the actual datum value
-                    typoid,
-                },
-            };
-
-            // Set the varlena header so Postgres knows the length.
-            pgrx::set_varsize_4b(&mut (*ptr).vl_len_, size as i32);
-
-            // Copy in the data for the underlying type
-            // (based on Postgres's `ArrayCastAndSet()`).
-            let data_ptr = ptr.add(1).cast::<u8>();
-            if elem_by_val {
-                crate::postgres::utils::store_att_byval(
-                    data_ptr.cast(),
-                    datum,
-                    data_len.try_into().unwrap(),
-                );
-            } else {
-                data_ptr.copy_from(datum.cast_mut_ptr(), data_len);
-            }
-
-            ptr
-        }
-
-        /// Returns the a Datum for the underlying type,
-        /// along with its type Oid if it isn't a text type
-        /// SAFETY: datum must be a pointer to a valid `DatumWithType`
-        pub unsafe fn get_underlying_type(
-            this: pg_sys::Datum,
-        ) -> (pg_sys::Datum, Option<pg_sys::Oid>) {
-            use std::mem::offset_of;
-
-            // It would be nice to use pg_detoast_datum_packed(), but then if the
-            // stored type was using the 4B header reading it could be unaligned.
-            let ptr = pg_sys::pg_detoast_datum(this.cast_mut_ptr());
-            debug_assert!(!ptr.is_null());
-
-            let vl_len = pgrx::varlena::varsize_any(ptr.cast::<pg_sys::varlena>());
-            let minimum_size = std::mem::size_of::<DatumWithTypeContents>();
-
-            // Check both size AND magic number to avoid false positives.
-            // NOTE: False negatives are less risky than false positives since
-            //       any element of this type is prefixed with the valid C string
-            //       `err`
-            if vl_len < minimum_size
-                || pgrx::varlena::vardata_any(ptr)
-                    .byte_add(offset_of!(DatumWithTypeContents, magic))
-                    .cast::<u32>()
-                    .read_unaligned()
-                    != ALIAS_MAGIC
-            {
-                // Must have been a text type, return the detoasted value as-is
-                return (pg_sys::Datum::from(ptr), None);
-            }
-
-            let contents_ptr = pgrx::varlena::vardata_any(ptr).cast::<DatumWithTypeContents>();
-            let contents = contents_ptr.read();
-
-            let data_ptr = contents_ptr.add(1).cast();
-            let underlying = crate::postgres::utils::fetch_att(
-                data_ptr,
-                contents.elem_by_val,
-                contents.elem_length.into(),
-            );
-            (underlying, Some(contents.typoid))
-        }
     }
 
     unsafe fn wrap_generic_type<InTy, InMarker, OutTy, OutMarker>(

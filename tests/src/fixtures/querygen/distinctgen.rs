@@ -109,7 +109,15 @@ pub fn arb_distinct_mode<S: AsRef<str>>(
                         });
                         continue;
                     }
-                    IndexExpression::LiteralNormalized => continue,
+                    IndexExpression::Multiply { factor } => {
+                        candidates.push(DistinctExpr::Multiply {
+                            table: table.clone(),
+                            column: col.name.to_string(),
+                            factor,
+                        });
+                        continue;
+                    }
+                    IndexExpression::LiteralNormalized | IndexExpression::VectorCosine => continue,
                     IndexExpression::Literal | IndexExpression::UnicodeWordsColumnar => {}
                 }
             }

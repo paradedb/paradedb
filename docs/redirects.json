@@ -1,5 +1,9 @@
 [
   {
+    "source": "/operate/deploy/third-party-extensions",
+    "destination": "/operate/deploy/self-hosted/extension"
+  },
+  {
     "source": "/operate/deploy/ci/gitlab-ci",
     "destination": "/operate/deploy/ci/gitlab-pipelines"
   },

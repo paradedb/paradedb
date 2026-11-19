@@ -114,11 +114,11 @@
     {
       "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
       "fences": [
-        ["reference/configuration.mdx::fence-002", "5c7934ebb6174a55bcec97efb9353ce6d4910d10723852dd69c4b7d15e210fd2"],
+        ["reference/configuration.mdx::fence-002", "6f7eb067b00187df539ff5ec9eaa79c4246e229c0e7bec5cc213b41a9268eaf0"],
         ["reference/full-text/match.mdx::fence-015", "4bf45207ccc14db6c92d7907b1d0aee1c83ee4b011cd5ca2a1fc71d4b4bbed23"],
         ["reference/full-text/phrase.mdx::fence-001", "8d7db0ba81964840f29ec21781a090d662d531b080c6ac77d5628a12d083f745"],
         ["reference/full-text/score.mdx::fence-013", "6aac8d8d36f9e84408b1e35d30b87fd51dc6c28bdc2c6a658a373dc39248aabd"],
-        ["reference/full-text/score.mdx::fence-021", "af827f5c3ba0f9b9679eb99ae37e1f98838db75d0f8e83f813a1838be7e8428d"],
+        ["reference/full-text/score.mdx::fence-028", "af827f5c3ba0f9b9679eb99ae37e1f98838db75d0f8e83f813a1838be7e8428d"],
         ["reference/full-text/top-k.mdx::fence-007", "58e614668b82d4bc3419a73563a6a246d43f82d7004be0984065ca2f6f5ad053"],
         ["reference/hybrid/rrf.mdx::fence-010", "925fd4cf677e4beb9b3a8e8e552cc0d702adeeba765e54d58a1544eace8d0a98"],
         ["reference/indexing/create-index.mdx::fence-025", "4e633b3ed3fabffbfc6b1714d556404f9d7e8b89373a835b68584eee19a5e0cf"],
@@ -127,6 +127,8 @@
         ["reference/indexing/indexing-vectors.mdx::fence-007", "7415067b1ac5cfa7d3619a8d3732708b4a0a1d4836dda17547863dd3df81fbde"],
         ["reference/indexing/partition-by.mdx::fence-007", "5b50fbf20784a60b3e3564089a64a7db33bbd128fd768a6e56ee0e9efb71a978"],
         ["reference/indexing/partition-by.mdx::fence-008", "b8d44dbb1dfe7d270e33d468d4ac10d5dbe4b9f76219ecd46fd199d426fd9e38"],
+        ["reference/indexing/schema-modeling.mdx::fence-001", "3b00634c0483bdb50c4b86362b7cadb3ca82676dfdab67532666b4acdf081a9f"],
+        ["reference/indexing/schema-modeling.mdx::fence-002", "1d5eb70ad24ba0c65f0b79bcdf57acf1eeee2b865dbe08a5f50f4b3c978bf979"],
         ["reference/joins/overview.mdx::fence-001", "6aac8d8d36f9e84408b1e35d30b87fd51dc6c28bdc2c6a658a373dc39248aabd"],
         ["reference/joins/overview.mdx::fence-002", "db9a4bd591e0dd34478b582d68b7ee1b2a06af6176f16ff2017bb8da0e756db9"],
         ["reference/operators-and-functions.mdx::fence-003", "6b3bce2d2ad18f9650347cfb6df27cbf733114415fdfe97c7f88c872e42fe136"],
@@ -174,9 +176,35 @@
         ["start/configure-your-environment.mdx::fence-032", "34432fbe99ec1f8216d501a12691976a6524dcf76e5729df4fc452997640c989"],
         ["start/configure-your-environment.mdx::fence-034", "b0a512c838bec9edc67969cdb6a5ec60f1c9c58115766b945e675ae18c85c2a9"]
       ]
+    },
+    {
+      "reason": "The vector index-options CodeGroup contains 0.27 target_leaf_size examples awaiting ORM client support; its SQL fence runs in the standalone inventory.",
+      "fences": [
+        ["reference/indexing/indexing-vectors.mdx::fence-014", "aa1e6db4afea2e72f2757daa31fea536143c4ed5e557055af272ec81a5db109d"],
+        ["reference/indexing/indexing-vectors.mdx::fence-015", "7e57afd74f9f8be64e29b07aa2093161b612146aa36f6cccf7f19acd636a6585"],
+        ["reference/indexing/indexing-vectors.mdx::fence-016", "702e9166c406fb0512334e4a4b8e6e9ddf0fab7835a9b0d72f138ed23bb28614"],
+        ["reference/indexing/indexing-vectors.mdx::fence-017", "171c4d1bb64ad1b8d922b7af3f38cec0fafb973f4ecabb145acad76ba57a8e11"],
+        ["reference/indexing/indexing-vectors.mdx::fence-018", "257e3cb66e896d029d371b868cda1c8f895aff2e534586ffe5bf97cb48d08e41"]
+      ]
+    },
+    {
+      "reason": "Loads the reader's own synonym file, which the smoke test doesn't have.",
+      "fences": [
+        ["reference/tokenizers/synonyms.mdx::fence-002", "1ff5d12e241ddd9ca7a92b1f42720315ecd09b53d5afa3d23962c3b6f3a27f74"]
+      ]
     }
   ],
   "sql": {
+    "reference/tokenizers/synonyms.mdx::fence-003": {
+      "setup": [
+        "reference/tokenizers/synonyms.mdx::fence-001"
+      ]
+    },
+    "reference/tokenizers/synonyms.mdx::fence-036": {
+      "setup": [
+        "reference/tokenizers/synonyms.mdx::fence-001"
+      ]
+    },
     "reference/filtering/external-indexes.mdx::fence-008": {
       "setup": [
         "reference/filtering/external-indexes.mdx::fence-001"

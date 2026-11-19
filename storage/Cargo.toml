@@ -1,0 +1,47 @@
+[package]
+name = "storage"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["pg18"]
+pg15 = ["pgrx/pg15", "common/pg15"]
+pg16 = ["pgrx/pg16", "common/pg16"]
+pg17 = ["pgrx/pg17", "common/pg17"]
+pg18 = ["pgrx/pg18", "common/pg18"]
+pg_test = ["common/pg_test"]
+block_tracker = []                  # for debugging when blocks are acquired and released
+
+# Keep this crate focused on Postgres block/WAL/FSM storage primitives. Do NOT add `datafusion`,
+# `arrow-*`, or `tokio` here so `storage` can compile in parallel with the Arrow/DataFusion stack.
+[dependencies]
+common = { path = "../common", default-features = false }
+anyhow.workspace = true
+bincode.workspace = true
+bitpacking.workspace = true
+bytemuck.workspace = true
+dst = { path = "../dst" }
+parking_lot.workspace = true
+pgrx.workspace = true
+rustc-hash.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+stable_deref_trait.workspace = true
+strum.workspace = true
+tantivy.workspace = true
+thiserror.workspace = true
+tokenizers = { path = "../tokenizers" }
+
+[dev-dependencies]
+common = { path = "../common", default-features = false, features = [
+  "pg_test",
+] }
+pgrx-tests.workspace = true
+proptest.workspace = true
+rand.workspace = true
+rstest.workspace = true

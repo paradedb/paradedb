@@ -1,8 +1,8 @@
 {
-  "features": "## New Features ✨",
-  "performance": "## Performance Improvements 🚀",
-  "stability": "## Stability Improvements 💪",
-  "breaking": "## Breaking Changes 🚨",
-  "docs": "## Documentation 📚",
-  "other": "## Other Changes 🛠️"
+  "breaking": "## Breaking Changes 🚨 {#breaking-changes}",
+  "features": "## New Features ✨ {#new-features}",
+  "performance": "## Performance Improvements 🚀 {#performance-improvements}",
+  "stability": "## Stability Improvements 💪 {#stability-improvements}",
+  "docs": "## Documentation 📚 {#documentation}",
+  "other": "## Other Changes 🛠️ {#other-changes}"
 }

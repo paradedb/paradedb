@@ -175,6 +175,8 @@ await dbContext
 While BM25 scores will be returned as long as `description` is indexed, including `rating` in the ParadeDB index definition will allow results matching
 `rating < 2` to rank higher than those that do not match.
 
+A row-level security policy restricts which rows a user may see and adds nothing to the score. A row scores the same for every user and in every plan, whatever the policy's shape.
+
 ## Joined Scores
 
 First, let's create a second table called `orders` that can be joined with `mock_items`:
@@ -319,6 +321,10 @@ var results = await (
 
 </CodeGroup>
 
+Each `pdb.score(<column>)` call evaluates the BM25 score for that table's predicates, and `+` sums the per-table scores in the same way a single-table BM25 query sums its clauses. You can weight one table relative to another with positive multipliers such as `2.0 * pdb.score(m.id) + pdb.score(o.order_id)`. When a joined row does not match an `OR` branch on one table, that table's `pdb.score(...)` returns `0.0`; on null-extended rows of an outer join, `pdb.score(...)` on the unmatched table is `NULL` (wrap it in `COALESCE(pdb.score(...), 0)` when summing).
+
+For pushdown requirements on score-ordered joins, see [Score-Ordered Joins](/reference/joins/overview#score-ordered-joins). For how splitting fields across tables affects BM25 corpus statistics, see [Schema Modeling](/reference/indexing/schema-modeling#how-schema-shape-affects-bm25-scoring).
+
 <Note>
   To combine full text and vector search, where scores operate on different
   scales, see [Reciprocal Rank Fusion](/reference/hybrid/rrf).
@@ -340,6 +346,170 @@ LIMIT 5;
 
 Note that to receive this [Top K optimization](/reference/full-text/top-k), all tiebreaker columns must be indexed.
 
+## Score Explanation
+
+To see how a row got its score, add `pdb.explain_score(<column>)` to the query. It takes the same column as `pdb.score`,
+and it returns the explanation as `jsonb`.
+
+<CodeGroup>
+```sql SQL
+SELECT id, pdb.score(id), jsonb_pretty(pdb.explain_score(id))
+FROM mock_items
+WHERE description ||| 'shoes'
+ORDER BY pdb.score(id) DESC, id ASC
+LIMIT 1;
+```
+
+```ts Drizzle
+import { asc, desc, sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+    explanation: sql`pdb.explain_score(${mockItems.id})`,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "shoes"))
+  .orderBy(desc(search.score(mockItems.id)), asc(mockItems.id))
+  .limit(1);
+```
+
+```python Django
+from django.db.models import JSONField
+from django.db.models.expressions import RawSQL
+from paradedb import MatchAny, ParadeDB, Score
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny('shoes'))
+).annotate(
+    score=Score(),
+    explanation=RawSQL(
+        'pdb.explain_score(mock_items.id)', [], output_field=JSONField()
+    ),
+).values('id', 'score', 'explanation').order_by('-score', 'id')[:1]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.score(MockItem.id).label("score"),
+        func.pdb.explain_score(MockItem.id).label("explanation"),
+    )
+    .where(search.match_any(MockItem.description, "shoes"))
+    .order_by(desc("score"), MockItem.id)
+    .limit(1)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any("shoes")
+        .with_score
+        .select(:id, "pdb.explain_score(mock_items.id) AS explanation")
+        .order(search_score: :desc, id: :asc)
+        .limit(1)
+```
+
+```cs EF Core
+await dbContext
+    .Database.SqlQuery<string>(
+        $"""
+        SELECT pdb.explain_score(id)::text AS "Value"
+        FROM mock_items
+        WHERE description ||| 'shoes'
+        ORDER BY pdb.score(id) DESC, id ASC
+        LIMIT 1
+        """
+    )
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+```ini Expected Response
+{
+    "value": 2.8772602,
+    "context": [
+        "Term=Term(field=6, type=Str, \"shoes\")"
+    ],
+    "details": [
+        {
+            "value": 2.2,
+            "description": "(K1+1)"
+        },
+        {
+            "value": 2.4849067,
+            "details": [
+                {
+                    "value": 3.0,
+                    "description": "n, number of docs containing this term"
+                },
+                {
+                    "value": 41.0,
+                    "description": "N, total number of docs"
+                }
+            ],
+            "description": "idf, computed as log(1 + (N - n + 0.5) / (n + 0.5))"
+        },
+        {
+            "value": 0.52631575,
+            "details": [
+                {
+                    "value": 1.0,
+                    "description": "freq, occurrences of term within document"
+                },
+                {
+                    "value": 1.2,
+                    "description": "k1, term saturation parameter"
+                },
+                {
+                    "value": 0.75,
+                    "description": "b, length normalization parameter"
+                },
+                {
+                    "value": 2.0,
+                    "description": "dl, length of field"
+                },
+                {
+                    "value": 3.0,
+                    "description": "avgdl, average length of field"
+                }
+            ],
+            "description": "freq / (freq + k1 * (1 - b + b * dl / avgdl))"
+        }
+    ],
+    "description": "TermQuery, product of..."
+}
+```
+
+`value` is the score of the row, and `details` holds the parts that make it. For one term, the parts are how rare the term
+is in the index (`idf`), how often the row has it (`freq`), and the length of the field against the average length. A query
+with several terms has one entry for each term that the row matches.
+
+With [synonyms](/reference/tokenizers/synonyms), a group of single words is one `SynonymQuery` entry. Its `freq` is a sum,
+and it lists each word of the group that the row holds.
+
+`pdb.explain_score` has these limits:
+
+- The query has to search the table with a ParadeDB operator, as for `pdb.score`.
+- It works in the `SELECT` list, and not in `WHERE`.
+- In a join, each call explains the score from the search on its own table, and the query does not use
+  [join pushdown](/reference/joins/overview).
+- It costs more than a score, because ParadeDB reads the terms of the row again. Ask for it on a few rows, for example
+  with a `LIMIT`.
+- The explanation is for you to read while you tune a query. Its keys and its wording can change between releases, so
+  don't make application code depend on them.
+
 ## Score Refresh
 
 The scores generated by the ParadeDB index may be influenced by dead rows that have not been cleaned up by the `VACUUM` process.
@@ -352,3 +522,9 @@ VACUUM mock_items;
 ```
 
 This can be automated with [autovacuum](/operate/performance-tuning/overview).
+
+## Scores and Row-Level Security
+
+BM25 scores are computed from statistics over every row in the index, including rows that a row-level security policy hides from the current role. Row-level security filters which rows a query returns, but not the statistics behind their scores, so a score returned to a restricted role can depend on rows that role cannot read.
+
+If scores must not depend on rows a role cannot read, keep those rows in a separate table with its own ParadeDB index, or do not return scores to that role.

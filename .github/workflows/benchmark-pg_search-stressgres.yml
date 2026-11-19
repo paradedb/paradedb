@@ -9,11 +9,16 @@ name: Benchmark pg_search (Stressgres)
 # Run Stressgres nightly on main, on labeled PRs, or manually.
 on:
   schedule:
-    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
+    - cron: "30 7 * * *" # Daily at 07:30 UTC. Space nightly benchmarks two hours apart.
   pull_request:
     types: [labeled]
   workflow_dispatch:
     inputs:
+      runner_type:
+        description: "Runner availability"
+        type: choice
+        options: [spot, on-demand]
+        default: spot
       commit:
         description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
         required: false
@@ -51,10 +56,11 @@ jobs:
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
+      - spot=${{ (github.event_name == 'workflow_dispatch' && inputs.runner_type == 'spot') || (github.event_name != 'workflow_dispatch' && !contains(github.event.pull_request.labels.*.name, 'benchmark-nonspot')) }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
       # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
       # using EBS would cause
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmarks') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-stressgres')
@@ -221,7 +227,7 @@ jobs:
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET maintenance_work_mem = '12GB';"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET shared_buffers = '12GB';"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_workers = 8;"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_worker_processes = 8;"
+          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_worker_processes = 32;"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_maintenance_workers = 8;"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_workers_per_gather = 8;"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_wal_size = '100GB';"

@@ -280,7 +280,7 @@ SELECT s.id, 'x/' || s.path AS url
 FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
 WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
 ORDER BY 'x/' || s.path, s.id LIMIT 5;
-WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: e, s)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must be fast-field columns, indexed expressions, pdb.score() / sums of pdb.score(), or vector distance expressions (<->, <=>, <#>) (tables: e, s)
                                                                                                   QUERY PLAN                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

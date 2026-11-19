@@ -165,6 +165,117 @@ LIMIT 1;
 (1 row)
 
 DROP TABLE config;
+-- =============================================================================
+-- Test 6: JoinScan with pdb.score() combined with an InitPlan (`PARAM_EXEC`) or
+-- prepared parameter (`PARAM_EXTERN`) in the SELECT target list.
+--
+-- `pdb.score()` combined with an `InitPlan` param (`6a`) or `$1` (`6b`) is
+-- projected by Postgres above the scan, not wrapped in a `PgExprUdf`.
+-- =============================================================================
+CREATE TABLE shelters (
+    id INT PRIMARY KEY,
+    animal_id INT,
+    name TEXT
+);
+INSERT INTO shelters (id, animal_id, name) VALUES
+(10, 1, 'downtown dog rescue'),
+(20, 2, 'uptown cat haven'),
+(30, 3, 'westside dog shelter'),
+(40, 4, 'avian sanctuary');
+CREATE INDEX shelters_idx ON shelters
+USING paradedb (id, animal_id, name);
+SET paradedb.enable_join_custom_scan = on;
+SET paradedb.rank_join_min_rows = 0;
+-- 6a: InitPlan (`PARAM_EXEC`) combined with `pdb.score()` in the SELECT list of a JoinScan
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT a.id,
+       pdb.score(a.id) - (SELECT 1.0::real WHERE current_setting('server_version_num') <> '') AS score
+FROM animals a
+JOIN shelters s ON s.animal_id = a.id
+WHERE a.description ||| 'dog' OR s.name ||| 'cat'
+ORDER BY pdb.score(a.id) + pdb.score(s.id) DESC, a.id
+LIMIT 5;
+                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER s
+   Join Cond: s.animal_id = a.id
+   Join Predicate: (a:{"with_index":{"query":{"match":{"field":"description","value":"dog","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR s:{"with_index":{"query":{"match":{"field":"name","value":"cat","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
+   Limit: 5
+   Order By: pdb.score(a) + pdb.score(s) desc, s.animal_id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, pdb.score(a)@0 + pdb.score(s)@3 as col_3, pdb.score(a)@0 as col_4, ctid_0@1 as ctid_0]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[a, s], pruned=[s]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@2, animal_id@1)], order=[pdb.score(a)@0 + pdb.score(s)@3 DESC, animal_id@4 ASC NULLS LAST]
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"description","value":"dog","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"name","value":"cat","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+   InitPlan 1
+     ->  Result
+           One-Time Filter: (current_setting('server_version_num'::text) <> ''::text)
+(18 rows)
+
+SELECT a.id,
+       pdb.score(a.id) - (SELECT 1.0::real WHERE current_setting('server_version_num') <> '') AS score
+FROM animals a
+JOIN shelters s ON s.animal_id = a.id
+WHERE a.description ||| 'dog' OR s.name ||| 'cat'
+ORDER BY pdb.score(a.id) + pdb.score(s.id) DESC, a.id
+LIMIT 5;
+ id |    score    
+----+-------------
+  2 |          -1
+  1 | -0.30685282
+  3 | -0.30685282
+(3 rows)
+
+-- 6b: Generic prepared-statement parameter (`PARAM_EXTERN`) combined with `pdb.score()`
+-- in the SELECT list of a JoinScan
+SET plan_cache_mode = force_generic_plan;
+PREPARE join_score_param(real) AS
+SELECT a.id,
+       pdb.score(a.id) - $1 AS score
+FROM animals a
+JOIN shelters s ON s.animal_id = a.id
+WHERE a.description ||| 'dog' OR s.name ||| 'cat'
+ORDER BY pdb.score(a.id) + pdb.score(s.id) DESC, a.id
+LIMIT 5;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXECUTE join_score_param(1.0);
+                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER s
+   Join Cond: s.animal_id = a.id
+   Join Predicate: (a:{"with_index":{"query":{"match":{"field":"description","value":"dog","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR s:{"with_index":{"query":{"match":{"field":"name","value":"cat","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
+   Limit: 5
+   Order By: pdb.score(a) + pdb.score(s) desc, s.animal_id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, pdb.score(a)@0 + pdb.score(s)@3 as col_3, pdb.score(a)@0 as col_4, ctid_0@1 as ctid_0]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[a, s], pruned=[s]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@2, animal_id@1)], order=[pdb.score(a)@0 + pdb.score(s)@3 DESC, animal_id@4 ASC NULLS LAST]
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"description","value":"dog","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"name","value":"cat","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
+
+EXECUTE join_score_param(1.0);
+ id |    score    
+----+-------------
+  2 |          -1
+  1 | -0.30685282
+  3 | -0.30685282
+(3 rows)
+
+DEALLOCATE join_score_param;
+RESET plan_cache_mode;
+RESET paradedb.rank_join_min_rows;
+RESET paradedb.enable_join_custom_scan;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
+DROP TABLE IF EXISTS shelters CASCADE;
 DROP TABLE IF EXISTS animals CASCADE;

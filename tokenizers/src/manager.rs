@@ -240,6 +240,10 @@ impl SearchTokenizerFilters {
             write!(buffer, "{}ascii_folding={value}", sep(is_empty)).unwrap();
             is_empty = false;
         }
+        if let Some(value) = self.trim {
+            write!(buffer, "{}trim={value}", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
 
         if is_empty {
             "".into()
@@ -310,29 +314,50 @@ impl SearchTokenizerFilters {
     fn normalizer(&self) -> Option<SearchNormalizer> {
         self.normalizer
     }
+
+    /// The filters with each default written out, so that a default equals its written value.
+    fn with_defaults(&self) -> Self {
+        // Every option has a line, so that a new option does not compile without one.
+        Self {
+            remove_short: self.remove_short,
+            remove_long: self.remove_long,
+            stemmer: self.stemmer,
+            stopwords_language: self.stopwords_language.clone(),
+            stopwords: self.stopwords.clone(),
+            // The analyzer calls the same four functions, so each default has one definition.
+            lowercase: Some(self.lower_caser().is_some()),
+            alpha_num_only: Some(self.alpha_num_only().is_some()),
+            ascii_folding: Some(self.ascii_folding().is_some()),
+            trim: Some(self.trim_filter().is_some()),
+            // The normalizer is for the columnar value, and no token depends on it.
+            normalizer: None,
+        }
+    }
 }
 
 macro_rules! add_filters {
     ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
-        // Build the analyzer with static filters first
+        // Stopwords go right after lowercasing: their lists hold whole, accented words, which stemming and
+        // folding would change, so "para" stemmed to "par" or "más" folded to "mas" would no longer match.
         let mut builder = tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
             .filter($filters.trim_filter())
             .filter($filters.token_length_filter())
             .filter($filters.lower_caser())
-            .filter($filters.stemmer())
             .filter($filters.stopwords())
-            .filter($filters.ascii_folding())
-            $(
-                .filter($extra_filter)
-            )*
-            .filter($filters.alpha_num_only())
             // Convert to type-erased builder for dynamic filter application
             .dynamic();
         // Apply stopword language filters dynamically in a for loop
         for stopword_filter in $filters.stopwords_languages() {
             builder = builder.filter_dynamic(stopword_filter);
         }
-        builder.build()
+        builder
+            .filter($filters.stemmer())
+            .filter($filters.ascii_folding())
+            $(
+                .filter($extra_filter)
+            )*
+            .filter($filters.alpha_num_only())
+            .build()
     }};
 }
 
@@ -657,6 +682,8 @@ impl SearchTokenizer {
             SearchTokenizer::SourceCode(filters) => {
                 // for backwards compatibility, the source_code tokenizer defaults to ascii_folding
                 // if it's not explicitly set
+                //
+                // `with_defaults` has this default too. Change the two together.
                 if filters.ascii_folding().is_none() {
                     add_filters!(CodeTokenizer::default(), filters, AsciiFoldingFilter)
                 } else {
@@ -806,6 +833,53 @@ impl SearchTokenizer {
 
     pub fn normalizer(&self) -> Option<SearchNormalizer> {
         self.filters().normalizer()
+    }
+
+    /// True when the two tokenizers give the same tokens for every text. `==` compares the
+    /// options as declared, so for `==` a default and its written value are two tokenizers.
+    pub fn produces_same_tokens_as(&self, other: &Self) -> bool {
+        self.with_defaults() == other.with_defaults()
+    }
+
+    fn with_defaults(&self) -> Self {
+        let mut tokenizer = self.clone();
+        // The default of `ascii_folding` is true for this tokenizer only.
+        if let SearchTokenizer::SourceCode(filters) = &mut tokenizer {
+            filters.ascii_folding.get_or_insert(true);
+        }
+        if let Some(filters) = tokenizer.filters_mut() {
+            *filters = filters.with_defaults();
+        }
+        tokenizer
+    }
+
+    #[allow(deprecated)]
+    fn filters_mut(&mut self) -> Option<&mut SearchTokenizerFilters> {
+        match self {
+            SearchTokenizer::Keyword | SearchTokenizer::KeywordDeprecated => None,
+            SearchTokenizer::Simple(filters)
+            | SearchTokenizer::Raw(filters)
+            | SearchTokenizer::LiteralNormalized(filters)
+            | SearchTokenizer::WhiteSpace(filters)
+            | SearchTokenizer::SourceCode(filters)
+            | SearchTokenizer::ChineseLinderaDeprecated(filters)
+            | SearchTokenizer::JapaneseLinderaDeprecated(filters)
+            | SearchTokenizer::KoreanLinderaDeprecated(filters)
+            | SearchTokenizer::ICUTokenizer(filters)
+            | SearchTokenizer::LinderaDeprecated(_, filters)
+            | SearchTokenizer::RegexTokenizer { filters, .. }
+            | SearchTokenizer::RegexTokenizerDeprecated { filters, .. }
+            | SearchTokenizer::ChineseCompatible { filters, .. }
+            | SearchTokenizer::Ngram { filters, .. }
+            | SearchTokenizer::EdgeNgram { filters, .. }
+            | SearchTokenizer::ChineseLindera { filters, .. }
+            | SearchTokenizer::JapaneseLindera { filters, .. }
+            | SearchTokenizer::KoreanLindera { filters, .. }
+            | SearchTokenizer::Lindera { filters, .. }
+            | SearchTokenizer::Jieba { filters, .. }
+            | SearchTokenizer::UnicodeWordsDeprecated { filters, .. }
+            | SearchTokenizer::UnicodeWords { filters, .. } => Some(filters),
+        }
     }
 }
 
@@ -1056,6 +1130,26 @@ mod tests {
     }
 
     #[rstest]
+    fn test_trim_filter_changes_tokenizer_name() {
+        // Regression test: `trim` was the only SearchTokenizerFilters field excluded from
+        // name_suffix(), so two fields sharing a base tokenizer but differing only in `trim`
+        // both resolved to the same TokenizerManager registration name -- one field silently
+        // got the other's tokenizer. Every filter field must produce a distinct name.
+        let without_trim = SearchTokenizer::Simple(SearchTokenizerFilters {
+            trim: None,
+            ..SearchTokenizerFilters::default()
+        });
+        let with_trim = SearchTokenizer::Simple(SearchTokenizerFilters {
+            trim: Some(true),
+            ..SearchTokenizerFilters::default()
+        });
+
+        assert_eq!(without_trim.name(), "default");
+        assert_eq!(with_trim.name(), "default[trim=true]");
+        assert_ne!(without_trim.name(), with_trim.name());
+    }
+
+    #[rstest]
     fn test_regexizer() {
         let json = r#"{
             "type": "regex",
@@ -1114,6 +1208,69 @@ mod tests {
             out.push(stream.token().text.clone());
         }
         out
+    }
+
+    #[rstest]
+    fn test_produces_same_tokens_as_takes_a_default_as_its_written_value() {
+        use tantivy::tokenizer::TokenStream;
+
+        fn simple(declare: impl FnOnce(&mut SearchTokenizerFilters)) -> SearchTokenizer {
+            let mut filters = SearchTokenizerFilters::default();
+            declare(&mut filters);
+            SearchTokenizer::Simple(filters)
+        }
+        fn source_code(ascii_folding: Option<bool>) -> SearchTokenizer {
+            SearchTokenizer::SourceCode(SearchTokenizerFilters {
+                ascii_folding,
+                ..Default::default()
+            })
+        }
+        fn tokens(tokenizer: &SearchTokenizer) -> Vec<String> {
+            let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+            let mut stream = analyzer.token_stream("Running SOFÁ sofa_bed");
+            let mut out = Vec::new();
+            while stream.advance() {
+                out.push(stream.token().text.clone());
+            }
+            out
+        }
+
+        let same = [
+            (simple(|_| {}), simple(|f| f.lowercase = Some(true))),
+            (simple(|_| {}), simple(|f| f.alpha_num_only = Some(false))),
+            (simple(|_| {}), simple(|f| f.ascii_folding = Some(false))),
+            (simple(|_| {}), simple(|f| f.trim = Some(false))),
+            (
+                simple(|_| {}),
+                simple(|f| f.normalizer = Some(SearchNormalizer::Lowercase)),
+            ),
+            (source_code(None), source_code(Some(true))),
+        ];
+        for (left, right) in &same {
+            assert_ne!(left, right);
+            assert!(
+                left.produces_same_tokens_as(right),
+                "{} and {}",
+                left.name(),
+                right.name()
+            );
+            assert_eq!(tokens(left), tokens(right));
+        }
+
+        let other = [
+            simple(|f| f.lowercase = Some(false)),
+            simple(|f| f.ascii_folding = Some(true)),
+            simple(|f| f.stemmer = Some(Language::English)),
+            SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
+        ];
+        for tokenizer in &other {
+            assert!(
+                !simple(|_| {}).produces_same_tokens_as(tokenizer),
+                "{}",
+                tokenizer.name()
+            );
+            assert_ne!(tokens(&simple(|_| {})), tokens(tokenizer));
+        }
     }
 
     #[rstest]
@@ -1718,5 +1875,30 @@ mod tests {
             found_space, should_find_space,
             "tokenizer (name={tokenizer_name}) whitespace did not keep/remove whitespace as expected"
         );
+    }
+
+    #[rstest]
+    #[case::spanish(r#"{"type": "default", "stemmer": "Spanish", "stopwords_language": "Spanish"}"#, "silla para más madera", &["sill", "mader"])]
+    #[case::french(r#"{"type": "default", "stemmer": "French", "stopwords_language": "French"}"#, "nous avons mangé des pommes", &["mang", "pomm"])]
+    #[case::german(r#"{"type": "default", "stemmer": "German", "stopwords_language": "German"}"#, "welches Haus hatte er", &["haus"])]
+    #[case::custom(r#"{"type": "default", "stemmer": "English", "stopwords": ["running"]}"#, "she was running home", &["she", "was", "home"])]
+    #[case::folded(r#"{"type": "default", "ascii_folding": true, "stopwords_language": "German"}"#, "Stuhl für Kinder", &["stuhl", "kinder"])]
+    fn test_stopwords_removed_before_stemming_and_folding(
+        #[case] json: &str,
+        #[case] text: &str,
+        #[case] expected: &[&str],
+    ) {
+        use tantivy::tokenizer::TokenStream;
+
+        // Stopword lists hold whole words: "para" stems to "par" and "für" folds to "fur", which no list holds.
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+        let mut token_stream = analyzer.token_stream(text);
+        let mut tokens = Vec::new();
+        while token_stream.advance() {
+            tokens.push(token_stream.token().text.clone());
+        }
+        assert_eq!(tokens, expected);
     }
 }

@@ -1,0 +1,363 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+//! Physical-plan codec for leader-dispatched MPP fragments.
+//!
+//! The leader builds the distributed physical plan once and ships each stage's subplan to the
+//! workers; the workers run their fragments without re-planning. DataFusion's `Network*Exec`
+//! boundaries are serialized by [`datafusion_distributed::DistributedCodec`]; this codec handles
+//! the `pg_search` custom execs that sit inside a stage. It mirrors the LOGICAL
+//! [`crate::scan::codec`] (same UDF/UDAF handling, same per-source segment-ID injection) but
+//! travels post-optimization physical nodes instead of a logical plan.
+
+use std::sync::Arc;
+
+use datafusion::common::{DataFusionError, Result};
+use datafusion::execution::TaskContext;
+use datafusion::logical_expr::ScalarUDF;
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion_proto::physical_plan::{PhysicalExtensionCodec, PhysicalProtoConverterExtension};
+
+use crate::api::HashMap;
+use crate::index::fast_fields_helper::FFHelper;
+use crate::index::mvcc::SegmentView;
+use crate::postgres::ParallelScanState;
+use crate::postgres::customscan::datafusion::udaf_by_name;
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
+use crate::scan::CtidResolver;
+use crate::scan::execution_plan::PgSearchScanPlan;
+use crate::scan::rank_join_exec::RankJoinExec;
+use crate::scan::segmented_topk_exec::SegmentedTopKExec;
+use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
+use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
+use crate::scan::udf_codec::{try_decode_pg_search_udf, try_encode_pg_search_udf};
+
+/// Byte tags identifying each custom exec in the extension payload. The composed codec already
+/// records which codec decoded a node; the tag picks the exec within this codec.
+const TAG_PG_SEARCH_SCAN: u8 = 2;
+const TAG_VISIBILITY_FILTER: u8 = 4;
+const TAG_TANTIVY_FETCH: u8 = 5;
+const TAG_SEGMENTED_TOPK: u8 = 6;
+const TAG_TANTIVY_DECODE: u8 = 7;
+const TAG_RANK_JOIN: u8 = 8;
+
+#[derive(Debug, Default)]
+struct WorkerDecodeContext {
+    /// Worker's `ParallelScanState`, used to resolve the scan's MVCC segment set and to claim
+    /// segments at runtime.
+    parallel_state: Option<*mut ParallelScanState>,
+    /// The leader's segment view of every join source, indexed by `plan_position`, for the
+    /// rebuilt ctid resolvers on decode.
+    index_segment_views: Vec<SegmentView>,
+    /// The `ExprContext` workers use to evaluate heap filters.
+    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+}
+
+/// [`PhysicalExtensionCodec`] for the `pg_search` custom execs, carrying the runtime context a
+/// worker needs to rebuild them. Encode is context-free (the leader serializes the recipe);
+/// decode injects the worker's own `ParallelScanState` and frozen per-source segment sets.
+#[derive(Clone, Debug)]
+pub struct PgSearchPhysicalExtensionCodec {
+    worker_ctx: Arc<crate::postgres::customscan::mpp::MainThread<WorkerDecodeContext>>,
+}
+
+impl Default for PgSearchPhysicalExtensionCodec {
+    fn default() -> Self {
+        Self {
+            worker_ctx: Arc::new(crate::postgres::customscan::mpp::MainThread::new(
+                WorkerDecodeContext::default(),
+            )),
+        }
+    }
+}
+
+impl PgSearchPhysicalExtensionCodec {
+    /// Construct a worker-side codec carrying the worker's `ParallelScanState`, frozen
+    /// `SegmentView`s, and `ExprContext` so `PgSearchScanPlan` and deferred lookup nodes rebuild
+    /// their runtime state during `Worker::coordinator_channel` plan deserialization.
+    pub fn new_worker(
+        parallel_state: Option<*mut ParallelScanState>,
+        index_segment_views: Vec<SegmentView>,
+        expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+    ) -> Self {
+        Self {
+            worker_ctx: Arc::new(crate::postgres::customscan::mpp::MainThread::new(
+                WorkerDecodeContext {
+                    parallel_state,
+                    index_segment_views,
+                    expr_context,
+                },
+            )),
+        }
+    }
+}
+
+impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
+    fn try_decode(
+        &self,
+        buf: &[u8],
+        inputs: &[Arc<dyn ExecutionPlan>],
+        ctx: &TaskContext,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        crate::postgres::customscan::mpp::try_run_on_main_thread(|token| {
+            let wctx = self.worker_ctx.get(token);
+            let Some((&tag, payload)) = buf.split_first() else {
+                return Err(DataFusionError::Internal(
+                    "PgSearchPhysicalExtensionCodec: empty buffer".into(),
+                ));
+            };
+            match tag {
+                TAG_PG_SEARCH_SCAN => PgSearchScanPlan::decode_for_dispatch(
+                    payload,
+                    wctx.parallel_state,
+                    wctx.expr_context,
+                    ctx,
+                    self,
+                    proto_converter,
+                ),
+                // The deferred execs (visibility ctid resolvers, tantivy fetch/decode, segmented
+                // top-k) carry live `FFHelper`s that can't travel. Decode is bottom-up, so the scans
+                // below are already rebuilt; pull their helpers out of the decoded subtree. A column
+                // whose scan sits behind a network boundary rebuilds its helper from the column's
+                // `DeferredLookupRebuild` instead.
+                TAG_VISIBILITY_FILTER => {
+                    let input = single_input(inputs)?;
+                    let resolvers = collect_ctid_resolvers(&input);
+                    VisibilityFilterExec::decode_for_dispatch(
+                        payload,
+                        input,
+                        resolvers,
+                        &wctx.index_segment_views,
+                    )
+                }
+                TAG_TANTIVY_FETCH => {
+                    let input = single_input(inputs)?;
+                    let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                    TantivyFetchExec::decode_for_dispatch(
+                        payload,
+                        input,
+                        ffhelpers,
+                        wctx.parallel_state,
+                    )
+                }
+                TAG_TANTIVY_DECODE => {
+                    let input = single_input(inputs)?;
+                    let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                    TantivyDecodeExec::decode_for_dispatch(
+                        payload,
+                        input,
+                        ffhelpers,
+                        wctx.parallel_state,
+                    )
+                }
+                TAG_SEGMENTED_TOPK => {
+                    let input = single_input(inputs)?;
+                    let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                    SegmentedTopKExec::decode_for_dispatch(
+                        payload,
+                        input,
+                        ffhelpers,
+                        ctx,
+                        wctx.parallel_state,
+                        self,
+                        proto_converter,
+                    )
+                }
+                TAG_RANK_JOIN => {
+                    RankJoinExec::decode_for_dispatch(payload, inputs, ctx, self, proto_converter)
+                }
+                other => Err(DataFusionError::NotImplemented(format!(
+                    "PgSearchPhysicalExtensionCodec: unknown physical node tag {other}"
+                ))),
+            }
+        })
+    }
+
+    fn try_encode(
+        &self,
+        node: Arc<dyn ExecutionPlan>,
+        buf: &mut Vec<u8>,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
+    ) -> Result<()> {
+        crate::postgres::customscan::mpp::try_run_on_main_thread(|_| {
+            if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
+                buf.push(TAG_PG_SEARCH_SCAN);
+                buf.extend_from_slice(&scan.encode_for_dispatch(self, proto_converter)?);
+                return Ok(());
+            }
+            if let Some(vis) = node.downcast_ref::<VisibilityFilterExec>() {
+                buf.push(TAG_VISIBILITY_FILTER);
+                buf.extend_from_slice(&vis.encode_for_dispatch()?);
+                return Ok(());
+            }
+            if let Some(fetch) = node.downcast_ref::<TantivyFetchExec>() {
+                buf.push(TAG_TANTIVY_FETCH);
+                buf.extend_from_slice(&fetch.encode_for_dispatch()?);
+                return Ok(());
+            }
+            if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
+                buf.push(TAG_TANTIVY_DECODE);
+                buf.extend_from_slice(&decode.encode_for_dispatch()?);
+                return Ok(());
+            }
+            if let Some(topk) = node.downcast_ref::<SegmentedTopKExec>() {
+                buf.push(TAG_SEGMENTED_TOPK);
+                buf.extend_from_slice(&topk.encode_for_dispatch(self, proto_converter)?);
+                return Ok(());
+            }
+            if let Some(rank_join) = node.downcast_ref::<RankJoinExec>() {
+                buf.push(TAG_RANK_JOIN);
+                buf.extend_from_slice(&rank_join.encode_for_dispatch(self, proto_converter)?);
+                return Ok(());
+            }
+            Err(DataFusionError::NotImplemented(format!(
+                "PgSearchPhysicalExtensionCodec: no physical encoding for {}",
+                node.name()
+            )))
+        })
+    }
+
+    fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
+        crate::postgres::customscan::mpp::try_run_on_main_thread(|_| {
+            try_decode_pg_search_udf(name, buf)?.ok_or_else(|| {
+                DataFusionError::NotImplemented(format!(
+                    "UDF '{name}' deserialization not implemented"
+                ))
+            })
+        })
+    }
+
+    fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> Result<()> {
+        // Not ours: encode nothing so the expression travels by name and the decoding session
+        // resolves it from its registry (DataFusion built-ins are registered there).
+        crate::postgres::customscan::mpp::try_run_on_main_thread(|_| {
+            try_encode_pg_search_udf(node, buf)?;
+            Ok(())
+        })
+    }
+
+    fn try_decode_udaf(
+        &self,
+        name: &str,
+        _buf: &[u8],
+    ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
+        // The pg_search UDAFs are stateless singletons resolved by name. Although
+        // registered in SessionState, deserialization without a populated session
+        // (or via explicit codec decode) resolves them through here.
+        udaf_by_name(name).ok_or_else(|| {
+            DataFusionError::NotImplemented(format!(
+                "UDAF '{name}' deserialization not implemented"
+            ))
+        })
+    }
+
+    fn try_encode_udaf(
+        &self,
+        _node: &datafusion::logical_expr::AggregateUDF,
+        _buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        // Name-only encoding; decode resolves by name.
+        Ok(())
+    }
+}
+
+/// Per-scan runtime handles pulled from a decoded subtree, used to re-wire the deferred execs.
+struct ScanRuntime {
+    indexrelid: u32,
+    ffhelper: Option<Arc<FFHelper>>,
+    ctid_plan_position: Option<usize>,
+}
+
+/// Walk a decoded subtree collecting each `PgSearchScanPlan`'s runtime handles. Nested stages
+/// decode as `Remote` (no inline child), so the walk covers this fragment's own scans; columns
+/// whose scan lives in another fragment rebuild their helpers from `DeferredLookupRebuild`.
+/// Binding a resolver to any reader it finds is fine: canonical segment sets give every proc
+/// the same `segment_ord` layout.
+fn collect_scan_runtime(plan: &Arc<dyn ExecutionPlan>, out: &mut Vec<ScanRuntime>) {
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
+        out.push(ScanRuntime {
+            indexrelid: scan.indexrelid,
+            ffhelper: scan.ffhelper(),
+            ctid_plan_position: scan.deferred_ctid_plan_position(),
+        });
+    }
+    for child in plan.children() {
+        collect_scan_runtime(child, out);
+    }
+}
+
+fn single_input(inputs: &[Arc<dyn ExecutionPlan>]) -> Result<Arc<dyn ExecutionPlan>> {
+    match inputs {
+        [one] => Ok(Arc::clone(one)),
+        _ => Err(DataFusionError::Internal(format!(
+            "PgSearchPhysicalExtensionCodec: expected one input, got {}",
+            inputs.len()
+        ))),
+    }
+}
+
+/// `(plan_position, resolver)` for each scan that resolves deferred ctids, for the
+/// visibility exec.
+fn collect_ctid_resolvers(input: &Arc<dyn ExecutionPlan>) -> Vec<(usize, CtidResolver)> {
+    let mut scans = Vec::new();
+    collect_scan_runtime(input, &mut scans);
+    scans
+        .into_iter()
+        .filter_map(|s| match (s.ctid_plan_position, s.ffhelper) {
+            (Some(pos), Some(ff)) => Some((pos, CtidResolver::new(s.indexrelid, ff))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `indexrelid -> ffhelper` for the tantivy fetch and decode execs.
+fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u32, Arc<FFHelper>> {
+    let mut scans = Vec::new();
+    collect_scan_runtime(input, &mut scans);
+    let mut map = HashMap::default();
+    for s in scans {
+        if let Some(ff) = s.ffhelper {
+            map.insert(s.indexrelid, ff);
+        }
+    }
+    collect_lookup_ffhelpers(input, &mut map);
+    map
+}
+
+/// A lookup node decoded below this one already rebuilt the helper for an index whose scan
+/// sits behind a network boundary, so the decode above a fetch reuses it instead of opening
+/// the index a second time. That helper lays out only the columns the fetch reads, which never
+/// include a list, so the decode widens it over the same reader when it reads a column the
+/// helper does not lay out (see `rebuild_missing_ffhelpers`).
+fn collect_lookup_ffhelpers(plan: &Arc<dyn ExecutionPlan>, out: &mut HashMap<u32, Arc<FFHelper>>) {
+    let helpers = if let Some(fetch) = plan.downcast_ref::<TantivyFetchExec>() {
+        Some(fetch.ffhelpers())
+    } else {
+        plan.downcast_ref::<TantivyDecodeExec>()
+            .map(TantivyDecodeExec::ffhelpers)
+    };
+    if let Some(helpers) = helpers {
+        for (indexrelid, ffhelper) in helpers {
+            out.entry(*indexrelid)
+                .or_insert_with(|| Arc::clone(ffhelper));
+        }
+    }
+    for child in plan.children() {
+        collect_lookup_ffhelpers(child, out);
+    }
+}

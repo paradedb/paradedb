@@ -34,12 +34,12 @@ pgrx-init: pg_search/Cargo.toml
 # Install pg_search into the PostgreSQL cluster identified by pg_config.
 .PHONY: install
 install:
-	@./scripts/dev-install.sh --package pg_search --release --pg-config "$(PG_CONFIG)"
+	@cargo pgrx install --package pg_search --release --pg-config "$(PG_CONFIG)"
 
 # Build pg_search for the PostgreSQL cluster identified by pg_config.
 .DEFAULT_GOAL: package
 package:
-	@cargo pgrx package --package pg_search --pg-config "$(PG_CONFIG)"
+	@cargo pgrx package --package pg_search --no-assemble-unreleased --no-distrib-packages --pg-config "$(PG_CONFIG)"
 
 # DISTDESC comes from pg_search/Cargo.toml, DISTVERSION from the workspace Cargo.toml.
 META.json: META.json.in pg_search/Cargo.toml Cargo.toml

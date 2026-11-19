@@ -309,22 +309,19 @@ SELECT id, category, upper(category),
 FROM df_fallback_products
 WHERE description @@@ 'memory'
 GROUP BY id;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: id, category, upper(category), ((repeat(category, 1024) || ':'::text) || ((count(*)))::text)
    Backend: DataFusion
    Indexes: df_fallback_products_idx (df_fallback_products)
-   Group By: category, id
+   Group By: id
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Final, gby=[id@0 as id, category@1 as category], aggr=[count(1) as agg_0]
-     :   TantivyDecodeExec: decode=[category]
-     :     AggregateExec: mode=Partial, gby=[id@0 as id, category@1 as category], aggr=[count(1) as agg_0]
-     :       TantivyFetchExec: fetch=[category]
-     :         CooperativeExec
-     :           PgSearchScan: table=df_fallback_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"memory","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+     : AggregateExec: mode=Single, gby=[id@0 as id], aggr=[count(1) as agg_0, pdb_carry_value(df_fallback_products_0.category) as row_1]
+     :   CooperativeExec
+     :     PgSearchScan: table=df_fallback_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"memory","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
 
 SELECT COUNT(*) AS groups,
        BOOL_AND(category = 'Memory') AS categories_ok,

@@ -257,9 +257,12 @@ LIMIT 5;
 
 -- ============================================================
 -- Test 6: RankJoinRule expression shapes and eligibility gates
+--
+-- When RankJoinRule falls back to HashJoinExec, EXPLAIN emits a WARNING saying why.
 -- ============================================================
 SET paradedb.enable_rank_join = on;
 SET paradedb.rank_join_min_rows = 0;
+SET paradedb.planner_warnings = 'warning';
 
 -- 6a: Weighted additive score expression -> plans RankJoinExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -297,6 +300,57 @@ WHERE u.bio @@@ 'rust'::pdb.boost(100) AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC
 LIMIT 5;
 
+-- 6d-multi: Gate 2 (`SCORE_BALANCE_THRESHOLD = 0.20`) with multi-branch OR on one side.
+--
+-- Across `disjunct_queries` (`ScanMode::Disjunctive`) and `SearchQueryInput::Boolean.should`,
+-- a matching document only needs to satisfy one disjunct, so `score_max` takes the maximum
+-- branch scale rather than summing `1.0` per branch. Both 5 and 6+ unboosted OR branches
+-- on `p` paired with 1 branch on `u` pass Gate 2 and plan `RankJoinExec`.
+
+-- 5 OR branches on `p` vs 1 on `u` -> RankJoinExec
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust'
+   OR p.title @@@ 'bm25'
+   OR p.title @@@ 'ranking'
+   OR p.title @@@ 'fast'
+   OR p.title @@@ 'columnar'
+   OR p.title @@@ 'query'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+-- 6 OR branches on `p` vs 1 on `u` -> RankJoinExec
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust'
+   OR p.title @@@ 'bm25'
+   OR p.title @@@ 'ranking'
+   OR p.title @@@ 'fast'
+   OR p.title @@@ 'columnar'
+   OR p.title @@@ 'query'
+   OR p.title @@@ 'extra'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+-- Same 6 OR branches on `p` with a 2x weight on `u` in ORDER BY -> RankJoinExec
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust'
+   OR p.title @@@ 'bm25'
+   OR p.title @@@ 'ranking'
+   OR p.title @@@ 'fast'
+   OR p.title @@@ 'columnar'
+   OR p.title @@@ 'query'
+   OR p.title @@@ 'extra'
+ORDER BY 2.0 * paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
 -- 6e: Single-sided score sort over cross-table OR -> rejected (HashJoinExec)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT u.id AS u_id, p.id AS p_id
@@ -306,16 +360,39 @@ WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) DESC
 LIMIT 5;
 
--- 6f: Gate 3 unscored RA selectivity (< 0.08 rejected vs >= 0.08 accepted when rank_join_min_rows > 0)
+-- 6f: Gate 3 unscored RA selectivity (< 0.08 uses HashJoinExec(fetch=K) over lazy_sort probe vs >= 0.08 uses RankJoinExec when rank_join_min_rows > 0)
 SET paradedb.rank_join_min_rows = 1;
 
--- Selective RA side (u.id = 2 matches 1/50 = 0.02 < 0.08) -> rejected (HashJoinExec)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- Selective build side (u.id <= 1 matches 1/50 = 0.02 < 0.08) with fast-field sort -> HashJoinExec(fetch=5) + lazy_sort probe
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
-WHERE u.id = 2 AND p.title @@@ 'bm25'
-ORDER BY p.views DESC NULLS LAST
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY p.views DESC NULLS LAST, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY p.views DESC NULLS LAST, p.id ASC
+LIMIT 5;
+
+-- Selective build side (u.id <= 1 matches 1/50 = 0.02 < 0.08) with BM25 score sort -> HashJoinExec(fetch=5) + lazy_sort probe
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY paradedb.score(p.id) DESC, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY paradedb.score(p.id) DESC, p.id ASC
 LIMIT 5;
 
 -- Non-selective RA side (u.bio @@@ 'rust' matches 25/50 = 0.50 >= 0.08) -> RankJoinExec
@@ -326,6 +403,81 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
 ORDER BY p.views DESC NULLS LAST
 LIMIT 5;
+
+-- 6g: Disjunctive (cross-table OR) two-sided score join with a per-table pushdown filter.
+--
+-- When a cross-table OR (`u.bio @@@ 'rust' OR p.title @@@ 'bm25'`) is combined with a
+-- single-table pushdown filter on one input (e.g. `p.user_id = ANY(...)` or `p.views >= 0`),
+-- `with_elided_disjunctive_tags` preserves `base_query` on `ScanMode::Disjunctive` so
+-- `RankJoinExec` still plans and intersects the disjunct union with `base_query`.
+SET paradedb.rank_join_min_rows = 0;
+
+-- Baseline without a per-table filter (`base_query = All`) -> plans RankJoinExec
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+-- With a per-table TermSet filter (`p.user_id = ANY(...)`) pushed into `p`'s `base_query` -> plans RankJoinExec
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.user_id = ANY(ARRAY[2, 4, 6])
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.user_id = ANY(ARRAY[2, 4, 6])
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+-- With a per-table Range filter (`p.views >= 0`) pushed into `p`'s `base_query` -> plans RankJoinExec
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.views >= 0
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.views >= 0
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+-- Verify identical results with RankJoin disabled (HashJoinExec baseline)
+SET paradedb.enable_rank_join = off;
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.user_id = ANY(ARRAY[2, 4, 6])
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.views >= 0
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+
+SET paradedb.enable_rank_join = on;
+RESET paradedb.planner_warnings;
 
 -- ============================================================
 -- Test 7: MPP range co-partitioned RankJoinExec

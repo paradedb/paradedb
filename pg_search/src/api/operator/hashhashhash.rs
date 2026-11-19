@@ -94,6 +94,7 @@ extension_sql!(
         search_with_phrase_array,
         search_with_phrase_pdb_query,
         search_with_phrase_boost,
+        search_with_phrase_slop,
         search_with_phrase_support
     ]
 );

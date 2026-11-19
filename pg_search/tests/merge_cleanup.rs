@@ -24,6 +24,12 @@ use std::time::{Duration, Instant};
 /// Keep other schedules' write transactions out of VACUUM's snapshot horizon.
 static SCHEDULE: Mutex<()> = Mutex::new(());
 
+const SWEEP_INTERVAL_MS: i32 = 1000;
+const SWEEP_MERGE_THRESHOLD: i32 = 2;
+const SWEEP_PRESSURE_SEGMENT_COUNT: i32 = SWEEP_MERGE_THRESHOLD + 1;
+const IMMUTABLE_SEGMENT_ROWS: i32 = 250;
+const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+
 fn connect() -> Client {
     let mut client = if let Ok(url) = std::env::var("PG_SEARCH_TEST_DATABASE_URL") {
         Client::connect(&url, NoTls).unwrap()
@@ -47,7 +53,7 @@ fn connect() -> Client {
 }
 
 fn wait_until(description: &str, mut condition: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + WAIT_TIMEOUT;
     while !condition() {
         assert!(
             Instant::now() < deadline,
@@ -163,12 +169,35 @@ impl Fixture {
     }
 
     fn segments_with_rows(&mut self, rows: i32) {
+        let batches = if self.mutable { 6 } else { 4 };
+        self.segments_with_batches(rows, batches);
+    }
+
+    fn segments_with_batches(&mut self, rows: i32, batches: i32) {
+        self.insert_segments(rows, batches);
+        self.controller
+            .batch_execute(&format!("DELETE FROM {} WHERE id % 2=0", self.table))
+            .unwrap();
+        // VACUUM skips the index while a snapshot older than the DELETE exists, and the pauses
+        // are in `ambulkdelete`. Autovacuum holds such a snapshot while it analyzes a catalog.
+        wait_until("snapshots older than the DELETE ending", || {
+            self.controller
+                .query_one(
+                    "SELECT NOT EXISTS(SELECT FROM pg_stat_activity WHERE pid<>pg_backend_pid()
+                     AND (backend_xid IS NOT NULL OR backend_xmin IS NOT NULL))",
+                    &[],
+                )
+                .unwrap()
+                .get(0)
+        });
+    }
+
+    fn insert_segments(&mut self, rows: i32, batches: i32) {
         let body = if self.mutable {
             "'alpha beta'"
         } else {
             "'alpha beta ' || md5(id::text)"
         };
-        let batches = if self.mutable { 6 } else { 4 };
         for batch in 0..batches {
             self.controller
                 .batch_execute(&format!(
@@ -179,8 +208,16 @@ impl Fixture {
                 ))
                 .unwrap();
         }
+    }
+
+    fn start_sweep(&mut self) {
         self.controller
-            .batch_execute(&format!("DELETE FROM {} WHERE id % 2=0", self.table))
+            .batch_execute(&format!(
+                "ALTER SYSTEM SET paradedb.mutable_sweep_interval = {SWEEP_INTERVAL_MS}"
+            ))
+            .unwrap();
+        self.controller
+            .simple_query("SELECT pg_reload_conf()")
             .unwrap();
     }
 
@@ -387,6 +424,41 @@ fn merger_admission_and_vacuum_waits_remain_interruptible() {
     fixture.release(&retry);
     retry.finish().1.unwrap();
     fixture.assert_rows(500);
+}
+
+#[test]
+fn cancelled_vacuum_does_not_make_retired_segments_mergeable() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    for mutable in [false, true] {
+        let mut fixture = Fixture::new("merge_cancelled_vacuum", mutable);
+        let live_docs = if mutable { 300 } else { 500 };
+        fixture.segments();
+        let vacuum = fixture.actor("vacuum", format!("VACUUM {}", fixture.table));
+        fixture.stage(&vacuum);
+        let merger = fixture.actor(
+            "selection",
+            format!("SELECT paradedb.test_merge_index('{}')", fixture.index),
+        );
+        // The merger has cached the original segments but has not selected inputs.
+        fixture.stage(&merger);
+        fixture.release(&vacuum);
+        wait_until("segment metadata publication", || {
+            fixture.value::<i64>(&format!(
+                "SELECT paradedb.test_live_docs('{}')",
+                fixture.index
+            )) == live_docs
+        });
+        fixture.waiting(&vacuum, "page");
+        fixture.cancel(&vacuum, false);
+        assert_error(vacuum.finish().1, "57014");
+        assert!(!fixture.value::<bool>(&format!(
+            "SELECT paradedb.test_vacuum_active('{}')",
+            fixture.index
+        )));
+        fixture.release(&merger);
+        assert_eq!(merger.finish().1.unwrap()[0].get::<_, i64>(0), 0);
+        fixture.assert_rows(live_docs);
+    }
 }
 
 #[test]
@@ -895,14 +967,219 @@ fn periodic_sweep_waits_for_unchanged_document_counts() {
 }
 
 #[test]
+fn vacuum_cleanup_skips_busy_merge_scheduling() {
+    const SCHEDULING_DEADLINE: Duration = Duration::from_secs(2);
+    const POLL_INTERVAL: Duration = Duration::from_millis(10);
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    for (table, phase, function) in [
+        ("vacuum_busy_selection", "selection", "test_merge_index"),
+        (
+            "vacuum_busy_admission",
+            "merge",
+            "test_hold_cleanup_admission",
+        ),
+    ] {
+        let mut fixture = Fixture::new(table, false);
+        fixture.insert_segments(IMMUTABLE_SEGMENT_ROWS, SWEEP_PRESSURE_SEGMENT_COUNT);
+        fixture
+            .controller
+            .batch_execute(&format!(
+                "ALTER INDEX {} SET (background_layer_sizes='1mb')",
+                fixture.index,
+            ))
+            .unwrap();
+        let holder = fixture.actor(
+            phase,
+            format!("SELECT paradedb.{function}('{}')", fixture.index),
+        );
+        fixture.stage(&holder);
+        let mut vacuum = connect();
+        let query = format!("VACUUM {table}");
+        let vacuum = spawn(move || vacuum.batch_execute(&query));
+        let deadline = Instant::now() + SCHEDULING_DEADLINE;
+        while !vacuum.is_finished() && Instant::now() < deadline {
+            sleep(POLL_INTERVAL);
+        }
+        let completed_while_busy = vacuum.is_finished();
+        fixture.release(&holder);
+        holder.finish().1.unwrap();
+        vacuum.join().unwrap().unwrap();
+        assert!(completed_while_busy, "VACUUM waited for merge scheduling");
+        fixture.assert_rows(i64::from(
+            SWEEP_PRESSURE_SEGMENT_COUNT * IMMUTABLE_SEGMENT_ROWS,
+        ));
+        assert!(fixture.value::<bool>(&format!(
+            "SELECT bool_and(passed) FROM pdb.verify_index('{}', heapallindexed=>true)",
+            fixture.index,
+        )));
+    }
+}
+
+#[test]
+fn periodic_sweep_retries_background_merges_without_new_writes() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut disabled = Fixture::new("sweep_disabled", false);
+    disabled.segments_with_batches(IMMUTABLE_SEGMENT_ROWS, SWEEP_PRESSURE_SEGMENT_COUNT);
+    let mut at_threshold = Fixture::new("sweep_at_threshold", false);
+    at_threshold.segments_with_batches(IMMUTABLE_SEGMENT_ROWS, SWEEP_MERGE_THRESHOLD);
+    at_threshold
+        .controller
+        .batch_execute("ALTER INDEX sweep_at_threshold_idx SET (background_layer_sizes='1mb')")
+        .unwrap();
+    let mut fixture = Fixture::new("sweep_immutable", false);
+    fixture.segments_with_batches(IMMUTABLE_SEGMENT_ROWS, SWEEP_PRESSURE_SEGMENT_COUNT);
+    fixture
+        .controller
+        .batch_execute("ALTER INDEX sweep_immutable_idx SET (background_layer_sizes='1mb')")
+        .unwrap();
+    assert_eq!(
+        fixture.value::<i64>(
+            "SELECT count(*) FROM paradedb.index_info('sweep_immutable_idx') WHERE visible"
+        ),
+        i64::from(SWEEP_PRESSURE_SEGMENT_COUNT)
+    );
+    fixture.start_sweep();
+    wait_until(
+        "sweep retrying immutable merges without another write",
+        || {
+            fixture.value::<i64>(
+                "SELECT count(*) FROM paradedb.index_info('sweep_immutable_idx') WHERE visible",
+            ) < i64::from(SWEEP_PRESSURE_SEGMENT_COUNT)
+        },
+    );
+    assert_eq!(
+        disabled.value::<i64>(
+            "SELECT count(*) FROM paradedb.index_info('sweep_disabled_idx') WHERE visible"
+        ),
+        i64::from(SWEEP_PRESSURE_SEGMENT_COUNT)
+    );
+    assert_eq!(
+        at_threshold.value::<i64>(
+            "SELECT count(*) FROM paradedb.index_info('sweep_at_threshold_idx') WHERE visible"
+        ),
+        i64::from(SWEEP_MERGE_THRESHOLD)
+    );
+    fixture.assert_rows(i64::from(
+        SWEEP_PRESSURE_SEGMENT_COUNT * IMMUTABLE_SEGMENT_ROWS / 2,
+    ));
+    fixture
+        .controller
+        .batch_execute("VACUUM sweep_immutable")
+        .unwrap();
+    assert!(fixture.value::<bool>(
+        "SELECT bool_and(passed) FROM pdb.verify_index('sweep_immutable_idx',heapallindexed=>true)"
+    ));
+}
+
+#[test]
+fn periodic_sweep_retries_after_a_busy_background_merger() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut fixture = Fixture::new("sweep_busy_worker", false);
+    const INITIAL_SEGMENTS: i32 = SWEEP_MERGE_THRESHOLD;
+    const ADDITIONAL_SEGMENTS: i32 = SWEEP_MERGE_THRESHOLD + 1;
+    let started_segments = INITIAL_SEGMENTS + 1;
+    let total_segments = started_segments + ADDITIONAL_SEGMENTS;
+    fixture.segments_with_batches(IMMUTABLE_SEGMENT_ROWS, INITIAL_SEGMENTS);
+    let (ready, gate) = fixture.pause_keys();
+    fixture.controller.batch_execute(&format!(
+        "DO $$ BEGIN
+         EXECUTE format('ALTER DATABASE %I SET pg_search.test_merge_ready = %L', current_database(), '{ready}');
+         EXECUTE format('ALTER DATABASE %I SET pg_search.test_merge_gate = %L', current_database(), '{gate}');
+         END $$"
+    )).unwrap();
+    fixture.controller.batch_execute(&format!(
+        "ALTER INDEX sweep_busy_worker_idx SET (background_layer_sizes='1mb');
+         INSERT INTO sweep_busy_worker SELECT id, 'alpha beta ' || md5(id::text) FROM generate_series({}, {}) id",
+        INITIAL_SEGMENTS * IMMUTABLE_SEGMENT_ROWS + 1,
+        started_segments * IMMUTABLE_SEGMENT_ROWS,
+    )).unwrap();
+    wait_until("background merger holding its slot", || {
+        fixture
+            .controller
+            .query_one(
+                "SELECT EXISTS(SELECT FROM pg_stat_activity a JOIN pg_locks l ON l.pid=a.pid
+             WHERE a.backend_type='background merger for public.sweep_busy_worker_idx' AND a.datname=current_database()
+               AND l.locktype='advisory' AND l.objid::bigint=$1 AND l.granted)",
+                &[&ready],
+            )
+            .unwrap()
+            .get(0)
+    });
+    fixture
+        .controller
+        .batch_execute(
+            "DO $$ BEGIN
+         EXECUTE format('ALTER DATABASE %I RESET pg_search.test_merge_ready', current_database());
+         EXECUTE format('ALTER DATABASE %I RESET pg_search.test_merge_gate', current_database());
+         END $$",
+        )
+        .unwrap();
+    let mut writers = Vec::new();
+    for batch in started_segments..total_segments {
+        let mut writer = connect();
+        writer.batch_execute(&format!(
+            "BEGIN; INSERT INTO sweep_busy_worker SELECT id, 'alpha beta ' || md5(id::text) FROM generate_series({}, {}) id",
+            batch * IMMUTABLE_SEGMENT_ROWS + 1, (batch + 1) * IMMUTABLE_SEGMENT_ROWS
+        )).unwrap();
+        writers.push(writer);
+    }
+    for writer in &mut writers {
+        writer.batch_execute("COMMIT").unwrap();
+    }
+    fixture.controller.batch_execute(
+        "DROP TABLE IF EXISTS sweep_busy_worker_control;
+         CREATE TABLE sweep_busy_worker_control (id bigint,body text);
+         CREATE INDEX sweep_busy_worker_control_idx ON sweep_busy_worker_control USING paradedb(id,body) WITH(mutable_segment_rows=10000);
+         INSERT INTO sweep_busy_worker_control VALUES(1,'alpha beta')"
+    ).unwrap();
+    fixture.start_sweep();
+    wait_until("sweep passing the busy background merger", || {
+        fixture.value::<bool>("SELECT NOT EXISTS(SELECT FROM paradedb.index_info('sweep_busy_worker_control_idx') WHERE visible AND mutable)")
+    });
+    assert_eq!(
+        fixture.value::<i64>(
+            "SELECT count(*) FROM paradedb.index_info('sweep_busy_worker_idx') WHERE visible"
+        ),
+        i64::from(total_segments)
+    );
+    fixture
+        .controller
+        .query_one("SELECT pg_advisory_unlock($1)", &[&gate])
+        .unwrap();
+    wait_until("another background merge after writes have stopped", || {
+        fixture.value::<i64>(
+            "SELECT count(*) FROM paradedb.index_info('sweep_busy_worker_idx') WHERE visible",
+        ) < i64::from(ADDITIONAL_SEGMENTS + 1)
+    });
+    fixture.assert_rows(i64::from(
+        (INITIAL_SEGMENTS / 2 + 1 + ADDITIONAL_SEGMENTS) * IMMUTABLE_SEGMENT_ROWS,
+    ));
+    fixture
+        .controller
+        .batch_execute("VACUUM sweep_busy_worker")
+        .unwrap();
+    assert!(fixture.value::<bool>(
+        "SELECT bool_and(passed) FROM pdb.verify_index('sweep_busy_worker_idx',heapallindexed=>true)"
+    ));
+    fixture
+        .controller
+        .batch_execute("DROP TABLE sweep_busy_worker_control")
+        .unwrap();
+}
+
+#[test]
 fn periodic_sweep_skips_immutable_indexes_with_a_busy_merge_lock() {
     let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
     let mut fixture = Fixture::new("sweep_idle_merge", false);
-    fixture.segments();
+    fixture.segments_with_batches(IMMUTABLE_SEGMENT_ROWS, SWEEP_PRESSURE_SEGMENT_COUNT);
     assert!(fixture.value::<bool>(&format!(
         "SELECT NOT EXISTS(SELECT FROM paradedb.index_info('{}') WHERE visible AND mutable)",
         fixture.index
     )));
+    fixture
+        .controller
+        .batch_execute("ALTER INDEX sweep_idle_merge_idx SET (background_layer_sizes='1mb')")
+        .unwrap();
     let holder = fixture.actor(
         "selection",
         format!("SELECT paradedb.test_merge_index('{}')", fixture.index),
@@ -936,7 +1213,12 @@ fn periodic_sweep_skips_immutable_indexes_with_a_busy_merge_lock() {
 #[test]
 fn periodic_sweep_skips_exclusive_vacuum_admission() {
     let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
-    let mut fixture = Fixture::new("sweep_busy_admission", true);
+    let mut fixture = Fixture::new("sweep_busy_admission", false);
+    fixture.segments_with_batches(IMMUTABLE_SEGMENT_ROWS, SWEEP_PRESSURE_SEGMENT_COUNT);
+    fixture
+        .controller
+        .batch_execute("ALTER INDEX sweep_busy_admission_idx SET (background_layer_sizes='1mb')")
+        .unwrap();
     let holder = fixture.actor(
         "merge",
         format!(
@@ -977,5 +1259,7 @@ fn periodic_sweep_skips_exclusive_vacuum_admission() {
         .controller
         .batch_execute("DROP TABLE sweep_free_admission")
         .unwrap();
-    fixture.assert_rows(0);
+    fixture.assert_rows(i64::from(
+        SWEEP_PRESSURE_SEGMENT_COUNT * IMMUTABLE_SEGMENT_ROWS / 2,
+    ));
 }

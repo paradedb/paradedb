@@ -1,0 +1,58 @@
+[package]
+name = "scan"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["pg18"]
+pg15 = ["pgrx/pg15", "common/pg15", "index_read/pg15"]
+pg16 = ["pgrx/pg16", "common/pg16", "index_read/pg16"]
+pg17 = ["pgrx/pg17", "common/pg17", "index_read/pg17"]
+pg18 = ["pgrx/pg18", "common/pg18", "index_read/pg18"]
+pg_test = ["dep:proptest", "common/pg_test", "index_read/pg_test"]
+
+# Keep this crate focused on shared DataFusion physical operators and MPP stream primitives.
+# Do NOT add `datafusion-distributed`, `datafusion-proto`, `tonic`, `prost`, `planner`, or
+# `index_write` here so `scan` and `basescan` do not wait on the gRPC/protobuf or planner stacks.
+[dependencies]
+common = { path = "../common", default-features = false }
+index_read = { path = "../index_read", default-features = false }
+arrow-array.workspace = true
+arrow-buffer.workspace = true
+arrow-schema.workspace = true
+arrow-select.workspace = true
+async-stream.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+bigdecimal.workspace = true
+bytes.workspace = true
+datafusion.workspace = true
+datafusion-distributed.workspace = true
+datafusion-proto.workspace = true
+decimal-bytes.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
+pgrx.workspace = true
+postcard.workspace = true
+proptest = { workspace = true, optional = true }
+prost.workspace = true
+serde.workspace = true
+serde_cbor.workspace = true
+serde_json.workspace = true
+tantivy.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+
+[dev-dependencies]
+common = { path = "../common", default-features = false, features = [
+  "pg_test",
+] }
+index_read = { path = "../index_read", default-features = false, features = [
+  "pg_test",
+] }
+pgrx-tests.workspace = true
+proptest.workspace = true

@@ -147,6 +147,16 @@
 
       # A Nixpkgs overlay that adds a Fenix-based Rust toolchain
       overlays.default = final: prev: {
+        pgrxRustPlatform = final.makeRustPlatform {
+          cargo = final.rustToolchain;
+          rustc = final.rustToolchain;
+        };
+        cargo-pgrx = final.callPackage ./nix/cargo-pgrx.nix {
+          rustPlatform = final.pgrxRustPlatform;
+        };
+        buildPgrxExtension = prev.buildPgrxExtension.override {
+          rustPlatform = final.pgrxRustPlatform;
+        };
         rustToolchain =
           with inputs.fenix.packages.${prev.stdenv.hostPlatform.system};
           combine (

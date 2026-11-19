@@ -450,16 +450,12 @@ SET enable_indexscan = off;
 SET enable_bitmapscan = off;
 DISCARD PLANS;
 EXECUTE mlt_alias_lookup('source');
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
-if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  array_agg 
 -----------
  {1,2}
 (1 row)
 
 EXECUTE mlt_alias_lookup('other-b');
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
-if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  array_agg 
 -----------
  {3}

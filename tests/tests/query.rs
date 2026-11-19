@@ -1459,3 +1459,63 @@ async fn generic_plan_text_and_text_array_params_issue_3900(mut conn: PgConnecti
 
     "RESET plan_cache_mode".execute(&mut conn);
 }
+
+#[rstest]
+fn term_set_size_cap(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    "SET paradedb.max_term_set_size = 2".execute(&mut conn);
+
+    let assert_cap_error = |conn: &mut PgConnection, query: &str| match query
+        .fetch_result::<SimpleProductsTable>(conn)
+    {
+        Err(err) => {
+            let msg = err.to_string();
+            assert!(
+                msg.contains("term set contains 3 terms")
+                    && msg.contains("paradedb.max_term_set_size (2)"),
+                "unexpected error: {msg}"
+            );
+        }
+        Ok(_) => panic!("term set over the cap should error: {query}"),
+    };
+
+    // `pdb.term_set` (FieldedQuery path)
+    assert_cap_error(
+        &mut conn,
+        "SELECT * FROM paradedb.bm25_search WHERE description @@@ \
+         pdb.term_set(ARRAY['shoes', 'novel', 'keyboard']) ORDER BY id",
+    );
+
+    // `===` with an array rewrites to a term set
+    assert_cap_error(
+        &mut conn,
+        "SELECT * FROM paradedb.bm25_search WHERE description === \
+         ARRAY['shoes', 'novel', 'keyboard'] ORDER BY id",
+    );
+
+    // legacy `paradedb.term_set` (SearchQueryInput path)
+    assert_cap_error(
+        &mut conn,
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term_set(
+            terms => ARRAY[
+                paradedb.term(field => 'description', value => 'shoes'),
+                paradedb.term(field => 'description', value => 'novel'),
+                paradedb.term(field => 'description', value => 'keyboard')
+            ]
+        ) ORDER BY id",
+    );
+
+    // At the cap is fine.
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM paradedb.bm25_search WHERE description @@@ \
+         pdb.term_set(ARRAY['shoes', 'novel']) ORDER BY id"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 5);
+
+    // Raising the GUC lifts the cap.
+    "SET paradedb.max_term_set_size = 3".execute(&mut conn);
+    let columns: SimpleProductsTableVec = "SELECT * FROM paradedb.bm25_search WHERE \
+         description @@@ pdb.term_set(ARRAY['shoes', 'novel', 'keyboard']) ORDER BY id"
+        .fetch_collect(&mut conn);
+    assert!(columns.len() >= 5);
+}

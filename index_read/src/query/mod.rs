@@ -1921,7 +1921,7 @@ impl SearchQueryInput {
                 let term_count = termset.values().map(|s| s.len()).sum();
                 check_term_set_size(term_count);
                 let mut terms = Vec::with_capacity(term_count);
-                for (field, values) in Arc::unwrap_or_clone(termset).into_iter() {
+                for (field, values) in termset.iter() {
                     let search_field = schema
                         .search_field(field.root())
                         .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
@@ -1930,7 +1930,7 @@ impl SearchQueryInput {
                     for value in values {
                         // A number that no integer of the field equals matches nothing, so it is
                         // left out.
-                        if numeric::is_outside_int_domain(&value, &search_field.field_type()) {
+                        if numeric::is_outside_int_domain(value, &search_field.field_type()) {
                             continue;
                         }
 
@@ -1938,7 +1938,7 @@ impl SearchQueryInput {
                         // `NumericBytes` column from a plain `I64` or `Bytes` one, so the term has
                         // to be converted from the schema-level type, same as a single `Term`.
                         let value = numeric::convert_value_for_field(
-                            value,
+                            value.clone(),
                             &search_field.field_type(),
                             index_created_by_version,
                         )?;

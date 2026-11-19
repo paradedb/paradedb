@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795054030739,
+  "lastUpdate": 1795088473373,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -104197,6 +104197,196 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14456416635-index"
+      }
+    ],
+    "benchmarker hackernews-vector-28m-pg-vectorsearch-8cpu-32gb (latency)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d2bf2538df66c01e745e31dfd03e2d839b9a8faf",
+          "message": "fix: don't miss concurrent inserts in MPP aggregates under SERIALIZABLE (#7449)\n\n# Ticket(s) Closed\n\n- Closes #7428\n\n## What\n\nUnder `SERIALIZABLE`, an Aggregate Scan that runs with MPP no longer\nmisses a concurrent insert. Before, both transactions could commit.\nWithout MPP, one of them already aborted with 40001.\n\n## Why\n\nWith MPP, the scan pins its view of the index at begin (`prepare_mpp`),\nbut took its SIREAD lock only at the first exec. A writer that inserts\nand commits in between finds no lock to conflict with, and the pinned\nview never has the new row, so no conflict is recorded.\n\n## How\n\n`prepare_mpp` now only marks the MPP attempt as pending. The scan pins\nthe manifests at the first exec, right after it takes the lock, the same\norder JoinScan uses. Nothing read the manifests between begin and exec.\n\n## Tests\n\nAdded `mpp_aggregate_scan_insert_between_begin_and_exec` with the\nissue's repro. An advisory lock holds the read between begin and exec,\nand `EXPLAIN (ANALYZE, VERBOSE)` checks that MPP ran. Both transactions\ncommitted before the fix. All 12 tests in `serializable.rs` pass on\nPG18.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>\nCo-authored-by: RJ Barman <rjhallsted@gmail.com>",
+          "timestamp": "2026-11-19T01:55:24Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d2bf2538df66c01e745e31dfd03e2d839b9a8faf"
+        },
+        "date": 1795088469994,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pg_vectorsearch (range_10pct@r90-prism-postfilter) p50 latency",
+            "value": 16.341,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (range_10pct@r90-prism-postfilter) p95 latency",
+            "value": 19.94,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (range_10pct@r90-prism-postfilter) p99 latency",
+            "value": 206.475,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (range_10pct@r95-prism-postfilter) p50 latency",
+            "value": 37.643,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (range_10pct@r95-prism-postfilter) p95 latency",
+            "value": 52.094,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (range_10pct@r95-prism-postfilter) p99 latency",
+            "value": 90.821,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (range_1pct@r90-prism-postfilter) p50 latency",
+            "value": 1538.85,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (range_1pct@r90-prism-postfilter) p95 latency",
+            "value": 1979.876,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (range_1pct@r90-prism-postfilter) p99 latency",
+            "value": 2076.44,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14525602942-latency"
+      }
+    ],
+    "benchmarker hackernews-vector-28m-pg-vectorsearch-8cpu-32gb (throughput)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d2bf2538df66c01e745e31dfd03e2d839b9a8faf",
+          "message": "fix: don't miss concurrent inserts in MPP aggregates under SERIALIZABLE (#7449)\n\n# Ticket(s) Closed\n\n- Closes #7428\n\n## What\n\nUnder `SERIALIZABLE`, an Aggregate Scan that runs with MPP no longer\nmisses a concurrent insert. Before, both transactions could commit.\nWithout MPP, one of them already aborted with 40001.\n\n## Why\n\nWith MPP, the scan pins its view of the index at begin (`prepare_mpp`),\nbut took its SIREAD lock only at the first exec. A writer that inserts\nand commits in between finds no lock to conflict with, and the pinned\nview never has the new row, so no conflict is recorded.\n\n## How\n\n`prepare_mpp` now only marks the MPP attempt as pending. The scan pins\nthe manifests at the first exec, right after it takes the lock, the same\norder JoinScan uses. Nothing read the manifests between begin and exec.\n\n## Tests\n\nAdded `mpp_aggregate_scan_insert_between_begin_and_exec` with the\nissue's repro. An advisory lock holds the read between begin and exec,\nand `EXPLAIN (ANALYZE, VERBOSE)` checks that MPP ran. Both transactions\ncommitted before the fix. All 12 tests in `serializable.rs` pass on\nPG18.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>\nCo-authored-by: RJ Barman <rjhallsted@gmail.com>",
+          "timestamp": "2026-11-19T01:55:24Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d2bf2538df66c01e745e31dfd03e2d839b9a8faf"
+        },
+        "date": 1795088471197,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "pg_vectorsearch (range_10pct@r90-prism-postfilter) QPS",
+            "value": 50.66288566448035,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (range_10pct@r95-prism-postfilter) QPS",
+            "value": 25.053661576111285,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (range_1pct@r90-prism-postfilter) QPS",
+            "value": 0.6728796994064462,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14525602942-throughput"
+      }
+    ],
+    "benchmarker hackernews-vector-28m-pg-vectorsearch-8cpu-32gb (buffers)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d2bf2538df66c01e745e31dfd03e2d839b9a8faf",
+          "message": "fix: don't miss concurrent inserts in MPP aggregates under SERIALIZABLE (#7449)\n\n# Ticket(s) Closed\n\n- Closes #7428\n\n## What\n\nUnder `SERIALIZABLE`, an Aggregate Scan that runs with MPP no longer\nmisses a concurrent insert. Before, both transactions could commit.\nWithout MPP, one of them already aborted with 40001.\n\n## Why\n\nWith MPP, the scan pins its view of the index at begin (`prepare_mpp`),\nbut took its SIREAD lock only at the first exec. A writer that inserts\nand commits in between finds no lock to conflict with, and the pinned\nview never has the new row, so no conflict is recorded.\n\n## How\n\n`prepare_mpp` now only marks the MPP attempt as pending. The scan pins\nthe manifests at the first exec, right after it takes the lock, the same\norder JoinScan uses. Nothing read the manifests between begin and exec.\n\n## Tests\n\nAdded `mpp_aggregate_scan_insert_between_begin_and_exec` with the\nissue's repro. An advisory lock holds the read between begin and exec,\nand `EXPLAIN (ANALYZE, VERBOSE)` checks that MPP ran. Both transactions\ncommitted before the fix. All 12 tests in `serializable.rs` pass on\nPG18.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>\nCo-authored-by: RJ Barman <rjhallsted@gmail.com>",
+          "timestamp": "2026-11-19T01:55:24Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d2bf2538df66c01e745e31dfd03e2d839b9a8faf"
+        },
+        "date": 1795088472347,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "range_10pct@r90 shared hits/query",
+            "value": 6246,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r95 shared hits/query",
+            "value": 13941.8,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r90 shared hits/query",
+            "value": 43861.4,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14525602942-buffers"
+      }
+    ],
+    "benchmarker hackernews-vector-28m-pg-vectorsearch-8cpu-32gb (index build)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d2bf2538df66c01e745e31dfd03e2d839b9a8faf",
+          "message": "fix: don't miss concurrent inserts in MPP aggregates under SERIALIZABLE (#7449)\n\n# Ticket(s) Closed\n\n- Closes #7428\n\n## What\n\nUnder `SERIALIZABLE`, an Aggregate Scan that runs with MPP no longer\nmisses a concurrent insert. Before, both transactions could commit.\nWithout MPP, one of them already aborted with 40001.\n\n## Why\n\nWith MPP, the scan pins its view of the index at begin (`prepare_mpp`),\nbut took its SIREAD lock only at the first exec. A writer that inserts\nand commits in between finds no lock to conflict with, and the pinned\nview never has the new row, so no conflict is recorded.\n\n## How\n\n`prepare_mpp` now only marks the MPP attempt as pending. The scan pins\nthe manifests at the first exec, right after it takes the lock, the same\norder JoinScan uses. Nothing read the manifests between begin and exec.\n\n## Tests\n\nAdded `mpp_aggregate_scan_insert_between_begin_and_exec` with the\nissue's repro. An advisory lock holds the read between begin and exec,\nand `EXPLAIN (ANALYZE, VERBOSE)` checks that MPP ran. Both transactions\ncommitted before the fix. All 12 tests in `serializable.rs` pass on\nPG18.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>\nCo-authored-by: RJ Barman <rjhallsted@gmail.com>",
+          "timestamp": "2026-11-19T01:55:24Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d2bf2538df66c01e745e31dfd03e2d839b9a8faf"
+        },
+        "date": 1795088473355,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hn_items_prism_idx build time",
+            "value": 34.97783694606667,
+            "unit": "min"
+          },
+          {
+            "name": "hn_items_prism_idx index size",
+            "value": 10957.9453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "hn_items_prism_idx parallel workers",
+            "value": 7,
+            "unit": "workers"
+          }
+        ],
+        "publication_id": "14525602942-index"
       }
     ]
   }

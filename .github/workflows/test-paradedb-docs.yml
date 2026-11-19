@@ -9,6 +9,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - ".github/workflows/classify-cargo-lock.yml"
+      - ".github/scripts/ci_lockfile_scope.py"
+      - ".cargo/config.toml"
+      - "macros/**"
+      - "tokenizers/**"
+      - "rust-toolchain.toml"
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/actions/setup-postgres/**"
       - ".github/scripts/*snippet*"

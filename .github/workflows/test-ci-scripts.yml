@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/scripts/**"
+      - "!.github/scripts/test_release.py"
       - ".github/workflows/test-ci-scripts.yml"
   workflow_dispatch:
 
@@ -21,6 +22,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Test CI Scripts
+        working-directory: .github/scripts
         run: |
           python3 -m pip install PyYAML==6.0.3
-          python3 -m unittest discover -s .github/scripts
+          tests=()
+          for test in test_*.py; do
+            if [[ "$test" != test_release.py ]]; then
+              tests+=("$test")
+            fi
+          done
+          python3 -m unittest "${tests[@]}"

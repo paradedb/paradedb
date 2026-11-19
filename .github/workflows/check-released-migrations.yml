@@ -23,6 +23,7 @@ on:
       - 0.*.x # Release branches
     paths:
       - ".github/scripts/release.py"
+      - ".github/scripts/test_release.py"
       - "scripts/release.sh"
       - ".github/workflows/check-released-migrations.yml"
       - ".github/workflows/publish-github-release.yml"
@@ -65,6 +66,10 @@ jobs:
         env:
           STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
         run: cargo install --locked cargo-pgrx --version "$STEP_PGRX_VERSION" --debug
+
+      - name: Test Release Migrations
+        working-directory: .github/scripts
+        run: python3 -m unittest test_release
 
       # Enforces released-script immutability, fragment dependency rules, and
       # release-branch fragment identity against origin/main. See CONTRIBUTING.md.

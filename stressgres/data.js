@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795076744535,
+  "lastUpdate": 1795076773490,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -347956,6 +347956,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14408596500-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b5bcbdc60d804e0e72d012a19286382890acb2e",
+          "message": "fix: print the synonym indexes of a join in `EXPLAIN` (#7540)\n\n## Ticket(s) Closed\n\nN/A\n\n## What\n\nThis PR adds the `Synonyms` line to the `EXPLAIN` of a join.\n\n## Why\n\nA Base Scan and an Aggregate Scan on one table print the synonym indexes\nthat a `pdb.expand` query reads. A Join Scan and an Aggregate Scan over\na join printed the query with no index.\n\n## How\n\n- `Explainer::add_synonym_indexes` takes several queries and prints one\nline.\n- The Join Scan and the DataFusion branch of the Aggregate Scan call it\nwith the queries of their sources and of their join-level predicates.\n\n## Tests\n\n- `synonym_expansion.sql`",
+          "timestamp": "2026-11-19T07:44:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b5bcbdc60d804e0e72d012a19286382890acb2e"
+        },
+        "date": 1795076770492,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.0916172472648,
+            "unit": "median tps",
+            "extra": "avg tps: 57.275620999920406, max tps: 678.211190104085, count: 59054"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.43275660392286,
+            "unit": "median tps",
+            "extra": "avg tps: 56.51953613818441, max tps: 688.703182961981, count: 59054"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.290995209273845,
+            "unit": "median tps",
+            "extra": "avg tps: 59.544518912940326, max tps: 796.0062718432098, count: 59054"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.13767067839161,
+            "unit": "median tps",
+            "extra": "avg tps: 55.96207825225859, max tps: 683.3147908617555, count: 59054"
+          }
+        ],
+        "publication_id": "14510194992-tps"
       }
     ],
     "pg_search logical-replication-fsm-merge-race.toml Performance - Other Metrics": [
@@ -372334,6 +372381,161 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14408596500-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b5bcbdc60d804e0e72d012a19286382890acb2e",
+          "message": "fix: print the synonym indexes of a join in `EXPLAIN` (#7540)\n\n## Ticket(s) Closed\n\nN/A\n\n## What\n\nThis PR adds the `Synonyms` line to the `EXPLAIN` of a join.\n\n## Why\n\nA Base Scan and an Aggregate Scan on one table print the synonym indexes\nthat a `pdb.expand` query reads. A Join Scan and an Aggregate Scan over\na join printed the query with no index.\n\n## How\n\n- `Explainer::add_synonym_indexes` takes several queries and prints one\nline.\n- The Join Scan and the DataFusion branch of the Aggregate Scan call it\nwith the queries of their sources and of their join-level predicates.\n\n## Tests\n\n- `synonym_expansion.sql`",
+          "timestamp": "2026-11-19T07:44:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b5bcbdc60d804e0e72d012a19286382890acb2e"
+        },
+        "date": 1795076773365,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 22.673594,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.938148937501705, max cpu: 45.17647, count: 59054"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 51.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.734285569140106, max mem: 64.203125, count: 59054"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.556241,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.466309893894472, max cpu: 4.5736065, count: 59054"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 22.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 22.913567653651743, max mem: 22.94921875, count: 59054"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.614756219836695, max cpu: 9.164679, count: 59054"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 30.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.690886532347513, max mem: 30.69140625, count: 59054"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 2029,
+            "unit": "median pages",
+            "extra": "avg pages: 2233.947810478545, max pages: 4001.0, count: 59054"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 15.8515625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 17.452717533951976, max relation_size:MB: 31.2578125, count: 59054"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 6,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 5.923493751481694, max segment_count: 24.0, count: 59054"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.5028143,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.8873197841638576, max cpu: 4.6043167, count: 59054"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 22.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 22.32358783909642, max mem: 22.328125, count: 59054"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 22.68431,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.21989007254134, max cpu: 45.17647, count: 59054"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 51.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.15743813395367, max mem: 63.59765625, count: 59054"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 22.68431,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.987138512460334, max cpu: 40.658825, count: 59054"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 46.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.961119206044465, max mem: 56.1953125, count: 59054"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 96.03916931152344,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 195.11484060411178, max replication_lag:MB: 956.5678176879883, count: 59054"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 22.695034,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.221797694240752, max cpu: 40.658825, count: 59054"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 62.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.32521413134589, max mem: 74.625, count: 59054"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.060879,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.930668784054433, max cpu: 32.18391, count: 59054"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 23.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 23.07978601946947, max mem: 23.12890625, count: 59054"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.065156,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.087953989645564, max cpu: 31.728045, count: 59054"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 23.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 23.08341650226911, max mem: 23.1328125, count: 59054"
+          }
+        ],
+        "publication_id": "14510194992-other"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - TPS": [

@@ -1131,6 +1131,12 @@ impl CustomScan for AggregateScan {
                     explainer.add_text("Aggregates", aggs.join(", "));
                 }
 
+                let mut synonym_indexes = Vec::new();
+                df_state
+                    .plan
+                    .visit_queries(&mut |query| synonym_indexes.extend(query.synonym_indexes()));
+                explainer.add_synonym_indexes(synonym_indexes);
+
                 // Rebuild and render the DataFusion physical plan so
                 // reviewers can see the join/aggregate/network shape PG
                 // is about to execute. Matches the joinscan EXPLAIN

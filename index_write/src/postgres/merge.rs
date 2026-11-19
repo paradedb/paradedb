@@ -347,13 +347,10 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         if VacuumSignal::new(index.oid()).wants_cancel() {
             return Ok(());
         }
-        let Some(merge_pins) = metadata.try_pin_merge() else {
+        let Some(locks) = metadata.try_pin_and_lock_merge() else {
             return Ok(());
         };
-        let Some(merge_lock) = metadata.try_acquire_merge_lock() else {
-            return Ok(());
-        };
-        (merge_pins, merge_lock)
+        locks
     } else {
         (metadata.pin_merge(), metadata.acquire_merge_lock())
     };

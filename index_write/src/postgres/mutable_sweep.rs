@@ -303,10 +303,9 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     return;
                                 };
                                 let metadata = MetaPage::open(&index);
-                                let Some(merge_pins) = metadata.try_pin_merge() else {
-                                    return;
-                                };
-                                let Some(merge_lock) = metadata.try_acquire_merge_lock() else {
+                                let Some((merge_pins, merge_lock)) =
+                                    metadata.try_pin_and_lock_merge()
+                                else {
                                     return;
                                 };
                                 let frozen = metadata.freeze_mutable_segments_matching(|entry| {

@@ -25,8 +25,8 @@ use std::time::{Duration, Instant};
 static SCHEDULE: Mutex<()> = Mutex::new(());
 
 const SWEEP_INTERVAL_MS: i32 = 1000;
-const SWEEP_BACKPRESSURE_THRESHOLD: i32 = 4;
-const SWEEP_PRESSURE_SEGMENT_COUNT: i32 = SWEEP_BACKPRESSURE_THRESHOLD + 2;
+const SWEEP_MERGE_THRESHOLD: i32 = 2;
+const SWEEP_PRESSURE_SEGMENT_COUNT: i32 = SWEEP_MERGE_THRESHOLD + 1;
 const IMMUTABLE_SEGMENT_ROWS: i32 = 250;
 
 fn connect() -> Client {
@@ -955,7 +955,7 @@ fn periodic_sweep_retries_background_merges_without_new_writes() {
     let mut disabled = Fixture::new("sweep_disabled", false);
     disabled.segments_with_batches(IMMUTABLE_SEGMENT_ROWS, SWEEP_PRESSURE_SEGMENT_COUNT);
     let mut at_threshold = Fixture::new("sweep_at_threshold", false);
-    at_threshold.segments();
+    at_threshold.segments_with_batches(IMMUTABLE_SEGMENT_ROWS, SWEEP_MERGE_THRESHOLD);
     at_threshold
         .controller
         .batch_execute("ALTER INDEX sweep_at_threshold_idx SET (background_layer_sizes='1mb')")
@@ -991,7 +991,7 @@ fn periodic_sweep_retries_background_merges_without_new_writes() {
         at_threshold.value::<i64>(
             "SELECT count(*) FROM paradedb.index_info('sweep_at_threshold_idx') WHERE visible"
         ),
-        i64::from(SWEEP_BACKPRESSURE_THRESHOLD)
+        i64::from(SWEEP_MERGE_THRESHOLD)
     );
     fixture.assert_rows(i64::from(
         SWEEP_PRESSURE_SEGMENT_COUNT * IMMUTABLE_SEGMENT_ROWS / 2,
@@ -1009,11 +1009,11 @@ fn periodic_sweep_retries_background_merges_without_new_writes() {
 fn periodic_sweep_retries_after_a_busy_background_merger() {
     let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
     let mut fixture = Fixture::new("sweep_busy_worker", false);
-    const INITIAL_SEGMENTS: i32 = SWEEP_BACKPRESSURE_THRESHOLD;
-    const ADDITIONAL_SEGMENTS: i32 = SWEEP_BACKPRESSURE_THRESHOLD + 1;
+    const INITIAL_SEGMENTS: i32 = SWEEP_MERGE_THRESHOLD;
+    const ADDITIONAL_SEGMENTS: i32 = SWEEP_MERGE_THRESHOLD + 1;
     let started_segments = INITIAL_SEGMENTS + 1;
     let total_segments = started_segments + ADDITIONAL_SEGMENTS;
-    fixture.segments();
+    fixture.segments_with_batches(IMMUTABLE_SEGMENT_ROWS, INITIAL_SEGMENTS);
     let (ready, gate) = fixture.pause_keys();
     fixture.controller.batch_execute(&format!(
         "DO $$ BEGIN

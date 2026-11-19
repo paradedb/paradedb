@@ -300,10 +300,7 @@ impl IndexLayerSizes {
     }
 }
 
-pub(crate) fn needs_backpressure(
-    visible_segment_count: usize,
-    target_segment_count: usize,
-) -> bool {
+fn needs_backpressure(visible_segment_count: usize, target_segment_count: usize) -> bool {
     visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count
 }
 

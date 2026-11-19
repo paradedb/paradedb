@@ -26,7 +26,7 @@ use crate::postgres::index::free_leaf_partition_indexes;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::merge::{
     MergeMode, MergeSlot, MergeSlotVariant, MergeStyle, do_merge, merge_crash_details, merge_index,
-    needs_backpressure, warn_unsupported_vector_merge,
+    warn_unsupported_vector_merge,
 };
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
 use crate::postgres::storage::block::MVCCEntry;
@@ -41,6 +41,7 @@ use std::panic::AssertUnwindSafe;
 use std::time::{Duration, Instant};
 
 static INTERVAL_MS: GucSetting<i32> = GucSetting::<i32>::new(1000);
+const SWEEP_MERGE_MULTIPLIER: usize = 2;
 
 // Check for missing workers and new databases independently of the sweep interval.
 const WORKER_CHECK_INTERVAL: Duration = Duration::from_secs(30);
@@ -266,11 +267,9 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     }
                                 }
                             });
-                            let needs_merge =
-                                needs_backpressure(
-                                    visible_segment_count,
-                                    index.target_segment_count(),
-                                ) && !index.options().background_layer_sizes().is_empty();
+                            let needs_merge = visible_segment_count
+                                > SWEEP_MERGE_MULTIPLIER * index.target_segment_count()
+                                && !index.options().background_layer_sizes().is_empty();
                             (!idle_segments.is_empty() || needs_merge)
                                 .then_some((index.oid(), idle_segments))
                         })

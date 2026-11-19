@@ -44,7 +44,6 @@
 //!    (`estimate_uniform_from_empirical`), or returns `None` so callers fall back to Tantivy
 //!    scorer `size_hint`.
 
-use crate::index::reader::index::SharedQuery;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::ops::Bound;
@@ -781,9 +780,6 @@ impl QueryEstimate for dyn Query {
             || self
                 .downcast_ref::<ConstScoreQuery>()
                 .is_some_and(QueryEstimate::is_fast_count)
-            || self
-                .downcast_ref::<SharedQuery>()
-                .is_some_and(|q| q.0.is_fast_count())
     }
 
     fn as_range_clause(&self) -> Option<RangeClause<'_>> {
@@ -811,10 +807,6 @@ impl QueryEstimate for dyn Query {
         estimate_as! {
             AllQuery, TermQuery, SynonymQuery, PhraseQuery, BooleanQuery, EmptyQuery,
             ConstScoreQuery, BoostQuery, RangeQueryWithEstimate
-        }
-        // SharedQuery wraps a dyn query directly
-        if let Some(query) = self.downcast_ref::<SharedQuery>() {
-            return query.0.estimate_docs(ctx);
         }
         // SearchQueryInput::All wraps AllQuery directly, without boxing it.
         if let Some(query) = self.downcast_ref::<ConstScoreQuery<AllQuery>>() {

@@ -1953,7 +1953,7 @@ impl SearchQueryInput {
                         terms.push(term);
                     }
                 }
-                let query = Box::new(TermSetQuery::new(terms));
+                let query = Box::new(SharedTermSetQuery(Arc::new(TermSetQuery::new(terms))));
 
                 Ok(builder.build_leaf(query, || "TermSet Query".to_string(), cloned_for_estimate))
             }
@@ -2057,6 +2057,38 @@ impl SearchQueryInput {
             expr_context,
             planstate,
         )
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SharedTermSetQuery(Arc<TermSetQuery>);
+impl tantivy::query::Query for SharedTermSetQuery {
+    fn weight(
+        &self,
+        enable_scoring: tantivy::query::EnableScoring<'_>,
+    ) -> tantivy::Result<Box<dyn tantivy::query::Weight>> {
+        self.0.weight(enable_scoring)
+    }
+
+    fn query_terms(
+        &self,
+        field: Field,
+        segment_reader: &tantivy::SegmentReader,
+        visitor: &mut dyn FnMut(&Term, bool),
+    ) {
+        self.0.query_terms(field, segment_reader, visitor)
+    }
+
+    fn count(&self, searcher: &Searcher) -> tantivy::Result<usize> {
+        self.0.count(searcher)
+    }
+
+    fn explain(
+        &self,
+        searcher: &Searcher,
+        doc_address: tantivy::DocAddress,
+    ) -> tantivy::Result<tantivy::query::Explanation> {
+        self.0.explain(searcher, doc_address)
     }
 }
 

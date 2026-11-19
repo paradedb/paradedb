@@ -209,6 +209,16 @@ impl Expr {
         }
     }
 
+    /// True when a row matches `self` only if it matches an `Atom` on `column`. With `=`, that
+    /// `Atom` makes `column` a constant, and PostgreSQL removes a constant from an `ORDER BY`.
+    pub fn requires_atom_on(&self, column: &str) -> bool {
+        match self {
+            Expr::Atom { name, .. } => name == column,
+            Expr::And(l, r) => l.requires_atom_on(column) || r.requires_atom_on(column),
+            _ => false,
+        }
+    }
+
     /// True when `self.to_sql(" = ")` lowers to a `0.0`-score pushdown restriction accepted by
     /// `SearchQueryInput::is_pushdown_filter` (`=`, `IS NOT NULL`, or an `AND` of those on
     /// indexed literal/fast-field columns).

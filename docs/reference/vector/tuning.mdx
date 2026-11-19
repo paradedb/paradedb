@@ -11,74 +11,7 @@ SET paradedb.vector_cluster_max_probe = 100;
 ```
 
 <ParamField body="paradedb.vector_cluster_max_probe" default={100}>
-  Controls the global probe budget. Accepts integers between `1` and `1000000`;
-  PostgreSQL rounds fractional input to the nearest integer. The internal work
-  budget is `round(max_probe * (0.1 + 0.9 * selectivity))`, with a minimum of one
-  average-cluster unit. Selectivity is estimated before search; filters applied
-  after quantized scoring use `1`. Unfiltered budgets are unchanged.
-
-The budget is shared across segments and checked between clusters. Selective
-filters score fewer rows, so the same budget can probe more clusters. The router,
-adaptive stopping, and scan planning all use the internal work budget. To retain
-an existing operating point, divide its previous setting by
-`0.1 + 0.9 * selectivity` and round to the nearest integer.
-
+  Controls the global probe budget in units of an average cluster's search cost,
+  adjusted for filter selectivity. Accepts integers between `1` and `1000000`. A
+  higher number increases recall at the cost of higher latency.
 </ParamField>
-
-<ParamField body="paradedb.vector_adaptive_probing" default="on">
-  Stop opening clusters early when competitive-candidate admission has
-  sufficiently decayed. This does not widen routing or change the work ceiling.
-  The stopping rule is a heuristic, so measure recall for your workload. Set to
-  `off` to probe until the work budget or the router's candidate list is
-  exhausted.
-</ParamField>
-
-<Note>
-  Recall also depends on the index's `target_leaf_size` and
-  `training_sample_ratio`. `0` chooses the sample from the leaf size and
-  `maintenance_work_mem`. See [Index
-  Options](/reference/indexing/indexing-vectors#index-options).
-</Note>
-
-## Inspecting Vector Indexes
-
-Use `vector_info` to inspect vector storage and `vector_config` to check build settings. These examples inspect the `embedding` field of `search_idx`:
-
-<CodeGroup>
-```sql SQL
-SELECT * FROM paradedb.vector_info('search_idx'::regclass, 'embedding');
-SELECT * FROM paradedb.vector_config('search_idx'::regclass, 'embedding');
-```
-
-```ts Drizzle
-import { diagnostics } from "@paradedb/drizzle-paradedb";
-
-await db.execute(diagnostics.vectorInfo("search_idx", "embedding"));
-await db.execute(diagnostics.vectorConfig("search_idx", "embedding"));
-```
-
-```python Django
-from paradedb import paradedb_vector_info, paradedb_vector_config
-
-paradedb_vector_info('search_idx', 'embedding')
-paradedb_vector_config('search_idx', 'embedding')
-```
-
-```python SQLAlchemy
-from paradedb.sqlalchemy import diagnostics
-
-diagnostics.paradedb_vector_info(engine, "search_idx", "embedding")
-diagnostics.paradedb_vector_config(engine, "search_idx", "embedding")
-```
-
-```ruby Rails
-ParadeDB::Diagnostics.vector_info("search_idx", "embedding")
-ParadeDB::Diagnostics.vector_config("search_idx", "embedding")
-```
-
-```cs EF Core
-await dbContext.Database.VectorInfo("search_idx", "embedding").ToListAsync();
-await dbContext.Database.VectorConfig("search_idx", "embedding").ToListAsync();
-```
-
-</CodeGroup>

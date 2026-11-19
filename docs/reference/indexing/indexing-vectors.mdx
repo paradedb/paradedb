@@ -5,8 +5,9 @@ canonical: https://www.paradedb.com/docs/reference/indexing/indexing-vectors
 ---
 
 <Note>
-  This is a beta feature available in versions `0.25.0` and above. See [How
-  Vector Search Works](/concepts/vector/overview) for background.
+  This is a beta feature available in versions `0.25.0` and above. We strongly
+  recommend `0.27.0` or later for substantial vector search improvements. See
+  [How Vector Search Works](/concepts/vector/overview) for background.
 </Note>
 
 <Note>
@@ -161,8 +162,7 @@ embedding: { metric: :ip }      # inner product
 
 ## Index Options
 
-ParadeDB uses a SPANN-style vector index, which is similar to an IVF index but with additional structures to improve
-recall and latency, especially over large datasets. The following `WITH` options control how vectors are clustered and apply to the vector field in the index. They are read each time a segment is clustered: during `CREATE INDEX` and `REINDEX`, and whenever a merge writes a segment with at least `paradedb.vector_clustering_threshold` documents. Changing them with `ALTER INDEX ... SET` affects only segments clustered afterwards; run `REINDEX` to recluster existing segments. An example:
+We recommend keeping the defaults, which work well for most workloads. The following options are available for development and debugging.
 
 <CodeGroup>
 ```sql SQL
@@ -245,46 +245,24 @@ modelBuilder.Entity<MockItem>()
 
 <ParamField body="training_sample_ratio" default={0}>
   Fraction of indexed vectors sampled for training whenever a segment is
-  clustered. `0` chooses the fraction automatically: for a segment of `n`
-  vectors, `nlist = n / target_leaf_size`, and Tantivy clamps the sample to
-  however many full-precision vectors fit in the clusterer's memory budget
-  between `16 * nlist` and `128 * nlist`. Set a value above `0` through `1` to
-  override that choice.
+  clustered. `0` chooses the fraction automatically based on available memory.
 </ParamField>
 <ParamField body="target_leaf_size" default={400}>
-  The target number of indexed vectors in a cluster. Must be an integer between
-  `1` and `2147483647`. A segment of `n` vectors is split into about `n /
-  target_leaf_size` lists. With `training_sample_ratio = 0`, the default `400`
-  trains on 128 vectors per list, which is 32% of the rows, unless
-  `maintenance_work_mem` cannot hold that sample.
+  The target number of indexed vectors in a cluster.
 </ParamField>
 <ParamField body="vector_router_quantization" default={true}>
-  Route each query through one-bit codes of the IVF centroids, then rerank the
-  shortlisted centroids exactly, instead of scoring every centroid in full
-  precision. Set it to `false` to keep full-precision routing. Applies to
-  segments clustered after the option is set; existing segments keep their
-  router until the index is rebuilt.
+  By default, cluster centroids are quantized. This makes them more compact and
+  faster to search.
 </ParamField>
 <ParamField body="replication" default={2}>
-  Number of IVF clusters each vector is assigned to. `2` adds a second cluster
-  chosen to cover queries the first misses; it roughly doubles the quantized
-  rows scanned per cluster and the index build time, and adds about one
-  quantized row per vector to the index. Full-precision rows are not duplicated.
-  Applies to quantized vector fields of segments clustered after the option is
-  set. Set `replication = 1` to disable the second assignment.
+  ParadeDB uses boundary replication, which means that vectors sitting close to
+  two clusters are replicated across both. Replication improves recall. A higher
+  value replicates to more clusters, at the cost of longer index build times and
+  more storage.
 </ParamField>
-
-<Note>
-  These options replace `centroid_ratio` and `training_samples_per_centroid`.
-  The old names are no longer accepted. Recreate indexes that explicitly store
-  either old option using the new options. `REINDEX` alone does not remove
-  obsolete index options. `training_sample_ratio = 0` chooses the sample, and
-  any larger value up to `1` overrides that choice.
-</Note>
-
 <ParamField body="quantization" default="[1,1]">
-  A developer setting that we generally do not recommend tuning. ParadeDB uses
-  two quantization layers by default, each receiving 1 bit per dimension. Each
-  layer can use up to 4 bits. Set `quantization = 0` to disable quantization
-  entirely. In our testing, the default `'[1,1]'` delivers the best performance.
+  ParadeDB uses two quantization layers by default, each receiving 1 bit per
+  dimension. Each layer can use up to 4 bits. Set `quantization = 0` to disable
+  quantization entirely. In our testing, the default `'[1,1]'` delivers the best
+  performance.
 </ParamField>

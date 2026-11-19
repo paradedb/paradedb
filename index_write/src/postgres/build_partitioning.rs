@@ -280,7 +280,7 @@ impl VectorPartitioning {
                     use_blas_only: true,
                     data_already_rotated: true,
                     suppress_warnings: true,
-                    use_aggressive_split: true,
+                    use_aggressive_split: false,
                     ..Default::default()
                 },
             );

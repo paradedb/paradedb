@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Set `training_sample_ratio = 0` to choose the training sample automatically for each clustered segment. For `nlist = n / target_leaf_size`, Tantivy clamps the memory budget to `[16 * nlist, 128 * nlist]` vectors and scales `target_leaf_size` by the resulting sample ratio. The default remains `0.32`, which samples 32% of the vectors.

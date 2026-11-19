@@ -513,10 +513,17 @@ builder.Services.AddDbContextPool<AppDbContext>(opt =>
 
 </Note>
 
-For vector search, use EF Core LINQ with `EF.Functions.CosineDistance`, or
-install the optional `ParadeDB.VectorData` package if your retrieval code uses
-Microsoft's `IVectorSearchable<TRecord>`. Both options use your existing
-`DbContext`. See [Querying Vectors](/reference/vector/querying#ef-core-vectordata-adapter).
+For vector search, you can use EF Core LINQ with `EF.Functions.CosineDistance`.
+If your application uses Microsoft's `IVectorSearchable<TRecord>`, install the
+optional [ParadeDB.VectorData](https://www.nuget.org/packages/ParadeDB.VectorData)
+package:
+
+```bash
+dotnet add package ParadeDB.VectorData
+```
+
+The adapter runs cosine search with precomputed embeddings using your existing
+`DbContext`. See the package page for a setup example.
 
 Replace `Program.cs` with a DbContext, model, and query scratchpad for ParadeDB's built-in test table:
 

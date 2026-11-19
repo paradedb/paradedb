@@ -287,22 +287,6 @@ await dbContext
 
 The tiebreaker is applied only within a group of equal distances, so it never changes which rows are nearest. Multiple tiebreakers and `DESC` are both supported, and every tiebreaker column must be in the ParadeDB index to keep the Top K optimization.
 
-## EF Core VectorData Adapter
-
-The EF Core examples above use LINQ directly. If your application uses
-Microsoft's `IVectorSearchable<TRecord>`, install the optional
-[ParadeDB.VectorData](https://www.nuget.org/packages/ParadeDB.VectorData) package.
-
-```bash
-dotnet add package ParadeDB.VectorData
-```
-
-The adapter runs cosine search with precomputed embeddings over your existing
-EF Core query. Use a `vector_cosine_ops` index and a ParadeDB predicate such as
-`EF.Functions.All` on the index key to enable index-backed ranking. The package
-page has a setup example. EF Core continues to handle writes, migrations, and
-transactions.
-
 ## Verifying Pushdown
 
 Use `EXPLAIN` to confirm ParadeDB is accelerating the vector search. Look for a `Custom Scan` with an `Exec Method` of `TopKScanExecState` in the query plan:

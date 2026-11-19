@@ -1619,14 +1619,9 @@ impl CustomScan for JoinScan {
         }
 
         // The DataFusion plan prints the query of each source, which leaves the synonym indexes out.
-        let sources = join_clause.plan.sources();
-        let predicates = join_clause.plan.search_predicates();
-        explainer.add_synonym_indexes(
-            sources
-                .iter()
-                .flat_map(|source| source.scan_info.mode.queries())
-                .chain(predicates.iter().map(|(_, predicate)| &predicate.query)),
-        );
+        let mut synonym_indexes = Vec::new();
+        join_clause.visit_queries(&mut |query| synonym_indexes.extend(query.synonym_indexes()));
+        explainer.add_synonym_indexes(synonym_indexes);
 
         if explainer.is_analyze() {
             // For EXPLAIN ANALYZE, render the plan with metrics inline.

@@ -127,9 +127,12 @@ DELETE FROM products WHERE id IN (11, 12);
 
 -- A join and an aggregate over a join print the synonym index too. The function keeps the
 -- lines of the plan that do not depend on its shape.
-CREATE TABLE product_groups (id int PRIMARY KEY, product_id int);
-INSERT INTO product_groups VALUES (1, 1), (2, 2);
-CREATE INDEX product_groups_idx ON product_groups USING bm25 (id, product_id);
+CREATE TABLE product_groups (id int PRIMARY KEY, product_id int, note text);
+INSERT INTO product_groups VALUES (1, 1, 'big items'), (2, 2, 'large items');
+CREATE INDEX product_groups_idx ON product_groups USING bm25 (id, product_id, note);
+CREATE TABLE group_synonyms (rule pdb.synonym_rule NOT NULL);
+INSERT INTO group_synonyms VALUES ('big, large');
+CREATE INDEX group_synonyms_idx ON group_synonyms USING paradedb (rule);
 CREATE FUNCTION scan_and_synonyms(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
 DECLARE
     line text;
@@ -151,10 +154,25 @@ SELECT scan_and_synonyms($$
     SELECT count(*) FROM products p JOIN product_groups g ON g.product_id = p.id
     WHERE p.description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)
 $$);
+-- Each side of the join can read its own synonym index.
+SELECT scan_and_synonyms($$
+    SELECT p.id FROM products p JOIN product_groups g ON g.product_id = p.id
+    WHERE p.description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)
+      AND g.note ||| (SELECT pdb.expand('big', rule) FROM group_synonyms)
+    ORDER BY p.id LIMIT 5
+$$);
+-- An `OR` over the two sides is a predicate of the join, and its synonym indexes print too.
+SELECT scan_and_synonyms($$
+    SELECT p.id FROM products p JOIN product_groups g ON g.product_id = p.id
+    WHERE p.description ||| 'sofa'
+      AND (p.description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms)
+        OR g.note ||| (SELECT pdb.expand('big', rule) FROM group_synonyms))
+    ORDER BY p.id LIMIT 5
+$$);
 RESET paradedb.enable_join_custom_scan;
 RESET paradedb.enable_aggregate_custom_scan;
 DROP FUNCTION scan_and_synonyms;
-DROP TABLE product_groups;
+DROP TABLE product_groups, group_synonyms;
 
 -- A JSON field expands the same way, with a group and with a phrase.
 CREATE TABLE json_products (id int PRIMARY KEY, attrs jsonb);

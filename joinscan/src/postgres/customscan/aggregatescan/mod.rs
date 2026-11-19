@@ -1120,6 +1120,12 @@ impl CustomScan for AggregateScan {
                     explainer.add_text("Aggregates", aggs.join(", "));
                 }
 
+                let mut synonym_indexes = Vec::new();
+                df_state
+                    .plan
+                    .visit_queries(&mut |query| synonym_indexes.extend(query.synonym_indexes()));
+                explainer.add_synonym_indexes(synonym_indexes);
+
                 // Rebuild and render the DataFusion physical plan so
                 // reviewers can see the join/aggregate/network shape PG
                 // is about to execute. Matches the joinscan EXPLAIN
@@ -1129,14 +1135,6 @@ impl CustomScan for AggregateScan {
                 // only needs the distributed planner for boundary node
                 // construction, not live worker channels. Build failures
                 // here shouldn't crash EXPLAIN; surface them as a note.
-                let sources = df_state.plan.sources();
-                let predicates = df_state.plan.search_predicates();
-                explainer.add_synonym_indexes(
-                    sources
-                        .iter()
-                        .flat_map(|source| source.scan_info.mode.queries())
-                        .chain(predicates.iter().map(|(_, predicate)| &predicate.query)),
-                );
                 Self::render_df_physical_plan(df_state, explainer);
                 if explainer.is_verbose()
                     && let Some(t) = df_state.launch_timing

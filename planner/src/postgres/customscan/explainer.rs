@@ -67,24 +67,18 @@ impl Explainer {
 
     pub fn add_query(&mut self, query: &SearchQueryInput) {
         self.add_explainable("Tantivy Query", query);
-        self.add_synonym_indexes([query]);
+        self.add_synonym_indexes(query.synonym_indexes());
     }
 
     /// The query text leaves the synonym indexes out, since it prints no oid.
-    pub fn add_synonym_indexes<'a>(
-        &mut self,
-        queries: impl IntoIterator<Item = &'a SearchQueryInput>,
-    ) {
-        let mut indexes = Vec::new();
-        for index in queries
-            .into_iter()
-            .flat_map(SearchQueryInput::synonym_indexes)
-        {
-            if !indexes.contains(&index) {
-                indexes.push(index);
+    pub fn add_synonym_indexes(&mut self, indexes: impl IntoIterator<Item = pg_sys::Oid>) {
+        let mut unique = Vec::new();
+        for index in indexes {
+            if !unique.contains(&index) {
+                unique.push(index);
             }
         }
-        let names: Vec<String> = indexes
+        let names: Vec<String> = unique
             .into_iter()
             .map(|index| unsafe {
                 let name = pg_sys::get_rel_name(index);
@@ -110,7 +104,7 @@ impl Explainer {
             "Tantivy Query",
             explain::format_for_explain_with_estimates(query_tree),
         );
-        self.add_synonym_indexes([&query_tree.query]);
+        self.add_synonym_indexes(query_tree.query.synonym_indexes());
     }
 
     /// Deparse a PostgreSQL expression using PostgreSQL's active EXPLAIN context (`deparse_cxt`).

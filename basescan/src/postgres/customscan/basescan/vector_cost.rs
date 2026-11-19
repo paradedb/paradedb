@@ -78,7 +78,7 @@ impl VectorWork {
             } else {
                 1
             },
-            gucs::vector_cluster_max_probe(),
+            gucs::vector_probe_budget(selectivity),
             gucs::vector_fixed_probe_cost_rows(),
             row_bytes,
             full_row_bytes,

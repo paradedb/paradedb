@@ -62,34 +62,48 @@ pub fn open_synonym_index(index: pg_sys::Oid) -> anyhow::Result<IndexAccess> {
 }
 
 pub fn expand_with_index(index: &IndexAccess, tokens: &[String]) -> anyhow::Result<Vec<Expansion>> {
+    Ok(expand_each_with_index(index, &[tokens])?.remove(0))
+}
+
+/// The expansions of each list of tokens. One reader of the index serves all the lists.
+pub fn expand_each_with_index(
+    index: &IndexAccess,
+    token_lists: &[&[String]],
+) -> anyhow::Result<Vec<Vec<Expansion>>> {
     let _snapshot = ActiveSnapshotGuard::ensure();
     let reader = SearchIndexReader::empty(index, MvccSatisfies::Snapshot)?;
     let mut source =
         unsafe { HeapRuleSource::open(index, index.heap(), &reader, pg_sys::GetActiveSnapshot())? };
-    let expansions = expand(tokens, &mut source);
+    let expansions = expand_each(token_lists, &mut source);
     source.close();
-    let mut expansions = expansions?;
-    cap_alternatives(&mut expansions);
-    Ok(expansions)
+    expansions
 }
 
-/// Expands `tokens` with rules that a subquery read. `analyzer` is the one that made `tokens`.
-pub fn expand_with_rules(
+/// The expansions of each list of tokens with rules that a subquery read. `analyzer` is the one
+/// that made the tokens, and it compiles the rules once for all the lists.
+pub fn expand_each_with_rules(
     rules: &[String],
     analyzer: &mut TextAnalyzer,
-    tokens: &[String],
-) -> anyhow::Result<Vec<Expansion>> {
-    let mut source = ListedRuleSource::compile(rules, analyzer);
-    let mut expansions = expand(tokens, &mut source)?;
-    cap_alternatives(&mut expansions);
-    Ok(expansions)
+    token_lists: &[&[String]],
+) -> anyhow::Result<Vec<Vec<Expansion>>> {
+    expand_each(token_lists, &mut ListedRuleSource::compile(rules, analyzer))
 }
 
-fn cap_alternatives(expansions: &mut [Expansion]) {
+fn expand_each(
+    token_lists: &[&[String]],
+    source: &mut impl SynonymSource,
+) -> anyhow::Result<Vec<Vec<Expansion>>> {
     let max_alternatives = gucs::synonyms_max_alternatives();
-    for expansion in expansions {
-        expansion.cap(max_alternatives);
-    }
+    token_lists
+        .iter()
+        .map(|tokens| {
+            let mut expansions = expand(tokens, source)?;
+            for expansion in &mut expansions {
+                expansion.cap(max_alternatives);
+            }
+            Ok(expansions)
+        })
+        .collect()
 }
 
 /// Rules that a subquery read, as one segment whose documents are the rules in their order.

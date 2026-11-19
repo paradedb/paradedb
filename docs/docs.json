@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.26.7",
+        "version": "v0.27.0",
         "tabs": [
           {
             "tab": "Start",
@@ -333,22 +333,30 @@
                 "pages": [
                   "project/changelog",
                   {
-                    "group": "v0.26",
+                    "group": "v0.27",
                     "pages": [
-                      "project/changelog/0.26.7",
-                      "project/changelog/0.26.6",
-                      "project/changelog/0.26.5",
-                      "project/changelog/0.26.4",
-                      "project/changelog/0.26.3",
-                      "project/changelog/0.26.2",
-                      "project/changelog/0.26.1",
-                      "project/changelog/0.26.0"
+                      "project/changelog/0.27.0"
                     ],
                     "expanded": false
                   },
                   {
                     "group": "Older",
                     "pages": [
+                      {
+                        "group": "v0.26",
+                        "pages": [
+                          "project/changelog/0.26.8",
+                          "project/changelog/0.26.7",
+                          "project/changelog/0.26.6",
+                          "project/changelog/0.26.5",
+                          "project/changelog/0.26.4",
+                          "project/changelog/0.26.3",
+                          "project/changelog/0.26.2",
+                          "project/changelog/0.26.1",
+                          "project/changelog/0.26.0"
+                        ],
+                        "expanded": false
+                      },
                       {
                         "group": "v0.25",
                         "pages": [

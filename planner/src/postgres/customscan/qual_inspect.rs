@@ -580,6 +580,7 @@ impl From<&Qual> for SearchQueryInput {
                     lenient: Some(false),
                     conjunction_mode: None,
                     fuzzy_data: None,
+                    synonyms: None,
                 },
             },
             Qual::ScoreExpr { opoid, value } => unsafe {

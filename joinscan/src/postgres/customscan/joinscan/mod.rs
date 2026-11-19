@@ -182,18 +182,22 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::explain_score_funcoid;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::{
     distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
 };
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{
-    mpp_plan_has_data_parallelism, query_allows_parallel_mode, shutdown_mpp_scan, teardown_mpp_scan,
+    MppBudget, MppLifecycle, MppTeardown, debug_parallel_query_is_regress,
+    mpp_plan_has_data_parallelism, shutdown_mpp_scan, sources_and_exprs_allow_parallel,
+    teardown_mpp_scan,
 };
 use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, block_on_next};
-use crate::postgres::customscan::mpp::launch::MppLifecycle;
-use crate::postgres::customscan::mpp::launch::mpp_eligible;
-use crate::postgres::customscan::mpp::worker::{DsmGrpcChannelResolver, MppMetricsCollection};
+use crate::postgres::customscan::mpp::launch::{exec_mpp_budget, mpp_budget};
+use crate::postgres::customscan::mpp::worker::{
+    MppMetricsCollection, build_mpp_exec_context, build_mpp_plan_context,
+};
 use crate::scan::deferred_encode::DeferredCtid;
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
 use arrow_buffer::ScalarBuffer;
@@ -642,6 +646,16 @@ impl JoinScan {
             return Err(JoinDeclineReason::ContainsAggregate);
         }
 
+        // Only the Base Scan has the document and the query that an explanation needs.
+        if (*(*root).parse)
+            .targetList
+            .contains_functions(&[explain_score_funcoid()])
+        {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: pdb.explain_score is not supported",
+            ));
+        }
+
         if (*(*root).parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: FETCH FIRST ... WITH TIES is not supported",
@@ -744,7 +758,7 @@ impl JoinScan {
                 };
                 window_aggs.push(window_agg);
             } else {
-                match planning::resolve_target_entry_expr(check_expr, root, &plan, true) {
+                match planning::resolve_target_entry_expr(check_expr, root, &plan, !has_distinct) {
                     Err(reason) => return Err(reason),
                     Ok(planning::ResolvedExpr::PgProjected) => {
                         pg_projected_resnos.push(te.resno);
@@ -911,6 +925,8 @@ impl JoinScan {
         join_clause = join_clause.with_order_by(order_by);
 
         // --- Cost estimation ---
+        // TODO: Model PostgreSQL's `parallel_setup_cost` and `parallel_tuple_cost` GUCs when
+        // costing MPP-eligible JoinScan paths.
 
         let startup_cost = crate::DEFAULT_STARTUP_COST;
         let total_cost = startup_cost + 1.0;
@@ -922,7 +938,18 @@ impl JoinScan {
         let has_order_by = !join_clause.order_by.is_empty();
         let order_by_len = join_clause.order_by.len();
         let query_pathkeys_len = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys).len();
-        let private_data = PrivateData::new(join_clause, query_allows_parallel_mode(&*root));
+        let mut hazard_exprs = Vec::new();
+        join_clause.collect_parallel_hazard_exprs(&mut hazard_exprs);
+        let parallel_mode_ok = sources_and_exprs_allow_parallel(
+            root,
+            join_clause
+                .plan
+                .sources()
+                .into_iter()
+                .map(|s| s.scan_info.heaprelid),
+            hazard_exprs,
+        );
+        let private_data = PrivateData::new(join_clause, parallel_mode_ok);
         // The target list for UPPERREL_FINAL lives in root->upper_targets, while
         // rel (final_rel) has an empty reltarget created by fetch_upper_rel.
         // We set path.pathtarget directly without mutating shared (*rel).reltarget.
@@ -1054,41 +1081,29 @@ impl JoinScan {
 }
 
 impl JoinScan {
-    /// Build the leader's distributed session context for this JoinScan query. Thin wrapper
-    /// over the shared [`crate::postgres::customscan::mpp::worker::build_mpp_session_context`]
-    /// that seeds with [`create_datafusion_session_context`].
-    /// `resolver = None` is the EXPLAIN-time path. See the shared helper's doc.
-    fn build_mpp_session_context(
-        resolver: Option<Arc<DsmGrpcChannelResolver>>,
+    /// Build the leader's distributed planning `SessionContext` for this `JoinScan` query, seeded
+    /// with [`create_datafusion_session_context`].
+    fn build_mpp_plan_context(
+        budget: MppBudget,
         metrics: MppMetricsCollection,
     ) -> datafusion::prelude::SessionContext {
-        crate::postgres::customscan::mpp::worker::build_mpp_session_context(
-            create_datafusion_session_context(),
-            resolver,
-            metrics,
-        )
+        build_mpp_plan_context(create_datafusion_session_context(), budget, metrics)
     }
 
-    /// First-exec solve of Param/SubPlan-backed expressions on the leader, and rebaking of the
-    /// logical plan when either expressions were solved or the target execution mode (`Serial` vs
-    /// `Mpp`) differs from the mode `logical_plan` was baked in (e.g. a cached generic plan built
-    /// before MPP became eligible, or vice versa). Called before `build_plan` in `exec_custom_scan`,
-    /// ahead of the plan-first MPP launch (#5667). Rebaking failures abort at the operation that
-    /// violated the invariant rather than being represented as a recoverable absence of plan bytes.
-    fn maybe_solve_and_rebake(state: &mut CustomScanStateWrapper<Self>) {
-        let target_mode = if matches!(state.custom_state().mpp, MppLifecycle::Pending) {
-            LogicalPlanMode::Mpp
-        } else {
-            LogicalPlanMode::Serial
-        };
+    /// Leader-side solve of Param/SubPlan-backed expressions on initial execution and rescans,
+    /// re-estimation of affected `JoinSource`s (`reestimate_solved_rows`, reusing
+    /// `source_manifests` across rescans), MPP budget evaluation (`exec_mpp_budget`), and rebaking
+    /// of the logical plan when either expressions were solved or `target_mode` (`Serial` vs `Mpp`)
+    /// differs from the mode `logical_plan` was baked in. Called before `build_plan` in
+    /// `exec_custom_scan`, ahead of the plan-first MPP launch (#5667). Rebaking failures abort at
+    /// the operation that violated the invariant rather than being represented as a recoverable
+    /// absence of plan bytes.
+    fn maybe_solve_and_rebake(state: &mut CustomScanStateWrapper<Self>) -> Option<MppBudget> {
         let needs_solve =
             Self::source_queries_need_executor_state(&state.custom_state().join_clause);
-        let needs_mode_rebake = state.custom_state().logical_plan_mode != target_mode;
-        if !needs_solve && !needs_mode_rebake {
-            return;
-        }
 
         if needs_solve {
+            Self::ensure_source_manifests(state);
             let estate = state.csstate.ss.ps.state;
             let planstate = state.planstate();
             // Solved in `ps_ExprContext`: JoinScan never resets it per row (see `solve_expr.rs`).
@@ -1108,28 +1123,61 @@ impl JoinScan {
             for ob in &mut custom_state.join_clause.order_by {
                 unsafe { ob.resolve_query_vector(estate, planstate) };
             }
-            for source in custom_state.join_clause.plan.sources_mut() {
+            let JoinScanState {
+                join_clause,
+                source_manifests,
+                ..
+            } = custom_state;
+            for source in join_clause.plan.sources_mut() {
                 if let Some(ref mut vec_ob) = source.scan_info.vector_order_by {
                     unsafe { vec_ob.resolve_query_vector(estate, planstate) };
                 }
+                let manifest = source_manifests.get(source.plan_position);
+                source.reestimate_solved_rows(manifest);
             }
         }
 
-        let bytes = unsafe { Self::rebake_logical_plan(state, target_mode) };
-        // Keep the leader's own execution in sync with what's dispatched to workers:
-        // exec_custom_scan's build_plan closure deserializes this same field.
-        let custom_state = state.custom_state_mut();
-        custom_state.logical_plan = Some(bytes::Bytes::from(bytes));
-        custom_state.logical_plan_mode = target_mode;
+        // Evaluate MPP eligibility after solving/re-estimating (`ExecutePlan` has now set
+        // `estate->es_use_parallel_mode`, which is still `false` during `ExecutorStart` and
+        // remains `false` for partial portal fetches, cursors, and PL/pgSQL `FOR` loops). Leaving
+        // `cs.mpp` as `Eligible` when `exec_mpp_budget` gates off lets a later correlated rescan
+        // whose `reestimate_solved_rows` exceeds `mpp_min_rows` still engage MPP, whereas a
+        // `launch_mpp` fallback transitions `cs.mpp` to `Disabled`.
+        let estate = state.csstate.ss.ps.state;
+        let mpp_budget = {
+            let cs = state.custom_state();
+            if cs.logical_plan.is_some() {
+                unsafe { exec_mpp_budget(estate, cs.mpp.is_eligible(), &cs.join_clause.plan) }
+            } else {
+                None
+            }
+        };
+        let target_mode = if mpp_budget.is_some() {
+            LogicalPlanMode::Mpp
+        } else {
+            LogicalPlanMode::Serial
+        };
+
+        if needs_solve || state.custom_state().logical_plan_mode != target_mode {
+            let bytes = unsafe { Self::rebake_logical_plan(state, target_mode) };
+            // Keep the leader's own execution in sync with what's dispatched to workers:
+            // exec_custom_scan's build_plan closure deserializes this same field.
+            let custom_state = state.custom_state_mut();
+            custom_state.logical_plan = Some(bytes::Bytes::from(bytes));
+            custom_state.logical_plan_mode = target_mode;
+        }
+
+        mpp_budget
     }
 
     /// Plan-first MPP launch (#5667). Called with the leader's already-built physical plan:
-    /// sizes the producer pool from the plan's widest stage, builds the DSM, stamps the shared
-    /// scan state into the plan, and spawns exactly the needed workers. `None` means run
-    /// serially — the plan had nothing to distribute (no workers were forked at all) or the
+    /// sizes the worker pool from the plan's widest stage, builds the DSM, stamps the shared
+    /// scan state into the plan, and spawns the needed background workers. `None` means run
+    /// serially: the plan had nothing to distribute (no workers were forked at all) or the
     /// launch fell back.
     fn launch_mpp(
         state: &mut CustomScanStateWrapper<Self>,
+        budget: MppBudget,
         physical: &Arc<dyn ExecutionPlan>,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         Self::ensure_source_manifests(state);
@@ -1144,7 +1192,14 @@ impl JoinScan {
             with_aggregates: false,
             with_segment_info: false,
         };
-        crate::postgres::customscan::mpp::launch::launch_mpp(physical, args)
+        unsafe {
+            crate::postgres::customscan::mpp::launch::launch_mpp(
+                state.csstate.ss.ps.state,
+                budget,
+                physical,
+                args,
+            )
+        }
     }
 
     /// Re-bake the DataFusion logical plan in `mode` from the current `join_clause` and
@@ -1166,7 +1221,8 @@ impl JoinScan {
 
         let mut private_data = PrivateData::new(
             state.custom_state().join_clause.clone(),
-            state.custom_state().parallel_mode_ok,
+            // Temporary wrapper for `bake_logical_plan`; its `parallel_mode_ok` field is unread.
+            false,
         );
         private_data.output_columns = state.custom_state().output_columns.clone();
 
@@ -1177,7 +1233,7 @@ impl JoinScan {
             .to_vec()
     }
 
-    fn finish_mpp_execution(state: &mut CustomScanStateWrapper<Self>) {
+    fn finish_mpp_execution(state: &mut CustomScanStateWrapper<Self>, teardown: MppTeardown) {
         let cs = state.custom_state_mut();
         teardown_mpp_scan(
             &mut cs.datafusion_stream,
@@ -1186,6 +1242,7 @@ impl JoinScan {
             &mut cs.runtime,
             &mut cs.mpp,
             &cs.spilled,
+            teardown,
         );
     }
 }
@@ -1373,10 +1430,39 @@ impl CustomScan for JoinScan {
                 node.custom_exprs,
             );
 
-            let initial_mode = if mpp_eligible(
+            // Re-verify pushed-down expressions now that `node.custom_exprs` carries the
+            // multi-table predicate clauses and `output_projection` is built, and notify
+            // PostgreSQL (`parallelModeNeeded = true`) so `ExecutePlan` enables
+            // `estate->es_use_parallel_mode` only on full portal runs (and leaves it false for
+            // cursors / partial `FETCH N` portals).
+            let mut hazard_exprs = Vec::new();
+            private_data
+                .join_clause
+                .collect_parallel_hazard_exprs(&mut hazard_exprs);
+            for expr_ptr in PgList::<pg_sys::Node>::from_pg(node.custom_exprs).iter_ptr() {
+                hazard_exprs.push(expr_ptr);
+            }
+            private_data.parallel_mode_ok = private_data.parallel_mode_ok
+                && sources_and_exprs_allow_parallel(
+                    root,
+                    private_data
+                        .join_clause
+                        .plan
+                        .sources()
+                        .into_iter()
+                        .map(|s| s.scan_info.heaprelid),
+                    hazard_exprs,
+                );
+            if private_data.parallel_mode_ok && !(*root).glob.is_null() {
+                (*(*root).glob).parallelModeNeeded = true;
+            }
+
+            let initial_mode = if mpp_budget(
                 private_data.parallel_mode_ok,
                 &private_data.join_clause.plan,
-            ) {
+            )
+            .is_some()
+            {
                 LogicalPlanMode::Mpp
             } else {
                 LogicalPlanMode::Serial
@@ -1431,7 +1517,8 @@ impl CustomScan for JoinScan {
         builder.custom_state().logical_plan_mode = builder.custom_private().logical_plan_mode;
         builder.custom_state().custom_exprs_string =
             builder.custom_private().custom_exprs_string.clone();
-        builder.custom_state().parallel_mode_ok = builder.custom_private().parallel_mode_ok;
+        builder.custom_state().mpp =
+            MppLifecycle::from_plan(builder.custom_private().parallel_mode_ok);
         builder.build()
     }
 
@@ -1607,6 +1694,11 @@ impl CustomScan for JoinScan {
             );
         }
 
+        // The DataFusion plan prints the query of each source, which leaves the synonym indexes out.
+        let mut synonym_indexes = Vec::new();
+        join_clause.visit_queries(&mut |query| synonym_indexes.extend(query.synonym_indexes()));
+        explainer.add_synonym_indexes(synonym_indexes);
+
         if explainer.is_analyze() {
             // For EXPLAIN ANALYZE, render the plan with metrics inline.
             // VERBOSE includes timing; without VERBOSE, timing is stripped for stable output.
@@ -1616,7 +1708,7 @@ impl CustomScan for JoinScan {
                 // leader's own nodes.
                 let plan = get_plan_with_merged_metrics(
                     physical_plan,
-                    state.custom_state().mpp.leader().is_some(),
+                    state.custom_state().mpp.is_active(),
                     state.custom_state().runtime.is_some(),
                     explainer,
                 );
@@ -1625,19 +1717,18 @@ impl CustomScan for JoinScan {
 
             // The MPP launch floor (worker spawn, ring attach, plan dispatch) lives outside the
             // DataFusion plan, so surface its per-phase breakdown separately when the query ran
-            // distributed.
+            // distributed (unless `debug_parallel_query = regress` requests serial-compatible
+            // EXPLAIN output).
             if explainer.is_verbose()
+                && !debug_parallel_query_is_regress()
                 && let Some(t) = state.custom_state().launch_timing
             {
                 explainer.add_text("MPP Launch", t.explain_text());
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
-            // For plain EXPLAIN, reconstruct the plan using the same session configuration
-            // that execution uses so `VisibilityFilterExec` appears in the displayed plan,
-            // matching EXPLAIN ANALYZE. When MPP is active, first build against
-            // `producer_worker_cap()` (`resolver = None`); if task discovery says launch will
-            // not run (#5784 / `max_producer_task_count < 2`), rebuild serially so the
-            // printed shape matches execution.
+            // For plain EXPLAIN, reconstruct the physical plan without executor state using the
+            // same session configuration as execution so operators like `VisibilityFilterExec`
+            // match EXPLAIN ANALYZE.
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
             let runtime = PgTokioRuntime::new().expect("Failed to create tokio runtime");
             let runtime_limit_offset = join_clause
@@ -1661,6 +1752,8 @@ impl CustomScan for JoinScan {
                     .block_on(build_physical_plan(ctx, logical_plan))
                     .expect("Failed to create execution plan")
             };
+            // Cached generic plans may have been baked under a different `LogicalPlanMode` than
+            // current session GUCs, so rebake `logical_plan` when the target mode differs.
             let bytes_for_mode = |mode: LogicalPlanMode| -> std::borrow::Cow<'_, [u8]> {
                 if state.custom_state().logical_plan_mode == mode {
                     std::borrow::Cow::Borrowed(logical_plan.as_ref())
@@ -1668,25 +1761,28 @@ impl CustomScan for JoinScan {
                     std::borrow::Cow::Owned(unsafe { Self::rebake_logical_plan(state, mode) })
                 }
             };
-            let physical_plan = if mpp_eligible(
-                state.custom_state().parallel_mode_ok,
-                &state.custom_state().join_clause.plan,
-            ) {
-                let mpp_bytes = bytes_for_mode(LogicalPlanMode::Mpp);
-                let mpp_plan = build_with(
-                    &Self::build_mpp_session_context(None, MppMetricsCollection::Disabled),
-                    &mpp_bytes,
-                );
-                if mpp_plan_has_data_parallelism(&mpp_plan) {
-                    mpp_plan
-                } else {
-                    let serial_bytes = bytes_for_mode(LogicalPlanMode::Serial);
-                    build_with(&create_datafusion_session_context(), &serial_bytes)
-                }
-            } else {
+
+            let mpp_plan = mpp_budget(state.custom_state().mpp.is_eligible(), &join_clause.plan)
+                .map(|budget| {
+                    // Case 1: MPP is eligible and budgeted; build against the participant ceiling
+                    // (plain EXPLAIN spawns no workers).
+                    let mpp_bytes = bytes_for_mode(LogicalPlanMode::Mpp);
+                    build_with(
+                        &Self::build_mpp_plan_context(budget, MppMetricsCollection::Disabled),
+                        &mpp_bytes,
+                    )
+                })
+                // Case 2: Distributed planning produced `< 2` producer tasks (e.g. single-segment
+                // sources, #5784), so `launch_mpp` will decline at execution time; discard the
+                // distributed plan and fall through to serial.
+                .filter(mpp_plan_has_data_parallelism);
+
+            // Case 3: Either `mpp_budget` was `None` (`!parallel_mode_ok`, insufficient worker
+            // cap, or `mpp_min_rows`) or Case 2 discarded a non-parallel `DistributedExec` plan.
+            let physical_plan = mpp_plan.unwrap_or_else(|| {
                 let serial_bytes = bytes_for_mode(LogicalPlanMode::Serial);
                 build_with(&create_datafusion_session_context(), &serial_bytes)
-            };
+            });
             explain_physical_plan(&physical_plan, explainer);
         }
     }
@@ -1715,51 +1811,20 @@ impl CustomScan for JoinScan {
                 assert!(state.custom_state_mut().window_agg_ctx.is_none());
                 state.custom_state_mut().window_agg_ctx = Some(window_agg_ctx);
             }
-            // MPP: mark one launch attempt for the first exec call. The existing logical plan is
-            // resolved and rebaked at execution time before it is deserialized to build the
-            // physical plan. The finished stages then provide the exact dispatch payload before
-            // DSM allocation. Only the leader runs this branch (`ParallelWorkerNumber == -1`).
-            // The size gate decides here, before any MPP work: a gated query takes the plain
-            // serial path and never builds the distributed plan or captures manifests.
-            if mpp_eligible(
-                state.custom_state().parallel_mode_ok,
-                &state.custom_state().join_clause.plan,
-            ) && unsafe { pg_sys::ParallelWorkerNumber } == -1
-                && state.custom_state().logical_plan.is_some()
-            {
-                state.custom_state_mut().mpp = MppLifecycle::Pending;
-            }
         }
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        let relaunch_mpp = matches!(
-            &state.custom_state().mpp,
-            MppLifecycle::Pending | MppLifecycle::Launched(_)
-        );
-        Self::finish_mpp_execution(state);
+        Self::finish_mpp_execution(state, MppTeardown::Rescan);
         state.custom_state_mut().relations.clear();
         state.custom_state_mut().reset();
-        if relaunch_mpp {
-            assert!(
-                state.custom_state().logical_plan.is_some(),
-                "MPP rescan requires logical plan bytes"
-            );
-            state.custom_state_mut().mpp = MppLifecycle::Pending;
-        }
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         let mut launch_us = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
-                // Solve any Param/SubPlan-backed SearchQueryInputs on the leader and rebake the
-                // logical plan before it's cloned/deserialized below, so both `join_clause` and
-                // `plan_bytes` reflect the resolved query. Must run before the pending MPP
-                // marker is consumed below and before plan_bytes is cloned, or a stale unresolved
-                // plan gets planned/dispatched. Rebake failures are invariant violations and
-                // abort at their source rather than falling back to unresolved bytes.
-                Self::maybe_solve_and_rebake(state);
+                let mpp_budget = Self::maybe_solve_and_rebake(state);
 
                 let runtime = PgTokioRuntime::new().unwrap();
                 let mut join_clause = state.custom_state().join_clause.clone();
@@ -1851,16 +1916,15 @@ impl CustomScan for JoinScan {
                             .expect("Failed to create execution plan")
                     };
 
-                let mpp_pending = state.custom_state_mut().mpp.take_pending();
                 let mpp_metrics =
                     MppMetricsCollection::from_instrument(state.csstate.ss.ps.instrument);
                 // Leader session context: on an MPP attempt, layer the distributed-planner
                 // knobs over the Join profile so the resulting physical plan is a
-                // `DistributedExec`, with `producer_worker_cap()` acting as the planner's
-                // ceiling. The channel resolver is an execute-time concern; the exec session
-                // below carries it once the workers are committed.
-                let plan_ctx = if mpp_pending {
-                    Self::build_mpp_session_context(None, mpp_metrics)
+                // `DistributedExec`, with the scan's participant ceiling as `target_partitions`.
+                // The channel resolver is an execute-time concern; the exec session below
+                // carries it once the workers are committed.
+                let plan_ctx = if let Some(budget) = mpp_budget {
+                    Self::build_mpp_plan_context(budget, mpp_metrics)
                 } else {
                     create_datafusion_session_context()
                 };
@@ -1871,24 +1935,29 @@ impl CustomScan for JoinScan {
                 // On a launch fallback (nothing to distribute, or too few attached workers) no
                 // workers remain and the `DistributedExec` shape has no mesh to read from, so
                 // replan serially.
-                let (ctx, plan) = if mpp_pending {
-                    match Self::launch_mpp(state, &plan) {
-                        Some(leader) => {
-                            let exec_ctx = Self::build_mpp_session_context(
-                                Some(Arc::clone(&leader.session.resolver)),
+                let (ctx, plan) = if let Some(budget) = mpp_budget {
+                    match Self::launch_mpp(state, budget, &plan) {
+                        Some(mut leader) => {
+                            let exec_ctx = build_mpp_exec_context(
+                                create_datafusion_session_context(),
+                                &mut leader,
+                                &runtime,
+                                Arc::clone(&state.custom_state().spilled),
                                 mpp_metrics,
                             );
                             launch_us.prepare_us = leader.timing.prepare_us;
                             launch_us.attach_us = leader.timing.attach_us;
                             launch_us.leader_setup_us = leader.timing.leader_setup_us;
                             launch_us.workers = leader.timing.workers;
-                            state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
+                            state.custom_state_mut().mpp = MppLifecycle::active(leader);
                             (exec_ctx, plan)
                         }
                         None => {
                             // Short-launch decline: rebuild the logical plan with serial provider
-                            // metadata. Merely changing SessionContext would replan the existing
-                            // MPP-shaped logical providers without rewriting their source fields.
+                            // metadata and mark `mpp` `Disabled` so later rescans stay serial
+                            // instead of retrying worker launch. Merely changing SessionContext
+                            // would replan the existing MPP-shaped logical providers without
+                            // rewriting their source fields.
                             let serial_ctx = create_datafusion_session_context();
                             let fallback_bytes =
                                 Self::rebake_logical_plan(state, LogicalPlanMode::Serial);
@@ -1911,6 +1980,7 @@ impl CustomScan for JoinScan {
                             // reflect the serial shape actually executed here, not the MPP-shaped
                             // bytes this fallback declined to use.
                             let custom_state = state.custom_state_mut();
+                            custom_state.mpp = MppLifecycle::Disabled;
                             custom_state.logical_plan = Some(bytes::Bytes::from(fallback_bytes));
                             custom_state.logical_plan_mode = LogicalPlanMode::Serial;
                             (serial_ctx, plan)
@@ -1951,7 +2021,7 @@ impl CustomScan for JoinScan {
                 // Retain the executed plan so EXPLAIN ANALYZE can extract metrics. Record the
                 // launch timing only when the query actually ran distributed (workers attached);
                 // a serial fallback never reaches `Launched` and leaves `workers` at zero.
-                if state.custom_state().mpp.is_launched() {
+                if state.custom_state().mpp.is_active() {
                     state.custom_state_mut().launch_timing = Some(launch_us);
                     state.custom_state_mut().stream_built_at = Some(std::time::Instant::now());
                 }
@@ -2089,7 +2159,7 @@ impl CustomScan for JoinScan {
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        Self::finish_mpp_execution(state);
+        Self::finish_mpp_execution(state, MppTeardown::EndScan);
 
         // Clean up resources
         state.custom_state_mut().relations.clear();

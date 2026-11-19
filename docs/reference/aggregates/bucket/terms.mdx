@@ -14,7 +14,7 @@ groups the `mock_items` table by `rating`, and calculates the number of items fo
 
 <CodeGroup>
 ```sql SQL
-SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
+SELECT rating, pdb.agg('{"filter": "*"}') FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY rating
 LIMIT 10;
@@ -26,7 +26,7 @@ import { search } from "@paradedb/drizzle-paradedb";
 await db
   .select({
     rating: mockItems.rating,
-    agg: search.agg({ value_count: { field: "id" } }),
+    agg: search.agg({ filter: "*" }),
   })
   .from(mockItems)
   .where(search.all(mockItems.id))
@@ -40,17 +40,17 @@ from paradedb import Agg, All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).values('rating').annotate(
-    agg=Agg('{"value_count": {"field": "id"}}')
+    agg=Agg('{"filter": "*"}')
 )[:10]
 ```
 
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import facets, pdb, search
+from paradedb.sqlalchemy import pdb, search
 
 stmt = (
-    select(MockItem.rating, pdb.agg(facets.value_count(field="id")).label("agg"))
+    select(MockItem.rating, pdb.agg({"filter": "*"}).label("agg"))
     .where(search.all(MockItem.id))
     .group_by(MockItem.rating)
     .limit(10)
@@ -65,7 +65,7 @@ MockItem.search(:id)
         .match_all
         .aggregate_by(
           :rating,
-          agg: ParadeDB::Aggregations.value_count(:id)
+          agg: { filter: "*" }
         )
         .limit(10)
 ```
@@ -77,7 +77,7 @@ await dbContext
     .Select(group => new
     {
         Rating = group.Key,
-        Agg = EF.Functions.Agg(new { value_count = new { field = "id" } })
+        Agg = EF.Functions.Agg(new { filter = "*" })
     })
     .Take(10)
     .ToListAsync();
@@ -87,12 +87,12 @@ await dbContext
 
 ```ini Expected Response
  rating |       agg
---------+-----------------
-      4 | {"value": 16.0}
-      5 | {"value": 12.0}
-      3 | {"value": 9.0}
-      2 | {"value": 3.0}
-      1 | {"value": 1.0}
+--------+------------------
+      4 | {"doc_count": 16}
+      5 | {"doc_count": 12}
+      3 | {"doc_count": 9}
+      2 | {"doc_count": 3}
+      1 | {"doc_count": 1}
 (5 rows)
 ```
 
@@ -100,7 +100,7 @@ Ordering by the bucketing field is supported:
 
 <CodeGroup>
 ```sql SQL
-SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
+SELECT rating, pdb.agg('{"filter": "*"}') FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
@@ -113,7 +113,7 @@ import { search } from "@paradedb/drizzle-paradedb";
 await db
   .select({
     rating: mockItems.rating,
-    agg: search.agg({ value_count: { field: "id" } }),
+    agg: search.agg({ filter: "*" }),
   })
   .from(mockItems)
   .where(search.all(mockItems.id))
@@ -128,17 +128,17 @@ from paradedb import Agg, All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).values('rating').annotate(
-    agg=Agg('{"value_count": {"field": "id"}}')
+    agg=Agg('{"filter": "*"}')
 ).order_by('rating')[:10]
 ```
 
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import facets, pdb, search
+from paradedb.sqlalchemy import pdb, search
 
 stmt = (
-    select(MockItem.rating, pdb.agg(facets.value_count(field="id")).label("agg"))
+    select(MockItem.rating, pdb.agg({"filter": "*"}).label("agg"))
     .where(search.all(MockItem.id))
     .group_by(MockItem.rating)
     .order_by(MockItem.rating)
@@ -154,7 +154,7 @@ MockItem.search(:id)
         .match_all
         .aggregate_by(
           :rating,
-          agg: ParadeDB::Aggregations.value_count(:id)
+          agg: { filter: "*" }
         )
         .order(:rating)
         .limit(10)
@@ -167,7 +167,7 @@ await dbContext
     .Select(group => new
     {
         Rating = group.Key,
-        Agg = EF.Functions.Agg(new { value_count = new { field = "id" } })
+        Agg = EF.Functions.Agg(new { filter = "*" })
     })
     .OrderBy(result => result.Rating)
     .Take(10)

@@ -26,7 +26,7 @@ use std::time::Duration;
 pub struct ReconnectGraceArgs {
     /// How long (in milliseconds) to tolerate one continuous transient database fault
     /// (dropped/refused sockets, server restarting) by reconnecting before failing the
-    /// run. The window restarts after a successful reconnect. Defaults to 0, i.e. any
+    /// run. A completed workload iteration resets the window. Defaults to 0, i.e. any
     /// error fails the run immediately.
     ///
     /// Under fault injection set this longer than `--runtime`, so a connectivity fault
@@ -45,6 +45,11 @@ pub struct ReconnectGraceArgs {
     /// this from their recovery-liveness command.
     #[arg(long)]
     pub reconnect_grace_file: Option<PathBuf>,
+
+    /// Maximum time in milliseconds to wait for a database operation. On expiry,
+    /// close the connection and apply the reconnect policy. Defaults to no timeout.
+    #[arg(long)]
+    pub operation_timeout: Option<std::num::NonZeroU64>,
 }
 
 impl ReconnectGraceArgs {
@@ -55,6 +60,11 @@ impl ReconnectGraceArgs {
             Some(file) => GraceWindow::pokeable(baseline, file),
             None => GraceWindow::fixed(baseline),
         }
+    }
+
+    pub fn operation_timeout(&self) -> Option<Duration> {
+        self.operation_timeout
+            .map(|ms| Duration::from_millis(ms.get()))
     }
 }
 

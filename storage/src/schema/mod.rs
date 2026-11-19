@@ -20,6 +20,7 @@ pub use common::schema::*;
 use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::index::utils::load_index_schema;
 use crate::postgres::datetime::PostgresDateTime;
+pub use crate::postgres::options::HeapStatTarget;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
@@ -143,6 +144,27 @@ impl SearchIndexSchema {
 
     pub fn index_search_tokenizer(&self) -> Option<SearchTokenizer> {
         self.bm25_options.search_tokenizer()
+    }
+
+    /// Resolves `(heap_relid, heap_attnum)` for a scalar heap-column index field (including
+    /// aliased fields) so range estimation can consult PostgreSQL's `pg_statistic` catalog.
+    pub fn heap_stat_target(&self, field_name: &FieldName) -> Option<HeapStatTarget> {
+        if field_name.path().is_some() || field_name.is_ctid() {
+            return None;
+        }
+        let relid = self.bm25_options.heap_relid()?;
+        let categorized = self.categorized_fields();
+        let (_, data) = categorized
+            .iter()
+            .find(|(field, _)| field.field_name() == field_name)?;
+        if data.is_array || data.is_json {
+            return None;
+        }
+        let attno = data.source.heap_attno()?;
+        Some(HeapStatTarget {
+            relid,
+            attnum: (attno + 1) as pg_sys::AttrNumber,
+        })
     }
 
     /// Convert sort_by configuration to Tantivy's IndexSortByField.
@@ -454,6 +476,24 @@ impl SearchField {
         // This ensures backwards compatibility with legacy indexes.
         let field_type = derive_field_type_from_schema(&field_entry, options, &field_name);
 
+        Self {
+            field,
+            field_name,
+            field_entry,
+            field_type,
+            field_config,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn for_testing(
+        field: Field,
+        schema: &Schema,
+        field_type: SearchFieldType,
+        field_config: SearchFieldConfig,
+    ) -> Self {
+        let field_entry = schema.get_field_entry(field).clone();
+        let field_name: FieldName = field_entry.name().into();
         Self {
             field,
             field_name,

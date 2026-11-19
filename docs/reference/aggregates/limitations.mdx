@@ -13,11 +13,11 @@ In order for ParadeDB to push down an aggregate, a ParadeDB predicate must be pr
 <CodeGroup>
 ```sql SQL
 -- Not pushed down
-SELECT COUNT(id) FROM mock_items
+SELECT COUNT(*) FROM mock_items
 WHERE rating = 5;
 
 -- Pushed down
-SELECT COUNT(id) FROM mock_items
+SELECT COUNT(*) FROM mock_items
 WHERE rating = 5
 AND id @@@ pdb.all();
 ```
@@ -28,13 +28,13 @@ import { search } from "@paradedb/drizzle-paradedb";
 
 // Not pushed down — no ParadeDB operator
 await db
-  .select({ count: count(mockItems.id) })
+  .select({ count: count() })
   .from(mockItems)
   .where(eq(mockItems.rating, 5));
 
 // Pushed down — ParadeDB operator triggers aggregate pushdown
 await db
-  .select({ count: count(mockItems.id) })
+  .select({ count: count() })
   .from(mockItems)
   .where(and(eq(mockItems.rating, 5), search.all(mockItems.id)));
 ```
@@ -55,10 +55,10 @@ from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import search
 
 # Not pushed down.
-count_without_operator_stmt = select(func.count(MockItem.id)).where(MockItem.rating == 5)
+count_without_operator_stmt = select(func.count()).where(MockItem.rating == 5)
 
 # Pushed down.
-count_with_operator_stmt = select(func.count(MockItem.id)).where(
+count_with_operator_stmt = select(func.count()).where(
     MockItem.rating == 5,
     search.all(MockItem.id),
 )
@@ -132,7 +132,7 @@ A `pdb.agg()` field name must belong to exactly one indexed table in the join. W
 
 `pdb.agg()` over a NUMERIC field runs on this path as well, on a single table or over a join, while a `missing` value is not accepted for such a field. `terms` on an array field is also supported over joins; metric aggregations over array fields are not.
 
-A few `pdb.agg()` shapes run on a single table but not over a join: metric aggregations over JSON sub-fields, such as `{"sum": {"field": "metadata.qty"}}`, `terms` on a JSON sub-field that holds numbers, `min_doc_count: 0`, which lists every term of the column, and a field indexed from a computed expression, such as `(upper(name)::pdb.literal('alias=name_upper'))`. A field indexed through a plain tokenizer cast, such as `(name::pdb.literal)`, works over a join like the column itself.
+A few `pdb.agg()` shapes run on a single table but not over a join: metric aggregations over JSON sub-fields, such as `{"sum": {"field": "metadata.qty"}}`, `terms` on a JSON sub-field that holds numbers, `min_doc_count: 0`, which lists every term of the column, and a field indexed from a computed expression, such as `(upper(name)::pdb.literal('alias=name_upper'))`. A field indexed through a plain tokenizer cast, such as `(name::pdb.literal)`, works over a join like the column itself. The same is true for a column indexed inside a [composite type](/reference/indexing/indexing-composite), such as `category` in `ROW(category)::item_fields`. The composite field must have the column's type or a tokenizer type. A `BIGINT` field over an `INTEGER` column counts as a computed expression.
 
 `pdb.agg()` has no native Postgres implementation, so it cannot fall back. A `pdb.agg()` over a join that uses an aggregation outside the list above, such as `range`, `histogram`, `date_histogram`, `filter`, `composite`, `stats`, `percentiles`, or `top_hits`, raises an error.
 

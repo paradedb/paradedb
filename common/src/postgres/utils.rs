@@ -513,12 +513,14 @@ pub enum FieldSource {
 
 impl FieldSource {
     /// The zero-based heap attribute the field holds. A tokenizer cast leaves the
-    /// column's value as it is, so it names that column; a computed expression or a
-    /// composite field has no single column to read back.
+    /// column's value as it is, so it names that column. A computed expression has no
+    /// column to read back, and a composite field does not record the column it reads.
     pub fn heap_attno(&self) -> Option<usize> {
         match *self {
             FieldSource::Heap { attno } => Some(attno),
             FieldSource::Expression { attno, .. } => attno,
+            // A column for a composite field changes the vector sort and the synonym rule
+            // column check, which both find their fields through this function.
             FieldSource::CompositeField { .. } => None,
         }
     }
@@ -670,6 +672,14 @@ pub fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
     }
 
     node
+}
+
+/// The one-based heap attribute that `node` reads, when `node` is a column, plain or under a
+/// tokenizer cast. A field over such a node holds the column's value as it is.
+pub fn heap_attno_read_by(node: *mut pg_sys::Node) -> Option<pg_sys::AttrNumber> {
+    let var = unsafe { nodecast!(Var, strip_tokenizer_cast(node)) }?;
+    let attno = unsafe { (*var).varattno };
+    (attno > 0).then_some(attno)
 }
 
 /// Strips the `RelabelType` wrappers from an expression.
@@ -1022,6 +1032,38 @@ pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys
 /// that only exist after `CREATE EXTENSION pg_search`.
 pub fn pg_search_extension_installed() -> bool {
     unsafe { pg_sys::get_extension_oid(c"pg_search".as_ptr(), true) != pg_sys::InvalidOid }
+}
+
+/// True in a backend of a hot standby that is still replaying WAL. ParadeDB Community does not
+/// serve its indexes there: `rel_get_bm25_index` and `amcanreturn` answer "no index" so the
+/// planner never opens one for a query that does not need it, and `RelationBufferAccess::open`
+/// refuses for the statements that do.
+pub fn in_hot_standby() -> bool {
+    // `RecoveryInProgress` latches `LocalRecoveryInProgress` false on a primary without a lock.
+    unsafe { pg_sys::RecoveryInProgress() }
+}
+
+/// The error a statement that needs a ParadeDB index gets on a hot standby.
+pub fn report_hot_standby() -> ! {
+    report_community_limit(
+        "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community".into(),
+        None,
+    )
+}
+
+/// Raises `0A000` for something ParadeDB Community does not do, with the Enterprise detail.
+pub fn report_community_limit(message: String, hint: Option<String>) -> ! {
+    let mut report = pg_sys::panic::ErrorReport::new(
+        PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+        message,
+        function_name!(),
+    )
+    .set_detail("ParadeDB Enterprise is commercially licensed and included with ParadeDB Cloud. To self-host ParadeDB Enterprise, contact sales@paradedb.com.");
+    if let Some(hint) = hint {
+        report = report.set_hint(hint);
+    }
+    report.report(PgLogLevel::ERROR);
+    unreachable!("ErrorReport::report at ERROR level does not return")
 }
 
 /// RAII wrapper for `pg_sys::List` that automatically frees the list on drop.

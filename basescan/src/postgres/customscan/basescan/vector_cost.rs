@@ -70,13 +70,15 @@ impl VectorWork {
         });
         Some(Self::estimate(
             &stats,
-            options.target_leaf_size() as f64 / f64::from(options.training_sample_ratio()),
+            // Configured full-dataset leaf size. Tantivy scales training by
+            // `training_sample_ratio`, so clusters land near this value.
+            options.target_leaf_size() as f64,
             if layers.is_some() && options.vector_router_quantization() {
                 options.replication()
             } else {
                 1
             },
-            gucs::vector_cluster_max_probe(),
+            gucs::vector_probe_budget(selectivity),
             gucs::vector_fixed_probe_cost_rows(),
             row_bytes,
             full_row_bytes,

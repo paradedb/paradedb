@@ -320,11 +320,10 @@ pub struct JoinScanState {
     /// Retained executed physical plan for EXPLAIN ANALYZE metrics extraction.
     pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
 
-    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
-    /// on first exec after runtime expressions are resolved and the built plan's stages are
-    /// committed (#5667: the plan comes first; workers spawn only after it exists). Stays
-    /// `Inactive` on the serial path.
-    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+    /// Runtime MPP lifecycle for this scan (#5667: the plan comes first; workers spawn only after
+    /// it exists). Initialized from `PrivateData.parallel_mode_ok` and transitions to `Disabled`
+    /// on budget rejection, launch fallback, or `EndCustomScan`.
+    pub mpp: crate::postgres::customscan::mpp::glue::MppLifecycle,
 
     /// Tokio runtime dropped after `datafusion_stream`, `physical_plan`, and `mpp` so any
     /// background tasks are aborted and their deferred main-thread drops are drained before
@@ -385,10 +384,6 @@ pub struct JoinScanState {
 
     /// Result tuple slot.
     pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
-
-    /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
-    /// scan may still use DataFusion, but it must never launch MPP producer workers.
-    pub parallel_mode_ok: bool,
 
     /// Set (at most once) by `build_task_context`'s `on_spill` callback the first time the
     /// leader's own local execution spills an operator to disk. Mirrors
@@ -585,14 +580,19 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
 }
 
 /// Applies ParadeDB's optimizer GUC settings (`hash_join_inlist_pushdown_max_size`,
-/// `hash_join_inlist_pushdown_max_distinct_values`, `hash_join_single_partition_threshold_rows`,
-/// `hash_join_single_partition_threshold`, `enable_topk_dynamic_filter_pushdown`, and
-/// `enable_round_robin_repartition = false`) to a DataFusion [`SessionConfig`].
+/// `hash_join_inlist_pushdown_max_distinct_values` initialized to [`InListPushdownMode::Standard`],
+/// `hash_join_single_partition_threshold_rows`, `hash_join_single_partition_threshold`,
+/// `enable_topk_dynamic_filter_pushdown`, and `enable_round_robin_repartition = false`) to a
+/// DataFusion [`SessionConfig`].
 ///
 /// Called both when constructing the leader's session context and when initializing each MPP
 /// worker's base `SessionState` in `worker::worker_base_session_state`, because operators such as
-/// `HashJoinExec` read `hash_join_inlist_pushdown_max_*` from the worker's
-/// `TaskContext::session_config()` at execution time.
+/// `HashJoinExec` read `hash_join_inlist_pushdown_max_*` from `TaskContext::session_config()` at
+/// execution time (`build_task_context` and `worker_base_session_state` elevate the distinct-key
+/// cap to [`InListPushdownMode::LazySortProbe`] when the physical plan probes a `lazy_sort` scan).
+///
+/// [`InListPushdownMode::Standard`]: crate::gucs::InListPushdownMode::Standard
+/// [`InListPushdownMode::LazySortProbe`]: crate::gucs::InListPushdownMode::LazySortProbe
 pub fn apply_paradedb_session_config(config: &mut SessionConfig) {
     // Disable round-robin repartitioning: ParadeDB uses partitioning exclusively for MPP task
     // distribution across worker processes, never for intra-task round-robin repartitioning.
@@ -607,17 +607,14 @@ pub fn apply_paradedb_session_config(config: &mut SessionConfig) {
         .optimizer
         .hash_join_inlist_pushdown_max_size =
         crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
-    // 0 is also DataFusion's kill switch: HashJoinExec rejects InList
+    // 0 is DataFusion's kill switch: HashJoinExec rejects InList
     // materialization when num_of_distinct_key() > max_distinct_values, and
-    // any non-empty build side has at least one distinct key. So setting
-    // the GUC to 0 disables the InList path on both sides of the boundary
-    // — paradedb's try_convert_in_list_to_query and DataFusion's hash-join
-    // pushdown agree on disable semantics.
+    // any non-empty build side has at least one distinct key.
     config
         .options_mut()
         .optimizer
         .hash_join_inlist_pushdown_max_distinct_values =
-        crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
+        crate::gucs::InListPushdownMode::Standard.max_distinct_values();
     config
         .options_mut()
         .optimizer
@@ -709,10 +706,12 @@ pub async fn build_physical_plan(
 
 /// Build the `TaskContext` used to execute a DataFusion physical plan.
 ///
-/// Sizes a `PanicOnOOMMemoryPool` against the supplied `work_mem_bytes` and
-/// `hash_mem_multiplier` (typically PostgreSQL's `work_mem * 1024` and
-/// `hash_mem_multiplier` GUCs), bundles it into a fresh `RuntimeEnv`, and
-/// pairs that with the session config from `ctx`.
+/// Sizes a DataFusion memory pool (`create_memory_pool`) against the supplied
+/// `work_mem_bytes` and `hash_mem_multiplier` (typically PostgreSQL's `work_mem * 1024`
+/// and `hash_mem_multiplier` GUCs), bundles it into a fresh `RuntimeEnv`, and pairs that
+/// with the session config from `ctx` (elevating `hash_join_inlist_pushdown_max_distinct_values`
+/// to `paradedb.lazy_sort_inlist_pushdown_max_distinct_values` when `plan` contains a
+/// `HashJoinExec` probing a `lazy_sort` scan).
 ///
 /// Shared by JoinScan and AggregateScan; both call this immediately before
 /// `physical_plan.execute(0, task_ctx)`.
@@ -724,7 +723,16 @@ pub fn build_task_context(
     on_spill: crate::postgres::customscan::datafusion::spill::SpillNotify,
 ) -> Arc<TaskContext> {
     let memory_pool = create_memory_pool(plan, work_mem_bytes, hash_mem_multiplier);
-    Arc::new(TaskContext::from(ctx).with_runtime(build_runtime_env(memory_pool, on_spill)))
+    let task_ctx = TaskContext::from(ctx).with_runtime(build_runtime_env(memory_pool, on_spill));
+    let inlist_mode = crate::scan::execution_plan::plan_inlist_pushdown_mode(plan);
+    if inlist_mode == crate::gucs::InListPushdownMode::LazySortProbe {
+        let mut cfg = task_ctx.session_config().clone();
+        cfg.options_mut()
+            .optimizer
+            .hash_join_inlist_pushdown_max_distinct_values = inlist_mode.max_distinct_values();
+        return Arc::new(clone_task_context_with_config(&task_ctx, cfg));
+    }
+    Arc::new(task_ctx)
 }
 
 /// Clones `task_ctx` with an updated `SessionConfig`, preserving all function registries

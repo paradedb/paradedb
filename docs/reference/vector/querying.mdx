@@ -5,10 +5,11 @@ canonical: https://www.paradedb.com/docs/reference/vector/querying
 ---
 
 <Note>
-  This is a beta feature available in versions `0.25.0` and above. See [How
-  Vector Search Works](/concepts/vector/overview) for background, and [Indexing
-  Vectors](/reference/indexing/indexing-vectors) to set up the index used in
-  these examples.
+  This is a beta feature available in versions `0.25.0` and above. We strongly
+  recommend `0.27.0` or later for substantial vector search improvements. See
+  [How Vector Search Works](/concepts/vector/overview) for background, and
+  [Indexing Vectors](/reference/indexing/indexing-vectors) to set up the index
+  used in these examples.
 </Note>
 
 Vector search returns the rows whose embeddings are closest to a query vector. In ParadeDB, this is an `ORDER BY <distance> ... LIMIT k` query over a vector column in the ParadeDB index.

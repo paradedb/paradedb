@@ -43,6 +43,7 @@ use crate::postgres::customscan::limit_offset::LimitOffset;
 use anyhow::Result;
 use pgrx::PgList;
 use pgrx::pg_sys;
+use std::sync::Arc;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::bucket::{CustomOrder, OrderTarget, TermsAggregation};
@@ -250,7 +251,7 @@ impl CollectAggregations for AggregateCSClause {
                 aggs.insert(
                     FilterSentinelKey::NAME.to_string(),
                     Aggregation {
-                        agg: new_filter_query(self.quals.query().clone(), self.indexrelid)?.into(),
+                        agg: new_filter_query(&self.quals.query(), self.indexrelid)?.into(),
                         sub_aggregation: term_aggs,
                     },
                 );
@@ -373,7 +374,7 @@ impl AggregateCSClause {
             && !self.orderby.has_orderby()
     }
 
-    pub fn query(&self) -> &SearchQueryInput {
+    pub fn query(&self) -> Arc<SearchQueryInput> {
         self.quals.query()
     }
 
@@ -767,7 +768,7 @@ impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClau
         Ok(self.targetlist.aggregates().map(|agg| {
             agg.filter_expr()
                 .as_ref()
-                .map(|q| new_filter_query(q.clone(), agg.indexrelid()).expect("filter query"))
+                .map(|q| new_filter_query(q, agg.indexrelid()).expect("filter query"))
         }))
     }
 }
@@ -777,9 +778,9 @@ impl CollectFlat<FilterQuery, FiltersWithGroupBy> for AggregateCSClause {
         Ok(self.targetlist.aggregates().map(|agg| {
             let query = match agg.filter_expr() {
                 Some(q) => q.clone(),
-                None => SearchQueryInput::All,
+                None => Arc::new(SearchQueryInput::All),
             };
-            new_filter_query(query, agg.indexrelid()).expect("filter query")
+            new_filter_query(&query, agg.indexrelid()).expect("filter query")
         }))
     }
 }

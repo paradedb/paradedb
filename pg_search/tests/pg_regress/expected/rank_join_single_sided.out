@@ -850,8 +850,8 @@ WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.user_id = ANY(ARRAY[2, 4, 6])
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
-                                                                                                                                                                     QUERY PLAN                                                                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: u INNER p
    Join Cond: u.id = p.user_id
@@ -866,7 +866,7 @@ LIMIT 5;
      :         CooperativeExec
      :           PgSearchScan: table=u, segments=2, lazy_sort=14, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, query={"term_set":{"terms":[{"field":"user_id","value":2},{"field":"user_id","value":4},{"field":"user_id","value":6}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, query={"term_set":{"termset":{"user_id":[2,4,6]}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT u.id AS u_id, p.id AS p_id

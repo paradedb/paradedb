@@ -39,6 +39,7 @@ use crate::postgres::node::NodeExt;
 use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
 use pgrx::{PgList, pg_sys};
+use std::sync::Arc;
 
 /// Recursively transform a PostgreSQL expression tree into a `JoinLevelExpr`.
 ///
@@ -251,7 +252,7 @@ pub unsafe fn extract_single_table_predicate(
         false,
     )?;
 
-    let query = SearchQueryInput::from(&qual);
+    let query = Arc::new(SearchQueryInput::from(&qual));
     Some(crate::postgres::customscan::joinscan::build::JoinLevelSearchPredicate { query })
 }
 

@@ -16,6 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
 
+use std::sync::Arc;
+
 pub use common::api::operator::*;
 
 use crate::FULL_RELATION_SELECTIVITY;
@@ -52,7 +54,7 @@ fn heuristic_selectivity(search_query_input: &SearchQueryInput) -> Option<f64> {
 /// would also fail in the executor, so `None` here doesn't mask a real problem.
 fn open_and_estimate_docs(
     indexrel: &PgSearchRelation,
-    search_query_input: SearchQueryInput,
+    search_query_input: Arc<SearchQueryInput>,
     reader: Option<&SearchIndexReader>,
     vector_field: Option<&FieldName>,
 ) -> Option<(DocsEstimate, usize, Option<VectorFilterStrategy>)> {
@@ -160,7 +162,7 @@ pub struct SelectivityAndCost {
 /// - open failure: `(None, None, None)`.
 pub fn estimate_selectivity_and_cost(
     indexrel: &PgSearchRelation,
-    search_query_input: SearchQueryInput,
+    search_query_input: Arc<SearchQueryInput>,
     reader: Option<&SearchIndexReader>,
     vector_field: Option<&FieldName>,
 ) -> SelectivityAndCost {
@@ -212,7 +214,7 @@ pub fn estimate_selectivity_and_cost(
 /// it is answered without opening the index.
 pub fn estimate_selectivity(
     indexrel: &PgSearchRelation,
-    search_query_input: SearchQueryInput,
+    search_query_input: Arc<SearchQueryInput>,
 ) -> Option<f64> {
     // SAFETY: `indexrel` is an open index; its predicate list comes from the relcache.
     if search_query_input.is_match_all()
@@ -232,7 +234,7 @@ pub fn estimate_selectivity(
 /// expensive-to-estimate query (#4172) over a heap with no `reltuples`.
 pub fn estimate_matching_rows(
     indexrel: &PgSearchRelation,
-    search_query_input: SearchQueryInput,
+    search_query_input: Arc<SearchQueryInput>,
     reader: Option<&SearchIndexReader>,
 ) -> Option<u64> {
     if let Some(selectivity) = heuristic_selectivity(&search_query_input) {
@@ -250,7 +252,7 @@ pub fn estimate_matching_rows(
 /// Returns `None` if the index cannot be opened, or an expensive query has no row estimate.
 pub fn estimate_query_cost(
     indexrel: &PgSearchRelation,
-    search_query_input: SearchQueryInput,
+    search_query_input: Arc<SearchQueryInput>,
 ) -> Option<u64> {
     estimate_selectivity_and_cost(indexrel, search_query_input, None, None).query_cost
 }

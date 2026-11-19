@@ -74,7 +74,7 @@ jobs:
       LOAD_CONFIG: ${{ matrix.engine == 'pg_vectorsearch' && '../benchmarks/msmarco/pg_vectorsearch/load.yaml' || format('configs/load/msmarco-113m-{0}.yaml', matrix.engine == 'pg_search' && 'paradedb' || matrix.engine) }}
       RESULTS_DATASET: ${{ matrix.engine == 'pg_search' && 'msmarco-113m' || format('msmarco-113m-{0}{1}', matrix.engine, matrix.engine == 'vectorchord' && matrix.prefilter == 'on' && '-prefilter' || '') }}-8cpu-32gb
       VECTORCHORD_REF: f9b5e234c44cee69b266b8431f92b7deed4e99d3
-      PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
+      PG_VECTORSEARCH_REF: 93567fd1a10096a28f11a247151fe5acae8ee2d9
 
     steps:
       - name: Remove Benchmark Label
@@ -135,7 +135,7 @@ jobs:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           owner: paradedb
-          repositories: ${{ matrix.engine == 'pg_vectorsearch' && 'pdbench,pg_vectorsearch' || 'pdbench' }}
+          repositories: pdbench
           permission-contents: read
 
       - name: Checkout pdbench
@@ -165,7 +165,6 @@ jobs:
         uses: ./.github/actions/setup-pg-vectorsearch
         with:
           ref: ${{ env.PG_VECTORSEARCH_REF }}
-          github_token: ${{ steps.pdbench_token.outputs.token }}
 
       - name: Set Up VectorChord
         if: matrix.engine == 'vectorchord'
@@ -329,7 +328,7 @@ jobs:
 
           Engine: \`$BENCHMARK_ENGINE\`. Uses heap backup \`20261102-224214F\` and the same 100 held-out query vectors for all engines. Each engine runs on its own runner, with a 8-CPU / 32-GiB database container with 16 GiB shared memory, 8 GiB shared buffers, 8 GiB maintenance_work_mem, 24 GiB effective_cache_size, and 256 MiB work_mem.
 
-          ParadeDB uses eight index segments, a 0.32 training sample ratio, quantized routing, and adaptive probing. Its integer max_probe sweep starts at 100 and searches 1–100000. pg_vectorsearch at paradedb/pg_vectorsearch commit \`$PG_VECTORSEARCH_REF\` includes the parallel-build detoast memory fix and uses PRISM with automatic nlist and an integer prism.nprobe sweep starting at 64, searching 1–4096. VectorChord 1.1.1 uses the pdbench load profile (100,000 lists, residual quantization, spherical centroids, build.pin=2, hierarchical k-means in 100 dimensions, sampling factor 64, and eight build threads) and sweeps vchordrq.probes from 1–100000, starting at 100. Settings are selected independently for top-10 and top-100 at R90/R95/R99.
+          ParadeDB uses eight index segments, a 0.32 training sample ratio, quantized routing, and adaptive probing. Its integer max_probe sweep starts at 100 and searches 1–100000. pg_vectorsearch at timescale/pg_vectorsearch commit \`$PG_VECTORSEARCH_REF\` includes the parallel-build detoast memory fix and uses PRISM with automatic nlist and an integer prism.nprobe sweep starting at 64, searching 1–4096. VectorChord 1.1.1 uses the pdbench load profile (100,000 lists, residual quantization, spherical centroids, build.pin=2, hierarchical k-means in 100 dimensions, sampling factor 64, and eight build threads) and sweeps vchordrq.probes from 1–100000, starting at 100. Settings are selected independently for top-10 and top-100 at R90/R95/R99.
 
           VectorChord prefilter setting: \`$VECTORCHORD_PREFILTER\`. MS MARCO queries have no scalar filter in either mode.
 

@@ -1,0 +1,33 @@
+name: Check Rust Dependencies
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".cargo/audit.toml"
+      - ".github/workflows/check-rust-dependencies.yml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+  schedule:
+    - cron: "31 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit Cargo Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install cargo-audit
+        run: cargo install -j $(nproc) cargo-audit --locked --debug
+
+      # Ignores are documented in .cargo/audit.toml.
+      - name: Run cargo-audit
+        run: cargo audit
+
+      # If you encounter an error, try running 'taplo format' to fix the formatting automatically.

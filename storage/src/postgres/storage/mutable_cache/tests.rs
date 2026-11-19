@@ -17,18 +17,21 @@
 
 #[pgrx::pg_schema]
 mod tests {
+    use std::ffi::CStr;
+    use std::panic::AssertUnwindSafe;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-    use pgrx::pg_sys;
     use pgrx::prelude::*;
+    use pgrx::{PgTryBuilder, pg_sys};
     use tantivy::Directory;
     use tantivy::directory::RamDirectory;
     use tantivy::index::SegmentId;
 
     use super::super::directory::SharedMemoryDirectory;
     use super::super::pack::{PACKED_MAGIC, pack_segment, unpack_toc};
+    use super::super::slab_pool::DEFAULT_BASE_SHIFT;
     use super::super::*;
     use crate::postgres::storage::block::{
         MutableSegmentBound, SegmentMetaEntry, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
@@ -252,6 +255,83 @@ mod tests {
         header.arena_capacity = arena_capacity;
         (*header.slab_pool.get()).init(arena_capacity as usize);
         header
+    }
+
+    static FALLBACK_WARNING_SEEN: AtomicBool = AtomicBool::new(false);
+    static FALLBACK_WARNING_HELD_LOCK: AtomicBool = AtomicBool::new(false);
+
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn check_fallback_warning_lock(error: *mut pg_sys::ErrorData) {
+        let message = unsafe { CStr::from_ptr((*error).message) };
+        if message
+            .to_bytes()
+            .starts_with(b"pg_search: mutable segment cache")
+        {
+            FALLBACK_WARNING_SEEN.store(true, Ordering::Relaxed);
+            let lock = unsafe {
+                pg_sys::GetNamedLWLockTranche(c"pg_search_mutable_cache".as_ptr())
+                    as *mut pg_sys::LWLock
+            };
+            FALLBACK_WARNING_HELD_LOCK
+                .fetch_or(unsafe { pg_sys::LWLockHeldByMe(lock) }, Ordering::Relaxed);
+        }
+    }
+
+    #[pg_test]
+    unsafe fn test_cache_fallback_warnings_release_lock() {
+        const ARENA_CAPACITY: u32 = 1 << DEFAULT_BASE_SHIFT;
+        Spi::run("SET LOCAL log_min_messages = WARNING").unwrap();
+        for full_slots in [false, true] {
+            let mut header = Box::new(unsafe { test_header(ARENA_CAPACITY) });
+            let lock = unsafe {
+                LWLock::from_raw(
+                    pg_sys::GetNamedLWLockTranche(c"pg_search_mutable_cache".as_ptr())
+                        as *mut pg_sys::LWLock,
+                )
+            };
+            unsafe { MutableCacheHeader::init_raw(&mut *header, lock, ARENA_CAPACITY) };
+            if full_slots {
+                for slot in unsafe { &mut *header.slots.get() } {
+                    slot.set_state(SlotState::Ready);
+                    slot.active_readers.store(1, Ordering::Relaxed);
+                }
+            } else {
+                unsafe { &mut *header.slab_pool.get() }
+                    .allocate(ARENA_CAPACITY as usize)
+                    .unwrap();
+            }
+            let previous_cache = MUTABLE_CACHE.swap(&mut *header, Ordering::AcqRel);
+            let previous_hook = unsafe { pg_sys::emit_log_hook };
+            FALLBACK_WARNING_SEEN.store(false, Ordering::Relaxed);
+            FALLBACK_WARNING_HELD_LOCK.store(false, Ordering::Relaxed);
+            unsafe { pg_sys::emit_log_hook = Some(check_fallback_warning_lock) };
+            PgTryBuilder::new(AssertUnwindSafe(|| {
+                let key = lifecycle_key(0);
+                let path = PathBuf::from(format!(
+                    "{}.fast",
+                    SegmentId::from_bytes(key.segment_id).uuid_string()
+                ));
+                let directory = get_or_build(&key, || {
+                    let directory = RamDirectory::default();
+                    directory.atomic_write(&path, &[1, 2, 3])?;
+                    Ok(directory)
+                })
+                .unwrap();
+                assert_eq!(directory.atomic_read(&path).unwrap(), [1, 2, 3]);
+                assert!(
+                    unsafe { &*header.inflight_builds.get() }
+                        .iter()
+                        .all(InflightBuild::is_empty)
+                );
+            }))
+            .finally(|| unsafe {
+                pg_sys::emit_log_hook = previous_hook;
+                MUTABLE_CACHE.store(previous_cache, Ordering::Release);
+            })
+            .execute();
+            assert!(FALLBACK_WARNING_SEEN.load(Ordering::Relaxed));
+            assert!(!FALLBACK_WARNING_HELD_LOCK.load(Ordering::Relaxed));
+        }
     }
 
     #[pg_test]

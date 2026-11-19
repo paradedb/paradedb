@@ -58,6 +58,7 @@ use crate::postgres::utils::{missing_partial_index_predicate, strip_wrappers};
 use crate::postgres::var::strip_identity_wrappers;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
+use std::sync::Arc;
 
 use pgrx::{PgList, pg_sys};
 
@@ -195,7 +196,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
                 true,
             )?;
             optimize_quals_with_heap_expr(&mut qual);
-            let query = SearchQueryInput::from(&qual);
+            let query = Arc::new(SearchQueryInput::from(&qual));
             side_info = side_info.with_query(query);
             if state.uses_our_operator {
                 side_info = side_info.with_search_predicate();

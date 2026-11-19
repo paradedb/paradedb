@@ -88,6 +88,7 @@ use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Feature flags for window functions.
 ///
@@ -286,7 +287,7 @@ unsafe fn convert_window_func_to_aggregate_type(
 
     // Extract FILTER clause if present
     let filter = if !(*window_agg).aggfilter.is_null() {
-        convert_filter_expr_to_search_query((*window_agg).aggfilter)
+        convert_filter_expr_to_search_query((*window_agg).aggfilter).map(Arc::new)
     } else {
         None
     };

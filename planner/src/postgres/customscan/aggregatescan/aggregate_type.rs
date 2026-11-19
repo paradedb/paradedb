@@ -16,6 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
 
+use std::sync::Arc;
+
 use crate::api::{
     CTID_FIELD_NAME, FieldName, HashSet, MvccVisibility, is_agg_funcoid, pdb_agg_spec,
 };
@@ -56,13 +58,13 @@ use tantivy::aggregation::metric::{
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
     CountAny {
-        filter: Option<SearchQueryInput>,
+        filter: Option<Arc<SearchQueryInput>>,
         indexrelid: pg_sys::Oid,
     },
     Count {
         field: String,
         missing: Option<f64>,
-        filter: Option<SearchQueryInput>,
+        filter: Option<Arc<SearchQueryInput>>,
         indexrelid: pg_sys::Oid,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         group_key: Option<usize>,
@@ -70,30 +72,30 @@ pub enum AggregateType {
     Sum {
         field: String,
         missing: Option<f64>,
-        filter: Option<SearchQueryInput>,
+        filter: Option<Arc<SearchQueryInput>>,
         indexrelid: pg_sys::Oid,
     },
     Avg {
         field: String,
         missing: Option<f64>,
-        filter: Option<SearchQueryInput>,
+        filter: Option<Arc<SearchQueryInput>>,
         indexrelid: pg_sys::Oid,
     },
     Min {
         field: String,
         missing: Option<f64>,
-        filter: Option<SearchQueryInput>,
+        filter: Option<Arc<SearchQueryInput>>,
         indexrelid: pg_sys::Oid,
     },
     Max {
         field: String,
         missing: Option<f64>,
-        filter: Option<SearchQueryInput>,
+        filter: Option<Arc<SearchQueryInput>>,
         indexrelid: pg_sys::Oid,
     },
     Custom {
         agg_json: serde_json::Value,
-        filter: Option<SearchQueryInput>,
+        filter: Option<Arc<SearchQueryInput>>,
         indexrelid: pg_sys::Oid,
         mvcc_visibility: MvccVisibility,
     },
@@ -176,7 +178,7 @@ impl AggregateType {
                 "aggregate FILTER has a predicate that must be evaluated after row-level security policies"
             );
         }
-        let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
+        let filter_query = filter_expr.map(|qual| Arc::new(SearchQueryInput::from(&qual)));
 
         // Check for pdb.agg() custom aggregate (any overload)
         if is_agg_funcoid(aggfnoid) {
@@ -268,7 +270,7 @@ impl AggregateType {
         aggfnoid: u32,
         field: FieldName,
         missing: Option<f64>,
-        filter: Option<SearchQueryInput>,
+        filter: Option<Arc<SearchQueryInput>>,
         indexrelid: pg_sys::Oid,
     ) -> Option<Self> {
         let field = field.into_inner();
@@ -419,27 +421,27 @@ impl AggregateType {
     }
 
     /// Get the filter expression if present
-    pub fn filter_expr(&self) -> &Option<SearchQueryInput> {
+    pub fn filter_expr(&self) -> Option<Arc<SearchQueryInput>> {
         match self {
-            AggregateType::CountAny { filter, .. } => filter,
-            AggregateType::Count { filter, .. } => filter,
-            AggregateType::Sum { filter, .. } => filter,
-            AggregateType::Avg { filter, .. } => filter,
-            AggregateType::Min { filter, .. } => filter,
-            AggregateType::Max { filter, .. } => filter,
-            AggregateType::Custom { filter, .. } => filter,
+            AggregateType::CountAny { filter, .. } => filter.clone(),
+            AggregateType::Count { filter, .. } => filter.clone(),
+            AggregateType::Sum { filter, .. } => filter.clone(),
+            AggregateType::Avg { filter, .. } => filter.clone(),
+            AggregateType::Min { filter, .. } => filter.clone(),
+            AggregateType::Max { filter, .. } => filter.clone(),
+            AggregateType::Custom { filter, .. } => filter.clone(),
         }
     }
 
-    pub fn filter_expr_mut(&mut self) -> &mut Option<SearchQueryInput> {
+    pub fn filter_expr_mut(&mut self) -> Option<&mut SearchQueryInput> {
         match self {
-            AggregateType::CountAny { filter, .. } => filter,
-            AggregateType::Count { filter, .. } => filter,
-            AggregateType::Sum { filter, .. } => filter,
-            AggregateType::Avg { filter, .. } => filter,
-            AggregateType::Min { filter, .. } => filter,
-            AggregateType::Max { filter, .. } => filter,
-            AggregateType::Custom { filter, .. } => filter,
+            AggregateType::CountAny { filter, .. } => filter.as_mut().map(Arc::make_mut),
+            AggregateType::Count { filter, .. } => filter.as_mut().map(Arc::make_mut),
+            AggregateType::Sum { filter, .. } => filter.as_mut().map(Arc::make_mut),
+            AggregateType::Avg { filter, .. } => filter.as_mut().map(Arc::make_mut),
+            AggregateType::Min { filter, .. } => filter.as_mut().map(Arc::make_mut),
+            AggregateType::Max { filter, .. } => filter.as_mut().map(Arc::make_mut),
+            AggregateType::Custom { filter, .. } => filter.as_mut().map(Arc::make_mut),
         }
     }
 

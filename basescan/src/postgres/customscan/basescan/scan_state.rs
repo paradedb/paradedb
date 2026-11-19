@@ -79,8 +79,8 @@ pub struct BaseScanState {
     pub planning_rti: pg_sys::Index,
     pub execution_rti: pg_sys::Index,
 
-    base_search_query_input: SearchQueryInput,
-    search_query_input: SearchQueryInput,
+    base_search_query_input: Arc<SearchQueryInput>,
+    search_query_input: Arc<SearchQueryInput>,
     /// Where `search_query_input` is solved; `None` when the base query has nothing to solve.
     /// Separate from `ps_ExprContext`, which `exec_custom_scan` resets per row: see the rules in
     /// `solve_expr.rs`.
@@ -132,7 +132,7 @@ pub struct BaseScanState {
     pub placeholders: Option<BasePlaceholders>,
 
     // Store join-level search predicates for enhanced scoring/snippet generation
-    pub join_predicates: Option<SearchQueryInput>,
+    pub join_predicates: Option<Arc<SearchQueryInput>>,
 
     pub exec_method_type: ExecMethodType,
     pub ambulkdelete_epoch: u32,
@@ -195,20 +195,20 @@ impl BaseScanState {
         };
     }
 
-    pub fn set_base_search_query_input(&mut self, input: SearchQueryInput) {
+    pub fn set_base_search_query_input(&mut self, input: Arc<SearchQueryInput>) {
         self.base_search_query_input = input;
     }
 
-    pub fn search_query_input(&self) -> &SearchQueryInput {
-        if matches!(self.search_query_input, SearchQueryInput::Uninitialized) {
+    pub fn search_query_input(&self) -> Arc<SearchQueryInput> {
+        if matches!(*self.search_query_input, SearchQueryInput::Uninitialized) {
             panic!("search_query_input should be initialized");
         }
-        &self.search_query_input
+        self.search_query_input.clone()
     }
 
     /// Get the original base search query input before any modifications
-    pub fn base_search_query_input(&self) -> &SearchQueryInput {
-        &self.base_search_query_input
+    pub fn base_search_query_input(&self) -> Arc<SearchQueryInput> {
+        self.base_search_query_input.clone()
     }
 
     /// Drop the active search results (whose scorers hold bitmap cursors),
@@ -690,12 +690,11 @@ impl SolvePostgresExpressions for BaseScanState {
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        self.search_query_input.init_postgres_expressions(planstate);
+        Arc::make_mut(&mut self.search_query_input).init_postgres_expressions(planstate);
     }
 
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        self.search_query_input
-            .solve_postgres_expressions(expr_context);
+        Arc::make_mut(&mut self.search_query_input).solve_postgres_expressions(expr_context);
     }
 
     /// Install the late-bound source cell. Workers attach the published claim
@@ -724,7 +723,7 @@ impl SolvePostgresExpressions for BaseScanState {
     }
 
     fn attach_bitmap_cell(&mut self, cell: &BitmapCell) {
-        self.search_query_input.attach_bitmap_cell(cell);
+        Arc::make_mut(&mut self.search_query_input).attach_bitmap_cell(cell);
     }
 }
 

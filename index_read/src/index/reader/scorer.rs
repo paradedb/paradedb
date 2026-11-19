@@ -35,14 +35,14 @@ pub mod test_support {
 /// segments² dictionary lookups per query, which dominates scored scans on
 /// many-segment indexes.
 pub struct LazyWeight {
-    query: Box<dyn Query>,
+    query: Arc<dyn Query>,
     need_scores: bool,
     searcher: Searcher,
     weight: OnceLock<Box<dyn Weight>>,
 }
 
 impl LazyWeight {
-    pub fn new(query: Box<dyn Query>, need_scores: bool, searcher: Searcher) -> Self {
+    pub fn new(query: Arc<dyn Query>, need_scores: bool, searcher: Searcher) -> Self {
         Self {
             query,
             need_scores,
@@ -55,7 +55,7 @@ impl LazyWeight {
     /// Each segment still receives its own scorer.
     pub(super) fn and_query(self: &Arc<Self>, query: Box<dyn Query>) -> Self {
         Self::new(
-            Box::new(BooleanQuery::new(vec![
+            Arc::new(BooleanQuery::new(vec![
                 (Occur::Must, self.query.box_clone()),
                 (Occur::Must, query),
             ])),

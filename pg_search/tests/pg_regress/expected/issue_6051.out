@@ -367,8 +367,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, amt_78 FROM amounts
 WHERE discarded_at IS NULL AND id @@@ paradedb.all() AND amt_78 IN (-49999, -49990, 5)
 ORDER BY id;
-                                                                                                  QUERY PLAN                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, amt_78
    Sort Key: amounts.id
@@ -380,7 +380,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: amt_78, id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"amt_78","value":"-49999"},{"field":"amt_78","value":"-49990"},{"field":"amt_78","value":"5"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"termset":{"amt_78":["-49999","-49990","5"]}}}]}}
 (12 rows)
 
 SELECT id, amt_78 FROM amounts
@@ -445,8 +445,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM prices
 WHERE id @@@ paradedb.all() AND price IN (1.23, 4.56, -1.23)
 ORDER BY id;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price
    Sort Key: prices.id
@@ -458,7 +458,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id, price
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"price","value":"1.23"},{"field":"price","value":"4.56"},{"field":"price","value":"-1.23"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"termset":{"price":["1.23","4.56","-1.23"]}}}]}}
 (12 rows)
 
 SELECT id, price FROM prices

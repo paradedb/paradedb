@@ -1,5 +1,0 @@
----
-header: stability
----
-
-- `pdb.agg()` over a join now reads a column indexed inside a composite type, such as `ROW(category)::item_fields`, instead of failing with `Field 'category' is an expression index, which cannot be read back as a column`.

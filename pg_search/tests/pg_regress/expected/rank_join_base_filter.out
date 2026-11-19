@@ -206,9 +206,9 @@ $$);
      :     VisibilityFilterExec: tables=[j, c]
      :       RankJoinExec: mode=CollectLeft, on=[(id@2, client_id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@3, ctid_0@4, id@6, pdb.score(c)@0, ctid_1@1, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=c, segments=1, lazy_sort=22, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=j, segments=1, lazy_sort=26, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
@@ -247,7 +247,7 @@ $$);
      :     VisibilityFilterExec: tables=[j, c]
      :       RankJoinExec: mode=CollectLeft, on=[(id@2, client_id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@3, ctid_0@4, id@6, pdb.score(c)@0, ctid_1@1, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=c, segments=1, lazy_sort=26, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
      :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"term_set":{"terms":[{"field":"division","value":2}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
@@ -381,7 +381,7 @@ $$);
      :     VisibilityFilterExec: tables=[j, c]
      :       RankJoinExec: mode=CollectLeft, on=[(id@2, client_id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@3, ctid_0@4, id@6, pdb.score(c)@0, ctid_1@1, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=c, segments=1, lazy_sort=26, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
      :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"const_score":{"query":{"term":{"field":"division","value":1}},"score":0.0}}}},{"with_index":{"query":{"const_score":{"query":{"term_set":{"field":"client_id","terms":[1,3]}},"score":0.0}}}}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
@@ -474,7 +474,7 @@ $$);
      :         CooperativeExec
      :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"term":{"field":"division","value":2}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=c, segments=1, lazy_sort=40, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
@@ -694,7 +694,7 @@ $$);
      :         CooperativeExec
      :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"with_index":{"query":{"range":{"field":"division","lower_bound":{"included":2},"upper_bound":{"excluded":3}}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=c, segments=1, lazy_sort=40, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
@@ -902,7 +902,7 @@ $$);
      :     VisibilityFilterExec: tables=[j, c]
      :       RankJoinExec: mode=CollectLeft, on=[(id@2, client_id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@3, ctid_0@4, id@6, pdb.score(c)@0, ctid_1@1, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=c, segments=1, lazy_sort=32, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
      :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"boolean":{"should":[{"const_score":{"query":{"term":{"field":"division","value":1}},"score":0.0}},{"const_score":{"query":{"term":{"field":"client_id","value":3}},"score":0.0}}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
@@ -968,9 +968,9 @@ $$);
      :     VisibilityFilterExec: tables=[j, c]
      :       RankJoinExec: mode=CollectLeft, on=[(id@2, client_id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@3, ctid_0@4, id@6, pdb.score(c)@0, ctid_1@1, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=c, segments=1, lazy_sort=22, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=j, segments=1, lazy_sort=26, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT j.id AS job, c.id AS client
@@ -1048,8 +1048,8 @@ $$);
      :   │         t0: PgSearchScan: table=c, segments={partial=1, included=1, pruned=1}, partition=id[-∞..127), lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :   │         t1: PgSearchScan: table=c, segments={partial=1, included=1, pruned=1}, partition=id[127..∞), lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=j, segments={partial=1, included=1, pruned=1}, partition=client_id[-∞..127), lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-     :   │         t1: PgSearchScan: table=j, segments={partial=1, included=1, pruned=1}, partition=client_id[127..∞), lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :   │         t0: PgSearchScan: table=j, segments={partial=1, included=1, pruned=1}, partition=client_id[-∞..127), lazy_sort=21, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :   │         t1: PgSearchScan: table=j, segments={partial=1, included=1, pruned=1}, partition=client_id[127..∞), lazy_sort=21, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :   └──────────────────────────────────────────────────
 (23 rows)
 

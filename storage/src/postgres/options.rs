@@ -36,7 +36,6 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
-use tantivy::vector::clustering;
 use tokenizers::SearchTokenizer;
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
@@ -77,7 +76,8 @@ pub const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
 pub const DEFAULT_TARGET_LEAF_SIZE: i32 = 400;
-pub const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = clustering::DEFAULT_TRAINING_SAMPLE_RATIO;
+/// `0` chooses the training sample from `target_leaf_size` and `maintenance_work_mem`.
+pub const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = 0.0;
 /// Default `replication`: every vector of a quantized IVF field in two clusters.
 pub const DEFAULT_REPLICATION: i32 = 2;
 /// Largest `replication` the IVF writer supports.
@@ -425,6 +425,13 @@ struct LazyInfo {
     synonym_rule_field: Rc<RefCell<Option<Option<FieldName>>>>,
 }
 
+/// Identifies a PostgreSQL heap column (`(relid, attnum)`) in `pg_statistic`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HeapStatTarget {
+    pub relid: pg_sys::Oid,
+    pub attnum: pg_sys::AttrNumber,
+}
+
 #[derive(Clone, Debug)]
 pub struct BM25IndexOptions {
     indexrel: pg_sys::Relation,
@@ -496,8 +503,9 @@ impl BM25IndexOptions {
         self.options_data().target_leaf_size()
     }
 
-    /// Returns the fraction of vectors sampled for IVF training.
-    pub fn training_sample_ratio(&self) -> f32 {
+    /// Configured `training_sample_ratio`: `None` when `0` (automatic), or `Some(ratio)` when
+    /// explicitly set above `0`.
+    pub fn training_sample_ratio(&self) -> Option<f32> {
         self.options_data().training_sample_ratio()
     }
 
@@ -554,6 +562,20 @@ impl BM25IndexOptions {
             })
             .map(|(name, _)| name.clone())
             .collect()
+    }
+
+    /// Returns the OID of the heap relation indexed by this BM25 index, when backed by a live
+    /// PostgreSQL index relation.
+    pub(crate) fn heap_relid(&self) -> Option<pg_sys::Oid> {
+        if self.indexrel.is_null() {
+            return None;
+        }
+        let rd_index = unsafe { (*self.indexrel).rd_index };
+        if rd_index.is_null() {
+            return None;
+        }
+        let relid = unsafe { (*rd_index).indrelid };
+        (relid != pg_sys::InvalidOid).then_some(relid)
     }
 
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
@@ -961,9 +983,10 @@ impl BM25IndexOptionsData {
         self.target_leaf_size as usize
     }
 
-    /// Returns the fraction of vectors sampled for IVF training.
-    pub fn training_sample_ratio(&self) -> f32 {
-        self.training_sample_ratio as f32
+    /// Returns the explicit fraction of vectors sampled for IVF training, or `None` when `0`
+    /// selects automatic sizing.
+    pub fn training_sample_ratio(&self) -> Option<f32> {
+        (self.training_sample_ratio > 0.0).then_some(self.training_sample_ratio as f32)
     }
 
     /// Returns the sort_by configuration.
@@ -1238,9 +1261,9 @@ pub unsafe fn init() {
     pg_sys::add_real_reloption(
         RELOPT_KIND_PDB,
         "training_sample_ratio".as_pg_cstr(),
-        "Fraction of vectors sampled for IVF clustering at index build time".as_pg_cstr(),
+        "Fraction of vectors sampled for IVF training. 0 chooses it from target_leaf_size and maintenance_work_mem".as_pg_cstr(),
         DEFAULT_TRAINING_SAMPLE_RATIO,
-        0.000001,
+        0.0,
         1.0,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );

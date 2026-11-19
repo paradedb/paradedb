@@ -29,8 +29,8 @@
 //! file descriptors created by a query leader after `fork()` are not present in worker FD tables.
 //! Allocating a small pool of non-blocking wakeup descriptors in `_PG_init` before `postmaster`
 //! forks any children gives every backend and parallel worker an inherited table of cross-process
-//! wakeup FDs. Because every MPP query requires at least 2 parallel workers plus 1 leader, at most
-//! `1.5 * max_worker_processes` processes can ever participate in MPP queries concurrently across
+//! wakeup FDs. Because every MPP query launches at least 1 parallel worker plus 1 leader, at most
+//! `2 * max_worker_processes` processes can ever participate in MPP queries concurrently across
 //! the cluster; sizing the inherited pool to `2 * max_worker_processes` keeps the inherited FD
 //! count small and independent of `MaxConnections` and `autovacuum_worker_slots`.
 //!
@@ -41,8 +41,9 @@
 //!
 //! Why `WakeupDispatcher` fans out to `AtomicWaker`s:
 //! `tokio::io::unix::AsyncFd::poll_read_ready` stores only a single reader `Waker` (each call
-//! overwrites the previous waker). A process participating in an MPP query has `W` concurrent
-//! HTTP/2 connections (`2 * W` SPSC rings, each polling `poll_read` and `poll_write`
+//! overwrites the previous waker). A process participating in an MPP query with `W` background
+//! workers has up to `2 * W` concurrent HTTP/2 connections (`W` outbound client and up to `W`
+//! inbound server connections = up to `4 * W` SPSC rings, each polling `poll_read` and `poll_write`
 //! independently). Polling `AsyncFd` from one dedicated background task and fanning out to
 //! per-ring `AtomicWaker`s prevents waker overwrites across rings and connections.
 
@@ -260,8 +261,8 @@ fn allocate_shared_owners(len: usize) -> Option<*mut AtomicI32> {
 /// backends.
 ///
 /// Sized from `2 * max_worker_processes` (floored at `DEFAULT_POOL_SIZE = 32`) and capped so the
-/// inherited descriptors stay well below `max_files_per_process`. Because every MPP query requires
-/// at least 2 parallel workers + 1 leader, at most `1.5 * max_worker_processes` processes can ever
+/// inherited descriptors stay well below `max_files_per_process`. Because every MPP query launches
+/// at least 1 parallel worker + 1 leader, at most `2 * max_worker_processes` processes can ever
 /// participate in MPP concurrently, so `2 * max_worker_processes` can always saturate
 /// `max_parallel_workers` without scaling with `MaxConnections` or `autovacuum_worker_slots`.
 pub fn init_wakeup_pool() {

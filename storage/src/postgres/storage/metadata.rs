@@ -307,8 +307,8 @@ impl MetaPage {
         }
     }
 
-    /// Returns `None` if VACUUM blocks merge admission, so the sweep can try other indexes.
-    pub fn try_pin_merge(&self) -> Option<MergePins> {
+    /// Returns `None` if VACUUM blocks merge admission.
+    fn try_pin_merge(&self) -> Option<MergePins> {
         unsafe {
             let relation = self.bman.buffer_access().rel().as_ptr();
             let blockno = self.cleanup_lock_blockno();
@@ -320,6 +320,12 @@ impl MetaPage {
             pg_sys::UnlockPage(relation, blockno, mode);
             Some(pins)
         }
+    }
+
+    pub unsafe fn try_pin_and_lock_merge(&self) -> Option<(MergePins, MergeLock)> {
+        let pins = self.try_pin_merge()?;
+        let lock = MergeLock::try_acquire(self.bman.buffer_access().rel(), self.data.merge_lock)?;
+        Some((pins, lock))
     }
 
     pub fn vacuum_list(&self) -> VacuumList {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795088473373,
+  "lastUpdate": 1795092202753,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -38327,6 +38327,104 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14426915765-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b5bcbdc60d804e0e72d012a19286382890acb2e",
+          "message": "fix: print the synonym indexes of a join in `EXPLAIN` (#7540)\n\n## Ticket(s) Closed\n\nN/A\n\n## What\n\nThis PR adds the `Synonyms` line to the `EXPLAIN` of a join.\n\n## Why\n\nA Base Scan and an Aggregate Scan on one table print the synonym indexes\nthat a `pdb.expand` query reads. A Join Scan and an Aggregate Scan over\na join printed the query with no index.\n\n## How\n\n- `Explainer::add_synonym_indexes` takes several queries and prints one\nline.\n- The Join Scan and the DataFusion branch of the Aggregate Scan call it\nwith the queries of their sources and of their join-level predicates.\n\n## Tests\n\n- `synonym_expansion.sql`",
+          "timestamp": "2026-11-19T07:44:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b5bcbdc60d804e0e72d012a19286382890acb2e"
+        },
+        "date": 1795092201421,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.288,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.636,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 11.179,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.554,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.008,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 5.958,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 7.859,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 8.329,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.884,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.502,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 8.143,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.457,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.887,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.096,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.961,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14528605383-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [
@@ -44876,6 +44974,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14426915765-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b5bcbdc60d804e0e72d012a19286382890acb2e",
+          "message": "fix: print the synonym indexes of a join in `EXPLAIN` (#7540)\n\n## Ticket(s) Closed\n\nN/A\n\n## What\n\nThis PR adds the `Synonyms` line to the `EXPLAIN` of a join.\n\n## Why\n\nA Base Scan and an Aggregate Scan on one table print the synonym indexes\nthat a `pdb.expand` query reads. A Join Scan and an Aggregate Scan over\na join printed the query with no index.\n\n## How\n\n- `Explainer::add_synonym_indexes` takes several queries and prints one\nline.\n- The Join Scan and the DataFusion branch of the Aggregate Scan call it\nwith the queries of their sources and of their join-level predicates.\n\n## Tests\n\n- `synonym_expansion.sql`",
+          "timestamp": "2026-11-19T07:44:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b5bcbdc60d804e0e72d012a19286382890acb2e"
+        },
+        "date": 1795092202738,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 542.107936654997,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 503.0026624172631,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 124.84547243946335,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 234.96754713045328,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 372.30896912827944,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14528605383-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

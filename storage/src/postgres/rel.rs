@@ -26,6 +26,7 @@ use crate::index::synonym_index::{
     validate_synonym_index,
 };
 use crate::postgres::catalog::OidExt;
+use crate::postgres::index::is_partitioned_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::FieldSource;
@@ -54,6 +55,48 @@ enum IndexType {
 
 /// High enough that the planner picks any other path for a query on a synonym index's table.
 const SYNONYM_INDEX_SCAN_COST: f64 = 1.0e10;
+
+/// Whether an index may serve after a promotion, as cached in [`AmCache`]. `Unknown` is zero
+/// because the cache is allocated zeroed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PromotionState {
+    Unknown = 0,
+    Serving,
+    Blocked,
+}
+
+/// `amcanreturn`'s answer per index attribute, as cached in [`AmCache`]. `Unknown` is zero
+/// because the cache is allocated zeroed.
+#[derive(Debug, Clone, Copy)]
+#[repr(C, u8)]
+pub enum Returnable {
+    Unknown = 0,
+    Known([bool; pg_sys::INDEX_MAX_KEYS as usize]),
+}
+
+/// Per-relation cache behind `rd_amcache`, which PostgreSQL frees on any relcache reset, so a
+/// `REINDEX` starts it over. Created only by [`AmCache::get`], zeroed.
+#[repr(C)]
+pub struct AmCache {
+    pub promotion: PromotionState,
+    pub returnable: Returnable,
+}
+
+impl AmCache {
+    /// The index's cache, allocated zeroed in `rd_indexcxt` on first use. A relcache reset
+    /// frees it, so callers read or write through the pointer at once and never hold it across
+    /// a call that could process invalidations.
+    pub unsafe fn get(indexrel: pg_sys::Relation) -> *mut Self {
+        if (*indexrel).rd_amcache.is_null() {
+            (*indexrel).rd_amcache = pg_sys::MemoryContextAllocZero(
+                (*indexrel).rd_indexcxt,
+                std::mem::size_of::<Self>(),
+            );
+        }
+        (*indexrel).rd_amcache.cast::<Self>()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum SchemaError {
@@ -425,6 +468,47 @@ impl PgSearchRelation {
             .into_iter()
     }
 
+    /// True when this index must not serve queries: its taint page carries the flag that a
+    /// standby's WAL replay set when the primary named the index in its rmgr record. Only
+    /// `REINDEX` clears it, by starting a fresh file. Always false while the server is in
+    /// recovery, where the standby read gate applies instead, and for a partitioned index, which
+    /// has no pages; each leaf answers for itself when it is scanned.
+    pub fn blocked_after_promotion(&self) -> bool {
+        if unsafe { pg_sys::RecoveryInProgress() } || is_partitioned_index(self.oid()) {
+            return false;
+        }
+        // Recovery is over, so the answer cannot change for this index file.
+        match unsafe { (*AmCache::get(self.as_ptr())).promotion } {
+            PromotionState::Serving => false,
+            PromotionState::Blocked => true,
+            PromotionState::Unknown => {
+                let blocked = MetaPage::open(self).standby_tainted();
+                unsafe {
+                    (*AmCache::get(self.as_ptr())).promotion = if blocked {
+                        PromotionState::Blocked
+                    } else {
+                        PromotionState::Serving
+                    };
+                }
+                blocked
+            }
+        }
+    }
+
+    /// The error a blocked index raises, with the `REINDEX` hint.
+    pub fn report_blocked_after_promotion(&self) -> ! {
+        crate::postgres::utils::report_community_limit(
+            format!(
+                "index \"{}\" was replicated from another server and this server has since been promoted; failover is supported on ParadeDB Enterprise, not ParadeDB Community",
+                self.name()
+            ),
+            Some(format!(
+                "Run `REINDEX INDEX {}` to rebuild the index on this server.",
+                pgrx::spi::quote_qualified_identifier(self.namespace(), self.name())
+            )),
+        )
+    }
+
     /// Zero-based heap attributes that a single-column unique index proves unique. The
     /// filter is the one `relation_has_unique_index_for` applies, minus partial indexes,
     /// whose predicate the query would have to imply. A deferrable constraint allows
@@ -532,8 +616,11 @@ impl PgSearchRelation {
 
     /// The cost of a scan of an index that no scan can read, or `None` for any other index. The
     /// rule field of a synonym index holds the keys of rules, so it can't answer a query on its
-    /// own table.
+    /// own table, and hot-standby or post-promotion blocked indexes cannot serve queries either.
     pub fn unusable_scan_cost(&self) -> Option<f64> {
+        if crate::postgres::utils::in_hot_standby() || self.blocked_after_promotion() {
+            return Some(SYNONYM_INDEX_SCAN_COST);
+        }
         match self.index_type() {
             IndexType::Search => None,
             IndexType::Synonym => Some(SYNONYM_INDEX_SCAN_COST),

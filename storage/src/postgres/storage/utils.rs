@@ -20,6 +20,7 @@
     unsafe_op_in_unsafe_fn
 )]
 
+use crate::postgres::catalog::OidExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::PgItem;
 use pgrx::cmacros::c::Pointer;
@@ -83,6 +84,11 @@ unsafe impl Sync for RelationBufferAccess {}
 
 impl RelationBufferAccess {
     pub fn open(rel: &PgSearchRelation) -> Self {
+        if crate::postgres::utils::in_hot_standby()
+            && unsafe { (*rel.rd_rel).relam }.is_paradedb_am()
+        {
+            crate::postgres::utils::report_hot_standby();
+        }
         Self {
             rel: rel.clone(),
             io_stats: None,

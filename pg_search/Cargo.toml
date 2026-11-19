@@ -151,4 +151,3 @@ joinscan = { path = "../joinscan", default-features = false, features = [
 pgrx-tests = { workspace = true, features = ["client"] }
 postgres.workspace = true
 proptest.workspace = true
-rstest.workspace = true

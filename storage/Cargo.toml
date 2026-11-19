@@ -41,7 +41,8 @@ tokenizers = { path = "../tokenizers" }
 common = { path = "../common", default-features = false, features = [
   "pg_test",
 ] }
-pgrx-tests.workspace = true
+pgrx-tests = { workspace = true, features = ["client"] }
+postgres.workspace = true
 proptest.workspace = true
 rand.workspace = true
 rstest.workspace = true

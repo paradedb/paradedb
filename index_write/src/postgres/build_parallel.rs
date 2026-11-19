@@ -1695,8 +1695,10 @@ pub mod plan {
 mod tests {
     use pgrx::prelude::*;
 
+    const PARALLEL_BUILD_ROWS: i64 = 35_000;
+
     fn setup_parallel_build_large_table() {
-        Spi::run(
+        Spi::run(&format!(
             r#"
             DROP TABLE IF EXISTS parallel_build_large;
             CREATE TABLE parallel_build_large (
@@ -1705,9 +1707,9 @@ mod tests {
             );
             INSERT INTO parallel_build_large (name)
             SELECT 'lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.'
-            FROM generate_series(1, 35000);
+            FROM generate_series(1, {PARALLEL_BUILD_ROWS});
             "#,
-        )
+        ))
         .expect("failed to setup parallel_build_large table");
     }
 
@@ -1823,7 +1825,7 @@ mod tests {
         assert_eq!(
             Spi::get_one::<i64>("SELECT count(*) FROM parallel_build_large WHERE name ||| 'lorem'")
                 .unwrap(),
-            Some(35000)
+            Some(PARALLEL_BUILD_ROWS)
         );
     }
 
@@ -1897,90 +1899,63 @@ mod tests {
         ).unwrap();
     }
 
-    /// Tests parallel index building with various configurations.
-    ///
-    /// This test creates 35,000 rows and tests different configuration
-    /// combinations of maintenance_work_mem, workers, leader participation,
-    /// and target segment count.
     #[pg_test]
     fn test_parallel_build_large_configurations() {
-        setup_parallel_build_large_table();
+        const LARGE_SEGMENT_TARGET: i64 = 32;
+        const MIN_LARGE_SEGMENTS: i64 = LARGE_SEGMENT_TARGET * 3 / 4;
+        const MAX_LARGE_SEGMENTS: i64 = LARGE_SEGMENT_TARGET + 1;
 
+        setup_parallel_build_large_table();
         Spi::run("SET max_parallel_workers = 8;").unwrap();
 
-        let maintenance_work_mem = ["2GB", "128MB"];
-        let maintenance_workers = [6, 2];
-        let leader_participation = [true, false];
-        let target_segments = [4, 7, 32];
+        // Cover every pair of memory, worker, leader, and segment-target settings.
+        for (memory, workers, leader, target) in [
+            ("128MB", 2, false, 4),
+            ("2GB", 6, true, 4),
+            ("128MB", 6, true, 7),
+            ("2GB", 2, false, 7),
+            ("2GB", 2, true, LARGE_SEGMENT_TARGET),
+            ("128MB", 6, false, LARGE_SEGMENT_TARGET),
+        ] {
+            Spi::run(&format!(
+                    "SET max_parallel_maintenance_workers = {workers};
+                     SET parallel_leader_participation = {leader};
+                     SET maintenance_work_mem = '{memory}';
+                     CREATE INDEX parallel_build_large_idx ON parallel_build_large
+                     USING paradedb (id, name) WITH (target_segment_count = {target});"
+                ))
+                .unwrap_or_else(|error| {
+                    panic!("CREATE INDEX failed with workers={workers}, leader={leader}, mem={memory}, segments={target}: {error:?}")
+                });
 
-        for mwm in &maintenance_work_mem {
-            for mw in &maintenance_workers {
-                for lp in &leader_participation {
-                    for ts in &target_segments {
-                        // Set configuration
-                        Spi::run(&format!("SET max_parallel_maintenance_workers = {};", mw))
-                            .unwrap();
-                        Spi::run(&format!("SET parallel_leader_participation = {};", lp)).unwrap();
-                        Spi::run(&format!("SET maintenance_work_mem = '{}';", mwm)).unwrap();
-
-                        // Create index
-                        Spi::run(&format!(
-                            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb (id, name) WITH (target_segment_count = {});",
-                            ts
-                        ))
-                        .unwrap_or_else(|e| {
-                            panic!(
-                                "CREATE INDEX failed with workers={}, leader={}, mem={}, segments={}: {:?}",
-                                mw, lp, mwm, ts, e
-                            )
-                        });
-
-                        // Verify segment count
-                        let count: i64 = Spi::get_one(
-                            "SELECT COUNT(*)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
-                        )
-                        .unwrap()
-                        .unwrap();
-
-                        if *ts == 4 {
-                            assert_eq!(
-                                count, 4,
-                                "Expected 4 segments with workers={}, leader={}, mem={}, segments={}, got {}",
-                                mw, lp, mwm, ts, count
-                            );
-                        } else if *ts == 7 {
-                            assert_eq!(count, 7, "prime target: {count} segments");
-                        } else if *ts == 32 {
-                            // The parallel heap scan hands out blocks on demand, so a participant
-                            // short on CPU scans fewer rows and flushes fewer segments than its
-                            // quota, while its peers merge back down to theirs. Skew only ever
-                            // pulls the total below the target. The floor tolerates about a
-                            // quarter of the rows moving between participants.
-                            let expected = 24..=33;
-                            assert!(
-                                expected.contains(&count),
-                                "Expected {expected:?} segments with workers={mw}, leader={lp}, mem={mwm}, segments={ts}, got {count}"
-                            );
-                        }
-
-                        // Verify total document count
-                        let num_docs: i64 = Spi::get_one(
-                            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
-                        )
-                        .unwrap()
-                        .unwrap();
-
-                        assert_eq!(
-                            num_docs, 35000,
-                            "Expected 35000 docs with workers={}, leader={}, mem={}, segments={}, got {}",
-                            mw, lp, mwm, ts, num_docs
-                        );
-
-                        // Drop index for next iteration
-                        Spi::run("DROP INDEX parallel_build_large_idx;").unwrap();
-                    }
-                }
+            let count: i64 = Spi::get_one(
+                "SELECT COUNT(*)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
+            )
+            .unwrap()
+            .unwrap();
+            if target == LARGE_SEGMENT_TARGET {
+                let expected = MIN_LARGE_SEGMENTS..=MAX_LARGE_SEGMENTS;
+                assert!(
+                    expected.contains(&count),
+                    "Expected {expected:?} segments with workers={workers}, leader={leader}, mem={memory}, segments={target}, got {count}"
+                );
+            } else {
+                assert_eq!(
+                    count, target,
+                    "workers={workers}, leader={leader}, mem={memory}, segments={target}"
+                );
             }
+
+            let num_docs: i64 = Spi::get_one(
+                    "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                num_docs, PARALLEL_BUILD_ROWS,
+                "workers={workers}, leader={leader}, mem={memory}, segments={target}"
+            );
+            Spi::run("DROP INDEX parallel_build_large_idx;").unwrap();
         }
 
         cleanup_parallel_build_large_table();

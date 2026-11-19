@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795075530123,
+  "lastUpdate": 1795075563580,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -534510,6 +534510,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14408978752-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "078a6e2dc4885a3d7fbba64cab50af0160664e2c",
+          "message": "chore: Sync `0.27.0` release artifacts to main.",
+          "timestamp": "2026-11-19T06:41:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/078a6e2dc4885a3d7fbba64cab50af0160664e2c"
+        },
+        "date": 1795075561239,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3903.549011984169,
+            "unit": "median tps",
+            "extra": "avg tps: 3907.153900509384, max tps: 4575.182030655831, count: 58910"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4618.319098300136,
+            "unit": "median tps",
+            "extra": "avg tps: 4619.598713288149, max tps: 5763.409171793299, count: 58910"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.78304478941244,
+            "unit": "median tps",
+            "extra": "avg tps: 166.45352341944894, max tps: 2953.119232189, count: 58910"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.66880857961669,
+            "unit": "median tps",
+            "extra": "avg tps: 39.91747614031699, max tps: 578.3128962696351, count: 58910"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.56978777815119,
+            "unit": "median tps",
+            "extra": "avg tps: 39.857208651679045, max tps: 577.3812467079164, count: 58910"
+          }
+        ],
+        "publication_id": "14509610349-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -550614,6 +550667,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14408978752-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "078a6e2dc4885a3d7fbba64cab50af0160664e2c",
+          "message": "chore: Sync `0.27.0` release artifacts to main.",
+          "timestamp": "2026-11-19T06:41:55Z",
+          "url": "https://github.com/paradedb/paradedb/commit/078a6e2dc4885a3d7fbba64cab50af0160664e2c"
+        },
+        "date": 1795075563493,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5823393,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.229937879701073, max cpu: 4.6309695, count: 58910"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 20.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.862467442390937, max mem: 20.98046875, count: 58910"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.414074942240946, max cpu: 4.703577, count: 58910"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.294807757596335, max mem: 20.296875, count: 58910"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.217475,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.402930127738719, max cpu: 36.64122, count: 58910"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 23.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 23.18632832392633, max mem: 23.19921875, count: 58910"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.04961806145, max document_count: 10002.0, count: 58910"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.034459344763, max document_count: 10002.0, count: 58910"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58910"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.250952,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.51962624527334, max cpu: 32.35436, count: 58910"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 60.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 59.885058577172806, max mem: 74.40625, count: 58910"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.233618,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.485458978351023, max cpu: 32.214767, count: 58910"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 61.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.553560582350194, max mem: 75.09765625, count: 58910"
+          }
+        ],
+        "publication_id": "14509610349-other"
       }
     ]
   }

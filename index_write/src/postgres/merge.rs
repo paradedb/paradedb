@@ -99,10 +99,8 @@ pub enum MergeStyle {
         current_xid: pg_sys::FullTransactionId,
         next_xid: pg_sys::FullTransactionId,
     },
-    /// VACUUM finished; wait for scheduling locks before attempting a background merge.
-    Vacuum,
-    /// Attempt a background merge, skipping busy indexes until the next sweep.
-    Sweep,
+    /// Only schedule a background merge; skip busy indexes.
+    Background,
 }
 
 /// Who runs a merge, which decides what happens between candidates.
@@ -337,7 +335,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         return Ok(());
     }
 
-    if !matches!(style, MergeStyle::Insert { .. })
+    if matches!(style, MergeStyle::Background)
         && index.options().background_layer_sizes().is_empty()
     {
         return Ok(());
@@ -345,7 +343,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     let layer_sizes = IndexLayerSizes::from(index);
     let target_segment_count = index.target_segment_count();
     let metadata = MetaPage::open(index);
-    let (merge_pins, merge_lock) = if matches!(style, MergeStyle::Sweep) {
+    let (merge_pins, merge_lock) = if matches!(style, MergeStyle::Background) {
         if VacuumSignal::new(index.oid()).wants_cancel() {
             return Ok(());
         }

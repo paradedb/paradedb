@@ -293,7 +293,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             }
                             PgTryBuilder::new(AssertUnwindSafe(|| {
                                 if idle_segments.is_empty() {
-                                    do_merge(&index, MergeStyle::Sweep)
+                                    do_merge(&index, MergeStyle::Background)
                                         .expect("should be able to schedule a background merge");
                                     return;
                                 }

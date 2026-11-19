@@ -173,6 +173,13 @@ impl Fixture {
     }
 
     fn segments_with_batches(&mut self, rows: i32, batches: i32) {
+        self.insert_segments(rows, batches);
+        self.controller
+            .batch_execute(&format!("DELETE FROM {} WHERE id % 2=0", self.table))
+            .unwrap();
+    }
+
+    fn insert_segments(&mut self, rows: i32, batches: i32) {
         let body = if self.mutable {
             "'alpha beta'"
         } else {
@@ -188,9 +195,6 @@ impl Fixture {
                 ))
                 .unwrap();
         }
-        self.controller
-            .batch_execute(&format!("DELETE FROM {} WHERE id % 2=0", self.table))
-            .unwrap();
     }
 
     fn start_sweep(&mut self) {
@@ -947,6 +951,55 @@ fn periodic_sweep_waits_for_unchanged_document_counts() {
         .controller
         .batch_execute("DROP TABLE sweep_unchanged")
         .unwrap();
+}
+
+#[test]
+fn vacuum_cleanup_skips_busy_merge_scheduling() {
+    const SCHEDULING_DEADLINE: Duration = Duration::from_secs(2);
+    const POLL_INTERVAL: Duration = Duration::from_millis(10);
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    for (table, phase, function) in [
+        ("vacuum_busy_selection", "selection", "test_merge_index"),
+        (
+            "vacuum_busy_admission",
+            "merge",
+            "test_hold_cleanup_admission",
+        ),
+    ] {
+        let mut fixture = Fixture::new(table, false);
+        fixture.insert_segments(IMMUTABLE_SEGMENT_ROWS, SWEEP_PRESSURE_SEGMENT_COUNT);
+        fixture
+            .controller
+            .batch_execute(&format!(
+                "ALTER INDEX {} SET (background_layer_sizes='1mb')",
+                fixture.index,
+            ))
+            .unwrap();
+        let holder = fixture.actor(
+            phase,
+            format!("SELECT paradedb.{function}('{}')", fixture.index),
+        );
+        fixture.stage(&holder);
+        let mut vacuum = connect();
+        let query = format!("VACUUM {table}");
+        let vacuum = spawn(move || vacuum.batch_execute(&query));
+        let deadline = Instant::now() + SCHEDULING_DEADLINE;
+        while !vacuum.is_finished() && Instant::now() < deadline {
+            sleep(POLL_INTERVAL);
+        }
+        let completed_while_busy = vacuum.is_finished();
+        fixture.release(&holder);
+        holder.finish().1.unwrap();
+        vacuum.join().unwrap().unwrap();
+        assert!(completed_while_busy, "VACUUM waited for merge scheduling");
+        fixture.assert_rows(i64::from(
+            SWEEP_PRESSURE_SEGMENT_COUNT * IMMUTABLE_SEGMENT_ROWS,
+        ));
+        assert!(fixture.value::<bool>(&format!(
+            "SELECT bool_and(passed) FROM pdb.verify_index('{}', heapallindexed=>true)",
+            fixture.index,
+        )));
+    }
 }
 
 #[test]

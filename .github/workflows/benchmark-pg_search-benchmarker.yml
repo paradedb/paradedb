@@ -12,7 +12,7 @@ on:
   schedule:
     - cron: "30 11 * * *" # Daily at 11:30 UTC. Space nightly benchmarks two hours apart.
   pull_request:
-    types: [labeled] # Opt in with `benchmarks`, `benchmark-benchmarker` (all), or `benchmark-benchmarker-{hackernews,stackexchange,wikipedia}`.
+    types: [labeled] # Opt in with `benchmarks`, `benchmark-benchmarker` (all), or `benchmark-benchmarker-{hackernews,stackexchange,stackexchange-updates,wikipedia}`.
   workflow_dispatch:
     inputs:
       runner_type:
@@ -21,7 +21,7 @@ on:
         options: [spot, on-demand]
         default: spot
       dataset:
-        description: "Which dataset(s) to benchmark: 'all', 'hackernews', 'stackexchange', or 'wikipedia'."
+        description: "Which dataset(s) to benchmark: 'all', 'hackernews', 'stackexchange', 'stackexchange-updates', or 'wikipedia'."
         required: false
         type: string
         default: "all"
@@ -211,20 +211,22 @@ jobs:
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == 'wikipedia' || inputs.dataset == '')) ||
-      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange' || github.event.label.name == 'benchmark-benchmarker-wikipedia'))
+      (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == 'stackexchange-updates' || inputs.dataset == 'wikipedia' || inputs.dataset == '')) ||
+      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange' || github.event.label.name == 'benchmark-benchmarker-stackexchange-updates' || github.event.label.name == 'benchmark-benchmarker-wikipedia'))
     strategy:
       fail-fast: false
       matrix:
         dataset: >-
           ${{ fromJSON(
+            (inputs.dataset == 'stackexchange-updates' || github.event.label.name == 'benchmark-benchmarker-stackexchange-updates') && '["stackexchange-updates"]' ||
             (inputs.dataset == 'stackexchange' || github.event.label.name == 'benchmark-benchmarker-stackexchange') && '["stackexchange"]' ||
             (inputs.dataset == 'wikipedia' || github.event.label.name == 'benchmark-benchmarker-wikipedia') && '["wikipedia"]' ||
-            '["stackexchange", "wikipedia"]'
+            '["stackexchange", "stackexchange-updates", "wikipedia"]'
           ) }}
     env:
-      DATASET: ${{ matrix.dataset }}
-      DATASET_CONFIG_S3: s3://paradedb-benchmark/benchmarker/${{ matrix.dataset }}/
+      SUITE: ${{ matrix.dataset }}
+      DATASET: ${{ matrix.dataset == 'stackexchange-updates' && 'stackexchange' || matrix.dataset }}
+      DATASET_CONFIG_S3: s3://paradedb-benchmark/benchmarker/${{ matrix.dataset == 'stackexchange-updates' && 'stackexchange' || matrix.dataset }}/
       IMAGE_TAG: paradedb-source:ci
 
     steps:
@@ -239,7 +241,7 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --remove-label benchmarks \
             --remove-label benchmark-benchmarker \
-            --remove-label "benchmark-benchmarker-${DATASET}" || true
+            --remove-label "benchmark-benchmarker-${SUITE}" || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -266,7 +268,7 @@ jobs:
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
         with:
-          ref: ${{ inputs[format('benchmarker_{0}_ref', matrix.dataset)] || 'main' }}
+          ref: ${{ inputs[format('benchmarker_{0}_ref', env.DATASET)] || 'main' }}
 
       - name: Pull ${{ env.DATASET }} Benchmark Config
         working-directory: benchmarker
@@ -288,8 +290,8 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref }}
           base_image: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
           image_tag: ${{ env.IMAGE_TAG }}
-          dataset: ${{ matrix.dataset }}
-          size: ${{ matrix.dataset == 'stackexchange' && '150m' || '5m' }}
+          dataset: ${{ env.DATASET }}
+          size: ${{ env.DATASET == 'stackexchange' && '150m' || '5m' }}
           snapshot_format: zst
 
       - name: Build ${{ env.DATASET }} Index with ${{ env.IMAGE_TAG }}
@@ -349,14 +351,15 @@ jobs:
             mv "${dashboard_html[0]}" "$root/results/${name}.html"
           }
 
-          for style in conjunction disjunction phrase mixed; do
-            run_benchmark topk "${style}"
-          done
-          run_benchmark count mixed
-          if [ "${DATASET}" = stackexchange ]; then
+          if [ "${SUITE}" = stackexchange-updates ]; then
             BENCHMARKER_META="$(jq -c --argjson seconds "$DURATION_SECONDS" '. + {measurement_seconds: $seconds}' <<< "$BENCHMARKER_META")"
             export BENCHMARKER_META
             run_benchmark topk disjunction concurrent-updates 8
+          else
+            for style in conjunction disjunction phrase mixed; do
+              run_benchmark topk "${style}"
+            done
+            run_benchmark count mixed
           fi
 
       - name: Dump Database Logs on Failure
@@ -375,7 +378,7 @@ jobs:
         with:
           benchmark_type: benchmarker
           metadata: >-
-            {"dataset":"${{ env.DATASET }}",
+            {"dataset":"${{ env.SUITE }}",
              "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' }}"}
 

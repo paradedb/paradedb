@@ -250,7 +250,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             if !(*index.rd_rel).relam.is_paradedb_am() || !index.is_valid() {
                                 return None;
                             }
-                            let mut idle_segments = HashMap::default();
+                            let mut idle_mutable_segments = HashMap::default();
                             let mut visible_segment_count = 0;
                             MetaPage::open(&index).segment_metas().for_each(|_, entry| {
                                 if entry.visible() {
@@ -263,22 +263,22 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     let count = entry.num_docs();
                                     current_counts.insert(key, count);
                                     if previous_counts.get(&key) == Some(&count) {
-                                        idle_segments.insert(entry.segment_id(), count);
+                                        idle_mutable_segments.insert(entry.segment_id(), count);
                                     }
                                 }
                             });
                             let needs_merge = visible_segment_count
                                 > SWEEP_MERGE_MULTIPLIER * index.target_segment_count()
                                 && !index.options().background_layer_sizes().is_empty();
-                            (!idle_segments.is_empty() || needs_merge)
-                                .then_some((index.oid(), idle_segments))
+                            (!idle_mutable_segments.is_empty() || needs_merge)
+                                .then_some((index.oid(), idle_mutable_segments))
                         })
                         .collect::<Vec<_>>();
                     Some((indexes, current_counts))
                 });
                 let (indexes, current_counts) = indexes?;
                 pg_sys::pgstat_report_appname(c"pg_search mutable sweep".as_ptr());
-                for (index, idle_segments) in indexes {
+                for (index, idle_mutable_segments) in indexes {
                     reload();
                     if INTERVAL_MS.get() == 0 {
                         break;
@@ -292,7 +292,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                 return;
                             }
                             PgTryBuilder::new(AssertUnwindSafe(|| {
-                                if idle_segments.is_empty() {
+                                if idle_mutable_segments.is_empty() {
                                     do_merge(&index, MergeStyle::Background)
                                         .expect("should be able to schedule a background merge");
                                     return;
@@ -309,7 +309,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     return;
                                 };
                                 let frozen = metadata.freeze_mutable_segments_matching(|entry| {
-                                    idle_segments.get(&entry.segment_id())
+                                    idle_mutable_segments.get(&entry.segment_id())
                                         == Some(&entry.num_docs())
                                 });
                                 if frozen.is_empty() {

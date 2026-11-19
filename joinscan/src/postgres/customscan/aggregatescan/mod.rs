@@ -120,12 +120,12 @@ use crate::postgres::customscan::{
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::pgstat::count_index_scan;
-use crate::postgres::rel_get_bm25_index;
 use crate::postgres::serializable::predicate_lock_read_oid;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
+use crate::postgres::{lookup_bm25_index, rel_get_bm25_index};
 use crate::query::SearchQueryInput;
 use arrow_array::cast::AsArray;
 use arrow_array::{BooleanArray, RecordBatch};
@@ -1588,11 +1588,15 @@ impl AggregateScan {
             return Vec::new();
         };
 
-        let Some((_table, index)) = rel_get_bm25_index(heap_relid) else {
-            if has_paradedb_agg {
-                pgrx::error!("Cannot execute pdb.agg: table must have a ParadeDB index");
-            }
-            return Vec::new();
+        let (_table, index) = if has_paradedb_agg {
+            lookup_bm25_index(heap_relid).unwrap_or_report(|| {
+                "Cannot execute pdb.agg: table must have a ParadeDB index".to_string()
+            })
+        } else {
+            let Some(found) = rel_get_bm25_index(heap_relid) else {
+                return Vec::new();
+            };
+            found
         };
 
         // Such a `pdb.agg()` query comes here only when the DataFusion backend

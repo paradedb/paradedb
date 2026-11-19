@@ -47,7 +47,7 @@ rows="$(jq -nc \
   | .[] as $current
   | ([$current.baseline.benches[]? | select(.name == $current.name)][0]) as $previous
   | (if $previous != null and $previous.value > 0 then
-       if $current.unit == "queries/s" then
+       if ($current.unit == "queries/s" or $current.unit == "updates/s") then
          if $current.value > 0 then $previous.value / $current.value else null end
        else $current.value / $previous.value end
      else null end) as $ratio
@@ -68,6 +68,25 @@ printf '### 📊 Benchmarker results (%s): `%s`\n\n' "${DATASET}" "${COMMIT_SHA:
 if [ -n "$CONTEXT_FILE" ]; then
   cat "$CONTEXT_FILE"
   printf '\n'
+fi
+if [ "$DATASET" = stackexchange ]; then
+  jq -nr --slurpfile latency "$METRICS_FILE" --slurpfile throughput "$THROUGHPUT_METRICS_FILE" '
+    ($latency[0] + $throughput[0] | map({key: .name, value: .value}) | from_entries) as $metrics
+    | select(any($throughput[0][]; .name | endswith("-concurrent-updates) updates/sec")))
+    | "**Static vs. concurrent updates — top 10**\n",
+      "Updates/sec is achieved writer throughput during each concurrent run.\n",
+      "| Query style | Static QPS | With updates QPS | Static p50 (ms) | With updates p50 (ms) | Static p95 (ms) | With updates p95 (ms) | Updates/sec |",
+      "|---|---:|---:|---:|---:|---:|---:|---:|",
+      (["conjunction", "disjunction", "phrase", "mixed"][] as $style
+        | "paradedb (topk_\($style)) (topk-\($style)" as $prefix
+        | [($prefix + ") QPS"), ($prefix + "-concurrent-updates) QPS"),
+           ($prefix + ") p50 latency"), ($prefix + "-concurrent-updates) p50 latency"),
+           ($prefix + ") p95 latency"), ($prefix + "-concurrent-updates) p95 latency"),
+           "updates (random_updates) (topk-\($style)-concurrent-updates) updates/sec"]
+        | map($metrics[.] | if . == null then "n/a" else (. * 1000 | round / 1000 | tostring) end)
+        | "| \($style) | \(join(" | ")) |"),
+      ""
+  '
 fi
 jq -nr --slurpfile latency _latency_baseline.json --slurpfile throughput _throughput_baseline.json \
   --slurpfile buffers _buffer_baseline.json --slurpfile buffer_metrics _buffer_metrics.json \
@@ -90,7 +109,7 @@ else
   printf '✅ No regressions above %sx.\n' "$THRESHOLD"
 fi
 footnote="Ratio: current/previous for latency, shared hits/query, build time, and index size;"
-footnote+=" previous/current for QPS. Below 1 is better. ⚠️ marks regressions above ${THRESHOLD}x."
+footnote+=" previous/current for QPS and updates/sec. Below 1 is better. ⚠️ marks regressions above ${THRESHOLD}x."
 footnote+=" n/a means no comparable baseline."
 printf '\n%s\n\n' "$footnote"
 

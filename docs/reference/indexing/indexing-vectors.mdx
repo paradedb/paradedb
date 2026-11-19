@@ -238,7 +238,8 @@ modelBuilder.Entity<MockItem>()
     .HasParadeDbIndex("search_idx", e => e.Id)
     .HasField(e => e.Description)
     .HasField(e => e.Category)
-    .HasField(e => e.Embedding, VectorMetric.Cosine);
+    .HasField(e => e.Embedding, VectorMetric.Cosine)
+    .HasTargetLeafSize(400);
 ```
 
 </CodeGroup>

@@ -1,0 +1,136 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE issue_7533_docs (id int PRIMARY KEY, body text, category text);
+INSERT INTO issue_7533_docs VALUES
+    (1, 'hello', 'a'), (2, 'hello', 'b'), (3, 'hello', NULL),
+    (4, 'other', 'a'), (5, 'hello hello', 'a');
+CREATE INDEX issue_7533_idx ON issue_7533_docs
+USING paradedb (id, body);
+ANALYZE issue_7533_docs;
+-- The same parameter controls the optional filter and its value.
+PREPARE issue_7533(text, text) AS
+SELECT id, pdb.score(id) AS score FROM issue_7533_docs
+WHERE body ||| $1 AND ($2 IS NULL OR category = $2)
+ORDER BY pdb.score(id) DESC, id LIMIT 2;
+-- Generic plans must return the same ids, scores and order as these custom plans.
+SET plan_cache_mode = force_custom_plan;
+EXPLAIN (COSTS OFF) EXECUTE issue_7533('hello', 'a');
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on issue_7533_docs
+         Table: issue_7533_docs
+         Index: issue_7533_idx
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"hello","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(category = 'a'::text)"}]}}]}}
+(9 rows)
+
+EXECUTE issue_7533('hello', 'a');
+ id |   score   
+----+-----------
+  5 | 0.3331056
+  1 |  0.308732
+(2 rows)
+
+EXECUTE issue_7533('hello', NULL);
+ id |   score   
+----+-----------
+  5 | 0.3331056
+  1 |  0.308732
+(2 rows)
+
+EXECUTE issue_7533('hello', 'b');
+ id |  score   
+----+----------
+  2 | 0.308732
+(1 row)
+
+EXECUTE issue_7533('hello', 'missing');
+ id | score 
+----+-------
+(0 rows)
+
+SET plan_cache_mode = force_generic_plan;
+EXPLAIN (COSTS OFF) EXECUTE issue_7533('hello', 'a');
+                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on issue_7533_docs
+         Table: issue_7533_docs
+         Index: issue_7533_idx
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
+         Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('issue_7533_idx'::regclass, paradedb.match_disjunction('body'::paradedb.fieldname, $1))"}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"($2 IS NULL)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category = $2)"}]}}]}}]}}
+(9 rows)
+
+EXECUTE issue_7533('hello', 'a');
+ id |   score   
+----+-----------
+  5 | 0.3331056
+  1 |  0.308732
+(2 rows)
+
+EXECUTE issue_7533('hello', NULL);
+ id |   score   
+----+-----------
+  5 | 0.3331056
+  1 |  0.308732
+(2 rows)
+
+EXECUTE issue_7533('hello', 'b');
+ id |  score   
+----+----------
+  2 | 0.308732
+(1 row)
+
+EXECUTE issue_7533('hello', 'missing');
+ id | score 
+----+-------
+(0 rows)
+
+EXECUTE issue_7533('hello', 'a');
+ id |   score   
+----+-----------
+  5 | 0.3331056
+  1 |  0.308732
+(2 rows)
+
+EXECUTE issue_7533('hello', NULL);
+ id |   score   
+----+-----------
+  5 | 0.3331056
+  1 |  0.308732
+(2 rows)
+
+-- text -> varchar wraps the parameter in a RelabelType.
+PREPARE issue_7533_relabel(text, text) AS
+SELECT id, pdb.score(id) AS score FROM issue_7533_docs
+WHERE body ||| $1 AND (($2::varchar) IS NULL OR category = $2)
+ORDER BY pdb.score(id) DESC, id LIMIT 2;
+EXECUTE issue_7533_relabel('hello', 'b');
+ id |  score   
+----+----------
+  2 | 0.308732
+(1 row)
+
+-- A varchar length limit adds a FuncExpr around the parameter.
+PREPARE issue_7533_typmod(text, text) AS
+SELECT id, pdb.score(id) AS score FROM issue_7533_docs
+WHERE body ||| $1 AND (($2::varchar(10)) IS NULL OR category = $2)
+ORDER BY pdb.score(id) DESC, id LIMIT 2;
+EXECUTE issue_7533_typmod('hello', NULL);
+ id |   score   
+----+-----------
+  5 | 0.3331056
+  1 |  0.308732
+(2 rows)
+
+DEALLOCATE issue_7533;
+DEALLOCATE issue_7533_relabel;
+DEALLOCATE issue_7533_typmod;
+RESET plan_cache_mode;
+DROP TABLE issue_7533_docs;

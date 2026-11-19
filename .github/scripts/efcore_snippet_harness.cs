@@ -52,6 +52,8 @@ public sealed class SnippetDbContext(DbContextOptions<SnippetDbContext> options)
     public DbSet<MockItemGeo> MockItemsGeo => Set<MockItemGeo>();
     public DbSet<MockItemPath> MockItemsPaths => Set<MockItemPath>();
     public DbSet<Order> Orders => Set<Order>();
+    public DbSet<ShopSynonym> ShopSynonyms => Set<ShopSynonym>();
+    public DbSet<Synonym> Synonyms => Set<Synonym>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -103,6 +105,21 @@ public sealed class SnippetDbContext(DbContextOptions<SnippetDbContext> options)
             entity.Property(item => item.Description).HasColumnName("description");
         });
 
+        modelBuilder.Entity<ShopSynonym>(entity =>
+        {
+            entity.ToTable("shop_synonyms");
+            entity.HasNoKey();
+            entity.Property(synonym => synonym.Rule).HasColumnName("rule");
+        });
+
+        modelBuilder.Entity<Synonym>(entity =>
+        {
+            entity.ToTable("synonyms");
+            entity.HasNoKey();
+            entity.Property(synonym => synonym.SetName).HasColumnName("set_name");
+            entity.Property(synonym => synonym.Rule).HasColumnName("rule");
+        });
+
         // __PARADEDB_MODEL_SNIPPET__
     }
 }
@@ -143,4 +160,15 @@ public sealed class MockItemPath
 {
     public int Id { get; set; }
     public string Description { get; set; } = "";
+}
+
+public sealed class ShopSynonym
+{
+    public string Rule { get; set; } = "";
+}
+
+public sealed class Synonym
+{
+    public string SetName { get; set; } = "";
+    public string Rule { get; set; } = "";
 }

@@ -13,6 +13,12 @@ High availability and read replicas have always been ParadeDB Enterprise feature
 
 Upgrade standbys before the primary: the primary now writes a ParadeDB WAL record during `CREATE INDEX`, `VACUUM`, and `ANALYZE` on indexed tables, and a standby running an earlier release shuts down when replaying that record.
 
+### Vector index format {#vector-index-format}
+
+0.27.0 changes the on-disk format of vector indexes. Older formats are not supported and must be rebuilt with `REINDEX` when upgrading to 0.27.0.
+
+Vector searches fail with `index "<index_name>" has an unsupported vector storage format` until the index is rebuilt.
+
 ### Other Changes
 
 - Adding a vector to an L2 (`vector_l2_ops`) or inner-product (`vector_ip_ops`) field of a ParadeDB index now fails when the vector's magnitude (its length from the origin) is above about 6.5e18, and searching such a field with a query vector above that magnitude fails too. Vectors that large overflowed the index's single-precision arithmetic. Cosine fields accept any finite vector. Vectors already in an index are not re-checked, but `REINDEX` of an index holding one fails.

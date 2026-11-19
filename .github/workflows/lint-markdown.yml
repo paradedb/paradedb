@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: lint-markdown-${{ github.head_ref || github.ref }}
+  group: lint-markdown-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:

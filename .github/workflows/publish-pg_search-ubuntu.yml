@@ -17,7 +17,7 @@ on:
         default: ""
 
 concurrency:
-  group: publish-pg_search-ubuntu-${{ github.head_ref || github.ref }}
+  group: publish-pg_search-ubuntu-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 # id-token: write lets cosign sign the builds keylessly via Sigstore.

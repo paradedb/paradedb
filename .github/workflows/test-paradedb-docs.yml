@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: test-paradedb-docs-${{ github.head_ref || github.ref }}
+  group: test-paradedb-docs-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:

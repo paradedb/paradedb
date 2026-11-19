@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: test-stressgres-docker-${{ github.head_ref || github.ref }}
+  group: test-stressgres-docker-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:

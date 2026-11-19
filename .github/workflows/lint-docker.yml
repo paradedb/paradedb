@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: lint-docker-${{ github.head_ref || github.ref }}
+  group: lint-docker-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:

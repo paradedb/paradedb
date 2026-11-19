@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: check-typo-${{ github.head_ref || github.ref }}
+  group: check-typo-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:

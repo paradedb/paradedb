@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794989526047,
+  "lastUpdate": 1795075530123,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -113282,6 +113282,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14408698793-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b5bcbdc60d804e0e72d012a19286382890acb2e",
+          "message": "fix: print the synonym indexes of a join in `EXPLAIN` (#7540)\n\n## Ticket(s) Closed\n\nN/A\n\n## What\n\nThis PR adds the `Synonyms` line to the `EXPLAIN` of a join.\n\n## Why\n\nA Base Scan and an Aggregate Scan on one table print the synonym indexes\nthat a `pdb.expand` query reads. A Join Scan and an Aggregate Scan over\na join printed the query with no index.\n\n## How\n\n- `Explainer::add_synonym_indexes` takes several queries and prints one\nline.\n- The Join Scan and the DataFusion branch of the Aggregate Scan call it\nwith the queries of their sources and of their join-level predicates.\n\n## Tests\n\n- `synonym_expansion.sql`",
+          "timestamp": "2026-11-19T07:44:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b5bcbdc60d804e0e72d012a19286382890acb2e"
+        },
+        "date": 1795075528077,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1729.5296815489937,
+            "unit": "median tps",
+            "extra": "avg tps: 1748.2006672758541, max tps: 1928.335210963267, count: 59246"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.882676780370481,
+            "unit": "median tps",
+            "extra": "avg tps: 5.928487295387324, max tps: 7.042057211384005, count: 59246"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1870.8286148711059,
+            "unit": "median tps",
+            "extra": "avg tps: 1862.3000971342472, max tps: 1878.8325820960742, count: 59246"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2873.3041838263875,
+            "unit": "median tps",
+            "extra": "avg tps: 2804.722762730508, max tps: 3101.9579211468026, count: 59246"
+          }
+        ],
+        "publication_id": "14510046495-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -158958,6 +159005,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14408698793-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b5bcbdc60d804e0e72d012a19286382890acb2e",
+          "message": "fix: print the synonym indexes of a join in `EXPLAIN` (#7540)\n\n## Ticket(s) Closed\n\nN/A\n\n## What\n\nThis PR adds the `Synonyms` line to the `EXPLAIN` of a join.\n\n## Why\n\nA Base Scan and an Aggregate Scan on one table print the synonym indexes\nthat a `pdb.expand` query reads. A Join Scan and an Aggregate Scan over\na join printed the query with no index.\n\n## How\n\n- `Explainer::add_synonym_indexes` takes several queries and prints one\nline.\n- The Join Scan and the DataFusion branch of the Aggregate Scan call it\nwith the queries of their sources and of their join-level predicates.\n\n## Tests\n\n- `synonym_expansion.sql`",
+          "timestamp": "2026-11-19T07:44:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b5bcbdc60d804e0e72d012a19286382890acb2e"
+        },
+        "date": 1795075530034,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.8974445532187827, max background_merging: 2.0, count: 59246"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.679437118524393, max cpu: 9.805924, count: 59246"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 25.87090808345711, max mem: 27.8515625, count: 59246"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.654876079997224, max cpu: 9.810936, count: 59246"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 44.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.057849369577696, max mem: 44.05859375, count: 59246"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 40334,
+            "unit": "median block_count",
+            "extra": "avg block_count: 40183.14532626675, max block_count: 40334.0, count: 59246"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.41256793707592, max segment_count: 20.0, count: 59246"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.88485411400847, max cpu: 34.146343, count: 59246"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 37.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 37.42470568951912, max mem: 37.4453125, count: 59246"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.491018248000041, max cpu: 9.538003, count: 59246"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 42.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.82044093694089, max mem: 42.87109375, count: 59246"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.549116400725909, max cpu: 9.80092, count: 59246"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 43.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.98718254713398, max mem: 43.99609375, count: 59246"
+          }
+        ],
+        "publication_id": "14510046495-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

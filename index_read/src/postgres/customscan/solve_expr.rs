@@ -187,14 +187,10 @@ impl SearchQueryInput {
         found
     }
 
-    /// Collects raw `Expr*` pointers for every PostgreSQL expression referenced
-    /// by heap filters or PostgresExpression variants in this query tree.
-    ///
-    /// Used to populate `CustomScan.custom_exprs` so `finalize_plan`'s
-    /// param-dependency walker sees InitPlan references (issue #5727).
-    pub fn collect_expression_nodes(&mut self) -> Vec<*mut pg_sys::Node> {
-        let mut nodes = Vec::new();
-        self.visit(&mut |sqi| match sqi {
+    /// Appends raw `Expr*` pointers for every PostgreSQL expression referenced by `HeapFilter` or
+    /// `PostgresExpression` variants in this query tree.
+    pub fn collect_expression_nodes_into(&self, nodes: &mut Vec<*mut pg_sys::Node>) {
+        self.visit_ref(&mut |sqi| match sqi {
             SearchQueryInput::HeapFilter {
                 always_filters,
                 recheck_filters,
@@ -215,6 +211,16 @@ impl SearchQueryInput {
             }
             _ => {}
         });
+    }
+
+    /// Collects raw `Expr*` pointers for every PostgreSQL expression referenced
+    /// by heap filters or PostgresExpression variants in this query tree.
+    ///
+    /// Used to populate `CustomScan.custom_exprs` so `finalize_plan`'s
+    /// param-dependency walker sees InitPlan references (issue #5727).
+    pub fn collect_expression_nodes(&self) -> Vec<*mut pg_sys::Node> {
+        let mut nodes = Vec::new();
+        self.collect_expression_nodes_into(&mut nodes);
         nodes
     }
 

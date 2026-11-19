@@ -13,11 +13,11 @@ In order for ParadeDB to push down an aggregate, a ParadeDB predicate must be pr
 <CodeGroup>
 ```sql SQL
 -- Not pushed down
-SELECT COUNT(id) FROM mock_items
+SELECT COUNT(*) FROM mock_items
 WHERE rating = 5;
 
 -- Pushed down
-SELECT COUNT(id) FROM mock_items
+SELECT COUNT(*) FROM mock_items
 WHERE rating = 5
 AND id @@@ pdb.all();
 ```
@@ -28,13 +28,13 @@ import { search } from "@paradedb/drizzle-paradedb";
 
 // Not pushed down — no ParadeDB operator
 await db
-  .select({ count: count(mockItems.id) })
+  .select({ count: count() })
   .from(mockItems)
   .where(eq(mockItems.rating, 5));
 
 // Pushed down — ParadeDB operator triggers aggregate pushdown
 await db
-  .select({ count: count(mockItems.id) })
+  .select({ count: count() })
   .from(mockItems)
   .where(and(eq(mockItems.rating, 5), search.all(mockItems.id)));
 ```
@@ -55,10 +55,10 @@ from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import search
 
 # Not pushed down.
-count_without_operator_stmt = select(func.count(MockItem.id)).where(MockItem.rating == 5)
+count_without_operator_stmt = select(func.count()).where(MockItem.rating == 5)
 
 # Pushed down.
-count_with_operator_stmt = select(func.count(MockItem.id)).where(
+count_with_operator_stmt = select(func.count()).where(
     MockItem.rating == 5,
     search.all(MockItem.id),
 )

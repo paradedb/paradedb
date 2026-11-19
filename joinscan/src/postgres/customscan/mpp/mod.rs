@@ -18,11 +18,15 @@
 
 //! MPP (Massively Parallel Processing) plan partitioning for `JoinScan` and `AggregateScan`.
 //!
-//! Hash-partitions or range-partitions tables across parallel workers and shuffles intermediate
-//! rows between stages, so each row is scanned at most once. Guarded by PostgreSQL's own
-//! parallelism budget: active iff `min(max_parallel_workers_per_gather, max_parallel_workers) >= 2`
-//! producers (`#5667`), and the plan-first launch spawns only as many workers as the plan's task
-//! stages can occupy.
+//! Hash-partitions or range-partitions tables across parallel participants and shuffles
+//! intermediate rows between stages, so each row is scanned at most once. Guarded by PostgreSQL's
+//! parallelism budget and `Gather`-equivalent safety invariants ([`launch::mpp_budget`]):
+//! active when the scan's background worker cap (`max_parallel_workers_per_gather`,
+//! `max_parallel_workers`, `max_worker_processes`, and per-table `parallel_workers`) has `W >= 1`
+//! background workers and at least `2` task-executing participants (`W + 1` when
+//! `parallel_leader_participation = on`, or `W` when `off`), and the plan-first launch spawns only
+//! as many background workers as the plan's task stages can occupy beyond the leader's share
+//! (`#5667`).
 //!
 //! # Architecture
 //!
@@ -36,24 +40,30 @@
 //! - Client side ([`worker::DsmGrpcChannelResolver`]): implements `ChannelResolver` using
 //!   `tonic::transport::Endpoint::connect_with_connector_lazy` + `hyper_util::rt::TokioIo` and
 //!   `datafusion_distributed::grpc::create_worker_client`.
-//! - Server side ([`worker::run_mpp_worker`]): runs `datafusion_distributed::Worker` inside
-//!   `tonic::transport::Server::builder().add_service(worker.into_worker_server()).serve_with_incoming_shutdown(...)`.
+//! - Server side ([`worker::run_mpp_worker`], [`worker::build_mpp_exec_context`]): runs
+//!   `datafusion_distributed::Worker` inside
+//!   `tonic::transport::Server::builder().add_service(worker.into_worker_server()).serve_with_incoming_shutdown(...)`
+//!   on each background worker (`ServerProc(1..=W)`), and also on the leader (`ServerProc(0)`,
+//!   paired with an in-process `LocalWorkerContext`) when `parallel_leader_participation = on`.
 //!
 //! ## 2. DSM SPSC Byte-Ring Topology & Wakeup Pool
 //!
 //! - Ring topology ([`dsm_stream`]):
-//!   - Each directed connection between `(client_proc, server_proc)` is a pair of lock-free SPSC
-//!     byte rings (`client -> server` and `server -> client`, sized by dividing
-//!     `paradedb.mpp_queue_size` across all `2 * W^2` rings via `glue::spsc_ring_capacity(n_procs)`)
-//!     in the per-query DSM segment.
-//!   - The leader (`ClientProc(0)`) acts only as a client to workers `1..=W` (`W` connections =
-//!     `2 * W` SPSC rings).
-//!   - Each worker `w` (`1..=W`) acts as a server for `W` connections (`1` from leader `0` and
-//!     `W - 1` from peer workers `w2 != w`) and as a client to the `W - 1` peer workers (`W * (W - 1)`
-//!     connections). Same-worker stage reads short-circuit in memory via `datafusion-distributed`'s
-//!     `LocalWorkerContext` (`InProcessWorkerChannel`).
-//!   - Total across `1` leader and `W` workers: `W^2` duplex connections = `2 * W^2` SPSC byte
-//!     rings (bounded by `paradedb.mpp_queue_size`, `8 MiB` by default, floored at `16 KiB` per ring).
+//!   - Symmetric all-to-all mesh across `N = W + 1` processes (`0` = leader, `1..=W` = background
+//!     workers).
+//!   - Each directed connection between `(client_proc, server_proc)` (`client_proc != server_proc`)
+//!     is a pair of lock-free SPSC byte rings (`client -> server` and `server -> client`, sized by
+//!     dividing `paradedb.mpp_queue_size` across all `2 * N * (N - 1)` rings via
+//!     `glue::spsc_ring_capacity(bg_workers)`) in the per-query DSM segment.
+//!   - Every process `c` (`0..N`) has `N - 1` outbound client connections to `ServerProc(s != c)`
+//!     and `N - 1` inbound server connections from `ClientProc(k != c)`. When
+//!     `parallel_leader_participation = off`, no worker routes requests to `ServerProc(0)` and the
+//!     leader closes its inbound `ServerProc(0)` rings immediately at setup.
+//!   - Same-process stage reads (`coordinator -> worker-0` and `w == s`) short-circuit in memory
+//!     via `datafusion-distributed`'s `LocalWorkerContext` (`InProcessWorkerChannel`).
+//!   - Total across `1` leader and `W` background workers (`N = W + 1`): `N * (N - 1)` duplex
+//!     connections = `2 * N * (N - 1)` SPSC byte rings (bounded by `paradedb.mpp_queue_size`,
+//!     `8 MiB` by default, floored at `16 KiB` per ring).
 //! - Wakeup pool ([`wakeup`]):
 //!   - `_PG_init` pre-allocates a small pool of non-blocking wakeup descriptors (`eventfd` on
 //!     Linux, `AF_UNIX` `socketpair` on macOS) sized from `2 * max_worker_processes` (independent
@@ -75,21 +85,24 @@
 //!
 //! ## 3. Separation of PostgreSQL Worker Lifecycle from Per-Query gRPC Execution
 //!
-//! - Pre-launch ([`launch`]): walks `DistributedExec` to compute
-//!   `producer_count = clamp(max_tasks, 2, cap)`, validates scan nodes, allocates the DSM segment
-//!   containing `ParallelScanState` and the `2 * W^2` SPSC byte rings, and launches PostgreSQL
-//!   parallel workers.
-//! - Startup & execution ([`glue`], [`worker`]): workers wait for the leader's `GO_RUN` flag,
-//!   read their leader-assigned wakeup slot from the DSM mesh, and run `serve_with_incoming_shutdown`. The leader
-//!   executes
-//!   `DistributedExec`; `QueryCoordinator` dispatches stage plans over `coordinator_channel`, leader
-//!   and workers stream batches over `execute_task`, and `c2w_stream` EOF triggers
-//!   `Worker::coordinator_channel` to send `TaskMetrics` and `TaskCompletedDynamicFilters` back to
-//!   the leader's `DistributedExec::metrics_store`.
+//! - Pre-launch ([`launch`]): walks `DistributedExec` to compute `requested_bg` (`max_tasks -
+//!   leader_share`, clamped to `[min_bg, scan_bg_cap]`), validates scan nodes, allocates the DSM
+//!   segment containing `ParallelScanState` and the `2 * N * (N - 1)` SPSC byte rings, and
+//!   launches PostgreSQL parallel background workers.
+//! - Startup & execution ([`glue`], [`worker`]): background workers wait for the leader's `GO_RUN`
+//!   flag, read their leader-assigned wakeup slot from the DSM mesh, and run
+//!   `serve_with_incoming_shutdown` (and when `parallel_leader_participation = on`, the leader
+//!   installs its `LocalWorkerContext` and spawns its own `ServerProc(0)` server task via
+//!   [`worker::build_mpp_exec_context`]). The leader executes `DistributedExec`; `QueryCoordinator`
+//!   dispatches stage plans over `coordinator_channel`, participating processes stream batches
+//!   over `execute_task`, and `c2w_stream` EOF triggers `Worker::coordinator_channel` to send
+//!   `TaskMetrics` and `TaskCompletedDynamicFilters` back to the leader's
+//!   `DistributedExec::metrics_store`.
 //! - Teardown ([`glue::finish_leader_execution`]): on `EXPLAIN ANALYZE`, the leader awaits
 //!   `DistributedExec::wait_for_metrics()`; then it detaches its client DSM streams, sets the DSM
-//!   `shutdown_flag`, pokes every worker's wakeup FD so `serve_with_incoming_shutdown` exits
-//!   before `WaitForParallelWorkersToFinish`, and calls [`interrupt::PgTokioRuntime::quiesce_tasks`]
+//!   `shutdown_flag`, pokes every worker's wakeup FD so `serve_with_incoming_shutdown` exits on
+//!   both background workers and any participating leader server task before
+//!   `WaitForParallelWorkersToFinish`, and calls [`interrupt::PgTokioRuntime::quiesce_tasks`]
 //!   so all background Tokio tasks finish unwinding and all deferred main-thread drops run before
 //!   the scan state tears down its relations and `EState`.
 //!

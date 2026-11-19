@@ -15,7 +15,7 @@ source "$(dirname "$(readlink -f "$0")")/helper_suite_setup.sh"
 # the run; the liveness assertions judge recovery.
 echo ""
 echo "Running Stressgres workload from ${WORKLOAD_LINK}..."
-"${STRESSGRES}" headless "${WORKLOAD_LINK}" --skip-setup --runtime 100000 --log-interval-ms 10000 --reconnect-grace 200000 --reconnect-grace-file /tmp/stressgres-reconnect-grace
+"${STRESSGRES}" headless "${WORKLOAD_LINK}" --skip-setup --runtime 100000 --log-interval-ms 10000 --operation-timeout 10000 --reconnect-grace 200000 --reconnect-grace-file /tmp/stressgres-reconnect-grace
 
 echo ""
 echo "Stressgres workload complete!"

@@ -320,11 +320,10 @@ pub struct JoinScanState {
     /// Retained executed physical plan for EXPLAIN ANALYZE metrics extraction.
     pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
 
-    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
-    /// on first exec after runtime expressions are resolved and the built plan's stages are
-    /// committed (#5667: the plan comes first; workers spawn only after it exists). Stays
-    /// `Inactive` on the serial path.
-    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+    /// Runtime MPP lifecycle for this scan (#5667: the plan comes first; workers spawn only after
+    /// it exists). Initialized from `PrivateData.parallel_mode_ok` and transitions to `Disabled`
+    /// on budget rejection, launch fallback, or `EndCustomScan`.
+    pub mpp: crate::postgres::customscan::mpp::glue::MppLifecycle,
 
     /// Tokio runtime dropped after `datafusion_stream`, `physical_plan`, and `mpp` so any
     /// background tasks are aborted and their deferred main-thread drops are drained before
@@ -385,10 +384,6 @@ pub struct JoinScanState {
 
     /// Result tuple slot.
     pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
-
-    /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
-    /// scan may still use DataFusion, but it must never launch MPP producer workers.
-    pub parallel_mode_ok: bool,
 
     /// Set (at most once) by `build_task_context`'s `on_spill` callback the first time the
     /// leader's own local execution spills an operator to disk. Mirrors

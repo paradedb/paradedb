@@ -149,15 +149,15 @@ LIMIT 2;
          DataFusion Physical Plan: 
            : ┌───── DistributedExec
            : │ SortPreservingMergeExec: [pdb_timestamp_to_date(mpp_date_events_0.created_at)@0 DESC], fetch=2
-           : │   [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : │   [Stage 2] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 2 ── tasks=2, partitions=3
+           :   ┌───── Stage 2 ── tasks=2, partitions=4
            :   │ SortExec: TopK(fetch=2), expr=[pdb_timestamp_to_date(mpp_date_events_0.created_at)@0 DESC], preserve_partitioning=[true]
            :   │   AggregateExec: mode=FinalPartitioned, gby=[pdb_timestamp_to_date(mpp_date_events_0.created_at)@0 as pdb_timestamp_to_date(mpp_date_events_0.created_at)], aggr=[count(1) as agg_0, sum(mpp_date_events_0.amount) as agg_1]
-           :   │     [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   │     [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=2
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=2, partitions=6
-           :     │ RepartitionExec: partitioning=Hash([pdb_timestamp_to_date(mpp_date_events_0.created_at)@0], 6), input_partitions=1
+           :     ┌───── Stage 1 ── tasks=2, partitions=8
+           :     │ RepartitionExec: partitioning=Hash([pdb_timestamp_to_date(mpp_date_events_0.created_at)@0], 8), input_partitions=1
            :     │   AggregateExec: mode=Partial, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(mpp_date_events_0.created_at)], aggr=[count(1) as agg_0, sum(mpp_date_events_0.amount) as agg_1]
            :     │     DistributedLeafExec:
            :     │       t0: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
@@ -216,14 +216,14 @@ GROUP BY DATE(created_at);
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
      : │ CoalescePartitionsExec
-     : │   [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : │   [Stage 2] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── tasks=2, partitions=3
+     :   ┌───── Stage 2 ── tasks=2, partitions=4
      :   │ AggregateExec: mode=FinalPartitioned, gby=[pdb_timestamp_to_date(mpp_date_events_0.created_at)@0 as pdb_timestamp_to_date(mpp_date_events_0.created_at)], aggr=[count(1) as agg_0, sum(mpp_date_events_0.amount) as agg_1]
-     :   │   [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │   [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=2
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 1 ── tasks=2, partitions=6
-     :     │ RepartitionExec: partitioning=Hash([pdb_timestamp_to_date(mpp_date_events_0.created_at)@0], 6), input_partitions=1
+     :     ┌───── Stage 1 ── tasks=2, partitions=8
+     :     │ RepartitionExec: partitioning=Hash([pdb_timestamp_to_date(mpp_date_events_0.created_at)@0], 8), input_partitions=1
      :     │   AggregateExec: mode=Partial, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(mpp_date_events_0.created_at)], aggr=[count(1) as agg_0, sum(mpp_date_events_0.amount) as agg_1]
      :     │     DistributedLeafExec:
      :     │       t0: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}

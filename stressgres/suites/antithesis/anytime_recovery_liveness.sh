@@ -24,6 +24,9 @@ LOCK_FILE=/tmp/stressgres-recovery-liveness.lock
 # the liveness check itself becomes the flake.
 QUIET_SECONDS=90
 RECOVER_SECONDS=50
+# Keep the shorter grace in force while a worker notices the poke, finishes a
+# bounded I/O attempt, and reports expiry. The driver polls on retry boundaries.
+OBSERVE_SECONDS=30
 
 # Antithesis schedules anytime commands aggressively, and a quiet period suppresses
 # exactly the faults this test exists to inject. Fire on a small fraction of
@@ -67,7 +70,7 @@ echo "Recovery liveness: pausing faults for ${QUIET_SECONDS}s; Stressgres must r
 "${ANTITHESIS_STOP_FAULTS}" "${QUIET_SECONDS}"
 
 poke "$((RECOVER_SECONDS * 1000))"
-sleep "${RECOVER_SECONDS}"
+sleep "$((RECOVER_SECONDS + OBSERVE_SECONDS))"
 restore
 
 echo "Recovery liveness: Stressgres survived the quiet period"

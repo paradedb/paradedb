@@ -152,7 +152,7 @@ jobs:
           fi
 
       # Only generate the PG majors we're publishing this run. For beta (`-rc.`) releases the matrix
-      # is [18], and only the PG 18 .deb are published.
+      # is [18].
       - name: Generate Dockerfiles
         env:
           JOB_SET_MATRIX_MATRIX: ${{ needs.set-matrix.outputs.matrix }}

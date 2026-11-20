@@ -22,8 +22,7 @@ on:
       - main
       - 0.*.x # Release branches
     paths:
-      - ".github/scripts/release.py"
-      - ".github/scripts/test_release.py"
+      - ".github/scripts/**"
       - "scripts/release.sh"
       - ".github/workflows/check-released-migrations.yml"
       - ".github/workflows/publish-github-release.yml"
@@ -32,12 +31,32 @@ on:
       - "Cargo.toml"
       - "rust-toolchain.toml"
 
+  workflow_dispatch:
+
 permissions:
   contents: read
 
 jobs:
+  test-ci-scripts:
+    name: Test CI Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Test CI Scripts
+        working-directory: .github/scripts
+        run: |
+          python3 -m pip install PyYAML==6.0.3
+          tests=()
+          for test in test_*.py; do
+            if [[ "$test" != test_release.py ]]; then
+              tests+=("$test")
+            fi
+          done
+          python3 -m unittest "${tests[@]}"
+
   check-released-migrations:
     name: Check Released Migrations
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Git Repository
@@ -45,16 +64,36 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check for Migration Changes
+        id: migration-changes
+        run: |
+          changed=$(git diff --no-renames --name-only HEAD^1 HEAD -- \
+            .github/scripts/release.py \
+            .github/scripts/test_release.py \
+            scripts/release.sh \
+            .github/workflows/check-released-migrations.yml \
+            .github/workflows/publish-github-release.yml \
+            pg_search/sql/ \
+            pg_search/Cargo.toml \
+            Cargo.toml \
+            rust-toolchain.toml)
+          if [[ -n "$changed" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install Rust
+        if: steps.migration-changes.outputs.run == 'true'
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
         with:
           rustflags: ""
 
       - name: Extract pgrx Version
+        if: steps.migration-changes.outputs.run == 'true'
         id: pgrx
         run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pgrx binary
+        if: steps.migration-changes.outputs.run == 'true'
         id: cache-pgrx
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -62,18 +101,20 @@ jobs:
           key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install cargo-pgrx
-        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        if: steps.migration-changes.outputs.run == 'true' && steps.cache-pgrx.outputs.cache-hit != 'true'
         env:
           STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
         run: cargo install --locked cargo-pgrx --version "$STEP_PGRX_VERSION" --debug
 
       - name: Test Release Migrations
+        if: steps.migration-changes.outputs.run == 'true'
         working-directory: .github/scripts
         run: python3 -m unittest test_release
 
       # Enforces released-script immutability, fragment dependency rules, and
       # release-branch fragment identity against origin/main. See CONTRIBUTING.md.
       - name: Lint Migration Fragments
+        if: steps.migration-changes.outputs.run == 'true'
         run: |
           ./scripts/release.sh lint-fragments \
             --base-ref "${GITHUB_BASE_REF}" \

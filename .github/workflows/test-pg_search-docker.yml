@@ -519,7 +519,7 @@ jobs:
     needs: image-changes
     if: needs.image-changes.outputs.extension == 'true'
     env:
-      PG_VERSION: '18'
+      PG_VERSION: "18"
     name: Test Extension Image Build (${{ matrix.arch }})
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:

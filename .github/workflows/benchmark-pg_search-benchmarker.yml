@@ -277,9 +277,6 @@ jobs:
           # Restore the heap below; do not download the corpus through download.yaml.
           aws s3 sync "${DATASET_CONFIG_S3}" "$dataset_dir" --exclude download.yaml --no-sign-request
           test -f "${dataset_dir}/k6/search.js"
-          if [ "${DATASET}" = stackexchange ]; then
-            cp ../benchmarks/assets/stackexchange/search.js "${dataset_dir}/k6/"
-          fi
 
       - name: Set Up Docker Benchmark Cluster
         id: build_image

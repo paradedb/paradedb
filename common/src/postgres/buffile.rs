@@ -19,12 +19,11 @@
 //! Wraps Postgres's `BufFile*` C API. Some of these signatures differ across supported PG
 //! versions; the rest are thin safety wrappers over the same underlying calls.
 
+use crate::postgres::utils::ResourceOwnerStamp;
 use pgrx::PgMemoryContexts;
 use pgrx::pg_sys;
-use std::ffi::c_void;
 use std::io;
 use std::os::raw::c_int;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Returns `file`'s current `(fileno, offset)` position.
@@ -93,81 +92,6 @@ pub unsafe fn create_temp_buffile() -> *mut pg_sys::BufFile {
         .switch_to(|_| unsafe { pg_sys::BufFileCreateTemp(false) })
 }
 
-/// Tracks whether the resource owner that some `BufFile`s were created under has released
-/// its files, so a Rust `Drop` knows when it must not call `BufFileClose`.
-///
-/// Postgres closes and deletes temp files itself when the owner is released, and that
-/// can run before the Rust holder drops: a subtransaction abort releases the owner
-/// before it resets the SPI context that frees a scan state, so a later `BufFileClose`
-/// would run on a freed VFD. `BufFileClose` also flushes, so it must not run while a
-/// Postgres error is unwinding through Rust either: the flush would raise again, and a
-/// panic during unwinding aborts the backend. Same protocol as `sequentialscan::keyset`.
-pub struct BufFileReleaseGuard {
-    owner: pg_sys::ResourceOwner,
-    released: AtomicBool,
-}
-
-impl BufFileReleaseGuard {
-    /// Registers a release callback for the current resource owner. The `Rc` pins the
-    /// callback argument's address; the callback is unregistered when the last clone drops.
-    pub fn register() -> Rc<Self> {
-        let guard = Rc::new(Self {
-            owner: unsafe { pg_sys::CurrentResourceOwner },
-            released: AtomicBool::new(false),
-        });
-        unsafe {
-            pg_sys::RegisterResourceReleaseCallback(
-                Some(Self::on_release),
-                Rc::as_ptr(&guard).cast_mut().cast::<c_void>(),
-            );
-        }
-        guard
-    }
-
-    pub fn owner(&self) -> pg_sys::ResourceOwner {
-        self.owner
-    }
-
-    /// Whether Rust may still close a file created under this owner: false once Postgres
-    /// has released the owner's files, while a panic is unwinding, and outside an
-    /// in-progress transaction. Abort processing drops holders before the owner is
-    /// released, and a close there flushes into whatever made the query fail.
-    pub fn may_close(&self) -> bool {
-        !self.released.load(Ordering::Relaxed)
-            && !std::thread::panicking()
-            && unsafe { pg_sys::IsTransactionState() }
-    }
-
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn on_release(
-        phase: pg_sys::ResourceReleasePhase::Type,
-        _is_commit: bool,
-        _is_top_level: bool,
-        arg: *mut c_void,
-    ) {
-        let guard = unsafe { &*arg.cast::<BufFileReleaseGuard>() };
-        if phase == pg_sys::ResourceReleasePhase::RESOURCE_RELEASE_AFTER_LOCKS
-            && unsafe { pg_sys::CurrentResourceOwner } == guard.owner
-        {
-            guard.released.store(true, Ordering::Relaxed);
-        }
-    }
-}
-
-// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the callback holds a pointer to
-// this guard, so it has to be unregistered on every drop or a later release would call through
-// freed memory. Unregistering is a list unlink and cannot raise.
-impl Drop for BufFileReleaseGuard {
-    fn drop(&mut self) {
-        unsafe {
-            pg_sys::UnregisterResourceReleaseCallback(
-                Some(Self::on_release),
-                std::ptr::from_mut(self).cast(),
-            );
-        }
-    }
-}
-
 pub trait TempFileHandle: Copy {
     unsafe fn close(self);
 }
@@ -187,20 +111,23 @@ impl TempFileHandle for pg_sys::File {
 struct DeferredTempFileClose<H: TempFileHandle + 'static> {
     handle: H,
     poisoned: AtomicBool,
-    release_guard: Rc<BufFileReleaseGuard>,
+    owner: ResourceOwnerStamp,
 }
 
-// We intentionally do NOT use `impl_safe_drop!` here because the release and poison
-// guards also cover errors caught before drop and resource release before Rust cleanup.
-impl<H: TempFileHandle + 'static> Drop for DeferredTempFileClose<H> {
-    fn drop(&mut self) {
-        if !self.poisoned.load(Ordering::Relaxed) && self.release_guard.may_close() {
-            unsafe { self.handle.close() };
-        }
+crate::impl_safe_drop!([H: TempFileHandle + 'static] DeferredTempFileClose<H>, |self| {
+    if !self.poisoned.load(Ordering::Relaxed) {
+        let handle = self.handle;
+        self.owner.run_if_live(|| unsafe {
+            handle.close();
+        });
     }
-}
+});
 
 /// Owns a PostgreSQL temporary file and prevents reuse or close after failed I/O or release.
+///
+/// Captures [`ResourceOwnerStamp::current`] on construction so `Drop` skips `BufFileClose` /
+/// `FileClose` once PostgreSQL has released the originating `ResourceOwner` (e.g. subtransaction
+/// abort or `PortalDrop`), and skips flushing a poisoned handle whose prior I/O raised.
 ///
 /// The inner handle and destructor are wrapped in [`crate::postgres::customscan::mpp::MainThread`]
 /// so the file can only be accessed inside [`crate::postgres::customscan::mpp::run_on_main_thread`]
@@ -210,15 +137,12 @@ pub struct TempFileOwner<H: TempFileHandle + 'static> {
 }
 
 impl<H: TempFileHandle + 'static> TempFileOwner<H> {
-    pub fn new(handle: H, release_guard: Rc<BufFileReleaseGuard>) -> Self {
-        assert_eq!(release_guard.owner(), unsafe {
-            pg_sys::CurrentResourceOwner
-        });
+    pub fn new(handle: H) -> Self {
         Self {
             inner: crate::postgres::customscan::mpp::MainThread::new(DeferredTempFileClose {
                 handle,
                 poisoned: AtomicBool::new(false),
-                release_guard,
+                owner: ResourceOwnerStamp::current(),
             }),
         }
     }
@@ -227,8 +151,7 @@ impl<H: TempFileHandle + 'static> TempFileOwner<H> {
         crate::postgres::customscan::mpp::try_run_on_main_thread_with(
             |token| {
                 let inner = self.inner.get(token);
-                if !inner.release_guard.may_close() || inner.poisoned.swap(true, Ordering::Relaxed)
-                {
+                if !inner.owner.is_live() || inner.poisoned.swap(true, Ordering::Relaxed) {
                     return Err(io::Error::other(
                         "PostgreSQL temporary file is no longer usable",
                     ));

@@ -1412,6 +1412,7 @@ impl AggregateScan {
         state: &mut CustomScanStateWrapper<Self>,
         budget: MppBudget,
         physical: &Arc<dyn ExecutionPlan>,
+        runtime: &PgTokioRuntime,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         // Manifests were pinned at exec; `ensure` is idempotent.
         Self::ensure_source_manifests(state);
@@ -1446,6 +1447,7 @@ impl AggregateScan {
                 budget,
                 physical,
                 args,
+                runtime.shutdown_handle(),
             )
         }
     }
@@ -2347,7 +2349,7 @@ impl AggregateScan {
             // remain and the `DistributedExec` shape has no mesh to read from, so replan serially
             // below.
             let leader = if let Some(budget) = mpp_budget {
-                Self::launch_mpp(state, budget, &physical_plan)
+                Self::launch_mpp(state, budget, &physical_plan, &runtime)
             } else {
                 None
             };

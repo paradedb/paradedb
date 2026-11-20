@@ -58,7 +58,7 @@ use crate::postgres::customscan::mpp::glue::{
     debug_parallel_query_is_active, estimate_dsm_size, leader_setup, max_producer_task_count,
     worker_setup,
 };
-use crate::postgres::customscan::mpp::interrupt::PgTokioRuntime;
+use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, PgTokioRuntimeShutdownHandle};
 use crate::postgres::customscan::mpp::wakeup::{has_available_wakeup_slots, reserve_wakeup_slots};
 use crate::postgres::customscan::mpp::worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::customscan::parallel::RelParallelWorkers;
@@ -349,6 +349,7 @@ pub unsafe fn launch_mpp(
     budget: MppBudget,
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
+    runtime_shutdown: PgTokioRuntimeShutdownHandle,
 ) -> Option<MppLeaderState> {
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
 
@@ -501,7 +502,7 @@ pub unsafe fn launch_mpp(
 
     // Registered here (not in `leader_setup`) because this is the first point with both the segment
     // (`finish`) and the leader streams (`leader`) in hand.
-    unsafe { leader.register_streams_on_dsm_detach(finish.dsm_segment()) };
+    unsafe { leader.register_streams_on_dsm_detach(finish.dsm_segment(), runtime_shutdown) };
 
     // Release the workers into ring attach + plan wait.
     go.store(GO_RUN, Ordering::Release);

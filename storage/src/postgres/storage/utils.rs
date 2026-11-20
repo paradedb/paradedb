@@ -122,19 +122,17 @@ impl RelationBufferAccess {
             // is dropped before exhaustion.
             struct BufferIter<I: Iterator<Item = pg_sys::Buffer>> {
                 iter: I,
+                owner: crate::postgres::utils::ResourceOwnerStamp,
             }
             crate::impl_safe_drop!([I: Iterator<Item = pg_sys::Buffer>] BufferIter<I>, |self| {
-                unsafe {
-                    if !pg_sys::IsTransactionState() {
-                        return;
+                let owner = self.owner;
+                owner.run_if_live(|| {
+                    for pg_buffer in &mut self.iter {
+                        unsafe {
+                            pg_sys::ReleaseBuffer(pg_buffer);
+                        }
                     }
-                }
-
-                for pg_buffer in &mut self.iter {
-                    unsafe {
-                        pg_sys::ReleaseBuffer(pg_buffer);
-                    }
-                }
+                });
             });
             impl<I: Iterator<Item = pg_sys::Buffer>> Iterator for BufferIter<I> {
                 type Item = pg_sys::Buffer;
@@ -145,6 +143,7 @@ impl RelationBufferAccess {
                 }
             }
 
+            let owner = crate::postgres::utils::ResourceOwnerStamp::current();
             let rel = self.rel.as_ptr();
             let fork = self.rel.fork_number();
             let iter = (0..npages)
@@ -160,7 +159,7 @@ impl RelationBufferAccess {
                     // ... so we need to lock them here
                     pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
                 });
-            BufferIter { iter }
+            BufferIter { iter, owner }
         }
     }
 

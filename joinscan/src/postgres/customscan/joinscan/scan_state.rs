@@ -293,6 +293,7 @@ pub struct RelationState {
     pub ffhelper: Option<Arc<FFHelper>>,
     pub visibility_checker: VisibilityChecker,
     pub fetch_slot: *mut pg_sys::TupleTableSlot,
+    pub slot_owner: crate::postgres::utils::ResourceOwnerStamp,
     /// Index of the CTID column for this relation in the result RecordBatch.
     pub ctid_col_idx: Option<usize>,
     /// Keeps the relation open and locked during the scan.
@@ -301,11 +302,11 @@ pub struct RelationState {
 }
 
 crate::impl_safe_drop!(RelationState, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() && !self.fetch_slot.is_null() {
-            pg_sys::ExecDropSingleTupleTableSlot(self.fetch_slot);
-            self.fetch_slot = std::ptr::null_mut();
-        }
+    if !self.fetch_slot.is_null() {
+        let fetch_slot = std::mem::replace(&mut self.fetch_slot, std::ptr::null_mut());
+        self.slot_owner.run_if_live(|| unsafe {
+            pg_sys::ExecDropSingleTupleTableSlot(fetch_slot);
+        });
     }
 });
 

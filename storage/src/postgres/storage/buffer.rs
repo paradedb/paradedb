@@ -198,26 +198,28 @@ mod block_tracker {
 #[derive(Debug)]
 pub struct Buffer {
     pub(super) pg_buffer: pg_sys::Buffer,
+    owner: crate::postgres::utils::ResourceOwnerStamp,
     /// Read while the buffer is pinned, so `Drop` never asks Postgres for it: after an abort
     /// releases the pin, `BufferGetBlockNumber` fails `Assert(BufferIsPinned)`.
     #[cfg(feature = "block_tracker")]
     blockno: pg_sys::BlockNumber,
 }
 
-struct UnlockReleaseBufferOnMainThread(pg_sys::Buffer);
+struct UnlockReleaseBufferOnMainThread {
+    pg_buffer: pg_sys::Buffer,
+    owner: crate::postgres::utils::ResourceOwnerStamp,
+}
 
 crate::impl_safe_drop!(UnlockReleaseBufferOnMainThread, |self| {
-    unsafe {
-        if !crate::postgres::utils::IsTransactionState() && !pg_sys::InRecovery {
-            return;
-        }
+    let pg_buffer = self.pg_buffer;
+    self.owner.run_if_live_or_recovery(|| unsafe {
         // Shared buffers (`> 0`) acquire a content LWLock in `LockBuffer`, keeping
         // `InterruptHoldoffCount > 0` until released or cleared by `(Sub)TransactionAbort`. Local
         // `TEMP` buffers (`< 0`) take no LWLock in `LockBuffer`, so when `SearchIndexManifest` or
         // `FFHelper` drops at `EndCustomScan` (outside `HeldInterrupts`), `InterruptHoldoffCount`
         // is `0`; check `LocalRefCount` directly so local `TEMP` buffer pins do not leak.
-        let still_held = if self.0 < 0 {
-            let bufid = (-self.0 - 1) as isize;
+        let still_held = if pg_buffer < 0 {
+            let bufid = (-pg_buffer - 1) as isize;
             !pg_sys::LocalRefCount.is_null()
                 && (bufid as i32) < pg_sys::NLocBuffer
                 && *pg_sys::LocalRefCount.offset(bufid) > 0
@@ -225,9 +227,9 @@ crate::impl_safe_drop!(UnlockReleaseBufferOnMainThread, |self| {
             pg_sys::InterruptHoldoffCount > 0
         };
         if still_held {
-            pg_sys::UnlockReleaseBuffer(self.0);
+            pg_sys::UnlockReleaseBuffer(pg_buffer);
         }
-    }
+    });
 });
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
@@ -246,9 +248,12 @@ impl Drop for Buffer {
             {
                 return;
             }
-            crate::postgres::customscan::mpp::drop_on_main_thread(UnlockReleaseBufferOnMainThread(
-                self.pg_buffer,
-            ));
+            crate::postgres::customscan::mpp::drop_on_main_thread(
+                UnlockReleaseBufferOnMainThread {
+                    pg_buffer: self.pg_buffer,
+                    owner: self.owner,
+                },
+            );
         }
     }
 }
@@ -273,6 +278,7 @@ impl Buffer {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self {
             pg_buffer,
+            owner: crate::postgres::utils::ResourceOwnerStamp::current(),
             #[cfg(feature = "block_tracker")]
             blockno: unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) },
         }
@@ -301,9 +307,10 @@ impl Buffer {
         pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
         let pg_buffer =
             std::mem::replace(&mut self.pg_buffer, pg_sys::InvalidBuffer as pg_sys::Buffer);
+        let owner = self.owner;
         block_tracker::forget!(self.blockno);
         ImmutablePage {
-            _pinned_buffer: PinnedBuffer::new(pg_buffer),
+            _pinned_buffer: PinnedBuffer::with_owner(pg_buffer, owner),
             ptr,
             len,
         }
@@ -378,12 +385,11 @@ pub(crate) type IndexLocator = pg_sys::RelFileNode;
 pub(crate) type IndexLocator = pg_sys::RelFileLocator;
 
 crate::impl_safe_drop!(BufferMut, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() || pg_sys::InRecovery {
-            // it's safe to either mark buffers dirty or finish the xlog record
-            finish_xlog(self)
-        }
-    }
+    let owner = self.inner.owner;
+    owner.run_if_live_or_recovery(|| unsafe {
+        // it's safe to either mark buffers dirty or finish the xlog record
+        finish_xlog(self)
+    });
 });
 
 impl BufferMut {
@@ -471,6 +477,7 @@ impl BufferMut {
             &mut self.inner,
             Buffer {
                 pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
+                owner: crate::postgres::utils::ResourceOwnerStamp::default(),
                 #[cfg(feature = "block_tracker")]
                 blockno: pg_sys::InvalidBlockNumber,
             },
@@ -521,19 +528,22 @@ impl BufferMut {
 #[derive(Debug)]
 pub struct PinnedBuffer {
     pg_buffer: pg_sys::Buffer,
+    owner: crate::postgres::utils::ResourceOwnerStamp,
     /// See [`Buffer`]'s field of the same name.
     #[cfg(feature = "block_tracker")]
     blockno: pg_sys::BlockNumber,
 }
 
-struct ReleaseBufferOnMainThread(pg_sys::Buffer);
+struct ReleaseBufferOnMainThread {
+    pg_buffer: pg_sys::Buffer,
+    owner: crate::postgres::utils::ResourceOwnerStamp,
+}
 
 crate::impl_safe_drop!(ReleaseBufferOnMainThread, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            pg_sys::ReleaseBuffer(self.0);
-        }
-    }
+    let pg_buffer = self.pg_buffer;
+    self.owner.run_if_live(|| unsafe {
+        pg_sys::ReleaseBuffer(pg_buffer);
+    });
 });
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
@@ -551,17 +561,29 @@ impl Drop for PinnedBuffer {
         {
             return;
         }
-        crate::postgres::customscan::mpp::drop_on_main_thread(ReleaseBufferOnMainThread(
-            self.pg_buffer,
-        ));
+        crate::postgres::customscan::mpp::drop_on_main_thread(ReleaseBufferOnMainThread {
+            pg_buffer: self.pg_buffer,
+            owner: self.owner,
+        });
     }
 }
 
 impl PinnedBuffer {
     pub fn new(pg_buffer: pg_sys::Buffer) -> Self {
+        Self::with_owner(
+            pg_buffer,
+            crate::postgres::utils::ResourceOwnerStamp::current(),
+        )
+    }
+
+    fn with_owner(
+        pg_buffer: pg_sys::Buffer,
+        owner: crate::postgres::utils::ResourceOwnerStamp,
+    ) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self {
             pg_buffer,
+            owner,
             #[cfg(feature = "block_tracker")]
             blockno: unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) },
         }
@@ -581,6 +603,7 @@ impl PinnedBuffer {
 #[derive(Debug)]
 pub struct BorrowedBuffer {
     pg_buffer: pg_sys::Buffer,
+    owner: crate::postgres::utils::ResourceOwnerStamp,
 }
 
 impl BorrowedBuffer {
@@ -589,18 +612,18 @@ impl BorrowedBuffer {
     /// This will acquire a share lock on the buffer, and release it on Drop.
     pub unsafe fn from_pg(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
+        let owner = crate::postgres::utils::ResourceOwnerStamp::current();
         pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
-        Self { pg_buffer }
+        Self { pg_buffer, owner }
     }
 }
 
 crate::impl_safe_drop!(BorrowedBuffer, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            // Only unlock, don't release
-            pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
-        }
-    }
+    let pg_buffer = self.pg_buffer;
+    self.owner.run_if_live(|| unsafe {
+        // Only unlock, don't release
+        pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
+    });
 });
 
 pub struct Page<'a> {

@@ -610,9 +610,6 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
             }
         };
     let detach_handle = streams.detach_handle;
-    unsafe {
-        register_worker_streams_on_dsm_detach(worker_session.dsm_seg, detach_handle.clone());
-    }
 
     // In the symmetric mesh across `0..n_procs`, every background worker sees `n_procs - 1` peers
     // (`0` plus `n_procs - 2` sibling background workers), so total background workers is
@@ -623,6 +620,14 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
         dispatcher,
         streams.client_streams,
     ));
+    unsafe {
+        register_worker_streams_on_dsm_detach(
+            worker_session.dsm_seg,
+            detach_handle.clone(),
+            Arc::clone(&peer_resolver),
+            runtime.shutdown_handle(),
+        );
+    }
 
     let spill_state = SpillNotifier(parallel_state);
     let worker = build_mpp_worker(

@@ -36,8 +36,8 @@ use crate::gucs::WorkMem;
 use crate::postgres::buffile;
 use crate::postgres::tuplesort::Sorter;
 use crate::postgres::types::TantivyValue;
+use crate::postgres::utils::ResourceOwnerStamp;
 use pgrx::pg_sys;
-use std::cell::Cell;
 use std::os::raw::c_int;
 
 /// One sparse-index entry per this many spilled records.
@@ -72,7 +72,10 @@ impl KeySet {
     }
 
     pub fn is_valid(&self) -> bool {
-        !matches!(self, Self::Spilled(spilled) if spilled.released.get())
+        match self {
+            Self::Spilled(spilled) => spilled.owner.is_live(),
+            _ => true,
+        }
     }
 
     /// Does `value` belong to the set?
@@ -144,8 +147,7 @@ impl KeySetBuilder {
 /// machinery here is a candidate for reuse.
 pub struct Spilled {
     file: *mut pg_sys::BufFile,
-    resource_owner: pg_sys::ResourceOwner,
-    released: Cell<bool>,
+    owner: ResourceOwnerStamp,
     index: Vec<IndexEntry>,
     count: usize,
 }
@@ -162,8 +164,8 @@ impl Spilled {
         unsafe {
             sorter.performsort();
 
+            let owner = ResourceOwnerStamp::current();
             let file = pg_sys::BufFileCreateTemp(false);
-            let resource_owner = pg_sys::CurrentResourceOwner;
 
             let mut index: Vec<IndexEntry> = Vec::new();
             let mut count: usize = 0;
@@ -185,38 +187,17 @@ impl Spilled {
 
             drop(sorter);
 
-            let mut spilled = Box::new(Spilled {
+            Box::new(Spilled {
                 file,
-                resource_owner,
-                released: Cell::new(false),
+                owner,
                 index,
                 count,
-            });
-            pg_sys::RegisterResourceReleaseCallback(
-                Some(Self::release_resources),
-                std::ptr::from_mut(&mut *spilled).cast(),
-            );
-            spilled
-        }
-    }
-
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn release_resources(
-        phase: pg_sys::ResourceReleasePhase::Type,
-        _is_commit: bool,
-        _is_top_level: bool,
-        arg: *mut std::ffi::c_void,
-    ) {
-        let spilled = unsafe { &*arg.cast::<Spilled>() };
-        if phase == pg_sys::ResourceReleasePhase::RESOURCE_RELEASE_AFTER_LOCKS
-            && unsafe { pg_sys::CurrentResourceOwner } == spilled.resource_owner
-        {
-            spilled.released.set(true);
+            })
         }
     }
 
     fn contains(&self, value: &TantivyValue) -> bool {
-        assert!(!self.released.get(), "spilled key set has been released");
+        assert!(self.owner.is_live(), "spilled key set has been released");
         if self.count == 0 {
             return false;
         }
@@ -270,21 +251,12 @@ impl Spilled {
     }
 }
 
-// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the release callback points at
-// this value and has to be unregistered on every drop, and the close below already checks for
-// unwinding, for the owner having released the file, and for a transaction in progress.
-impl Drop for Spilled {
-    fn drop(&mut self) {
-        unsafe {
-            pg_sys::UnregisterResourceReleaseCallback(
-                Some(Self::release_resources),
-                std::ptr::from_mut(self).cast(),
-            );
-            // Abort processing drops this before the owner releases the file, and the
-            // close flushes a dirty tail that can raise again. The owner removes it.
-            if !self.released.get() && !std::thread::panicking() && pg_sys::IsTransactionState() {
-                pg_sys::BufFileClose(self.file);
-            }
-        }
-    }
-}
+// Abort processing drops this before the owner releases the file, and `BufFileClose` flushes a
+// dirty tail that can raise again; `impl_safe_drop!` + `ResourceOwnerStamp::run_if_live` skip the
+// close during unwinding, abort, or once the originating owner has started release.
+crate::impl_safe_drop!(Spilled, |self| {
+    let file = self.file;
+    self.owner.run_if_live(|| unsafe {
+        pg_sys::BufFileClose(file);
+    });
+});

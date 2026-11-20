@@ -24,9 +24,8 @@
     banner.id = "paradedb-cookie-banner";
     banner.setAttribute("aria-label", "Cookie preferences");
     banner.innerHTML = `
-      <p>Essential cookies keep ParadeDB working. Analytics and marketing covers usage
-      measurement, personalized ads, and masked session replay during Cloud onboarding.
-      Choosing Essential only limits tracking to cookieless measurement.
+      <p>We use cookies for analytics and personalized ads. Declining limits
+      tracking to cookieless measurement.
       <a href="https://www.paradedb.com/legal/privacy">Privacy Policy</a></p>
       <div><button type="button" data-consent="false">Essential only</button>
       <button type="button" data-consent="all">Allow both</button></div>`;

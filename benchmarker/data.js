@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795152925569,
+  "lastUpdate": 1795152954541,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -105921,6 +105921,271 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14576965521-index"
+      }
+    ],
+    "benchmarker msmarco-113m-8cpu-32gb (latency)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "98188786262591184b45252ca71379a4f0d8f7b6",
+          "message": "fix: Restore Postgres.app publishing (#7570)\n\n## What\n\nFix Postgres.app publishing for PostgreSQL 18.\n\n## Why\n\nPostgres.app v3.0 ships PostgreSQL 18 in a bundle whose filename ends in\n`-18-19.dmg`. The old selector required `-18.dmg` and failed before\ndownloading. The original v0.27.0 run also hit a pgrx 0.20.0 bindgen\nerror due to Homebrew Clang's default configuration.\n\n## How\n\nMatch the PostgreSQL major anywhere in the DMG's list of bundled majors\nand download from the same release tag used for asset selection. Set\n`CLANG_NO_DEFAULT_CONFIG=1` during packaging and keep the explicit macOS\nSDK path.\n\n## Tests\n\n- Parsed the workflow YAML and checked Bash syntax.\n- Exercised the installer lookup with v3.0, the v2.9.7 bundle and\nstandalone DMG, and a release without a PostgreSQL 18 asset.\n- Confirmed the patch applies to both release branches. The macOS\npackage build still needs CI validation.",
+          "timestamp": "2026-11-19T15:59:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/98188786262591184b45252ca71379a4f0d8f7b6"
+        },
+        "date": 1795152951619,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 6.997,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 9.044,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 10.431,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 21.771,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 29.472,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 34.066,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p50 latency",
+            "value": 420.374,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p95 latency",
+            "value": 2479.873,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p99 latency",
+            "value": 2857.304,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.563,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 4.371,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 4.996,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.58,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 19.264,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 20.449,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 194.307,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 691.913,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 1115.322,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14573437009-latency"
+      }
+    ],
+    "benchmarker msmarco-113m-8cpu-32gb (throughput)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "98188786262591184b45252ca71379a4f0d8f7b6",
+          "message": "fix: Restore Postgres.app publishing (#7570)\n\n## What\n\nFix Postgres.app publishing for PostgreSQL 18.\n\n## Why\n\nPostgres.app v3.0 ships PostgreSQL 18 in a bundle whose filename ends in\n`-18-19.dmg`. The old selector required `-18.dmg` and failed before\ndownloading. The original v0.27.0 run also hit a pgrx 0.20.0 bindgen\nerror due to Homebrew Clang's default configuration.\n\n## How\n\nMatch the PostgreSQL major anywhere in the DMG's list of bundled majors\nand download from the same release tag used for asset selection. Set\n`CLANG_NO_DEFAULT_CONFIG=1` during packaging and keep the explicit macOS\nSDK path.\n\n## Tests\n\n- Parsed the workflow YAML and checked Bash syntax.\n- Exercised the installer lookup with v3.0, the v2.9.7 bundle and\nstandalone DMG, and a release without a PostgreSQL 18 asset.\n- Confirmed the patch applies to both release branches. The macOS\npackage build still needs CI validation.",
+          "timestamp": "2026-11-19T15:59:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/98188786262591184b45252ca71379a4f0d8f7b6"
+        },
+        "date": 1795152952785,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 138.50212029792033,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 50.13892399912268,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) QPS",
+            "value": 1.4202065894462164,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 273.2038324131612,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 100.73961742111206,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 3.765737069844779,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14573437009-throughput"
+      }
+    ],
+    "benchmarker msmarco-113m-8cpu-32gb (buffers)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "98188786262591184b45252ca71379a4f0d8f7b6",
+          "message": "fix: Restore Postgres.app publishing (#7570)\n\n## What\n\nFix Postgres.app publishing for PostgreSQL 18.\n\n## Why\n\nPostgres.app v3.0 ships PostgreSQL 18 in a bundle whose filename ends in\n`-18-19.dmg`. The old selector required `-18.dmg` and failed before\ndownloading. The original v0.27.0 run also hit a pgrx 0.20.0 bindgen\nerror due to Homebrew Clang's default configuration.\n\n## How\n\nMatch the PostgreSQL major anywhere in the DMG's list of bundled majors\nand download from the same release tag used for asset selection. Set\n`CLANG_NO_DEFAULT_CONFIG=1` during packaging and keep the explicit macOS\nSDK path.\n\n## Tests\n\n- Parsed the workflow YAML and checked Bash syntax.\n- Exercised the installer lookup with v3.0, the v2.9.7 bundle and\nstandalone DMG, and a release without a PostgreSQL 18 asset.\n- Confirmed the patch applies to both release branches. The macOS\npackage build still needs CI validation.",
+          "timestamp": "2026-11-19T15:59:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/98188786262591184b45252ca71379a4f0d8f7b6"
+        },
+        "date": 1795152953669,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 2311.67,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 7217.96,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r99 shared hits/query",
+            "value": 55972.44,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 952.28,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3520.44,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 40487.99,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14573437009-buffers"
+      }
+    ],
+    "benchmarker msmarco-113m-8cpu-32gb (index build)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "98188786262591184b45252ca71379a4f0d8f7b6",
+          "message": "fix: Restore Postgres.app publishing (#7570)\n\n## What\n\nFix Postgres.app publishing for PostgreSQL 18.\n\n## Why\n\nPostgres.app v3.0 ships PostgreSQL 18 in a bundle whose filename ends in\n`-18-19.dmg`. The old selector required `-18.dmg` and failed before\ndownloading. The original v0.27.0 run also hit a pgrx 0.20.0 bindgen\nerror due to Homebrew Clang's default configuration.\n\n## How\n\nMatch the PostgreSQL major anywhere in the DMG's list of bundled majors\nand download from the same release tag used for asset selection. Set\n`CLANG_NO_DEFAULT_CONFIG=1` during packaging and keep the explicit macOS\nSDK path.\n\n## Tests\n\n- Parsed the workflow YAML and checked Bash syntax.\n- Exercised the installer lookup with v3.0, the v2.9.7 bundle and\nstandalone DMG, and a release without a PostgreSQL 18 asset.\n- Confirmed the patch applies to both release branches. The macOS\npackage build still needs CI validation.",
+          "timestamp": "2026-11-19T15:59:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/98188786262591184b45252ca71379a4f0d8f7b6"
+        },
+        "date": 1795152954528,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 132.96513854715002,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 509629.9375,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx peak container memory",
+            "value": 27.747425079345703,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14573437009-index"
       }
     ]
   }

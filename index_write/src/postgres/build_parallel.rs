@@ -1694,6 +1694,7 @@ pub mod plan {
 #[pgrx::pg_schema]
 mod tests {
     use pgrx::prelude::*;
+    use proptest::{prelude::*, sample::select};
 
     const PARALLEL_BUILD_ROWS: i64 = 35_000;
 
@@ -1901,6 +1902,7 @@ mod tests {
 
     #[pg_test]
     fn test_parallel_build_large_configurations() {
+        const CONFIGURATION_CASES: u32 = 8;
         const LARGE_SEGMENT_TARGET: i64 = 32;
         const MIN_LARGE_SEGMENTS: i64 = LARGE_SEGMENT_TARGET * 3 / 4;
         const MAX_LARGE_SEGMENTS: i64 = LARGE_SEGMENT_TARGET + 1;
@@ -1908,15 +1910,12 @@ mod tests {
         setup_parallel_build_large_table();
         Spi::run("SET max_parallel_workers = 8;").unwrap();
 
-        // Cover every pair of memory, worker, leader, and segment-target settings.
-        for (memory, workers, leader, target) in [
-            ("128MB", 2, false, 4),
-            ("2GB", 6, true, 4),
-            ("128MB", 6, true, 7),
-            ("2GB", 2, false, 7),
-            ("2GB", 2, true, LARGE_SEGMENT_TARGET),
-            ("128MB", 6, false, LARGE_SEGMENT_TARGET),
-        ] {
+        proptest!(ProptestConfig::with_cases(CONFIGURATION_CASES), |(
+            memory in select(vec!["128MB", "2GB"]),
+            workers in select(vec![2, 6]),
+            leader in any::<bool>(),
+            target in select(vec![4, 7, LARGE_SEGMENT_TARGET]),
+        )| {
             Spi::run(&format!(
                     "SET max_parallel_maintenance_workers = {workers};
                      SET parallel_leader_participation = {leader};
@@ -1933,30 +1932,34 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-            if target == LARGE_SEGMENT_TARGET {
-                let expected = MIN_LARGE_SEGMENTS..=MAX_LARGE_SEGMENTS;
-                assert!(
-                    expected.contains(&count),
-                    "Expected {expected:?} segments with workers={workers}, leader={leader}, mem={memory}, segments={target}, got {count}"
-                );
-            } else {
-                assert_eq!(
-                    count, target,
-                    "workers={workers}, leader={leader}, mem={memory}, segments={target}"
-                );
-            }
-
             let num_docs: i64 = Spi::get_one(
                     "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
                 )
                 .unwrap()
                 .unwrap();
-            assert_eq!(
-                num_docs, PARALLEL_BUILD_ROWS,
-                "workers={workers}, leader={leader}, mem={memory}, segments={target}"
-            );
             Spi::run("DROP INDEX parallel_build_large_idx;").unwrap();
-        }
+
+            if target == LARGE_SEGMENT_TARGET {
+                let expected = MIN_LARGE_SEGMENTS..=MAX_LARGE_SEGMENTS;
+                prop_assert!(
+                    expected.contains(&count),
+                    "Expected {:?} segments with workers={}, leader={}, mem={}, segments={}, got {}",
+                    expected, workers, leader, memory, target, count
+                );
+            } else {
+                prop_assert_eq!(
+                    count, target,
+                    "workers={}, leader={}, mem={}, segments={}",
+                    workers, leader, memory, target
+                );
+            }
+
+            prop_assert_eq!(
+                num_docs, PARALLEL_BUILD_ROWS,
+                "workers={}, leader={}, mem={}, segments={}",
+                workers, leader, memory, target
+            );
+        });
 
         cleanup_parallel_build_large_table();
     }

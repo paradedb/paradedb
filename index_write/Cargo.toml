@@ -13,7 +13,7 @@ pg15 = ["pgrx/pg15", "index_read/pg15"]
 pg16 = ["pgrx/pg16", "index_read/pg16"]
 pg17 = ["pgrx/pg17", "index_read/pg17"]
 pg18 = ["pgrx/pg18", "index_read/pg18"]
-pg_test = ["index_read/pg_test"]
+pg_test = ["dep:proptest", "index_read/pg_test"]
 
 # Keep this crate focused on Tantivy index building, merging, and vacuum/cleanup. Do NOT add
 # `datafusion` or `arrow-*` here so `index_write` compiles in parallel with `scan` and `planner`.
@@ -25,6 +25,7 @@ bytemuck.workspace = true
 log.workspace = true
 pgrx.workspace = true
 postcard.workspace = true
+proptest = { workspace = true, optional = true }
 rand.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -45,3 +46,4 @@ index_read = { path = "../index_read", default-features = false, features = [
   "pg_test",
 ] }
 pgrx-tests.workspace = true
+proptest.workspace = true

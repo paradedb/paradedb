@@ -308,8 +308,8 @@ jobs:
       - name: Run ${{ env.DATASET }} Benchmark
         working-directory: benchmarker
         env:
-          WARMUP_SECONDS: 30
-          DURATION_SECONDS: 300
+          WARMUP_SECONDS: 5
+          DURATION_SECONDS: 25
           UPDATES_PER_SECOND: 1000
           STARTUP_TIMEOUT_SECONDS: 300
           BENCHMARKER_META: >-

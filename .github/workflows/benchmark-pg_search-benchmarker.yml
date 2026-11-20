@@ -15,10 +15,6 @@ on:
     types: [labeled] # Opt in with `benchmarks`, `benchmark-benchmarker` (all), or `benchmark-benchmarker-{hackernews,stackexchange,wikipedia}`.
   workflow_dispatch:
     inputs:
-      profile_mutable_cache:
-        description: "Run the mutable-cache diagnostic matrix instead of publishing benchmark results"
-        type: boolean
-        default: false
       runner_type:
         description: "Runner availability"
         type: choice
@@ -306,26 +302,7 @@ jobs:
           docker restart paradedb
           docker compose up -d --wait --wait-timeout 300 paradedb
 
-      - name: Install profiler
-        if: inputs.profile_mutable_cache == true
-        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
-        with:
-          packages: linux-perf
-
-      - name: Profile mutable cache
-        if: inputs.profile_mutable_cache == true
-        run: bash .github/scripts/profile-mutable-cache.sh
-
-      - name: Upload mutable cache diagnostics
-        if: always() && inputs.profile_mutable_cache == true
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: mutable-cache-diagnostics
-          path: benchmark-profiles/
-          retention-days: 7
-
       - name: Run ${{ env.DATASET }} Benchmark
-        if: inputs.profile_mutable_cache != true
         working-directory: benchmarker
         env:
           WARMUP_SECONDS: 5
@@ -406,7 +383,7 @@ jobs:
           sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
 
       - name: Stage Benchmarker Results
-        if: success() && inputs.profile_mutable_cache != true
+        if: success()
         uses: ./.github/actions/stage-benchmark-results
         with:
           benchmark_type: benchmarker

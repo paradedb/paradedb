@@ -24,11 +24,13 @@
     banner.id = "paradedb-cookie-banner";
     banner.setAttribute("aria-label", "Cookie preferences");
     banner.innerHTML = `
-      <p>We use cookies for analytics and personalized ads. Declining limits
-      tracking to cookieless measurement.
+      <p>We use analytics across the website, docs, and Cloud console, including masked
+      session replay during Cloud onboarding. You can also allow personalized ads.
+      Declining limits tracking to cookieless measurement.
       <a href="https://www.paradedb.com/legal/privacy">Privacy Policy</a></p>
       <div><button type="button" data-consent="false">Decline</button>
-      <button type="button" data-consent="true">Accept</button></div>`;
+      <button type="button" data-consent="analytics">Allow analytics</button>
+      <button type="button" data-consent="all">Allow all</button></div>`;
     const preferences = document.createElement("button");
     preferences.id = "paradedb-cookie-preferences";
     preferences.type = "button";
@@ -41,7 +43,8 @@
     }
     banner.querySelectorAll("button").forEach((button) => {
       button.addEventListener("click", () => {
-        consent.setConsent(button.dataset.consent === "true");
+        const choice = button.dataset.consent;
+        consent.setConsent(choice !== "false", choice === "all");
         showBanner(false, true);
       });
     });

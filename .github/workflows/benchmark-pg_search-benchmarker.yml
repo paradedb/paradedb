@@ -358,7 +358,7 @@ jobs:
           if [ "${SUITE}" = stackexchange-updates ]; then
             BENCHMARKER_META="$(jq -c --argjson seconds "$DURATION_SECONDS" '. + {measurement_seconds: $seconds}' <<< "$BENCHMARKER_META")"
             export BENCHMARKER_META
-            run_benchmark topk disjunction 1000 8
+            run_benchmark topk disjunction 1000 1
           else
             for style in conjunction disjunction phrase mixed; do
               run_benchmark topk "${style}"

@@ -15,7 +15,7 @@ if (!Number.isSafeInteger(updatesPerSecond) || updatesPerSecond < 0) {
   throw new Error("UPDATES_PER_SECOND must be a non-negative integer");
 }
 
-const vus = Number(__ENV.VUS || 8);
+const vus = Number(__ENV.VUS || 1);
 const warmupSeconds = Number(__ENV.WARMUP_SECONDS || 10);
 const durationSeconds = Number(__ENV.DURATION_SECONDS || 60);
 const topK = Number(__ENV.TOP_K || 10);

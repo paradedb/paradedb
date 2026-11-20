@@ -6,6 +6,7 @@
 -- verifies that JoinScan now handles this pattern via LeftMark join.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_mutable_segment_cache = off;
 
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan TO OFF;
@@ -159,3 +160,5 @@ SET paradedb.enable_join_custom_scan = on;
 -- Cleanup
 DROP TABLE products_4531 CASCADE;
 DROP TABLE suppliers_4531 CASCADE;
+
+RESET paradedb.enable_mutable_segment_cache;

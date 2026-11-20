@@ -28,14 +28,26 @@ pub mod api {
         use crate::postgres::storage::metadata::MetaPage;
         use pgrx::prelude::*;
 
+        const VECTOR_METADATA_CLUSTERING_THRESHOLD: i64 = 64;
+        pub const VECTOR_METADATA_ROWS: i64 = VECTOR_METADATA_CLUSTERING_THRESHOLD * 2;
+        pub const VECTOR_METADATA_DIMENSIONS: usize = 128;
+
         pub fn vector_metadata_fixture() -> PgSearchRelation {
-            Spi::run("CREATE EXTENSION IF NOT EXISTS vector;
-                SET paradedb.vector_clustering_threshold = 64;
-                CREATE TABLE metadata_vectors(id int PRIMARY KEY, vec vector(1024));
+            Spi::run(&format!("CREATE EXTENSION IF NOT EXISTS vector;
+                SET paradedb.vector_clustering_threshold = {VECTOR_METADATA_CLUSTERING_THRESHOLD};
+                CREATE TABLE metadata_vectors(id int PRIMARY KEY, vec vector({VECTOR_METADATA_DIMENSIONS}));
                 INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
-                    FROM generate_series(1,1024) i)::vector FROM generate_series(1,2048) g;
+                    FROM generate_series(1,{VECTOR_METADATA_DIMENSIONS}) i)::vector FROM generate_series(1,{VECTOR_METADATA_ROWS}) g;
                 CREATE INDEX metadata_vectors_idx ON metadata_vectors USING paradedb(id, vec vector_l2_ops)
-                    WITH (quantization='[1,4]', target_segment_count=1);").unwrap();
+                    WITH (quantization='[1,4]', target_segment_count=1);")).unwrap();
+            assert_eq!(
+                Spi::get_one::<bool>(
+                    "SELECT bool_and(vector_format = 'ivf' AND layers = ARRAY[1,4])
+                     FROM paradedb.vector_info('metadata_vectors_idx', 'vec')"
+                )
+                .unwrap(),
+                Some(true)
+            );
             PgSearchRelation::open(
                 Spi::get_one::<pg_sys::Oid>("SELECT 'metadata_vectors_idx'::regclass::oid")
                     .unwrap()
@@ -60,7 +72,7 @@ pub mod api {
         }
 
         pub fn vector_query() -> String {
-            let query = vec!["1"; 1024].join(",");
+            let query = vec!["1"; VECTOR_METADATA_DIMENSIONS].join(",");
             format!(
                 "SELECT id FROM metadata_vectors WHERE id @@@ pdb.all() ORDER BY vec <-> '[{query}]'::vector LIMIT 5"
             )

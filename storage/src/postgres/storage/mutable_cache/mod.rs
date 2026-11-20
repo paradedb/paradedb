@@ -91,7 +91,7 @@
 //!     queried tables.
 //!   - Slots with `usage_count == 0` and zero active readers are evicted, freeing their slab.
 //! - If all memory is pinned by active readers, workers gracefully fall back to local unshared indexing
-//!   (`RamDirectory`) with a `pgrx::warning`.
+//!   (`RamDirectory`).
 //!
 //! ### Invalidation Lifecycle
 //!
@@ -777,7 +777,7 @@ impl Drop for InflightBuildGuard {
 /// 4. **Eager Supersession**: Older bounds for the same segment UUID are transitioned to [`SlotState::Superseded`].
 ///    If an older bound has zero active readers, its slab is immediately freed back to the [`SlabPool`].
 /// 5. **Unshared Fallback**: If the shared arena or slot table is full and cannot be evicted (e.g., all memory
-///    is pinned by active readers), logs a warning and returns backend-private `RamDirectory` without failing the query.
+///    is pinned by active readers), returns backend-private `RamDirectory` without failing the query.
 pub fn get_or_build(
     key: &MutableCacheKey,
     build_fn: impl FnOnce() -> anyhow::Result<RamDirectory>,
@@ -872,9 +872,6 @@ pub fn get_or_build(
 
         let Some(build_idx) = claim_build_idx else {
             drop(guard);
-            pgrx::warning!(
-                "pg_search: mutable segment cache inflight builds full, falling back to local indexing"
-            );
             let ram_dir = build_fn()?;
             return Ok(Arc::new(ram_dir));
         };
@@ -899,7 +896,7 @@ pub fn get_or_build(
         let segment_id = SegmentId::from_bytes(key.segment_id);
         let packed_bytes = match pack::pack_segment(&ram_dir, &segment_id) {
             Ok(bytes) => bytes,
-            Err(e) => {
+            Err(_) => {
                 build_guard.completed = true;
                 let guard = cache.lock.acquire_exclusive();
                 let inflights = unsafe { cache.inflight_builds_mut(&guard) };
@@ -907,8 +904,6 @@ pub fn get_or_build(
                     inflights[build_idx] = InflightBuild::empty();
                     cache.cv.broadcast();
                 }
-                drop(guard);
-                pgrx::warning!("pg_search: failed to pack mutable segment: {e}");
                 return Ok(Arc::new(ram_dir));
             }
         };
@@ -929,10 +924,6 @@ pub fn get_or_build(
                 build_guard.completed = true;
                 inflights[build_idx] = InflightBuild::empty();
                 cache.cv.broadcast();
-                drop(guard);
-                pgrx::warning!(
-                    "pg_search: mutable segment cache arena full, falling back to local indexing"
-                );
                 return Ok(Arc::new(ram_dir));
             }
         };
@@ -953,10 +944,6 @@ pub fn get_or_build(
             let inflights = unsafe { cache.inflight_builds_mut(&guard) };
             inflights[build_idx] = InflightBuild::empty();
             cache.cv.broadcast();
-            drop(guard);
-            pgrx::warning!(
-                "pg_search: mutable segment cache slot table full, falling back to local indexing"
-            );
             return Ok(Arc::new(ram_dir));
         };
 

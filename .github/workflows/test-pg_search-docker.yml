@@ -13,14 +13,16 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/workflows/test-pg_search-docker.yml"
-      - "docker/Dockerfile.paradedb-18"
-      - "docker/Dockerfile.official-18"
+      - "docker/Dockerfile.paradedb-1[5-8]"
+      - "docker/Dockerfile.official-1[5-8]"
+      - "docker/Dockerfile.template"
+      - "docker/generate-dockerfiles.sh"
       - "docker/Dockerfile.extension"
       - "docker/bootstrap.sh"
       - "docker/bootstrap_official.sh"
       - "docker/.dockerignore"
-      - "docker/Dockerfile.paradedb-18.dockerignore"
-      - "docker/Dockerfile.official-18.dockerignore"
+      - "docker/Dockerfile.paradedb-1[5-8].dockerignore"
+      - "docker/Dockerfile.official-1[5-8].dockerignore"
       - "docker/Dockerfile.extension.dockerignore"
   workflow_dispatch:
     inputs:
@@ -33,6 +35,11 @@ on:
       ref:
         required: true
         type: string
+      pg_versions:
+        description: "JSON array of PostgreSQL majors generated for this release."
+        required: false
+        type: string
+        default: "[15,16,17,18]"
       dockerfiles_artifact:
         description: "Generated Dockerfiles artifact from the calling workflow."
         required: false
@@ -48,57 +55,78 @@ concurrency:
   group: test-pg_search-docker-${{ github.head_ref || inputs.ref || github.ref }}
   cancel-in-progress: true
 
-env:
-  PG_VERSION: "18"
-
 permissions:
   contents: read
 
 jobs:
   image-changes:
-    if: github.event_name == 'pull_request' && inputs.ref == ''
+    name: Select Docker Images
     runs-on: ubuntu-latest
     outputs:
-      flavors: ${{ steps.scope.outputs.flavors }}
+      images: ${{ steps.scope.outputs.images }}
       extension: ${{ steps.scope.outputs.extension }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Checkout Git Repository
+        if: github.event_name == 'pull_request' && inputs.ref == ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - id: scope
+
+      - name: Select Images to Test
+        id: scope
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REF_INPUT: ${{ inputs.ref }}
+          PG_VERSIONS: ${{ inputs.pg_versions || '[15,16,17,18]' }}
         run: |
-          git diff --no-renames --name-only -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/docker-paths"
-          paradedb=false
-          official=false
-          extension=false
-          while IFS= read -r -d '' file; do
-            case "$file" in
-              docker/Dockerfile.paradedb-18)
-                paradedb=true
-                extension=true # The extension test gets the pinned release version from this file.
-                ;;
-              docker/bootstrap.sh|docker/Dockerfile.paradedb-18.dockerignore) paradedb=true ;;
-              docker/Dockerfile.official-18|docker/bootstrap_official.sh|docker/Dockerfile.official-18.dockerignore) official=true ;;
-              docker/Dockerfile.extension|docker/Dockerfile.extension.dockerignore) extension=true ;;
-              .github/workflows/test-pg_search-docker.yml|docker/.dockerignore)
-                paradedb=true
-                official=true
-                extension=true
-                ;;
-            esac
-          done < "$RUNNER_TEMP/docker-paths"
-          flavors=$(jq -cn --argjson paradedb "$paradedb" --argjson official "$official"             '[if $paradedb then "paradedb" else empty end, if $official then "official" else empty end]')
-          echo "flavors=$flavors" >> "$GITHUB_OUTPUT"
+          images=()
+          extension=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request && -z "$REF_INPUT" ]]; then
+            diff_range="$BASE_SHA...$HEAD_SHA"
+            shared=$(git diff --no-renames --name-only "$diff_range" -- \
+              .github/workflows/test-pg_search-docker.yml docker/.dockerignore)
+            generated=$(git diff --no-renames --name-only "$diff_range" -- \
+              docker/Dockerfile.template docker/generate-dockerfiles.sh)
+            # The published extension image uses the release pinned by the ParadeDB PG18 Dockerfile.
+            extension_changes=$(git diff --no-renames --name-only "$diff_range" -- \
+              docker/Dockerfile.extension docker/Dockerfile.extension.dockerignore docker/Dockerfile.paradedb-18)
+            if [[ -z "$shared" && -z "$extension_changes" ]]; then
+              extension=false
+            fi
+          fi
+
+          versions=$(jq -r '.[]' <<< "$PG_VERSIONS")
+          for flavor in paradedb official; do
+            bootstrap=docker/bootstrap.sh
+            if [[ "$flavor" == official ]]; then
+              bootstrap=docker/bootstrap_official.sh
+            fi
+
+            for pg_version in $versions; do
+              if [[ -n "${diff_range:-}" && -z "$shared" && -z "$generated" ]]; then
+                dockerfile="docker/Dockerfile.$flavor-$pg_version"
+                changed=$(git diff --no-renames --name-only "$diff_range" -- \
+                  "$dockerfile" "$dockerfile.dockerignore" "$bootstrap")
+                if [[ -z "$changed" ]]; then
+                  continue
+                fi
+              fi
+              images+=("$flavor:$pg_version")
+            done
+          done
+
+          images_json=$(jq -cn --args '$ARGS.positional | map(split(":") | {flavor: .[0], pg_version: .[1]})' "${images[@]}")
+          echo "images=$images_json" >> "$GITHUB_OUTPUT"
           echo "extension=$extension" >> "$GITHUB_OUTPUT"
 
   test-paradedb:
     needs: image-changes
-    if: ${{ !cancelled() && needs.image-changes.outputs.flavors != '[]' }}
-    name: Test ${{ matrix.flavor }} Docker Image (${{ matrix.arch }})
+    if: needs.image-changes.outputs.images != '[]'
+    name: Test ${{ matrix.image.flavor }} PG${{ matrix.image.pg_version }} Docker Image (${{ matrix.arch }})
+    env:
+      PG_VERSION: ${{ matrix.image.pg_version }}
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -113,7 +141,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        flavor: ${{ fromJSON(needs.image-changes.outputs.flavors || '["paradedb","official"]') }}
+        image: ${{ fromJSON(needs.image-changes.outputs.images) }}
         arch:
           - amd64
           - arm64
@@ -159,7 +187,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          dockerfile="docker/Dockerfile.${{ matrix.flavor }}-${{ env.PG_VERSION }}"
+          dockerfile="docker/Dockerfile.${{ matrix.image.flavor }}-${{ env.PG_VERSION }}"
           # Matches both the community (releases/download/vX) and enterprise
           # (api.github.com/repos/<owner>/<repo>/releases/tags/vX) URL forms.
           url="$(grep -oE 'https://(api\.)?github\.com/[^"]*releases/(download|tags)/v[0-9][^"/]*' "$dockerfile" | head -1)"
@@ -191,10 +219,10 @@ jobs:
         run: |
           docker buildx build \
             --platform ${{ matrix.platform }} \
-            --file docker/Dockerfile.${{ matrix.flavor }}-${{ env.PG_VERSION }} \
+            --file docker/Dockerfile.${{ matrix.image.flavor }}-${{ env.PG_VERSION }} \
             --tag paradedb-ci \
-            --cache-from type=gha,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \
-            --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \
+            --cache-from type=gha,scope=paradedb-docker-${{ matrix.image.flavor }}-${{ matrix.image.pg_version }}-${{ matrix.arch }} \
+            --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.image.flavor }}-${{ matrix.image.pg_version }}-${{ matrix.arch }} \
             --load \
             docker
 
@@ -266,11 +294,11 @@ jobs:
           done
 
       - name: Verify barman-cloud is functional
-        if: steps.release_gate.outputs.skip != 'true' && matrix.flavor == 'paradedb'
+        if: steps.release_gate.outputs.skip != 'true' && matrix.image.flavor == 'paradedb'
         run: docker exec paradedb barman-cloud-wal-archive --help
 
       - name: Test Postgres Auto-tuning
-        if: steps.release_gate.outputs.skip != 'true' && matrix.flavor == 'paradedb'
+        if: steps.release_gate.outputs.skip != 'true' && matrix.image.flavor == 'paradedb'
         run: |
           set -euo pipefail
           assert_not_tuned() {
@@ -489,7 +517,9 @@ jobs:
   # runnable-image job above.
   test-extension-image:
     needs: image-changes
-    if: ${{ !cancelled() && needs.image-changes.outputs.extension != 'false' }}
+    if: needs.image-changes.outputs.extension == 'true'
+    env:
+      PG_VERSION: '18'
     name: Test Extension Image Build (${{ matrix.arch }})
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:

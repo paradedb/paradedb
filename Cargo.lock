@@ -4047,6 +4047,7 @@ dependencies = [
  "pgrx",
  "pgrx-tests",
  "postcard",
+ "proptest 1.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.10.3",
  "serde",
  "serde_json",

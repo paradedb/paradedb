@@ -961,13 +961,14 @@ impl CustomScan for AggregateScan {
                     let cscan = builder.args().cscan;
                     ((*cscan).custom_exprs, (*cscan).custom_scan_tlist)
                 };
-                builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
+                let mut df_state = scan_state::DataFusionAggState {
                     plan,
                     targetlist,
                     topk,
                     custom_exprs,
                     custom_scan_tlist,
                     having_filter,
+                    base: None,
                     runtime: None,
                     physical_plan: None,
                     stream: None,
@@ -981,7 +982,15 @@ impl CustomScan for AggregateScan {
                     mpp: MppLifecycle::from_plan(parallel_mode_ok),
                     launch_timing: None,
                     spilled: Arc::new(AtomicBool::new(false)),
-                });
+                };
+                if df_state.has_postgres_expressions() || df_state.has_parameters() {
+                    df_state.base = Some(scan_state::DataFusionAggBase {
+                        plan: df_state.plan.clone(),
+                        targetlist: df_state.targetlist.clone(),
+                        having_filter: df_state.having_filter.clone(),
+                    });
+                }
+                builder.custom_state().datafusion_state = Some(df_state);
                 builder.build()
             }
         }
@@ -1200,7 +1209,13 @@ impl CustomScan for AggregateScan {
         if state.custom_state().is_datafusion_backend() {
             // DataFusion logical/physical planning and any MPP manifest pinning / worker launch
             // happen lazily on first `exec_custom_scan`, once `ExecutePlan` has initialized
-            // `estate->es_use_parallel_mode`.
+            // `estate->es_use_parallel_mode`. Only allocate the dedicated `runtime_context`
+            // (separate from `ps_ExprContext`, which is reset per emitted row) when the query
+            // has runtime expressions or parameters to solve.
+            if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0 {
+                let custom_state = state.custom_state_mut();
+                custom_state.runtime_context = unsafe { custom_state.init_expr_context(estate) };
+            }
             return;
         }
 
@@ -2228,12 +2243,9 @@ impl AggregateScan {
             "aggregate scan slot must be initialized"
         );
 
-        // Capture before the mutable borrow on `datafusion_state`. Threaded
-        // down to each `PgSearchTableProvider` so HeapFilter queries (`=`
-        // on a `pdb.literal`-cast column, etc.) can resolve their runtime
-        // expressions. A provider with something to solve gets a context of its
-        // own from the planstate (see `build_source_df` in datafusion_exec.rs);
-        // `ps_ExprContext` is what every provider's reader evaluates in.
+        // Capture before the mutable borrow on `datafusion_state`. `ps_ExprContext` is
+        // threaded down to each `PgSearchTableProvider` for per-row heap filter evaluation;
+        // runtime expressions and parameters are pre-solved below into `runtime_context`.
         let ps_expr_context = state.csstate.ss.ps.ps_ExprContext;
         let runtime_expr_context = (!ps_expr_context.is_null()).then_some(ps_expr_context);
         let ps = state.planstate();
@@ -2247,6 +2259,15 @@ impl AggregateScan {
 
         // First call: build and execute the DataFusion plan
         if first_call {
+            // Solve all runtime Postgres expressions and parameters on the main thread before
+            // entering `PgTokioRuntime::block_on` (#7593): `block_on` holds `HeldInterrupts`
+            // (breaking parallel InitPlan DSM allocation) and installs a Tokio runtime context
+            // (panicking if an InitPlan itself calls `block_on`).
+            let runtime_context = state.custom_state().runtime_context;
+            state
+                .custom_state_mut()
+                .prepare_query_for_execution(ps, runtime_context);
+
             let runtime = PgTokioRuntime::new()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 

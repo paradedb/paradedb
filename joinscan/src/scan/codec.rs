@@ -25,7 +25,7 @@ use datafusion::functions_aggregate as dfa;
 use datafusion::logical_expr::{AggregateUDF, Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use datafusion_proto::protobuf::DfSchema;
-use pgrx::pg_sys::{ExprContext, Oid, PlanState};
+use pgrx::pg_sys::{ExprContext, Oid};
 
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::ParallelScanState;
@@ -41,10 +41,8 @@ use crate::scan::udf_codec::{try_decode_pg_search_udf, try_encode_pg_search_udf}
 struct PgSearchExtensionCodec {
     /// Shared state for parallel scans, containing the list of segments to be processed.
     parallel_state: Option<*mut ParallelScanState>,
-    /// Postgres expression context, needed for heap filtering and runtime parameters.
+    /// Postgres expression context, needed for heap filtering.
     expr_context: Option<*mut ExprContext>,
-    /// Executor planstate, needed to initialize runtime Postgres expressions in source queries.
-    planstate: Option<*mut PlanState>,
     /// The leader's captured manifest of every join source, indexed by plan_position. A
     /// decoded provider builds its reader from its source's manifest, so packed addresses
     /// stay comparable across the leader and its workers.
@@ -239,7 +237,6 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             }
         }
         provider.set_expr_context(self.expr_context);
-        provider.set_planstate(self.planstate);
         provider.set_explain_only(self.explain_only);
         Ok(Arc::new(provider))
     }
@@ -320,13 +317,11 @@ pub fn deserialize_logical_plan_with_runtime(
     ctx: &TaskContext,
     parallel_state: Option<*mut ParallelScanState>,
     expr_context: Option<*mut ExprContext>,
-    planstate: Option<*mut PlanState>,
     source_manifests: Vec<SearchIndexManifest>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
         expr_context,
-        planstate,
         source_manifests,
         explain_only: false,
     };
@@ -403,15 +398,9 @@ mod tests {
 
         let opens_before = INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed);
         let task_ctx = TaskContext::default();
-        let decoded = deserialize_logical_plan_with_runtime(
-            &bytes,
-            &task_ctx,
-            None,
-            None,
-            None,
-            vec![manifest],
-        )
-        .expect("deserialize with manifest");
+        let decoded =
+            deserialize_logical_plan_with_runtime(&bytes, &task_ctx, None, None, vec![manifest])
+                .expect("deserialize with manifest");
 
         let session = datafusion::prelude::SessionContext::new();
         let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
@@ -476,7 +465,7 @@ mod tests {
         let bytes =
             serialize_logical_plan(&wrapped).expect("VisibilityFilterNode should serialize");
         let ctx = TaskContext::default();
-        let decoded = deserialize_logical_plan_with_runtime(&bytes, &ctx, None, None, None, vec![])
+        let decoded = deserialize_logical_plan_with_runtime(&bytes, &ctx, None, None, vec![])
             .expect("VisibilityFilterNode should deserialize");
 
         let LogicalPlan::Extension(ext) = &decoded else {

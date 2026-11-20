@@ -514,10 +514,11 @@ builder.Services.AddDbContextPool<AppDbContext>(opt =>
 </Note>
 
 <Note>
-You can use `EF.Functions.CosineDistance` to write vector searches in EF Core LINQ.
-If your app searches through Microsoft's `IVectorSearchable<TRecord>` interface,
-install the optional `ParadeDB.VectorData` adapter. It uses the same cosine distance
-function to rank results from your existing EF Core query.
+ParadeDB's EF Core integration supports vector search in LINQ through
+`EF.Functions.CosineDistance`. If your app uses Microsoft's
+`IVectorSearchable<TRecord>` interface, install the optional `ParadeDB.VectorData`
+adapter to search your ParadeDB data through that interface using an existing
+EF Core query.
 
 ```bash
 dotnet add package ParadeDB.VectorData --version 0.6.0

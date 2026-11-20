@@ -222,6 +222,7 @@ jobs:
     uses: ./.github/workflows/test-pg_search-docker.yml
     with:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+      pg_versions: ${{ needs.set-matrix.outputs.matrix }}
       dockerfiles_artifact: ${{ needs.generate-dockerfiles.outputs.artifact }}
       spot: false # Disable Spot for tests in the publish workflow
     secrets: inherit

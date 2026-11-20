@@ -11,9 +11,9 @@
 ## Query Info (statistics from 20m dataset):
 
 - 'javascript' selectivity on stackoverflow_posts.body: ~4.05% (~811K matches, fanning out to ~149M joined badge rows).
-  At 20M scale, per-partition build-side cardinality (~65K-128K rows, > 20K distinct keys per
-  partition) exceeds `paradedb.hash_join_inlist_pushdown_max_distinct_values`, exercising
-  `HashJoinExec`'s `PushdownStrategy::Map` (`HashTableLookupExpr`) in `PreFilter`.
+  At 20M scale, per-partition build-side cardinality (~65K-128K rows) exceeds
+  `paradedb.hash_join_inlist_pushdown_max_distinct_values` (`5,000`), exercising
+  `HashJoinExec`'s `PushdownStrategy::Map` (`HashTableLookupExpr` -> `TermPredicateQuery`).
 
 ## Comparison Strategy
 

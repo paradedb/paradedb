@@ -519,6 +519,27 @@ where
         })
 }
 
+/// Controls `paradedb.hash_join_inlist_pushdown_max_distinct_values`, switching DataFusion's
+/// `HashJoinExec` dynamic filter between `InListExpr` and `HashTableLookupExpr`.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum InListPushdownThreshold {
+    /// `0`: every non-empty build side exceeds the cap and emits `HashTableLookupExpr`.
+    Disabled,
+    /// `7`: selective build sides emit `InListExpr`; larger ones emit `HashTableLookupExpr`.
+    SmallCap,
+    /// `DEFAULT` (`20000`): small property-test tables emit `InListExpr`.
+    Default,
+}
+
+/// Controls `paradedb.term_set_bitset_max_density_{unique,multi}` so small property-test
+/// segments exercise both `PreFilter` / `LinearScan` and index-driven `TermSetQuery` /
+/// `BitsetFromPostings` pushdown on unsorted integer join keys.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TermSetDensityPolicy {
+    Default,
+    Permissive,
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct PgGucs {
     pub aggregate_custom_scan: bool,
@@ -541,6 +562,8 @@ pub struct PgGucs {
     /// Enable `RankJoinExec` and lower `paradedb.rank_join_min_rows` to `0` so small property-test
     /// tables exercise `RankJoinExec`.
     pub rank_join: bool,
+    pub inlist_pushdown: InListPushdownThreshold,
+    pub term_set_density: TermSetDensityPolicy,
 }
 
 /// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
@@ -697,8 +720,19 @@ impl Arbitrary for PgGucs {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[bool; 12]>()
-            .prop_map(|b| {
+        (
+            any::<[bool; 12]>(),
+            prop_oneof![
+                Just(InListPushdownThreshold::Disabled),
+                Just(InListPushdownThreshold::SmallCap),
+                Just(InListPushdownThreshold::Default),
+            ],
+            prop_oneof![
+                Just(TermSetDensityPolicy::Default),
+                Just(TermSetDensityPolicy::Permissive),
+            ],
+        )
+            .prop_map(|(b, inlist_pushdown, term_set_density)| {
                 let mut g = Self {
                     aggregate_custom_scan: b[0],
                     custom_scan: b[1],
@@ -712,6 +746,8 @@ impl Arbitrary for PgGucs {
                     columnar_exec: b[9],
                     range_partitioned_join: b[10],
                     rank_join: b[11],
+                    inlist_pushdown,
+                    term_set_density,
                 };
                 if force_parallel() {
                     g.parallel_workers = true;
@@ -738,6 +774,8 @@ impl PgGucs {
             columnar_exec: false,
             range_partitioned_join: false,
             rank_join: false,
+            inlist_pushdown: InListPushdownThreshold::Default,
+            term_set_density: TermSetDensityPolicy::Default,
         }
     }
 
@@ -767,12 +805,14 @@ impl PgGucs {
             columnar_exec,
             range_partitioned_join,
             rank_join,
+            inlist_pushdown,
+            term_set_density,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
         let max_parallel_workers_per_gather = if *parallel_workers { 4 } else { 0 };
 
-        let mut gucs = String::with_capacity(512);
+        let mut gucs = String::with_capacity(640);
         writeln!(
             gucs,
             "{verb} paradedb.enable_aggregate_custom_scan TO {aggregate_custom_scan};"
@@ -828,6 +868,30 @@ impl PgGucs {
         } else {
             writeln!(gucs, "{verb} paradedb.rank_join_min_rows TO DEFAULT;").unwrap();
         }
+        let inlist_max_distinct = match inlist_pushdown {
+            InListPushdownThreshold::Disabled => "0",
+            InListPushdownThreshold::SmallCap => "7",
+            InListPushdownThreshold::Default => "DEFAULT",
+        };
+        writeln!(
+            gucs,
+            "{verb} paradedb.hash_join_inlist_pushdown_max_distinct_values TO {inlist_max_distinct};"
+        )
+        .unwrap();
+        let bitset_density = match term_set_density {
+            TermSetDensityPolicy::Default => "DEFAULT",
+            TermSetDensityPolicy::Permissive => "1.0",
+        };
+        writeln!(
+            gucs,
+            "{verb} paradedb.term_set_bitset_max_density_unique TO {bitset_density};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "{verb} paradedb.term_set_bitset_max_density_multi TO {bitset_density};"
+        )
+        .unwrap();
         // Pin `min_rows_per_worker` and `mpp_min_rows` low when we want parallel workers
         // (and MPP distributed execution) to be used on the small property-test tables.
         if *parallel_workers {

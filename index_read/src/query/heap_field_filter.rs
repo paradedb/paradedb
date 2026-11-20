@@ -683,6 +683,10 @@ impl HeapFilterScorerInner {
     }
 }
 
+// TODO: Forward `Scorer::constant_score()` and override `DocSet::cost()` (with high
+// `ProbeCost` for `run_on_main_thread` + Postgres heap fetches) and `DocSet::seek_danger_batch()`
+// (amortizing `run_on_main_thread` and `indexed_scorer.seek_danger_batch` across a batch) so
+// `Intersection`, `BatchFilteredScorer`, and WAND order and batch-probe `HeapFilterScorer`.
 impl Scorer for HeapFilterScorer {
     fn score(&mut self) -> Score {
         crate::postgres::customscan::mpp::run_on_main_thread(|token| {

@@ -226,6 +226,9 @@ impl ActiveTagScorer {
             None
         };
 
+        // TODO: When `scores.is_none()` (or `tag_scorer.constant_score().is_some()`), use
+        // `DocSet::seek_danger_batch` over `ids` (tracking `lower_bound` across batches) to avoid
+        // walking forward past misses on `seek()` and to batch high-setup tag scorers.
         let tag_scorer = &mut self.scorer;
         let mut id_idx = 0;
 

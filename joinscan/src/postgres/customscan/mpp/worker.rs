@@ -412,15 +412,10 @@ pub fn init_worker_base_session_state() {
 /// Process-wide base [`SessionState`] for MPP workers: pre-registers DataFusion's default
 /// function registries plus `pg_search` UDFs/UDAFs with empty analyzer/optimizer rule lists so
 /// neither `Worker` creation nor per-task `coordinator_channel` setup rebuilds them, and applies
-/// current GUC settings (`apply_paradedb_session_config` plus `inlist_mode`) once per query.
-fn worker_base_session_state(inlist_mode: crate::gucs::InListPushdownMode) -> SessionState {
+/// current GUC settings (`apply_paradedb_session_config`) once per query.
+fn worker_base_session_state() -> SessionState {
     let mut cfg = WORKER_BASE_SESSION_STATE.config().clone();
     crate::postgres::customscan::joinscan::scan_state::apply_paradedb_session_config(&mut cfg);
-    if inlist_mode == crate::gucs::InListPushdownMode::LazySortProbe {
-        cfg.options_mut()
-            .optimizer
-            .hash_join_inlist_pushdown_max_distinct_values = inlist_mode.max_distinct_values();
-    }
     SessionStateBuilder::new_from_existing(WORKER_BASE_SESSION_STATE.clone())
         .with_config(cfg)
         .build()
@@ -472,7 +467,6 @@ fn build_mpp_worker(
 
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
-    let inlist_mode = unsafe { (*parallel_state).inlist_pushdown_mode };
     let codec = PgSearchPhysicalExtensionCodec::new_worker(
         Some(parallel_state),
         index_segment_views,
@@ -507,7 +501,7 @@ fn build_mpp_worker(
                 .build())
         }
     })
-    .with_base_session_state(worker_base_session_state(inlist_mode))
+    .with_base_session_state(worker_base_session_state())
 }
 
 /// When `leader.leader_participation.is_participating()`, attach an in-process `Worker` at

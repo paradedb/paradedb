@@ -141,7 +141,7 @@ fn scorer_estimate(weight: &dyn Weight, reader: &SegmentReader) -> (u64, u64) {
         .scorer(reader, 1.0)
         .expect("creating scorer for estimation should not fail");
     let mut count = scorer.size_hint() as u64;
-    let mut cost = scorer.cost();
+    let mut cost = scorer.cost().drive.0;
     if count == 0 {
         count = scorer.count_including_deleted() as u64;
         cost = cost.max(count);
@@ -403,6 +403,9 @@ impl<'a> DisjunctScorer<'a> {
 }
 
 /// Lazily initialized per-segment base filter for `RA` lookups.
+// TODO: When the base filter scorer has `cost().probe.prefers_batching()` (e.g. a pushed-down
+// `TermPredicateQuery`), batch candidate `DocId`s in `collect_lookup_only_segment` and
+// `intersect_scorer_with_lookup` via `DocSet::seek_danger_batch` instead of scalar `seek_danger`.
 struct SegmentBaseFilter<'a> {
     segment_reader: &'a SegmentReader,
     weight: Option<&'a Arc<LazyWeight>>,

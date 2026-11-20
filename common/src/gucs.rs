@@ -32,8 +32,8 @@ pub const MAX_TARGET_SEGMENT_COUNT: i32 = 1024;
 ///
 /// Calibrated around Tantivy's `DocSet::size_hint()` when `QueryEstimate::estimate_docs` falls
 /// back to `scorer_estimate`: `FastFieldRangeQuery` reports `column.num_docs() / 10` (`~0.09999`),
-/// `TermSetQuery` reports `~1.0` under `Gallop` / `LinearScan` and exact `bitset.len()` under
-/// `BitsetFromPostings`, and text queries use segment `doc_freq` counts.
+/// `TermSetQuery` / `TermPredicateQuery` report `~1.0` under `Gallop` / `LinearScan` and exact
+/// `bitset.len()` under `BitsetFromPostings`, and text queries use segment `doc_freq` counts.
 pub const UNSCORED_SELECTIVITY_THRESHOLD: f64 = 0.08;
 
 #[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -306,32 +306,17 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
     GucSetting::<i32>::new(16 * 1024 * 1024);
 
 /// Maximum number of distinct keys in a build-side `InListExpr` dynamic filter materialized by
-/// DataFusion's `HashJoinExec` on standard (unsorted) joins before falling back to
-/// `HashTableLookupExpr`, and `RankJoinRule`'s build-row threshold for rewriting non-vector
-/// (`Score` / `Field`) top-K joins into `lazy_sort` probe joins.
+/// DataFusion's `HashJoinExec` before switching to `HashTableLookupExpr`.
 ///
-/// Bench-tuned: on unsorted scans, materializing `Vec<Arc<dyn PhysicalExpr>>` literals in
-/// `InListExpr` (and Tantivy `LinearScan` on `Score`/`Field` joins) loses to zero-copy
-/// `HashTableLookupExpr` past ~20,000 keys, whereas plans that already probe a `lazy_sort` scan
-/// elevate the runtime cap to [`LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES`]. Set to 0 to
-/// disable join `InListExpr` dynamic filter materialization globally (including `lazy_sort` probe
-/// joins).
+/// Above this K, `HashJoinExec` emits a zero-copy `HashTableLookupExpr` (`ArrayMap` or
+/// `JoinHashMap`) instead of allocating `K` `Literal` expressions and a duplicate `StaticFilter`
+/// hash set. Single-column `HashTableLookupExpr`s push into Tantivy as `TermPredicateQuery`s on
+/// compatible indexed or fast fields, so `InListExpr` is reserved for the sparse point-lookup
+/// regime (`BitsetFromPostings` / `Gallop`, matching `0.005 * 1M = 5,000` on a 1M-doc segment and
+/// near `MAX_POINT_LOOKUP_BUDGET = 4,096` on dictionary fast fields). Set to 0 to disable join
+/// `InListExpr` materialization and always emit `HashTableLookupExpr`.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
-    GucSetting::<i32>::new(20_000);
-
-/// Maximum number of distinct keys in a build-side `InListExpr` dynamic filter materialized by
-/// DataFusion's `HashJoinExec` when the physical plan executes a `HashJoinExec` with a `lazy_sort`
-/// probe side (e.g. selective `OrderByFeature::VectorDistance` joins, or `Score`/`Field` joins
-/// already rewritten to `lazy_sort`).
-///
-/// Unlike unsorted joins governed by [`HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES`] (`20,000`),
-/// falling back to `HashTableLookupExpr` on a `lazy_sort` probe scan leaves the join filter
-/// outside Tantivy's top-K / IVF collector (`PreparedVectorSearch` / `TopDocs`) and forces
-/// expanding unfiltered windows, so this cap matches `HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS`
-/// (`131,072`). Set to 0 (or set `paradedb.hash_join_inlist_pushdown_max_distinct_values` to 0)
-/// to disable.
-static LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
-    GucSetting::<i32>::new(128 * 1024);
+    GucSetting::<i32>::new(5_000);
 
 /// Row count threshold below which DataFusion converts a partitioned HashJoinExec
 /// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
@@ -342,10 +327,10 @@ static HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS: GucSetting<i32> =
 /// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
 static HASH_JOIN_SINGLE_PARTITION_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(1024 * 1024);
 
-/// Kill-switch for galloping execution of `FastFieldTermSetQuery` on
-/// sorted segments. When `false`, the planner never returns the gallop
-/// strategy regardless of density, and pushed-down InList filters fall
-/// back to the legacy linear scan even for sorted segments.
+/// Kill-switch for galloping execution of `TermSetWeight` (`TermSetQuery`,
+/// `FastFieldTermSetQuery`, and `TermPredicateQuery`) on sorted segments.
+/// When `false`, the planner never returns the gallop strategy regardless of
+/// density, falling back to `BitsetFromPostings` or `LinearScan`.
 static TERM_SET_GALLOP_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// First-column `BitsetFromPostings` density gate for unique-valued
@@ -1033,7 +1018,7 @@ pub fn init() {
         c"Minimum estimated selectivity (matched_rows / total_docs) across unscored (RA) \
           inputs of a single-sided (NRJN) join and peer unscored base filters of a disjunctive \
           (ScanMode::Disjunctive) join when paradedb.rank_join_min_rows > 0 (single-sided vector \
-          joins keep RankJoinExec below this threshold when InList pushdown does not fit).",
+          joins keep RankJoinExec below this threshold when join keys cannot push down).",
         &RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD,
         0.0,
         1.0,
@@ -1064,20 +1049,9 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.hash_join_inlist_pushdown_max_distinct_values",
-        c"Maximum number of distinct values in a join-derived InList dynamic filter on standard joins. Set to 0 to disable.",
-        c"Maximum number of distinct build-side keys materialized as an InList dynamic filter by DataFusion on standard unsorted joins (and planner gate for non-vector lazy_sort probe joins), where InList literal materialization loses to HashTableLookupExpr past ~20,000 keys. Plans that probe a lazy_sort scan use paradedb.lazy_sort_inlist_pushdown_max_distinct_values instead, unless this setting is 0 (which disables all join InList pushdown).",
+        c"Maximum number of distinct values in a join-derived InList dynamic filter before switching to HashTableLookupExpr. Set to 0 to disable.",
+        c"Maximum number of distinct build-side keys materialized as an InList dynamic filter by DataFusion before switching to zero-copy HashTableLookupExpr (pushed into Tantivy as TermPredicateQuery on single-column joins). Set to 0 to always emit HashTableLookupExpr.",
         &HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
-        0,
-        i32::MAX,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_int_guc(
-        c"paradedb.lazy_sort_inlist_pushdown_max_distinct_values",
-        c"Maximum number of distinct values in a join-derived InList dynamic filter when probing a lazy_sort scan. Set to 0 to disable.",
-        c"Maximum number of distinct build-side keys materialized as an InList dynamic filter by DataFusion when HashJoinExec probes a lazy_sort scan. Higher than paradedb.hash_join_inlist_pushdown_max_distinct_values because falling back to HashTableLookupExpr on a lazy_sort scan leaves the join filter outside Tantivy's top-K / IVF collector and forces expanding unfiltered windows. Set this or paradedb.hash_join_inlist_pushdown_max_distinct_values to 0 to disable.",
-        &LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
         0,
         i32::MAX,
         GucContext::Userset,
@@ -1114,8 +1088,8 @@ pub fn init() {
     // value at the cell's density admits the more-aggressive strategy.
     GucRegistry::define_bool_guc(
         c"paradedb.term_set_gallop_enabled",
-        c"Enable galloping execution of FastFieldTermSetQuery on sorted segments.",
-        c"When false, FastFieldTermSetQuery falls back to the legacy linear scan even on sorted segments. Acts as a kill-switch for the issue #4895 optimization.",
+        c"Enable galloping execution of TermSetWeight queries on sorted segments.",
+        c"When false, TermSetQuery, FastFieldTermSetQuery, and TermPredicateQuery skip galloping even on sorted segments. Acts as a kill-switch for the issue #4895 optimization.",
         &TERM_SET_GALLOP_ENABLED,
         GucContext::Userset,
         GucFlags::default(),
@@ -1516,42 +1490,6 @@ pub fn hash_join_inlist_pushdown_max_size() -> i32 {
 
 pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
-}
-
-pub fn lazy_sort_inlist_pushdown_max_distinct_values() -> i32 {
-    LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
-}
-
-/// Which `InList` distinct-key cap applies when executing a DataFusion plan.
-///
-/// TODO: This currently overrides `SessionConfig`'s `hash_join_inlist_pushdown_max_distinct_values`
-/// plan-wide (so an unrelated outer `HashJoinExec` in the same plan inherits `LazySortProbe`).
-/// Rather than plumbing a per-join cap into DataFusion, we plan to push `HashTableLookupExpr` into
-/// Tantivy (fast-field / candidate-scorer lookups) so `lazy_sort` probe joins no longer need an
-/// elevated `InList` cap and `InListPushdownMode` can be removed altogether.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(u8)]
-pub enum InListPushdownMode {
-    /// Standard unsorted join execution (`paradedb.hash_join_inlist_pushdown_max_distinct_values`).
-    #[default]
-    Standard = 0,
-    /// Plan contains a `HashJoinExec` probing a `lazy_sort` `PgSearchScan`
-    /// (`paradedb.lazy_sort_inlist_pushdown_max_distinct_values`, unless disabled by `= 0` on
-    /// `paradedb.hash_join_inlist_pushdown_max_distinct_values`).
-    LazySortProbe = 1,
-}
-
-impl InListPushdownMode {
-    pub fn max_distinct_values(self) -> usize {
-        let base = hash_join_inlist_pushdown_max_distinct_values();
-        if base <= 0 {
-            return 0;
-        }
-        match self {
-            Self::Standard => base as usize,
-            Self::LazySortProbe => lazy_sort_inlist_pushdown_max_distinct_values().max(0) as usize,
-        }
-    }
 }
 
 pub fn hash_join_single_partition_threshold_rows() -> i32 {

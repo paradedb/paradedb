@@ -11,6 +11,12 @@ on:
     branches:
       - main
     paths:
+      - ".cargo/config.toml"
+      - ".dockerignore"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "dst/**"
+      - "rust-toolchain.toml"
       - ".github/workflows/test-stressgres-docker.yml"
       - "docker/Dockerfile.stressgres"
       - "stressgres/**"

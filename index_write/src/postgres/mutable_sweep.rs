@@ -25,10 +25,11 @@ use crate::postgres::delete::VacuumSignal;
 use crate::postgres::index::free_leaf_partition_indexes;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::merge::{
-    MergeMode, MergeSlot, MergeSlotVariant, merge_crash_details, merge_index,
+    MergeMode, MergeSlot, MergeSlotVariant, MergeStyle, do_merge, merge_crash_details, merge_index,
     warn_unsupported_vector_merge,
 };
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
+use crate::postgres::storage::block::MVCCEntry;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::{
@@ -40,6 +41,8 @@ use std::panic::AssertUnwindSafe;
 use std::time::{Duration, Instant};
 
 static INTERVAL_MS: GucSetting<i32> = GucSetting::<i32>::new(1000);
+const SWEEP_MERGE_MULTIPLIER: usize = 2;
+const BACKGROUND_MERGE_COOLDOWN: Duration = Duration::from_secs(30);
 
 // Check for missing workers and new databases independently of the sweep interval.
 const WORKER_CHECK_INTERVAL: Duration = Duration::from_secs(30);
@@ -193,12 +196,14 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
     let mut next_sweep = Instant::now();
     let mut interval = INTERVAL_MS.get();
     let mut previous_counts = HashMap::default();
+    let mut merge_retry_after = HashMap::default();
     loop {
         reload();
         if INTERVAL_MS.get() != interval {
             interval = INTERVAL_MS.get();
             next_sweep = Instant::now();
             previous_counts.clear();
+            merge_retry_after.clear();
         }
         if interval == 0 {
             return;
@@ -233,6 +238,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
             return;
         }
         if sweeping {
+            merge_retry_after.retain(|_, deadline| *deadline > Instant::now());
             let observed_counts = pass_context.switch_to(|_| {
                 let indexes = BackgroundWorker::transaction(|| {
                     if lookup_extension_version(c"pg_search").as_deref()
@@ -248,8 +254,12 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             if !(*index.rd_rel).relam.is_paradedb_am() || !index.is_valid() {
                                 return None;
                             }
-                            let mut idle_segments = HashMap::default();
+                            let mut idle_mutable_segments = HashMap::default();
+                            let mut visible_segment_count = 0;
                             MetaPage::open(&index).segment_metas().for_each(|_, entry| {
+                                if entry.visible() {
+                                    visible_segment_count += 1;
+                                }
                                 if entry.is_mutable()
                                     && entry.xmax() == pg_sys::InvalidTransactionId
                                 {
@@ -257,23 +267,29 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     let count = entry.num_docs();
                                     current_counts.insert(key, count);
                                     if previous_counts.get(&key) == Some(&count) {
-                                        idle_segments.insert(entry.segment_id(), count);
+                                        idle_mutable_segments.insert(entry.segment_id(), count);
                                     }
                                 }
                             });
-                            (!idle_segments.is_empty()).then_some((index.oid(), idle_segments))
+                            let needs_merge = visible_segment_count
+                                > SWEEP_MERGE_MULTIPLIER * index.target_segment_count()
+                                && !index.options().background_layer_sizes().is_empty()
+                                && !merge_retry_after.contains_key(&index.oid());
+                            (!idle_mutable_segments.is_empty() || needs_merge)
+                                .then_some((index.oid(), idle_mutable_segments))
                         })
                         .collect::<Vec<_>>();
                     Some((indexes, current_counts))
                 });
                 let (indexes, current_counts) = indexes?;
                 pg_sys::pgstat_report_appname(c"pg_search mutable sweep".as_ptr());
-                for (index, idle_segments) in indexes {
+                for (index, idle_mutable_segments) in indexes {
                     reload();
                     if INTERVAL_MS.get() == 0 {
                         break;
                     }
-                    BackgroundWorker::transaction(|| {
+                    let mut no_candidates = false;
+                    BackgroundWorker::transaction(AssertUnwindSafe(|| {
                         let Some(index) = free_leaf_partition_indexes(&[index]).next() else {
                             return;
                         };
@@ -281,19 +297,25 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             if VacuumSignal::new(index.oid()).wants_cancel() {
                                 return;
                             }
-                            let Some(_slot) =
-                                MergeSlot::new(index.oid(), MergeSlotVariant::Small).lock()
-                            else {
-                                return;
-                            };
-                            let metadata = MetaPage::open(&index);
-                            let Some(merge_pins) = metadata.try_pin_merge() else {
-                                return;
-                            };
-                            let merge_lock = metadata.acquire_merge_lock();
                             PgTryBuilder::new(AssertUnwindSafe(|| {
+                                if idle_mutable_segments.is_empty() {
+                                    no_candidates = do_merge(&index, MergeStyle::Background)
+                                        .expect("should be able to schedule a background merge");
+                                    return;
+                                }
+                                let Some(_slot) =
+                                    MergeSlot::new(index.oid(), MergeSlotVariant::Small).lock()
+                                else {
+                                    return;
+                                };
+                                let metadata = MetaPage::open(&index);
+                                let Some((merge_pins, merge_lock)) =
+                                    metadata.try_pin_and_lock_merge()
+                                else {
+                                    return;
+                                };
                                 let frozen = metadata.freeze_mutable_segments_matching(|entry| {
-                                    idle_segments.get(&entry.segment_id())
+                                    idle_mutable_segments.get(&entry.segment_id())
                                         == Some(&entry.num_docs())
                                 });
                                 if frozen.is_empty() {
@@ -349,7 +371,10 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             })
                             .execute();
                         }
-                    });
+                    }));
+                    if no_candidates {
+                        merge_retry_after.insert(index, Instant::now() + BACKGROUND_MERGE_COOLDOWN);
+                    }
                 }
                 Some(current_counts)
             });

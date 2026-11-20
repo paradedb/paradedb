@@ -2071,8 +2071,8 @@ SELECT id, name, category
 FROM smoke_test
 WHERE id @@@ pdb.all() AND category IN ('Electronics', 'Footwear')
 ORDER BY id;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2080,7 +2080,7 @@ ORDER BY id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"Electronics"},{"field":"category","value":"Footwear"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["Electronics","Footwear"]}}}]}}
 (8 rows)
 
 SELECT id, name, category

@@ -1,7 +1,7 @@
 # Permissioned Search, High Selectivity (Score Sort)
 
 - **Join**: Single Feature (BM25 Score)
-- **Description**: A Full Text Search (BM25) drives the ranking, restricted by a high-selectivity (narrow) foreign filter on `users` (`u.about_me ||| 'security'`). On the 20M dataset, the foreign filter matches 4,577 users (`0.20%`, below both `paradedb.rank_join_min_rows = 10,000` and `paradedb.rank_join_unscored_selectivity_threshold = 0.025`): `RankJoinRule` declines `RankJoinExec` and rewrites the join into `HashJoinExec(fetch=10)` over a `lazy_sort` probe scan using `BitsetFromPostings` dynamic `InList` pushdown.
+- **Description**: A Full Text Search (BM25) drives the ranking, restricted by a high-selectivity (narrow) foreign filter on `users` (`u.about_me ||| 'security'`). On the 20M dataset, the foreign filter matches 4,577 users (`0.20%`, below both `paradedb.rank_join_min_rows = 10,000` and `paradedb.rank_join_unscored_selectivity_threshold = 0.08`): `RankJoinRule` declines `RankJoinExec` and rewrites the join into `HashJoinExec(fetch=10)` over a `lazy_sort` probe scan using `BitsetFromPostings` dynamic `InList` pushdown.
 
 ## Query Info (statistics from 20M dataset):
 
@@ -11,7 +11,7 @@
 
 ## Rank Join Variant Omission
 
-`rank_join.sql` and `rank_join_range_partitioned.sql` are omitted because `RankJoinRule` intentionally declines `RankJoinExec` at `0.20%` unscored selectivity (`< paradedb.rank_join_unscored_selectivity_threshold = 0.025` and `< paradedb.rank_join_min_rows = 10,000`), rewriting `hash_partitioned.sql` and `range_partitioned.sql` directly into `HashJoinExec(fetch=10)` over a `lazy_sort` probe scan.
+`rank_join.sql` and `rank_join_range_partitioned.sql` are omitted because `RankJoinRule` intentionally declines `RankJoinExec` at `0.20%` unscored selectivity (`< paradedb.rank_join_unscored_selectivity_threshold = 0.08` and `< paradedb.rank_join_min_rows = 10,000`), rewriting `hash_partitioned.sql` and `range_partitioned.sql` directly into `HashJoinExec(fetch=10)` over a `lazy_sort` probe scan.
 
 ## Native PostgreSQL Baseline Omission
 

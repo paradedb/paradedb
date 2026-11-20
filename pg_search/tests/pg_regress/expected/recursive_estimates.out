@@ -342,7 +342,7 @@ WHERE id @@@ paradedb.range(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5}},"estimated_docs":4}},"estimated_docs":4}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5}},"estimated_docs":9}},"estimated_docs":9}
 (8 rows)
 
 -- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
@@ -689,8 +689,8 @@ WHERE description @@@ paradedb.term_set(
         paradedb.term('description', 'sandals')
     ]
 );
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -698,7 +698,7 @@ WHERE description @@@ paradedb.term_set(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"description","value":"shoes"},{"field":"description","value":"boots"},{"field":"description","value":"sandals"}]},"estimated_docs":4}},"estimated_docs":4}
+   Tantivy Query: {"with_index":{"query":{"term_set":{"termset":{"description":["shoes","boots","sandals"]}},"estimated_docs":4}},"estimated_docs":4}
 (8 rows)
 
 -- ============================================================================
@@ -1229,7 +1229,7 @@ WHERE rating @@@ paradedb.range(
        "Worker Selection": "Cost model",                                                                                                                                                             +
        "Exec Method": "NormalScanExecState",                                                                                                                                                         +
        "Scores": false,                                                                                                                                                                              +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":4}},\"estimated_docs\":4}"+
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":9}},\"estimated_docs\":9}"+
      }                                                                                                                                                                                               +
    }                                                                                                                                                                                                 +
  ]

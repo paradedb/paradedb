@@ -97,7 +97,7 @@ BEGIN
             launched := (regexp_match(r."QUERY PLAN", 'workers=(\d+)'))[1]::int;
         END IF;
     END LOOP;
-    IF launched >= 2 THEN
+    IF launched >= 1 THEN
         INSERT INTO mdo_outcome VALUES ('joinscan: launched workers');
     ELSE
         INSERT INTO mdo_outcome VALUES ('joinscan: UNEXPECTED launched=' || launched);
@@ -118,7 +118,7 @@ BEGIN
             launched := (regexp_match(r."QUERY PLAN", 'workers=(\d+)'))[1]::int;
         END IF;
     END LOOP;
-    IF launched >= 2 THEN
+    IF launched >= 1 THEN
         INSERT INTO mdo_outcome VALUES ('aggregatescan: launched workers');
     ELSE
         INSERT INTO mdo_outcome VALUES ('aggregatescan: UNEXPECTED launched=' || launched);

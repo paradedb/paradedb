@@ -76,7 +76,8 @@ use crate::postgres::customscan::orderby::{
     PathKeyInfo, UnusableReason, extract_pathkey_styles_with_sortability_check,
 };
 use crate::postgres::customscan::parallel::{
-    RowEstimate, compute_nworkers, max_useful_workers, segment_view,
+    QualParallelDependency, RelParallelWorkers, RowEstimate, ScanParallelStructure,
+    compute_nworkers, max_useful_workers, segment_view,
 };
 use crate::postgres::customscan::projections::{
     PlaceholderColumn, PlaceholderColumns, inject_placeholders, pullout_funcexprs,
@@ -85,11 +86,11 @@ use crate::postgres::customscan::qual_inspect::{
     PlannerContext, Qual, QualExtractState, SecurityPushdown, classify_security_pushdown,
     extract_join_predicates, extract_quals, is_subplan, optimize_quals_with_heap_expr,
 };
-use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
     self, CustomScan, CustomScanState, RelPathlistHookArgs, range_table,
 };
+use crate::postgres::customscan::{explain_score_funcoid, score_funcoids};
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::pgstat::{count_heap_fetch, count_index_scan, count_index_tuples};
 use crate::postgres::rel::PgSearchRelation;
@@ -235,6 +236,7 @@ impl BaseScan {
             checker.set_ffhelper(Arc::clone(&ffhelper));
         }
         state.custom_state_mut().search_reader = Some(search_reader);
+        state.custom_state_mut().score_explanation_weight.take();
 
         let parallel_aware = unsafe { (*(*state.planstate()).plan).parallel_aware };
         if !parallel_aware
@@ -258,12 +260,14 @@ impl BaseScan {
                 if let Some(ref join_predicate) = state.custom_state().join_predicates {
                     // Combine base query with join predicate for snippet generation
                     let base_query = state.custom_state().search_query_input();
-                    Some(SearchQueryInput::Boolean {
-                        must: vec![base_query.clone()],
-                        should: vec![join_predicate.clone()],
+                    let base_query = Arc::unwrap_or_clone(base_query);
+                    let join_predicate = Arc::unwrap_or_clone(join_predicate.clone());
+                    Some(Arc::new(SearchQueryInput::Boolean {
+                        must: vec![base_query],
+                        should: vec![join_predicate],
                         must_not: vec![],
                         minimum_should_match: None,
-                    })
+                    }))
                 } else {
                     None
                 };
@@ -272,6 +276,7 @@ impl BaseScan {
                 // Use enhanced query if available, otherwise use base query
                 let query_to_use = enhanced_query_for_snippets
                     .as_ref()
+                    .map(Arc::clone)
                     .unwrap_or_else(|| state.custom_state().search_query_input());
 
                 let mut new_generator = state
@@ -281,7 +286,7 @@ impl BaseScan {
                     .unwrap()
                     .snippet_generator(
                         snippet_type.field().root(),
-                        query_to_use,
+                        &query_to_use,
                         std::ptr::NonNull::new(expr_context),
                     );
 
@@ -1129,7 +1134,7 @@ impl CustomScan for BaseScan {
                 .collect(),
             );
 
-            let mut query = SearchQueryInput::from(&quals);
+            let mut query = Arc::new(SearchQueryInput::from(&quals));
             let vector_field =
                 topk_pathkey_info
                     .pathkeys()
@@ -1140,17 +1145,7 @@ impl CustomScan for BaseScan {
                         _ => None,
                     });
             let is_vector_topk = vector_field.is_some();
-            let available_workers = |segment_count| {
-                if (*rel).consider_parallel {
-                    max_useful_workers(
-                        segment_count,
-                        quals.contains_external_var(),
-                        quals.contains_correlated_param(root),
-                    )
-                } else {
-                    0
-                }
-            };
+            let rel_parallel_workers = RelParallelWorkers::from_pg((*rel).rel_parallel_workers);
 
             let norm_selec = if restrict_info.len() == 1 {
                 (*restrict_info.get_ptr(0).unwrap()).norm_selec
@@ -1171,7 +1166,7 @@ impl CustomScan for BaseScan {
                 // we can use the norm_selec that already happened
                 norm_selec
             } else {
-                match estimation_query.resolve(&query) {
+                match estimation_query.resolve(query.clone()) {
                     Ok(indexable) => {
                         // Ask the index. This is the one branch that opens, so reuse that same
                         // open's cost and segment count for the worker decision instead of opening
@@ -1208,9 +1203,21 @@ impl CustomScan for BaseScan {
                 SearchIndexReader::estimate_segment_count(
                     source_context.indexrel().unwrap(),
                     &source_context.schema().unwrap(),
-                    estimation_query.resolve(&query).ok(),
+                    estimation_query.resolve(query.clone()).ok(),
                 )
             });
+            let parallel_structure = ScanParallelStructure {
+                segment_count,
+                rel_parallel_workers,
+                qual_dependency: QualParallelDependency::from_quals(&quals, root),
+            };
+            let available_workers = || {
+                if (*rel).consider_parallel {
+                    max_useful_workers(parallel_structure)
+                } else {
+                    0
+                }
+            };
 
             // Use planning_estimate for costing so parameterized limits still
             // contribute a non-zero row estimate (otherwise the parallel-worker
@@ -1264,7 +1271,7 @@ impl CustomScan for BaseScan {
             )
             .and_then(|planner| planner.harvest());
             if let Some(harvested) = &harvested_bitmap {
-                harvested.rewrite_query(&mut query);
+                harvested.rewrite_query(Arc::make_mut(&mut query));
                 custom_private.set_query(query.clone());
             }
 
@@ -1305,7 +1312,7 @@ impl CustomScan for BaseScan {
                 let drive_cost = match row_estimate {
                     _ if is_vector_topk => None,
                     RowEstimate::Known(_) => costable_drive_cost(
-                        &query,
+                        query.clone(),
                         &estimation_query,
                         source_context.indexrel().unwrap(),
                         &quals,
@@ -1320,7 +1327,9 @@ impl CustomScan for BaseScan {
                     let work = vector_field.as_ref().and_then(|field| {
                         vector_cost::VectorWork::for_query(
                             strategy,
-                            estimation_query.resolve(&query).unwrap_or(&query),
+                            estimation_query
+                                .resolve(query.clone())
+                                .unwrap_or(query.clone()),
                             (*rel).tuples.max(1.0),
                             selectivity,
                             field,
@@ -1329,7 +1338,7 @@ impl CustomScan for BaseScan {
                     });
                     WorkerPathPolicy::for_vector_topk(
                         strategy,
-                        available_workers(segment_count),
+                        available_workers(),
                         work,
                         parallel_leader_participates,
                     )
@@ -1346,10 +1355,8 @@ impl CustomScan for BaseScan {
                         is_sorted,
                         limit: float_limit,
                         base_result_rows,
-                        segment_count,
+                        structure: parallel_structure,
                         consider_parallel: consider_parallel_local,
-                        quals: &quals,
-                        root: builder.args().root,
                         parallel_leader_participates,
                         is_join_context,
                         has_grouping,
@@ -1555,6 +1562,7 @@ impl CustomScan for BaseScan {
             let funcoids: Vec<pg_sys::Oid> = score_funcoids()
                 .iter()
                 .copied()
+                .chain([explain_score_funcoid()])
                 .chain(snippet_funcoids().iter().copied())
                 .chain(snippets_funcoids().iter().copied())
                 .chain(snippet_positions_funcoids().iter().copied())
@@ -1596,7 +1604,8 @@ impl CustomScan for BaseScan {
                 rti as pg_sys::Index,
                 &indexrel,
                 true,
-            );
+            )
+            .map(Arc::new);
 
             builder
                 .custom_private_mut()
@@ -1743,10 +1752,17 @@ impl CustomScan for BaseScan {
         builder.custom_state().snippet_funcoids = snippet_funcoids;
         builder.custom_state().snippets_funcoids = snippets_funcoids;
         builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
-        builder.custom_state().need_scores = builder
+        builder.custom_state().need_score_explanation = builder
             .target_list()
             .as_ptr()
-            .contains_score_for_relation(score_funcoids, builder.custom_state().execution_rti);
+            .contains_explain_score_for_relation(builder.custom_state().execution_rti);
+        // A query can call `pdb.explain_score` and not `pdb.score`. The scan must still score the
+        // rows, because the explanation is of that score.
+        builder.custom_state().need_scores = builder.custom_state().need_score_explanation
+            || builder
+                .target_list()
+                .as_ptr()
+                .contains_score_for_relation(score_funcoids, builder.custom_state().execution_rti);
 
         // Store join snippet predicates in the scan state
         builder.custom_state().join_predicates = builder.custom_private().join_predicates().clone();
@@ -1759,7 +1775,6 @@ impl CustomScan for BaseScan {
         let base_query = builder
             .custom_private()
             .query()
-            .clone()
             .expect("should have a SearchQueryInput");
         builder
             .custom_state()
@@ -1776,13 +1791,13 @@ impl CustomScan for BaseScan {
 
                 // Only enhance scoring if the base query doesn't already have search predicates
                 // If base query has @@@ conditions, it already provides scoring context
-                if !base_query_has_search_predicates(original_base_query, state.indexrelid) {
+                if !base_query_has_search_predicates(&original_base_query, state.indexrelid) {
                     // Combine base query with join predicate using Boolean structure
                     // This provides enhanced search context for scoring while maintaining
                     // the same filtering behavior as the base query
                     enhanced_score_query = Some(SearchQueryInput::Boolean {
-                        must: vec![original_base_query.clone()],
-                        should: vec![join_predicate.clone()],
+                        must: vec![Arc::unwrap_or_clone(original_base_query)],
+                        should: vec![Arc::unwrap_or_clone(join_predicate.clone())],
                         must_not: vec![],
                         minimum_should_match: None,
                     });
@@ -1794,7 +1809,7 @@ impl CustomScan for BaseScan {
             if let Some(enhanced_score_query) = enhanced_score_query {
                 builder
                     .custom_state()
-                    .set_base_search_query_input(enhanced_score_query);
+                    .set_base_search_query_input(Arc::new(enhanced_score_query));
             }
         }
 
@@ -2005,7 +2020,7 @@ impl CustomScan for BaseScan {
 
         // Only process the query if it's initialized
         // For EXPLAIN without ANALYZE, the query might not be initialized yet
-        if !matches!(base_query, SearchQueryInput::Uninitialized) {
+        if !matches!(&*base_query, SearchQueryInput::Uninitialized) {
             if base_query.is_full_scan_query() {
                 explainer.add_bool("Full Index Scan", true);
             }
@@ -2035,7 +2050,7 @@ impl CustomScan for BaseScan {
                             SearchIndexReader::mvcc_for_estimation(indexrel, &query_for_estimates);
                         let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
-                            query_for_estimates.clone(),
+                            Arc::new(query_for_estimates.clone()),
                             false,      // don't need scores for estimates
                             mvcc_style, // Use snapshot when prunable, largest segment otherwise
                             None,       // No expr_context needed for estimates
@@ -2053,7 +2068,7 @@ impl CustomScan for BaseScan {
                 explainer.add_query_with_estimates(&query_tree);
             } else {
                 // Regular display without estimates
-                explainer.add_query(base_query);
+                explainer.add_query(&base_query);
             }
         } else {
             explainer.add_text("Tantivy Query", "(query not yet initialized)");
@@ -2249,7 +2264,11 @@ impl CustomScan for BaseScan {
                 }
 
                 // SearchResults found a match
-                ExecState::FromHeap { ctid, score } => {
+                ExecState::FromHeap {
+                    ctid,
+                    score,
+                    doc_address,
+                } => {
                     unsafe {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
@@ -2336,6 +2355,15 @@ impl CustomScan for BaseScan {
                                     estate,
                                 );
 
+                                if state.custom_state().need_score_explanation {
+                                    let explanation =
+                                        state.custom_state().explain_score(doc_address);
+                                    projection.set(
+                                        placeholders.score_explanation,
+                                        explanation.into_datum(),
+                                    );
+                                }
+
                                 projection.project(slot)
                             });
                             finish_result_assembly_accounting(state, result_assembly_accounting);
@@ -2376,6 +2404,7 @@ impl CustomScan for BaseScan {
         state.custom_state_mut().drop_exec_method();
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().doc_from_heap_state.take());
+        drop(state.custom_state_mut().score_explanation_weight.take());
         drop(state.custom_state_mut().search_reader.take());
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
@@ -2924,10 +2953,11 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     // the forced projection we must do later.
     let mut columns = PlaceholderColumns::default();
 
-    let (targetlist, score, snippets) = inject_placeholders(
+    let (targetlist, score, score_explanation, snippets) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
         state.custom_state().score_funcoids,
+        explain_score_funcoid(),
         state.custom_state().snippet_funcoids,
         state.custom_state().snippets_funcoids,
         state.custom_state().snippet_positions_funcoids,
@@ -2966,6 +2996,7 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     state.custom_state_mut().placeholders = Some(BasePlaceholders {
         projection,
         score,
+        score_explanation,
         snippets,
         window_aggs,
     });

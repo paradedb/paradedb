@@ -141,7 +141,7 @@ pub fn open_rebuilt_ffhelper(
     let index_rel = PgSearchRelation::open(pgrx::pg_sys::Oid::from(indexrelid));
     let reader = SearchIndexReader::open_with_context(
         &index_rel,
-        SearchQueryInput::All,
+        Arc::new(SearchQueryInput::All),
         /* need_scores */ false,
         mvcc,
         None,

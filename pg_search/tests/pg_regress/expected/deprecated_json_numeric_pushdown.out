@@ -761,8 +761,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric IN (-42, -1, 42)
 ORDER BY id;
-                                                                                                  QUERY PLAN                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -770,7 +770,7 @@ ORDER BY id;
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"data.num","value":"-42"},{"field":"data.num","value":"-1"},{"field":"data.num","value":"42"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"termset":{"data.num":["-42","-1","42"]}}}]}}
 (8 rows)
 
 SELECT id, data->>'num' as value
@@ -836,8 +836,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric IN (100, 999)
 ORDER BY id;
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -845,7 +845,7 @@ ORDER BY id;
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"data.num","value":"100"},{"field":"data.num","value":"999"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"termset":{"data.num":["100","999"]}}}]}}
 (8 rows)
 
 SELECT id, data->>'num' as value, jsonb_typeof(data->'num') as json_type

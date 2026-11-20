@@ -602,7 +602,7 @@ impl PgSearchTableProvider {
         &self,
         state: Option<ScanState>,
         schema: SchemaRef,
-        resolved_query: SearchQueryInput,
+        resolved_query: Arc<SearchQueryInput>,
         ffhelper: Arc<FFHelper>,
         partition_count: usize,
         parallel_state: Option<*mut ParallelScanState>,
@@ -798,13 +798,14 @@ impl PgSearchTableProvider {
         // rather than earlier because each process (leader and workers) independently
         // deserializes the logical plan in its own executor context. The
         // planstate and expr_context are injected by the execution codec.
-        let base_query = self.scan_info.mode.query().clone();
-        let combined_base_query = self.combine_query_with_filters(base_query, filters);
+        let base_query = self.scan_info.mode.query();
+        let combined_base_query =
+            self.combine_query_with_filters(Arc::unwrap_or_clone(base_query), filters);
         let mut scan_mode = self
             .scan_info
             .mode
             .clone()
-            .with_base_query(combined_base_query);
+            .with_base_query(Arc::new(combined_base_query));
         let has_runtime_expressions =
             scan_mode.has_postgres_expressions() || scan_mode.has_parameters();
         if has_runtime_expressions && !self.explain_only {
@@ -837,7 +838,7 @@ impl PgSearchTableProvider {
         // the query above and opens its reader with the actual runtime value.
         let reader_query =
             if self.explain_only && (query.has_postgres_expressions() || query.has_parameters()) {
-                SearchQueryInput::All
+                Arc::new(SearchQueryInput::All)
             } else {
                 query.clone()
             };
@@ -890,6 +891,22 @@ impl PgSearchTableProvider {
 
         let segment_count = pruning.candidate_segments;
         let target_partitions = state.config().target_partitions();
+        let rel_pw = self
+            .scan_info
+            .rel_parallel_workers
+            .or_else(|| heap_rel.parallel_workers());
+        let effective_target_partitions = match rel_pw {
+            Some(0) => 1,
+            Some(n) => {
+                let leader_share =
+                    crate::postgres::customscan::mpp::glue::LeaderParticipation::current()
+                        .leader_share() as usize;
+                target_partitions
+                    .min((n as usize).saturating_add(leader_share))
+                    .max(1)
+            }
+            None => target_partitions,
+        };
         if self.range_split_points.is_some() {
             debug_assert!(
                 target_partitions > 1,
@@ -900,13 +917,13 @@ impl PgSearchTableProvider {
                 "PgSearchTableProvider: range partitioning is configured but source_idx is None; range partitioning requires an MPP source",
             );
         }
-        // The output partitions of the scan default to min(segments, target_partitions).
+        // The output partitions of the scan default to min(segments, effective_target_partitions).
         // During distributed planning, the `pg_search_scan_desired_task_count` handler reads this partition
         // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.
         let partition_count = match &self.range_split_points {
             // The split points seat only so many partitions; a task past them would be empty.
             Some(points) => points.partitions_for(target_partitions),
-            None => std::cmp::min(segment_count, target_partitions).max(1),
+            None => std::cmp::min(segment_count, effective_target_partitions).max(1),
         };
 
         self.create_lazy_scan(

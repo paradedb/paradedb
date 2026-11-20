@@ -27,9 +27,8 @@ use crate::postgres::customscan::aggregatescan::pdb_agg::PdbAggPlan;
 use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::joinscan::build::RelNode;
-use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
+use crate::postgres::customscan::mpp::glue::{MppLaunchTiming, MppLifecycle};
 use crate::postgres::customscan::mpp::interrupt::PgTokioRuntime;
-use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::projections::{PlaceholderColumn, PlaceholderProjection};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::VisibilityStats;
@@ -61,11 +60,9 @@ pub struct DataFusionAggState {
     /// The executed physical plan, kept so EXPLAIN ANALYZE can merge the worker metrics that
     /// arrive over `coordinator_channel` into its display.
     pub physical_plan: Option<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>,
-    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
-    /// on first exec once the built plan's stages are committed (#5667: the plan comes first;
-    /// workers spawn only after it exists). Stays `Inactive` on the serial path.
-    /// Applies only when parallel execution is enabled and the query qualifies (binary join +
-    /// supported aggregate).
+    /// Runtime MPP lifecycle for this scan (#5667: the plan comes first; workers spawn only after
+    /// it exists). Initialized from `PrivateData.parallel_mode_ok` and transitions to `Disabled`
+    /// on budget rejection, launch fallback, or `EndCustomScan`.
     pub mpp: MppLifecycle,
     /// Tokio runtime for async DataFusion execution (dropped after `stream`, `physical_plan`,
     /// and `mpp` so background tasks are quiesced and deferred drops are drained first).
@@ -99,9 +96,6 @@ pub struct DataFusionAggState {
     /// Assembled `pdb.agg()` documents for each row of `current_batch`, which then
     /// holds the SQL-level rows only.
     pub pdb_agg_json: Option<Vec<Vec<serde_json::Value>>>,
-    /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
-    /// scan may still use DataFusion, but it must never launch MPP producer workers.
-    pub parallel_mode_ok: bool,
     /// Per-phase launch timing for `EXPLAIN ANALYZE`'s `MPP Launch` line. Set only when the
     /// query launched distributed.
     pub launch_timing: Option<MppLaunchTiming>,

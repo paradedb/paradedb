@@ -609,7 +609,7 @@ LEFT JOIN LATERAL (
 WHERE a.content ||| 'encryption'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
-WARNING:  Aggregate Scan not used: Expression is neither a grouping column nor a single Aggref. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
+WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -646,7 +646,7 @@ LEFT JOIN LATERAL (
 WHERE a.content ||| 'encryption'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
-WARNING:  Aggregate Scan not used: Expression is neither a grouping column nor a single Aggref. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
+WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
  id |          title          | has_comments | comment_count 
 ----+-------------------------+--------------+---------------
  14 | Encryption Fundamentals | t            |             6

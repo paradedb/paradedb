@@ -1,5 +1,0 @@
----
-header: performance
----
-
-Vector `ORDER BY` searches cost less per query. The plan carries the query vector once, in a compact form, instead of twice as a list of numbers; per-segment scan statistics are built only when `EXPLAIN ANALYZE` or `paradedb.vector_stats` shows them; and the exact phase scores the most promising candidates first, so fewer of the rest are read and scored. Because that order changes which candidates near the cutoff are dropped, a top-k result can differ in rare cases. Planning a query that matches every row, such as `@@@ paradedb.all()`, on an index without a `WHERE` predicate estimates its selectivity and segment count without opening the index, so the planner's row estimate for it is the table's row count. Index page reads first try the shared buffer that last held the page and fall back to the usual buffer lookup. The index format is unchanged.

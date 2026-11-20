@@ -1264,25 +1264,6 @@ fn try_convert_in_list_to_query(
 
     let field_type = field.field_type();
 
-    // Check GUC thresholds
-    let max_size = crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
-    let max_distinct = crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
-
-    // K cap. Default 20,000 is bench-tuned to the win/lose crossover for
-    // pushdown vs PreFilter at N=1M sorted. See
-    // gucs::HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES doc for the
-    // reasoning and trade-off. Set to 0 to disable pushdown.
-    if in_list.list().len() > max_distinct {
-        return InListPushdown::Keep;
-    }
-
-    // Estimate size: this is a rough estimate based on the number of elements
-    // and their typical size.
-    let estimated_size = in_list.list().len() * 32; // Assume ~32 bytes per element
-    if estimated_size > max_size {
-        return InListPushdown::Keep;
-    }
-
     // On standard unsorted scans (`InListLinearFallback::KeepAsPreFilter`), integrating the
     // term set into the Tantivy query only pays when the segments admit an index-driven
     // strategy. Past its density gate tantivy's planner falls back to `LinearScan`, a
@@ -1466,7 +1447,7 @@ pub fn try_dynamic_filter_pushdown(
             .map(|q| (Occur::Must, q))
             .collect();
         let boolean_query = BooleanQuery::new(combined_musts);
-        *reader = reader.and_query(Box::new(boolean_query));
+        reader.inject_and_query(Box::new(boolean_query));
         true
     }
 }

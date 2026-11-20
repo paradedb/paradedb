@@ -82,21 +82,23 @@ WHERE b.tag @@@ 'even';
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0]
      : │   CoalescePartitionsExec
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   ┌───── Stage 1 ── tasks=4, partitions=4
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
      :   │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(amount@0, amount@0)], projection=[]
      :   │     DistributedLeafExec:
-     :   │       t0: PgSearchScan: table=b, segments={partial=1, included=2, pruned=1}, partition=amount[-∞..4823), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
-     :   │       t1: PgSearchScan: table=b, segments={partial=2, included=0, pruned=2}, partition=amount[4823..7361), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
-     :   │       t2: PgSearchScan: table=b, segments={partial=1, included=0, pruned=3}, partition=amount[7361..∞), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
+     :   │       t0: PgSearchScan: table=b, segments={partial=1, included=1, pruned=2}, partition=amount[-∞..2417), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
+     :   │       t1: PgSearchScan: table=b, segments={partial=2, included=0, pruned=2}, partition=amount[2417..4823), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
+     :   │       t2: PgSearchScan: table=b, segments={partial=2, included=0, pruned=2}, partition=amount[4823..7361), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
+     :   │       t3: PgSearchScan: table=b, segments={partial=1, included=0, pruned=3}, partition=amount[7361..∞), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
      :   │     DistributedLeafExec:
-     :   │       t0: PgSearchScan: table=p, segments={partial=0, included=2, pruned=2}, partition=amount[-∞..4823), dynamic_filters=1, visibility=eager, query="all"
-     :   │       t1: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[4823..7361), dynamic_filters=1, visibility=eager, query="all"
-     :   │       t2: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[7361..∞), dynamic_filters=1, visibility=eager, query="all"
+     :   │       t0: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[-∞..2417), dynamic_filters=1, visibility=eager, query="all"
+     :   │       t1: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[2417..4823), dynamic_filters=1, visibility=eager, query="all"
+     :   │       t2: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[4823..7361), dynamic_filters=1, visibility=eager, query="all"
+     :   │       t3: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[7361..∞), dynamic_filters=1, visibility=eager, query="all"
      :   └──────────────────────────────────────────────────
-(23 rows)
+(25 rows)
 
 SELECT count(*)
 FROM n64_build b JOIN n64_probe p ON b.amount = p.amount
@@ -175,21 +177,23 @@ WHERE b.tag @@@ 'even';
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0]
      : │   CoalescePartitionsExec
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   ┌───── Stage 1 ── tasks=4, partitions=4
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
      :   │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(amount@0, amount@0)], projection=[]
      :   │     DistributedLeafExec:
-     :   │       t0: PgSearchScan: table=b, segments={partial=1, included=2, pruned=1}, partition=amount[-∞..Bytes([255, 64, 2, 54, 33])), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
-     :   │       t1: PgSearchScan: table=b, segments={partial=2, included=0, pruned=2}, partition=amount[Bytes([255, 64, 2, 54, 33])..Bytes([255, 64, 2, 102, 147])), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
-     :   │       t2: PgSearchScan: table=b, segments={partial=1, included=0, pruned=3}, partition=amount[Bytes([255, 64, 2, 102, 147])..∞), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
+     :   │       t0: PgSearchScan: table=b, segments={partial=1, included=1, pruned=2}, partition=amount[-∞..Bytes([255, 64, 1, 97, 48])), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
+     :   │       t1: PgSearchScan: table=b, segments={partial=2, included=0, pruned=2}, partition=amount[Bytes([255, 64, 1, 97, 48])..Bytes([255, 64, 2, 54, 33])), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
+     :   │       t2: PgSearchScan: table=b, segments={partial=2, included=0, pruned=2}, partition=amount[Bytes([255, 64, 2, 54, 33])..Bytes([255, 64, 2, 102, 147])), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
+     :   │       t3: PgSearchScan: table=b, segments={partial=1, included=0, pruned=3}, partition=amount[Bytes([255, 64, 2, 102, 147])..∞), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"even","lenient":null,"conjunction_mode":null}}}}
      :   │     DistributedLeafExec:
-     :   │       t0: PgSearchScan: table=p, segments={partial=0, included=2, pruned=2}, partition=amount[-∞..Bytes([255, 64, 2, 54, 33])), dynamic_filters=1, visibility=eager, query="all"
-     :   │       t1: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[Bytes([255, 64, 2, 54, 33])..Bytes([255, 64, 2, 102, 147])), dynamic_filters=1, visibility=eager, query="all"
-     :   │       t2: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[Bytes([255, 64, 2, 102, 147])..∞), dynamic_filters=1, visibility=eager, query="all"
+     :   │       t0: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[-∞..Bytes([255, 64, 1, 97, 48])), dynamic_filters=1, visibility=eager, query="all"
+     :   │       t1: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[Bytes([255, 64, 1, 97, 48])..Bytes([255, 64, 2, 54, 33])), dynamic_filters=1, visibility=eager, query="all"
+     :   │       t2: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[Bytes([255, 64, 2, 54, 33])..Bytes([255, 64, 2, 102, 147])), dynamic_filters=1, visibility=eager, query="all"
+     :   │       t3: PgSearchScan: table=p, segments={partial=0, included=1, pruned=3}, partition=amount[Bytes([255, 64, 2, 102, 147])..∞), dynamic_filters=1, visibility=eager, query="all"
      :   └──────────────────────────────────────────────────
-(23 rows)
+(25 rows)
 
 SELECT count(*)
 FROM nb_build b JOIN nb_probe p ON b.amount = p.amount

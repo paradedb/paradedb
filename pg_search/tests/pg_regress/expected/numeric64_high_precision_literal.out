@@ -335,8 +335,8 @@ INSERT INTO numeric64_high_precision (price) VALUES (12.34), (12.35), ('NaN'), (
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ pdb.all() AND price IN (12.345, 12.34) ORDER BY id;
-                                                                                         QUERY PLAN                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price
    Sort Key: numeric64_high_precision.id
@@ -348,7 +348,7 @@ WHERE id @@@ pdb.all() AND price IN (12.345, 12.34) ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id, price
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"price","value":"12.345"},{"field":"price","value":"12.34"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"price":["12.345","12.34"]}}}]}}
 (12 rows)
 
 SELECT id, price FROM numeric64_high_precision

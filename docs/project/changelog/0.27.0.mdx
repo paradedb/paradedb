@@ -1,0 +1,182 @@
+---
+title: "0.27.0"
+description: "ParadeDB release notes for 0.27.0"
+---
+
+See GitHub release: [v0.27.0](https://github.com/paradedb/paradedb/releases/tag/v0.27.0)
+
+## Breaking Changes 🚨 {#breaking-changes}
+
+### Physical replication and failover on ParadeDB Community
+
+High availability and read replicas have always been ParadeDB Enterprise features, but previously spinning up a physical standby on ParadeDB Community stopped WAL replay entirely when a ParadeDB index was created (#6007). Physical replication is now allowed to continue: non-ParadeDB queries work normally, queries that use a ParadeDB index on a read replica return an error, and if a standby fails over to become a primary (or a server is restored from a base backup taken on a standby) its replicated ParadeDB indexes emit an error and require `REINDEX INDEX`. Backups taken from the primary are unaffected.
+
+Upgrade standbys before the primary: the primary now writes a ParadeDB WAL record during `CREATE INDEX`, `VACUUM`, and `ANALYZE` on indexed tables, and a standby running an earlier release shuts down when replaying that record.
+
+### Vector index format {#vector-index-format}
+
+0.27.0 changes the on-disk format of vector indexes. Older formats are not supported and must be rebuilt with `REINDEX` when upgrading to 0.27.0.
+
+Vector searches fail with `index "<index_name>" has an unsupported vector storage format` until the index is rebuilt.
+
+### Other Changes
+
+- Adding a vector to an L2 (`vector_l2_ops`) or inner-product (`vector_ip_ops`) field of a ParadeDB index now fails when the vector's magnitude (its length from the origin) is above about 6.5e18, and searching such a field with a query vector above that magnitude fails too. Vectors that large overflowed the index's single-precision arithmetic. Cosine fields accept any finite vector. Vectors already in an index are not re-checked, but `REINDEX` of an index holding one fails.
+
+- Direct indexing of `ltree` columns in ParadeDB indexes (`USING paradedb (..., path)`) is now deprecated with a create-time warning and will be removed in a future release. Users should create a standard PostgreSQL GiST index on the `ltree` column alongside the ParadeDB index (`USING gist (path)`), which is automatically intersected with ParadeDB searches via bitmap intersection while supporting the full set of `ltree` operators (`<@`, `@>`, `~`, `?`, `@`).
+
+- Whole-row searches no longer implicitly target the index's key field. A bare query such as `t @@@ 'shoes'`
+  now searches across indexed fields. Field-specific builders such as `t @@@ pdb.term('shoes')` now raise an
+  error; use an indexed column instead, for example `t.description @@@ pdb.term('shoes')` or
+  `t.description === 'shoes'`. Whole-row `pdb.all()`, `pdb.empty()`, and `pdb.parse()` queries remain supported,
+  including score adjustments.
+
+- Replaced the `vector_fields` JSON index option with `quantization`, which applies to every vector field. It defaults to `'[1,1]'`. Use `quantization = 0` to disable quantization or an array such as `'[1,4]'` to choose layer widths. Recreate indexes that explicitly store `vector_fields` using the new option.
+
+- `paradedb.mpp_queue_size` now specifies the per-query DSM byte budget across all SPSC rings in an MPP mesh (default `8MB`, accepting standard PostgreSQL byte units such as `'8MB'` or `'64MB'`) rather than a message count. The `paradedb.mpp_request_timeout` GUC has been removed now that MPP stages stream over event-driven gRPC channels in shared memory.
+
+- Removed per-cluster radius pruning and its build, storage, and query costs from IVF vector indexes. Existing IVF indexes require `REINDEX`. `paradedb.vector_clusters` now returns only `segno` and `cluster_sizes`; radius-related EXPLAIN counters have also been removed.
+
+- Quantized IVF vector segments store their full-precision rows in document order in an entry of their own, so each cluster block carries document IDs and quantized columns only. Exact scoring reads one row per admitted document from that entry. The `.vec` format moves to version 6; existing vector indexes require `REINDEX`.
+
+- Renamed the IVF index option `max_leaf_size` to `target_leaf_size`. The value is the target number of indexed vectors per clustering leaf. Training scales it by `training_sample_ratio`; it does not cap the number of indexed vectors assigned to a cluster. Indexes that explicitly store `max_leaf_size` must be updated with `ALTER INDEX ... SET (target_leaf_size = ...)` or recreated.
+
+- Term sets in a query (`pdb.term_set`, `===` with an array, or `IN (...)` / `= ANY(...)` on an indexed field) are now capped by the new `paradedb.max_term_set_size` setting, which defaults to `262144` terms. Queries over the limit raise an error, and queries over half the limit emit a warning. Very large term sets are better written as a join; if that is not possible, raise `paradedb.max_term_set_size`.
+
+- Prebuilt `pg_search` binary packages now require PostgreSQL `15.20`, `16.16`, `17.12`, or `18.7` (or newer within each major series) because `CVE-2026-6460` moved `DatumGetHeapTupleHeader` out of line into the server binary. Upgrade PostgreSQL to at least those point releases before installing or upgrading prebuilt `pg_search` packages; building from source continues to support earlier point releases.
+
+## New Features ✨ {#new-features}
+
+- Set `training_sample_ratio = 0` to automatically size the vector training sample based on available memory. The default remains `0.32` (32%).
+
+- Search predicates combined with an OR of indexable conditions now intersect a `BitmapOr` of those conditions' indexes, rejecting non matching rows without a heap fetch.
+
+- `paradedb.vector_info` reports each IVF segment's router in `vector_router` and the number of centroids at each router level, bottom to top, in `vector_router_levels`.
+
+- Vector indexes default to `replication = 2`: each vector of a quantized IVF field is also assigned to a second cluster chosen to cover queries its first cluster misses. Replication roughly doubles the quantized rows scanned per opened cluster and the index build time, and adds about one quantized row per vector to the index; full-precision rows are not duplicated. It applies to newly clustered segments. Set `replication = 1` to disable the second assignment.
+
+- Match, phrase and query parser queries expand with synonym rules that you keep in a table. Give the rules to `|||`, `&&&`, `###` or `@@@` with a subquery, as in `description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)`. A change to the rules applies on the next query with no reindex. See [Synonyms](/reference/tokenizers/synonyms).
+
+- `pdb.explain_score(<column>)` explains the BM25 score of a row as `jsonb`, with the idf, the frequency and the field length of each term that the row matches. A synonym group explains as one term and lists the words of the group that the row holds. See [Score Explanation](/reference/full-text/score#score-explanation).
+
+## Performance Improvements 🚀 {#performance-improvements}
+
+### Global vector routing
+
+- `paradedb.vector_cluster_max_probe` now sets an absolute work budget in average-cluster units, accepting whole numbers from `1` through `100000` with a default of `100`. Opening clusters and scoring rows consume the same cost-based budget; selective filters can visit more clusters. Update existing values to the desired absolute budget.
+
+### Other Changes
+
+- Sign-quantized vector scans run faster on CPUs with AVX-512 VPOPCNTDQ (Intel Ice Lake-SP and later, AMD Zen 4 and later). Scores and the index format are unchanged.
+
+- Set the default IVF `target_leaf_size` to `400` indexed vectors per leaf. Existing clusters and explicit `target_leaf_size` settings are unchanged.
+
+- Vector searches reuse prepared query data across centroid routing and exact reranking and read centroids in batches, reducing repeated computation and storage reads.
+
+- Stacked IVF list selection now scales with the number of clusters a query asks to probe, so every stacked IVF index can see different recall and latency. The probe stops only on the work budget (`paradedb.vector_cluster_max_probe`) or when the ranking runs out. L2 and cosine indexes at 128 dimensions or fewer also no longer stop early through geometry-based adaptive partition scanning. `paradedb.vector_router_recall_target` and `paradedb.vector_recall_target` remain accepted and have no effect.
+
+- Vector routing stops after five quiet clusters instead of a short row budget, so a single large cluster no longer ends the probe early.
+
+- Vector `ORDER BY` searches share a top-k pruning threshold across segments and parallel workers on the same query, so later segments can cut work using scores already found elsewhere.
+
+- Vector index builds run faster. Each vector's second (replica) cluster comes from the nearest-centroid pass and the centroids' Gram matrix instead of a second pass over every centroid, and a quantized segment encodes its clusters in parallel. On x86 CPUs with AVX2 and FMA, and with SSE4.1, quantized scoring and query preparation use those instructions instead of math-library calls. Quantized encoding and scoring are unchanged bit for bit; replica clusters can differ where two candidates tie to floating-point rounding.
+
+- Faster vector index builds and query preparation with quantization (the default), using branch-free encoding everywhere and SIMD kernels on x86. Encoded rows and search results are unchanged.
+
+- Aggregate Scan now answers `COUNT(col) ... GROUP BY col` for text, boolean and JSON columns from each group's document count instead of computing a separate metric, which speeds up grouped counts such as `SELECT name, COUNT(name) ... GROUP BY name` (#6707).
+
+- Added adaptive stopping for vector cluster probing. `paradedb.vector_cluster_max_probe` continues to control the router request and probe-work ceiling; `paradedb.vector_adaptive_probing` allows the scan to stop sooner when competitive-candidate admission decays.
+
+- Vector indexes quantize the IVF router by default: new segments route each query through one-bit codes of the centroids and rerank the shortlisted centroids exactly. `vector_router_quantization = false` keeps full-precision routing; segments keep the router they were clustered with until the index is rebuilt.
+
+- Vector searches do less work per scanned row on replicated IVF indexes (the default `replication = 2`): clusters whose rows an earlier cluster already holds are scored through the batch kernels and decoders, read planning skips pricing sparse reads that cannot beat a whole-cluster read, and each cluster's storage block is looked up fewer times. Results and the index format are unchanged.
+
+- Fuzzy matches (`||| 'x'::pdb.fuzzy(1)`, `pdb.match('x', distance => 1)`) plan as fast as `pdb.fuzzy_term`. The planner uses its selectivity heuristic for them instead of building the fuzzy automaton, so their row estimate becomes a fixed fraction of the table. `paradedb.enable_heuristic_selectivity = off` gives the estimate from the index.
+
+- Vector `ORDER BY` searches cost less per query. The plan carries the query vector once, in a compact form, instead of twice as a list of numbers; per-segment scan statistics are built only when `EXPLAIN ANALYZE` or `paradedb.vector_stats` shows them; and the exact phase scores the most promising candidates first, so fewer of the rest are read and scored. Because that order changes which candidates near the cutoff are dropped, a top-k result can differ in rare cases. Planning a query that matches every row, such as `@@@ paradedb.all()`, on an index without a `WHERE` predicate estimates its selectivity and segment count without opening the index, so the planner's row estimate for it is the table's row count. Index page reads first try the shared buffer that last held the page and fall back to the usual buffer lookup. The index format is unchanged.
+
+- Range filters (`<`, `<=`, `>`, `>=`, `BETWEEN`, and `pdb.range`) now produce more accurate row estimates on skewed columns, and joins with query parameters (`$1`) or subqueries refine their estimates once parameter values are bound. Selective `ORDER BY ... LIMIT` joins (ordered by search score, vector distance, or an indexed column) use these estimates to push matching join keys directly into the search or vector index instead of scanning past non-matching rows.
+
+## Stability Improvements 💪 {#stability-improvements}
+
+- Fixed `pdb.parse()` queries on `NUMERIC` fields that returned wrong rows, no rows, or parse errors. Literals, ranges, and sets use exact comparisons, and invalid input follows strict or lenient parsing rules (#6105).
+
+- Range-partitioned parallel joins on `NUMERIC` columns no longer skew every row into the first partition, and no longer fail for `NUMERIC` columns without a precision.
+
+- `NUMERIC` columns declared with a scale outside -18 to 18, such as `numeric(3,20)`, can now be indexed. They used to fail with an error ending in `exceeds maximum 18 for Decimal64NoScale`, either at `CREATE INDEX` or on the first search after a row was inserted. An index created on an earlier version keeps its previous layout for such a column and still fails this way, so run `REINDEX` on any index that hit this error.
+
+- A search read now takes a predicate lock under `SERIALIZABLE`. Without it, two transactions could each count the rows matching a search, then each insert a matching row, and both commit, while Postgres' own plans for the same read abort one of them (#6390). The lock covers the whole table, so a write from another `SERIALIZABLE` transaction creates a dependency with the read even when it touches a row the search did not match.
+
+- A `LIMIT` query over a bitmap intersection no longer fails with "bitmap intersection stream ... claimed twice" when it has to search again, for example after deleted rows hid its first batch, or when a window aggregate runs alongside it (#6403).
+
+- Fixed a search operator in the `SELECT` list, such as `title ||| 'alpha'`, being charged `paradedb.per_tuple_cost`. The inflated cost pushed small queries past the JIT thresholds and made them much slower (#6406).
+
+- A heap filter that calls an allocating function, such as `tags @> jsonb_build_array('x')`, no longer grows the backend's memory with every row it rejects (#6739).
+
+- Fixed JoinScan returning `NULL` for selected system columns (`ctid`, `tableoid`, `xmin`, `cmin`, `xmax`, and `cmax`). Matched rows now return the system attributes of the fetched heap tuple; unmatched outer-join rows still return `NULL`.
+
+- Construct operator function expressions through PostgreSQL's node constructor so additional server-defined fields do not cause missing-field initializer errors.
+
+- Filters that compare a `NUMERIC(p, s)` column with `p` of 18 or less to a literal carrying more decimal places than `s`, such as `price = 10.005` on a `numeric(10,2)` column, now return the same rows as PostgreSQL. The pushed-down query used to round the literal to the column's scale first, so equality, `IN` and range filters could match the wrong rows. Comparing the column with a very large literal, such as `price > 1e17`, no longer raises an error.
+
+- `NOT (field @@@ <expr>)` no longer returns every row when `<expr>` evaluates to NULL.
+
+- Fixed `paradedb.planner_warnings` so runtime scan, spill, and visibility-map diagnostics honor `off` and `error`, `EXPLAIN ANALYZE` enforces error mode, and changing the setting invalidates cached plans.
+
+- Fixed incorrect `DISTINCT` and `GROUP BY` results for array columns and expressions over them, including slices, subscripts, and domain casts. These queries now use PostgreSQL aggregation to preserve empty arrays, NULL elements, dimensions, and lower bounds.
+
+- Fixed `COUNT(array_column)` and `COUNT(array_column) OVER ()` counting array elements instead of non-NULL rows, including empty arrays and arrays containing only NULLs.
+
+- Filters on `ctid` or `tableoid` that ParadeDB evaluates against the heap, such as `b.ctid > '(0,2)'` on a Join Scan source, now return the same rows as PostgreSQL. The filter used to compare an invalid `ctid` and a zero `tableoid`, so it matched every row or none.
+
+- Integer `+`, `-` and `*` in expressions evaluated by the Join Scan now raise an out-of-range error on overflow instead of silently wrapping.
+
+- Float division by zero in expressions evaluated by the Join Scan now raises `division by zero` instead of returning `Infinity`.
+
+- `sum()` over a `bigint` column in an aggregate over a join now returns the exact total instead of silently wrapping on overflow.
+
+- `remove_short` and `remove_long` now measure tokens after `trim=true` removes their surrounding whitespace. Reindex existing indexes that combine `trim=true` with either length filter to make previously indexed values consistent with queries and new writes. Existing indexes remain usable without reindexing, but affected values may return different or incomplete results.
+
+- The JSONB `?` operator now matches PostgreSQL in a ParadeDB scan, including string elements of a top-level array, a top-level string scalar, keys with a `null` value, and keys that contain a dot.
+
+- `sum()` over a `bigint` column in a single-table aggregate now returns the exact total instead of rounding values past 2^53.
+
+- Fixed join filters over `NUMERIC` columns in the aggregate scan and JoinScan, which read the stored scaled values and could return wrong results or fail. For example, comparing `numeric(10,2)` with `numeric(10,3)`, or `floor(a.amt) <> b.amt`, now matches PostgreSQL.
+
+- Fixed precision loss in numeric constants used by pushed-down aggregate HAVING and FILTER comparisons.
+
+- `paradedb.range()` on a JSON numeric path no longer matches fractional values outside an integer bound, such as `[5,5]` matching `5.5`.
+
+- `ORDER BY ... LIMIT` with `FOR UPDATE SKIP LOCKED` no longer returns fewer rows than the limit when the top-ranked rows are locked by another transaction.
+
+- Fixed an `unrecognized node type` error when using `pdb.score()` inside arithmetic or text expressions in join predicates and aggregate filters.
+
+- Fixed an internal error in filters comparing a `real` or `double precision` column with `NaN`, `Infinity` or `-Infinity`.
+
+- Stopwords (`stopwords_language` and `stopwords`) are now removed before stemming and ASCII folding. Previously, a transformed stopword could be indexed, such as Spanish `para` stemmed to `par`. Existing indexes that combine stopwords with stemming or ASCII folding remain usable, but searches can miss matches or return extra matches because older rows were indexed with the previous filter order. Run `REINDEX` on affected indexes to make results consistent across existing rows and new writes.
+
+- Fixed IVF `target_leaf_size` so it describes the desired full-dataset leaf size. Training now scales it by `training_sample_ratio` (the default `400` trains at `128`) so final clusters stay near the configured target. Existing indexes are unaffected until they are rebuilt.
+
+- Queries that run as an Aggregate Scan or Join Scan no longer crash the backend when `auto_explain` logs their plan without `log_analyze`.
+
+- PL/pgSQL variables used as `LIMIT`/`OFFSET`, as `pdb.snippet()` arguments, or as a vector `ORDER BY` operand now keep their values once the statement switches to a generic plan, instead of returning wrong rows or crashing the backend.
+
+- Under `SERIALIZABLE`, an aggregate that runs with MPP no longer misses an `INSERT` that commits after the query starts but before it reads the index. Both transactions could commit with write skew (#7428).
+
+- A query that negates a fuzzy or regex clause next to another filter, such as `lang === 'ja' AND NOT (title === 'x'::pdb.fuzzy(1))`, gets its row estimate from the index. The planner used to plan it as one row.
+
+- Fixed Join Scans restarting from the first row on each cursor fetch, which could cause PL/pgSQL `FOR` loops to run indefinitely. Fixed cursors over DataFusion Aggregate Scans stopping after the first 8192 groups.
+
+- Align parallel `JoinScan`, `AggregateScan`, and `BaseScan` execution with PostgreSQL's `parallel_leader_participation` GUC, per-table `parallel_workers` reloption, and parallel-mode safety rules (`TEMP` tables, `PARALLEL RESTRICTED` expressions, and partial cursor/portal fetches).
+
+- Reject negative `slop` values in `pdb.phrase` and `pdb.regex_phrase` instead of matching terms farther apart than intended.
+
+- `pdb.agg()` over a join now reads a column indexed inside a composite type, such as `ROW(category)::item_fields`, instead of failing with `Field 'category' is an expression index, which cannot be read back as a column`.
+
+- Reject negative `max_expansion` values in `pdb.phrase_prefix` instead of converting them to large unsigned limits.
+
+- `@@@` no longer fails with an internal error for a `pdb.query` value known only at run time, such as a subquery or a parameter of a generic plan.
+
+- A phrase query keeps the positions of its tokens. So `###` finds `sofa of leather` on a field that removes stop words, and it matches a word on a `pdb.edge_ngram` field.
+
+- A configuration reload during a Join Scan or Aggregate Scan query that runs with MPP workers no longer fails the query with `parameter ... cannot be set during a parallel operation`.

@@ -21,8 +21,8 @@ use std::ops::Bound;
 use super::SearchQueryInput;
 use super::numeric::{convert_value_for_field, is_outside_int_domain};
 use super::pdb_query::{canonicalize_range_bounds_for_field, pdb};
+use crate::api::FieldName;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashMap};
 use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::stats::{EmpiricalStats, comparable, ends_before};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -122,15 +122,6 @@ impl<'a> SegmentPruner<'a> {
             Bound::Unbounded => true,
         });
         preserves_order.then_some((lower, upper))
-    }
-
-    // Grouped so each field is decoded once per segment check, not once per term.
-    fn terms_by_field(terms: &[super::TermInput]) -> HashMap<&FieldName, Vec<&PdbOwnedValue>> {
-        let mut grouped: HashMap<&FieldName, Vec<&PdbOwnedValue>> = HashMap::default();
-        for term in terms {
-            grouped.entry(&term.field).or_default().push(&term.value);
-        }
-        grouped
     }
 
     fn terms_can_match<'v>(
@@ -272,9 +263,9 @@ impl<'a> SegmentPruner<'a> {
             SearchQueryInput::FieldedQuery { field, query } => {
                 self.field_can_match(segment, field, query)
             }
-            SearchQueryInput::TermSet { terms } => Self::terms_by_field(terms)
-                .into_iter()
-                .any(|(field, values)| self.terms_can_match(segment, field, values.into_iter())),
+            SearchQueryInput::TermSet { termset } => termset
+                .iter()
+                .any(|(field, values)| self.terms_can_match(segment, field, values.iter())),
             SearchQueryInput::Boolean {
                 must,
                 should,
@@ -318,9 +309,9 @@ impl<'a> SegmentPruner<'a> {
             SearchQueryInput::FieldedQuery { field, query } => {
                 self.field_matches_all(segment, field, query)
             }
-            SearchQueryInput::TermSet { terms } => Self::terms_by_field(terms)
-                .into_iter()
-                .any(|(field, values)| self.terms_match_all(segment, field, values.into_iter())),
+            SearchQueryInput::TermSet { termset } => termset
+                .iter()
+                .any(|(field, values)| self.terms_match_all(segment, field, values.iter())),
             SearchQueryInput::Boolean {
                 must,
                 should,

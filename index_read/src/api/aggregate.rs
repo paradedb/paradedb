@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
 pub use common::api::aggregate::*;
 
 use crate::api::operator::estimate_matching_rows;
@@ -29,7 +31,7 @@ pub trait MvccVisibilityExt {
         sources: impl IntoIterator<
             Item = (
                 &'a PgSearchRelation,
-                &'a SearchQueryInput,
+                Arc<SearchQueryInput>,
                 Option<&'a SearchIndexReader>,
             ),
         >,
@@ -38,7 +40,7 @@ pub trait MvccVisibilityExt {
     fn resolve_filtering(
         &self,
         indexrel: &PgSearchRelation,
-        query: &SearchQueryInput,
+        query: Arc<SearchQueryInput>,
         reader: Option<&SearchIndexReader>,
     ) -> bool;
 }
@@ -49,7 +51,7 @@ impl MvccVisibilityExt for MvccVisibility {
         sources: impl IntoIterator<
             Item = (
                 &'a PgSearchRelation,
-                &'a SearchQueryInput,
+                Arc<SearchQueryInput>,
                 Option<&'a SearchIndexReader>,
             ),
         >,
@@ -76,7 +78,7 @@ impl MvccVisibilityExt for MvccVisibility {
     fn resolve_filtering(
         &self,
         indexrel: &PgSearchRelation,
-        query: &SearchQueryInput,
+        query: Arc<SearchQueryInput>,
         reader: Option<&SearchIndexReader>,
     ) -> bool {
         self.resolve_filtering_for_sources(std::iter::once((indexrel, query, reader)))

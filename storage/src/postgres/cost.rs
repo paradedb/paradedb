@@ -56,6 +56,10 @@ pub unsafe extern "C-unwind" fn amcostestimate(
     drop(indexrel);
 
     if let Some(cost) = unusable_scan_cost {
+        #[cfg(feature = "pg18")]
+        {
+            (*path).path.disabled_nodes += 1;
+        }
         *index_startup_cost = cost;
         *index_total_cost = cost;
         *index_selectivity = 1.0;

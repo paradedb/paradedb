@@ -277,6 +277,12 @@ jobs:
           # Restore the heap below; do not download the corpus through download.yaml.
           aws s3 sync "${DATASET_CONFIG_S3}" "$dataset_dir" --exclude download.yaml --no-sign-request
           test -f "${dataset_dir}/k6/search.js"
+          if [ "${DATASET}" = stackexchange ]; then
+            sed -i \
+              -e "s/USING bm25 ((body::pdb.unicode_words('pnorms=true')))/USING bm25 (id, (body::pdb.unicode_words))/" \
+              -e "s/WITH (target_segment_count=/WITH (key_field='id', target_segment_count=/" \
+              "${dataset_dir}/paradedb/post.sql"
+          fi
 
       - name: Set Up Docker Benchmark Cluster
         id: build_image
@@ -298,7 +304,15 @@ jobs:
             -c "DROP EXTENSION IF EXISTS pg_search CASCADE; CREATE EXTENSION pg_search CASCADE;"
           docker compose exec -T paradedb \
             psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 \
+            -c "SELECT extversion FROM pg_extension WHERE extname = 'pg_search';"
+          docker compose exec -T paradedb \
+            psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 \
             < paradedb/post.sql
+          for operator in '&&&' '|||' '###'; do
+            docker compose exec -T paradedb \
+              psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 \
+              -c "EXPLAIN (COSTS OFF) SELECT id, body, pdb.score(id) AS score FROM documents WHERE body ${operator} 'database performance' ORDER BY score DESC LIMIT 10;"
+          done
           docker restart paradedb
           docker compose up -d --wait --wait-timeout 300 paradedb
 

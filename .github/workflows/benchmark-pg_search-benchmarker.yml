@@ -12,7 +12,7 @@ on:
   schedule:
     - cron: "30 11 * * *" # Daily at 11:30 UTC. Space nightly benchmarks two hours apart.
   pull_request:
-    types: [labeled] # Opt in with `benchmarks`, `benchmark-benchmarker` (all), or `benchmark-benchmarker-{hackernews,stackexchange,stackexchange-updates,wikipedia}`.
+    types: [labeled] # Opt in with `benchmarks`, `benchmark-benchmarker` (all), or `benchmark-benchmarker-{hackernews,stackexchange,wikipedia}`.
   workflow_dispatch:
     inputs:
       runner_type:
@@ -21,7 +21,7 @@ on:
         options: [spot, on-demand]
         default: spot
       dataset:
-        description: "Which dataset(s) to benchmark: 'all', 'hackernews', 'stackexchange', 'stackexchange-updates', or 'wikipedia'."
+        description: "Which dataset(s) to benchmark: 'all', 'hackernews', 'stackexchange', or 'wikipedia'."
         required: false
         type: string
         default: "all"
@@ -211,22 +211,20 @@ jobs:
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == 'stackexchange-updates' || inputs.dataset == 'wikipedia' || inputs.dataset == '')) ||
-      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange' || github.event.label.name == 'benchmark-benchmarker-stackexchange-updates' || github.event.label.name == 'benchmark-benchmarker-wikipedia'))
+      (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == 'wikipedia' || inputs.dataset == '')) ||
+      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange' || github.event.label.name == 'benchmark-benchmarker-wikipedia'))
     strategy:
       fail-fast: false
       matrix:
         dataset: >-
           ${{ fromJSON(
-            (inputs.dataset == 'stackexchange-updates' || github.event.label.name == 'benchmark-benchmarker-stackexchange-updates') && '["stackexchange-updates"]' ||
             (inputs.dataset == 'stackexchange' || github.event.label.name == 'benchmark-benchmarker-stackexchange') && '["stackexchange"]' ||
             (inputs.dataset == 'wikipedia' || github.event.label.name == 'benchmark-benchmarker-wikipedia') && '["wikipedia"]' ||
-            '["stackexchange", "stackexchange-updates", "wikipedia"]'
+            '["stackexchange", "wikipedia"]'
           ) }}
     env:
-      SUITE: ${{ matrix.dataset }}
-      DATASET: ${{ matrix.dataset == 'stackexchange-updates' && 'stackexchange' || matrix.dataset }}
-      DATASET_CONFIG_S3: s3://paradedb-benchmark/benchmarker/${{ matrix.dataset == 'stackexchange-updates' && 'stackexchange' || matrix.dataset }}/
+      DATASET: ${{ matrix.dataset }}
+      DATASET_CONFIG_S3: s3://paradedb-benchmark/benchmarker/${{ matrix.dataset }}/
       IMAGE_TAG: paradedb-source:ci
 
     steps:
@@ -241,7 +239,7 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --remove-label benchmarks \
             --remove-label benchmark-benchmarker \
-            --remove-label "benchmark-benchmarker-${SUITE}" || true
+            --remove-label "benchmark-benchmarker-${DATASET}" || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -312,6 +310,8 @@ jobs:
         env:
           WARMUP_SECONDS: 30
           DURATION_SECONDS: 300
+          UPDATES_PER_SECOND: 1000
+          STARTUP_TIMEOUT_SECONDS: 300
           BENCHMARKER_META: >-
             {"commit":"${{ steps.build_image.outputs.commit_sha }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
         run: |
@@ -335,7 +335,7 @@ jobs:
                 -e PARADEDB_CONTAINER=paradedb \
                 -e WORKLOAD="${workload}" \
                 -e QUERY_STYLE="${style}" \
-                -e VUS="${4:-1}" \
+                -e VUS=1 \
                 -e UPDATES_PER_SECOND="${3:-0}" \
                 -e WARMUP_SECONDS="${WARMUP_SECONDS}" \
                 -e DURATION_SECONDS="${DURATION_SECONDS}" \
@@ -355,15 +355,24 @@ jobs:
             mv "${dashboard_html[0]}" "$root/results/${name}.html"
           }
 
-          if [ "${SUITE}" = stackexchange-updates ]; then
-            BENCHMARKER_META="$(jq -c --argjson seconds "$DURATION_SECONDS" '. + {measurement_seconds: $seconds}' <<< "$BENCHMARKER_META")"
-            export BENCHMARKER_META
-            run_benchmark topk disjunction 1000 1
-          else
+          BENCHMARKER_META="$(jq -c --argjson seconds "$DURATION_SECONDS" '. + {measurement_seconds: $seconds}' <<< "$BENCHMARKER_META")"
+          export BENCHMARKER_META
+          for style in conjunction disjunction phrase mixed; do
+            run_benchmark topk "${style}"
+          done
+          run_benchmark count mixed
+
+          if [ "${DATASET}" = stackexchange ]; then
+            test "$PARADEDB_DATA_DIR" = "$RUNNER_TEMP/benchmark-pgdata"
+            pristine="$(mktemp -d "$RUNNER_TEMP/stackexchange-pristine.XXXXXX")"
+            docker compose stop paradedb
+            sudo cp -a --reflink=auto "$PARADEDB_DATA_DIR/." "$pristine/"
             for style in conjunction disjunction phrase mixed; do
-              run_benchmark topk "${style}"
+              docker compose stop paradedb
+              sudo rsync -a --checksum --delete "$pristine/" "$PARADEDB_DATA_DIR/"
+              docker compose up -d --wait --wait-timeout "$STARTUP_TIMEOUT_SECONDS" paradedb
+              run_benchmark topk "${style}" "$UPDATES_PER_SECOND"
             done
-            run_benchmark count mixed
           fi
 
       - name: Dump Database Logs on Failure
@@ -382,7 +391,7 @@ jobs:
         with:
           benchmark_type: benchmarker
           metadata: >-
-            {"dataset":"${{ env.SUITE }}",
+            {"dataset":"${{ env.DATASET }}",
              "ref":"${{ steps.build_image.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' }}"}
 

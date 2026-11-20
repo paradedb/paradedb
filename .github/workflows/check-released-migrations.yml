@@ -30,19 +30,21 @@ on:
       - "pg_search/Cargo.toml"
       - "Cargo.toml"
       - "rust-toolchain.toml"
-
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  # These lightweight Python tests run whenever this workflow is triggered.
   test-ci-scripts:
     name: Test CI Scripts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Test CI Scripts
+      - name: Checkout Git Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Run Python Unit Tests
         working-directory: .github/scripts
         run: |
           python3 -m pip install PyYAML==6.0.3

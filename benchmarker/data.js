@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795178652381,
+  "lastUpdate": 1795186839682,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -103718,6 +103718,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14543535521-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a556341b79d53c2fbbc1ea37620771c4b1088e7f",
+          "message": "ci: publish beta Debian packages for all PostgreSQL majors (#7597)\n\nPublish beta packages for PostgreSQL 15\u201318 on Debian 12 and 13, for\namd64 and arm64. Use the existing Debian matrix and package signing and\nupload steps for both beta and stable releases.\n\nBeta Docker publishing still targets PostgreSQL 18. Ubuntu, RHEL, macOS,\nand Postgres.app retain their existing beta skips.\n\nVerified all 16 Debian matrix rows and ran the pinned YAML formatter and\n`git diff --check`.\n\nReplaces #6945.",
+          "timestamp": "2026-11-20T05:32:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a556341b79d53c2fbbc1ea37620771c4b1088e7f"
+        },
+        "date": 1795186834408,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 8.069,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 9.129,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 9.58,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.895,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 12.604,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 13.257,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 20.904,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 24.483,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 25.45,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 6.243,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 7.782,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 8.269,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 9.759,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 12.761,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 13.244,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 30.987,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 39.348,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 40.983,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.705,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 4.519,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 4.883,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 6.45,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.798,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.435,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 15.898,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 18.382,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 19.122,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14640676469-latency"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (throughput)": [
@@ -103992,6 +104150,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14543535521-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a556341b79d53c2fbbc1ea37620771c4b1088e7f",
+          "message": "ci: publish beta Debian packages for all PostgreSQL majors (#7597)\n\nPublish beta packages for PostgreSQL 15\u201318 on Debian 12 and 13, for\namd64 and arm64. Use the existing Debian matrix and package signing and\nupload steps for both beta and stable releases.\n\nBeta Docker publishing still targets PostgreSQL 18. Ubuntu, RHEL, macOS,\nand Postgres.app retain their existing beta skips.\n\nVerified all 16 Debian matrix rows and ran the pinned YAML formatter and\n`git diff --check`.\n\nReplaces #6945.",
+          "timestamp": "2026-11-20T05:32:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a556341b79d53c2fbbc1ea37620771c4b1088e7f"
+        },
+        "date": 1795186835614,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 123.92503937656609,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 92.3281113136679,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 48.109520675208394,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 158.49401471886864,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 99.14666732285,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 31.663361024884768,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 264.06498517210775,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 153.9177438424462,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 70.13914057497324,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14640676469-throughput"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (buffers)": [
@@ -104266,6 +104492,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14543535521-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a556341b79d53c2fbbc1ea37620771c4b1088e7f",
+          "message": "ci: publish beta Debian packages for all PostgreSQL majors (#7597)\n\nPublish beta packages for PostgreSQL 15\u201318 on Debian 12 and 13, for\namd64 and arm64. Use the existing Debian matrix and package signing and\nupload steps for both beta and stable releases.\n\nBeta Docker publishing still targets PostgreSQL 18. Ubuntu, RHEL, macOS,\nand Postgres.app retain their existing beta skips.\n\nVerified all 16 Debian matrix rows and ran the pinned YAML formatter and\n`git diff --check`.\n\nReplaces #6945.",
+          "timestamp": "2026-11-20T05:32:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a556341b79d53c2fbbc1ea37620771c4b1088e7f"
+        },
+        "date": 1795186836733,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 2809.06,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 4470.36,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 10702.72,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 2995,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 5305.77,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 18149.12,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1410.05,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2500.51,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 5736.69,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14640676469-buffers"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (router)": [
@@ -104427,6 +104721,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14543535521-router"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a556341b79d53c2fbbc1ea37620771c4b1088e7f",
+          "message": "ci: publish beta Debian packages for all PostgreSQL majors (#7597)\n\nPublish beta packages for PostgreSQL 15\u201318 on Debian 12 and 13, for\namd64 and arm64. Use the existing Debian matrix and package signing and\nupload steps for both beta and stable releases.\n\nBeta Docker publishing still targets PostgreSQL 18. Ubuntu, RHEL, macOS,\nand Postgres.app retain their existing beta skips.\n\nVerified all 16 Debian matrix rows and ran the pinned YAML formatter and\n`git diff --check`.\n\nReplaces #6945.",
+          "timestamp": "2026-11-20T05:32:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a556341b79d53c2fbbc1ea37620771c4b1088e7f"
+        },
+        "date": 1795186837735,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 router vs flat, clusters",
+            "value": 0.9421989239895158,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 adaptive on vs off, vectors probed",
+            "value": 1,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vs flat, clusters",
+            "value": 0.9439925488978578,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 adaptive on vs off, vectors probed",
+            "value": 0.9829321466298068,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vs flat, clusters",
+            "value": 1.139356889595305,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 adaptive on vs off, vectors probed",
+            "value": 0.8390505105366253,
+            "unit": "ratio"
+          }
+        ],
+        "publication_id": "14640676469-router"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (router detail)": [
@@ -104633,6 +104980,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14543535521-router-detail"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a556341b79d53c2fbbc1ea37620771c4b1088e7f",
+          "message": "ci: publish beta Debian packages for all PostgreSQL majors (#7597)\n\nPublish beta packages for PostgreSQL 15\u201318 on Debian 12 and 13, for\namd64 and arm64. Use the existing Debian matrix and package signing and\nupload steps for both beta and stable releases.\n\nBeta Docker publishing still targets PostgreSQL 18. Ubuntu, RHEL, macOS,\nand Postgres.app retain their existing beta skips.\n\nVerified all 16 Debian matrix rows and ran the pinned YAML formatter and\n`git diff --check`.\n\nReplaces #6945.",
+          "timestamp": "2026-11-20T05:32:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a556341b79d53c2fbbc1ea37620771c4b1088e7f"
+        },
+        "date": 1795186838702,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 flat vectors probed",
+            "value": 36256.75,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router vectors probed, adaptive on",
+            "value": 34234.4,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router routing time",
+            "value": 0.36326931,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 flat vectors probed",
+            "value": 80070.41,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vectors probed, adaptive on",
+            "value": 74347.12,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router routing time",
+            "value": 0.66766537,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 flat vectors probed",
+            "value": 202682.61,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vectors probed, adaptive on",
+            "value": 193662.96,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router routing time",
+            "value": 1.7217839799999999,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14640676469-router-detail"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (index build)": [
@@ -104767,6 +105182,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14543535521-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a556341b79d53c2fbbc1ea37620771c4b1088e7f",
+          "message": "ci: publish beta Debian packages for all PostgreSQL majors (#7597)\n\nPublish beta packages for PostgreSQL 15\u201318 on Debian 12 and 13, for\namd64 and arm64. Use the existing Debian matrix and package signing and\nupload steps for both beta and stable releases.\n\nBeta Docker publishing still targets PostgreSQL 18. Ubuntu, RHEL, macOS,\nand Postgres.app retain their existing beta skips.\n\nVerified all 16 Debian matrix rows and ran the pinned YAML formatter and\n`git diff --check`.\n\nReplaces #6945.",
+          "timestamp": "2026-11-20T05:32:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a556341b79d53c2fbbc1ea37620771c4b1088e7f"
+        },
+        "date": 1795186839664,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 9.734435400983333,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 45935.0859375,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "14640676469-index"
       }
     ],
     "benchmarker hackernews-vector-28m-8cpu-32gb (latency)": [

@@ -41,8 +41,8 @@ use pgrx::pg_sys;
 
 use crate::parallel_worker::builder::ParallelProcessFinish;
 use crate::postgres::customscan::mpp::dsm_stream::{
-    DsmAsyncStream, DsmLeaderShutdownHandle, DsmWorkerDetachHandle, DsmWorkerShutdownWatcher,
-    ServerProc, assign_wakeup_slots, build_leader_streams, init_dsm_mesh,
+    DsmAsyncStream, DsmAttachment, DsmLeaderShutdownHandle, DsmWorkerDetachHandle,
+    DsmWorkerShutdownWatcher, ServerProc, assign_wakeup_slots, build_leader_streams, init_dsm_mesh,
 };
 use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, cancel_pending};
 use crate::postgres::customscan::mpp::wakeup::{WakeupDispatcher, WakeupSlotReservation};
@@ -272,17 +272,17 @@ pub unsafe fn leader_setup(
 }
 
 struct LeaderDsmDetachArg {
-    dsm_detached: Arc<AtomicBool>,
+    attachment: Arc<DsmAttachment>,
     wakeup_reservation: Arc<WakeupSlotReservation>,
 }
 
 #[pgrx::pg_guard]
-unsafe extern "C-unwind" fn mark_dsm_detached_on_dsm_detach(
+unsafe extern "C-unwind" fn detach_leader_streams_on_dsm_detach(
     _seg: *mut pg_sys::dsm_segment,
     arg: pg_sys::Datum,
 ) {
     let detach_arg = unsafe { Box::from_raw(arg.cast_mut_ptr::<LeaderDsmDetachArg>()) };
-    detach_arg.dsm_detached.store(true, Ordering::SeqCst);
+    detach_arg.attachment.detach();
     detach_arg.wakeup_reservation.release();
 }
 
@@ -294,13 +294,13 @@ impl MppLeaderState {
     /// `seg` must be the live DSM segment that owns the ring memory.
     pub unsafe fn register_streams_on_dsm_detach(&self, seg: *mut pg_sys::dsm_segment) {
         let detach_arg = Box::into_raw(Box::new(LeaderDsmDetachArg {
-            dsm_detached: Arc::clone(self.session.shutdown_handle.detached_flag()),
+            attachment: Arc::clone(self.session.shutdown_handle.attachment()),
             wakeup_reservation: Arc::clone(&self.session.wakeup_reservation),
         }));
         unsafe {
             pg_sys::on_dsm_detach(
                 seg,
-                Some(mark_dsm_detached_on_dsm_detach),
+                Some(detach_leader_streams_on_dsm_detach),
                 pg_sys::Datum::from(detach_arg as *mut c_void),
             );
         }
@@ -681,22 +681,16 @@ mod tests {
             .unwrap()
         };
         let detach_arg = Box::into_raw(Box::new(LeaderDsmDetachArg {
-            dsm_detached: Arc::clone(state.session.shutdown_handle.detached_flag()),
+            attachment: Arc::clone(state.session.shutdown_handle.attachment()),
             wakeup_reservation: Arc::clone(&state.session.wakeup_reservation),
         }));
         unsafe {
-            mark_dsm_detached_on_dsm_detach(
+            detach_leader_streams_on_dsm_detach(
                 std::ptr::null_mut(),
                 pg_sys::Datum::from(detach_arg as *mut c_void),
             );
         }
-        assert!(
-            state
-                .session
-                .shutdown_handle
-                .detached_flag()
-                .load(Ordering::Acquire)
-        );
+        assert!(state.session.shutdown_handle.attachment().is_detached());
         assert!(state.session.wakeup_reservation.slots().is_empty());
     }
 

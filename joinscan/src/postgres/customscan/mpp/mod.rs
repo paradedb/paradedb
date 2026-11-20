@@ -74,7 +74,7 @@
 //!     `tokio::io::unix::AsyncFd` and fanning out to per-ring local `AtomicWaker`s.
 //!   - When a peer advances `write_pos` or `read_pos` and observes the peer's `sleeping` flag set
 //!     (`SeqCst` `swap(false)`), it writes a wakeup notification to `pool[peer_slot].write_fd`.
-//! - PostgreSQL reactor guards ([`interrupt`], [`wakeup`]):
+//! - PostgreSQL reactor guards and abort safety ([`interrupt`], [`wakeup`], [`dsm_stream`]):
 //!   - [`interrupt::HeldInterrupts`] holds `HOLD_INTERRUPTS` across `runtime.block_on(...)` on both
 //!     leader and workers so PostgreSQL signal handlers cannot `siglongjmp` across Tokio frames;
 //!     [`interrupt::cancel_pending`] is polled inside `DsmAsyncStream` and
@@ -82,6 +82,17 @@
 //!     `check_for_interrupts()`.
 //!   - `postmaster_alive_fds[POSTMASTER_FD_WATCH]` is monitored via a non-closing `AsyncFd` wrapper
 //!     so workers abort immediately if `postmaster` dies.
+//!   - Every DSM SPSC ring and mesh header access holds a non-reentrant [`dsm_stream::DsmReadGuard`]
+//!     acquired from [`dsm_stream::DsmLease`]; `on_dsm_detach` callbacks on both leader and workers
+//!     signal shutdown, detach the lease (blocking until all in-flight ring copies finish), and
+//!     join any live `PgTokioRuntime` worker threads via [`interrupt::PgTokioRuntimeShutdownHandle`]
+//!     on abnormal teardown before PostgreSQL unmaps the DSM segment.
+//!   - Per-PID PostgreSQL lifecycle hooks (`before_shmem_exit`, `XactCallback`, `SubXactCallback`,
+//!     and `ResourceReleaseCallback` in [`interrupt`]) join live `PgTokioRuntime` worker pools
+//!     before `PGSharedMemoryDetach` or `ResourceOwnerRelease` unmaps shared memory or releases
+//!     buffer pins, and invalidate [`crate::postgres::utils::ResourceOwnerStamp`] tokens at
+//!     `RESOURCE_RELEASE_BEFORE_LOCKS` so deferred `MemoryContextDelete` drops skip already-released
+//!     C resources.
 //!
 //! ## 3. Separation of PostgreSQL Worker Lifecycle from Per-Query gRPC Execution
 //!
@@ -98,13 +109,17 @@
 //!   over `execute_task`, and `c2w_stream` EOF triggers `Worker::coordinator_channel` to send
 //!   `TaskMetrics` and `TaskCompletedDynamicFilters` back to the leader's
 //!   `DistributedExec::metrics_store`.
-//! - Teardown ([`glue::finish_leader_execution`]): on `EXPLAIN ANALYZE`, the leader awaits
+//! - Teardown ([`glue::finish_leader_execution`], [`glue::shutdown_mpp_scan`],
+//!   [`glue::teardown_mpp_scan`]): on `EXPLAIN ANALYZE`, the leader awaits
 //!   `DistributedExec::wait_for_metrics()`; then it detaches its client DSM streams, sets the DSM
 //!   `shutdown_flag`, pokes every worker's wakeup FD so `serve_with_incoming_shutdown` exits on
-//!   both background workers and any participating leader server task before
-//!   `WaitForParallelWorkersToFinish`, and calls [`interrupt::PgTokioRuntime::quiesce_tasks`]
-//!   so all background Tokio tasks finish unwinding and all deferred main-thread drops run before
-//!   the scan state tears down its relations and `EState`.
+//!   both background workers and any participating leader server task (aborting `server_task` if
+//!   its grace timeout expires), calls [`interrupt::PgTokioRuntime::quiesce_tasks`] so all
+//!   background Tokio tasks finish unwinding and all deferred main-thread drops run before marking
+//!   the [`glue::LeaderSession`] cleanly torn down and running `WaitForParallelWorkersToFinish` /
+//!   `DestroyParallelContext`. On abnormal transaction, subtransaction, or process abort where
+//!   clean teardown is bypassed, `on_dsm_detach` observes the session was not cleanly torn down and
+//!   tears down the mesh and worker pool before `munmap`.
 //!
 //! ## 4. Worker Session & Plan Rewrite Hooks ([`worker`])
 //!

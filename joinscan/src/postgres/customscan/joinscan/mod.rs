@@ -1179,6 +1179,7 @@ impl JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         budget: MppBudget,
         physical: &Arc<dyn ExecutionPlan>,
+        runtime: &PgTokioRuntime,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         Self::ensure_source_manifests(state);
         let all_sources: Vec<SegmentView> = state
@@ -1198,6 +1199,7 @@ impl JoinScan {
                 budget,
                 physical,
                 args,
+                runtime.shutdown_handle(),
             )
         }
     }
@@ -1840,6 +1842,7 @@ impl CustomScan for JoinScan {
                     predicate_lock_read(&heaprel, snapshot);
                     let visibility_checker =
                         VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
+                    let slot_owner = crate::postgres::utils::ResourceOwnerStamp::current();
                     let fetch_slot =
                         pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
                     state.custom_state_mut().relations.insert(
@@ -1848,6 +1851,7 @@ impl CustomScan for JoinScan {
                             _heaprel: heaprel,
                             visibility_checker,
                             fetch_slot,
+                            slot_owner,
                             ctid_col_idx: None,
                             ffhelper: None,
                         },
@@ -1936,7 +1940,7 @@ impl CustomScan for JoinScan {
                 // workers remain and the `DistributedExec` shape has no mesh to read from, so
                 // replan serially.
                 let (ctx, plan) = if let Some(budget) = mpp_budget {
-                    match Self::launch_mpp(state, budget, &plan) {
+                    match Self::launch_mpp(state, budget, &plan, &runtime) {
                         Some(mut leader) => {
                             let exec_ctx = build_mpp_exec_context(
                                 create_datafusion_session_context(),

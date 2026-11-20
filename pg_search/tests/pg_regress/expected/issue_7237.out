@@ -64,15 +64,15 @@ SELECT id FROM issue_7237_t WHERE issue_7237_t @@@ pdb.all() AND d = 'NaN';
 
 EXPLAIN (COSTS OFF)
 SELECT id FROM issue_7237_t WHERE issue_7237_t @@@ pdb.all() AND d IN ('NaN', 'Infinity');
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on issue_7237_t
    Table: issue_7237_t
    Index: issue_7237_t_idx
    Exec Method: ColumnarExecState
    Columnar: id
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":"all","score":1.0}}}},{"term_set":{"terms":[{"field":"d","value":{"$__pdb_float__":"NaN"}},{"field":"d","value":{"$__pdb_float__":"inf"}}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":"all","score":1.0}}}},{"term_set":{"termset":{"d":[{"$__pdb_float__":"NaN"},{"$__pdb_float__":"inf"}]}}}]}}
 (7 rows)
 
 EXPLAIN (COSTS OFF)

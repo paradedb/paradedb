@@ -477,7 +477,7 @@ mod tests {
                 Field::new("id", DataType::Int64, true),
                 deferred_field("category"),
             ])),
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             vec![DeferredField {
                 name: "category".into(),
                 is_bytes: false,

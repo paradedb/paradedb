@@ -27,6 +27,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::PgMemoryContextsExt;
 use crate::postgres::{ParallelScanState, ScanStrategy, parallel};
 use crate::query::SearchQueryInput;
+use std::sync::Arc;
 
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
@@ -213,7 +214,7 @@ pub extern "C-unwind" fn amrescan(
         let view = unsafe { wait_for_segment_view(scan) };
         SearchIndexReader::open(
             &indexrel,
-            search_query_input,
+            Arc::new(search_query_input),
             false,
             MvccSatisfies::ParallelWorker(view),
         )
@@ -223,7 +224,7 @@ pub extern "C-unwind" fn amrescan(
         // visibility to see all currently snapshot-visible segments.
         let reader = SearchIndexReader::open(
             &indexrel,
-            search_query_input,
+            Arc::new(search_query_input),
             false,
             MvccSatisfies::Snapshot,
         )

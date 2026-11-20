@@ -114,7 +114,7 @@ mod tests {
         let scan = Arc::new(PgSearchScanPlan::new(
             None,
             schema.clone(),
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             Vec::new(),
             Some(ffhelper_scan.clone()),
             42,

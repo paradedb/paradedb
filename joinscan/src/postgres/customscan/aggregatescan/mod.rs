@@ -1158,7 +1158,7 @@ impl CustomScan for AggregateScan {
         }
 
         explainer.add_text("Index", state.custom_state().indexrel().name());
-        explainer.add_query(state.custom_state().aggregate_clause.query());
+        explainer.add_query(&state.custom_state().aggregate_clause.query());
         state
             .custom_state()
             .aggregate_clause
@@ -1241,6 +1241,17 @@ impl CustomScan for AggregateScan {
             let mut columns = PlaceholderColumns::default();
             let (placeholder_tlist, placeholders, needs_projection) =
                 create_placeholder_targetlist(plan_targetlist, &mut columns);
+            // Constant entries are evaluated by the projection (via ExecProject) so that
+            // Params and other row-independent expressions are resolved at execution time.
+            assert!(
+                needs_projection
+                    || !state
+                        .custom_state()
+                        .aggregate_clause
+                        .entries()
+                        .any(|e| matches!(e, TargetListEntry::Constant)),
+                "constant output columns require the wrapped projection"
+            );
             if needs_projection && !placeholder_tlist.is_null() {
                 let projection = columns.build_projection(
                     placeholder_tlist,
@@ -1688,7 +1699,7 @@ impl AggregateScan {
                 root,
                 base_rel,
                 bm25_oid,
-                aggregate_clause.query(),
+                &aggregate_clause.query(),
                 bm25_row_estimate,
             )
             .and_then(|planner| planner.harvest())
@@ -2189,7 +2200,7 @@ impl AggregateScan {
                         None => (pg_sys::Datum::null(), true),
                     }
                 }
-                TargetListEntry::GroupingColumn(_) => {
+                TargetListEntry::GroupingColumn(_) | TargetListEntry::Constant => {
                     debug_assert!(
                         i < natts,
                         "aggregate clause entry index out of bounds for tuple descriptor"
@@ -2499,19 +2510,19 @@ impl AggregateScan {
         if mode != MvccVisibility::Threshold {
             return;
         }
-        let sources: Vec<(PgSearchRelation, SearchQueryInput)> = df_state
+        let sources: Vec<(PgSearchRelation, Arc<SearchQueryInput>)> = df_state
             .plan
             .sources()
             .iter()
             .map(|source| {
                 (
                     PgSearchRelation::open(source.scan_info.indexrelid),
-                    source.scan_info.mode.query().clone(),
+                    source.scan_info.mode.query(),
                 )
             })
             .collect();
-        let check =
-            mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q, None)));
+        let check = mode
+            .resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q.clone(), None)));
         let resolved = if check {
             MvccVisibility::Transaction
         } else {
@@ -2692,6 +2703,8 @@ unsafe fn aggregate_value_to_datum(
 ///    NULL sentinels and ISO-8601 datetime parsing) via [`group_key_to_datum`].
 /// 2. `GroupingColumn` with an empty row → NULL.
 /// 3. `Aggregate` (any row) → delegate to [`aggregate_value_to_datum`].
+/// 4. `Constant` (any row) → NULL placeholder; the real value is computed by the
+///    wrapped projection (see `create_placeholder_targetlist`).
 ///
 /// Finalizes by setting `tts_flags` and `tts_nvalid` so the slot is in the
 /// "virtual tuple stored" state.
@@ -2748,6 +2761,7 @@ unsafe fn fill_slot_from_row(
                     index_info,
                 )
             }
+            TargetListEntry::Constant => None,
         };
 
         if let Some(datum) = datum {

@@ -225,8 +225,8 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_icu IN ('apple', 'cherry')
 ORDER BY id;
-                                                                                    QUERY PLAN                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -235,7 +235,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"name_icu","value":"apple"},{"field":"name_icu","value":"cherry"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"termset":{"name_icu":["apple","cherry"]}}}]}}
 (9 rows)
 
 SELECT id FROM issue_5858_products

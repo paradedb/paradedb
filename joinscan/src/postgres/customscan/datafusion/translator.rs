@@ -144,7 +144,7 @@ impl<'a> PredicateTranslator<'a> {
                     ScanMode::Tagged { local_queries, .. } => {
                         &local_queries
                             .iter()
-                            .find(|tq| tq.query.as_ref() == &predicate.query)?
+                            .find(|tq| tq.query == predicate.query)?
                             .tag_name
                     }
                     ScanMode::Standard { .. } | ScanMode::Disjunctive { .. } => return None,

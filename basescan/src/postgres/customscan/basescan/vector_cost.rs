@@ -20,6 +20,7 @@ use crate::gucs;
 use crate::postgres::options::BM25IndexOptions;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
+use std::sync::Arc;
 use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
 
 // Minimum estimated byte-work saved to cover worker startup and coordination.
@@ -38,7 +39,7 @@ pub(super) struct VectorWork {
 impl VectorWork {
     pub(super) fn for_query(
         strategy: VectorFilterStrategy,
-        query: &SearchQueryInput,
+        query: Arc<SearchQueryInput>,
         vectors: f64,
         selectivity: f64,
         field: &FieldName,

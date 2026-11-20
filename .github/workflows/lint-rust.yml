@@ -85,8 +85,6 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
@@ -104,31 +102,10 @@ jobs:
           pg_version: ${{ matrix.pg_version }}
           extra_packages: clang libclang-dev lld libfontconfig1-dev libopenblas-dev
 
-      - name: Run Rustdoc and Clippy
+      - name: Run Rustdoc
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUSTDOCFLAGS: "-D warnings"
-        run: |
-          packages=(--workspace)
-          if [[ -n "$BASE_SHA" && -n "$HEAD_SHA" ]]; then
-            git diff --no-renames --name-only -z "$BASE_SHA...$HEAD_SHA" > "${RUNNER_TEMP}/rust-lint-paths"
-            declare -A changed=()
-            shared=false
-            while IFS= read -r -d '' file; do
-              case "$file" in
-                benchmarks/*|schemabot/*|stressgres/*)
-                  changed["${file%%/*}"]=1
-                  ;;
-                *) shared=true ;;
-              esac
-            done < "${RUNNER_TEMP}/rust-lint-paths"
-            if [[ "$shared" == false && "${#changed[@]}" -gt 0 ]]; then
-              packages=()
-              for package in "${!changed[@]}"; do
-                packages+=(-p "$package")
-              done
-            fi
-          fi
-          cargo doc "${packages[@]}" --no-deps --document-private-items
-          cargo clippy "${packages[@]}" --all-targets -- -D warnings --no-deps
+        run: cargo doc --workspace --no-deps --document-private-items
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings --no-deps

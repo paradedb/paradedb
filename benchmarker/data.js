@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795152954541,
+  "lastUpdate": 1795178603853,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -38523,6 +38523,104 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14528605383-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a556341b79d53c2fbbc1ea37620771c4b1088e7f",
+          "message": "ci: publish beta Debian packages for all PostgreSQL majors (#7597)\n\nPublish beta packages for PostgreSQL 15\u201318 on Debian 12 and 13, for\namd64 and arm64. Use the existing Debian matrix and package signing and\nupload steps for both beta and stable releases.\n\nBeta Docker publishing still targets PostgreSQL 18. Ubuntu, RHEL, macOS,\nand Postgres.app retain their existing beta skips.\n\nVerified all 16 Debian matrix rows and ran the pinned YAML formatter and\n`git diff --check`.\n\nReplaces #6945.",
+          "timestamp": "2026-11-20T05:32:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a556341b79d53c2fbbc1ea37620771c4b1088e7f"
+        },
+        "date": 1795178602654,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.299,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.639,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 11.244,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.567,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.032,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 5.979,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 2.032,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 8.621,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 10.216,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.511,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 8.162,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.575,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.895,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.131,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.017,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14628016190-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [
@@ -45120,6 +45218,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14528605383-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a556341b79d53c2fbbc1ea37620771c4b1088e7f",
+          "message": "ci: publish beta Debian packages for all PostgreSQL majors (#7597)\n\nPublish beta packages for PostgreSQL 15\u201318 on Debian 12 and 13, for\namd64 and arm64. Use the existing Debian matrix and package signing and\nupload steps for both beta and stable releases.\n\nBeta Docker publishing still targets PostgreSQL 18. Ubuntu, RHEL, macOS,\nand Postgres.app retain their existing beta skips.\n\nVerified all 16 Debian matrix rows and ran the pinned YAML formatter and\n`git diff --check`.\n\nReplaces #6945.",
+          "timestamp": "2026-11-20T05:32:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a556341b79d53c2fbbc1ea37620771c4b1088e7f"
+        },
+        "date": 1795178603837,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 538.8814146387386,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 499.64013661530254,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 239.0351861552409,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 234.44583983573943,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 371.81587843394914,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14628016190-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

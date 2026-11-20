@@ -517,7 +517,7 @@ builder.Services.AddDbContextPool<AppDbContext>(opt =>
 ParadeDB's EF Core integration supports vector search in LINQ through
 `EF.Functions.CosineDistance`. If your app uses Microsoft's
 `IVectorSearchable<TRecord>` interface, install the optional `ParadeDB.VectorData`
-adapter to search your ParadeDB data through that interface using an existing
+adapter to search your ParadeDB indexes through that interface using an existing
 EF Core query.
 
 ```bash

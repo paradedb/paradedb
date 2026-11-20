@@ -24,9 +24,9 @@
     banner.id = "paradedb-cookie-banner";
     banner.setAttribute("aria-label", "Cookie preferences");
     banner.innerHTML = `
-      <p>We use cookies to understand how you use our website, docs, and Cloud console,
-      improve your experience, and personalize our marketing and advertising. Declining
-      limits tracking to cookieless measurement.
+      <p>We use cookies to understand how you use our site and app, improve your experience,
+      and personalize our marketing and advertising. Declining limits tracking to
+      cookieless measurement.
       <a href="https://www.paradedb.com/legal/privacy">Privacy Policy</a></p>
       <div><button type="button" data-consent="false">Decline</button>
       <button type="button" data-consent="all">Accept</button></div>`;

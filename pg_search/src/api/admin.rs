@@ -29,6 +29,7 @@ use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
 };
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::mutable_cache::{SlotState, load_cache};
 use crate::postgres::utils::{item_pointer_to_u64, u64_to_item_pointer};
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb as pdb_query;
@@ -39,8 +40,37 @@ use pgrx::datum::DatumWithOid;
 use pgrx::prelude::*;
 use serde_json::Value;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tantivy::schema::FieldType;
 use tantivy::vector::diagnostics::VectorStorageFormat;
+
+#[pg_extern]
+fn mutable_cache_diagnostics() -> Option<JsonB> {
+    let cache = load_cache()?;
+    let guard = cache.lock.acquire_exclusive();
+    let base_shift = unsafe { cache.slab_pool_mut(&guard) }.base_shift;
+    let slots = unsafe { cache.slots() }
+        .iter()
+        .filter(|slot| slot.state() != SlotState::Empty)
+        .map(|slot| {
+            serde_json::json!({
+                "index": slot.key.index_oid,
+                "segment": slot.key.segment_id,
+                "start": slot.key.start_doc,
+                "end": slot.key.bound.max_doc,
+                "bytes": slot.span.len,
+                "allocated": 1u64 << (base_shift + slot.span.order),
+                "readers": slot.active_readers.load(Ordering::Relaxed),
+                "state": slot.state() as u32,
+            })
+        })
+        .collect::<Vec<_>>();
+    Some(JsonB(serde_json::json!({
+        "capacity": cache.arena_capacity,
+        "generation": cache.generation.load(Ordering::Relaxed),
+        "slots": slots,
+    })))
+}
 
 #[allow(clippy::type_complexity)]
 #[pg_extern]

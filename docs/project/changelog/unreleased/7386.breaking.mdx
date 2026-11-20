@@ -1,8 +1,0 @@
----
-header: breaking
-title: Physical replication and failover on ParadeDB Community
----
-
-High availability and read replicas have always been ParadeDB Enterprise features, but previously spinning up a physical standby on ParadeDB Community stopped WAL replay entirely when a ParadeDB index was created (#6007). Physical replication is now allowed to continue: non-ParadeDB queries work normally, queries that use a ParadeDB index on a read replica return an error, and if a standby fails over to become a primary (or a server is restored from a base backup taken on a standby) its replicated ParadeDB indexes emit an error and require `REINDEX INDEX`. Backups taken from the primary are unaffected.
-
-Upgrade standbys before the primary: the primary now writes a ParadeDB WAL record during `CREATE INDEX`, `VACUUM`, and `ANALYZE` on indexed tables, and a standby running an earlier release shuts down when replaying that record.

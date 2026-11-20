@@ -308,15 +308,15 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 -- these are types that postgres will coerce to TEXT
 --
 SELECT * FROM mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
-ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(description)::character varying" is not included in ParadeDB index "idxregress_mock_items"
 SELECT * FROM mock_items WHERE description::varchar &&& 'keyboard' ORDER BY id;
-ERROR:  query is incompatible with pg_search's `&&&` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(description)::character varying" is not included in ParadeDB index "idxregress_mock_items"
 SELECT * FROM mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
-ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(description)::character varying" is not included in ParadeDB index "idxregress_mock_items"
 SELECT * FROM mock_items WHERE description::varchar ### 'keyboard' ORDER BY id;
-ERROR:  query is incompatible with pg_search's `###` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(description)::character varying" is not included in ParadeDB index "idxregress_mock_items"
 SELECT * FROM mock_items WHERE description::varchar === 'keyboard' ORDER BY id;
-ERROR:  query is incompatible with pg_search's `===` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(description)::character varying" is not included in ParadeDB index "idxregress_mock_items"
 SELECT * FROM mock_items WHERE category ||| 'footwear' ORDER BY id;
  id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------

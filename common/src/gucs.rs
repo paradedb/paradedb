@@ -366,12 +366,24 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// Global IVF probe-work budget in average-cluster units.
+const FILTER_WORK_NORMALIZATION_FLOOR: f64 = 0.1;
+const MAX_VECTOR_WORK_BUDGET: usize = 100_000;
+const MAX_VECTOR_CLUSTER_MAX_PROBE: i32 =
+    (MAX_VECTOR_WORK_BUDGET as f64 / FILTER_WORK_NORMALIZATION_FLOOR) as i32;
+
+/// Global IVF probe budget, normalized by filter selectivity.
 static VECTOR_CLUSTER_MAX_PROBE: GucSetting<i32> = GucSetting::<i32>::new(100);
 
-/// Returns the global IVF probe-work budget.
+/// Returns the public IVF probe budget.
 pub fn vector_cluster_max_probe() -> usize {
     VECTOR_CLUSTER_MAX_PROBE.get() as usize
+}
+
+/// Converts the public probe setting to the existing average-cluster work budget.
+pub fn vector_probe_budget(selectivity: f64) -> usize {
+    let scale = FILTER_WORK_NORMALIZATION_FLOOR
+        + (1.0 - FILTER_WORK_NORMALIZATION_FLOOR) * selectivity.clamp(0.0, 1.0);
+    ((vector_cluster_max_probe() as f64 * scale).round() as usize).max(1)
 }
 
 static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<f64> = GucSetting::<f64>::new(2.0);
@@ -455,8 +467,8 @@ pub fn vector_clustering_threshold() -> usize {
 const MIN_ADAPTIVE_PROBE_BUDGET: usize = 100;
 static VECTOR_ADAPTIVE_PROBING: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-pub fn vector_adaptive_probing() -> Option<AdaptiveProbeParams> {
-    (VECTOR_ADAPTIVE_PROBING.get() && vector_cluster_max_probe() >= MIN_ADAPTIVE_PROBE_BUDGET)
+pub fn vector_adaptive_probing(budget: usize) -> Option<AdaptiveProbeParams> {
+    (VECTOR_ADAPTIVE_PROBING.get() && budget >= MIN_ADAPTIVE_PROBE_BUDGET)
         .then_some(AdaptiveProbeParams::default())
 }
 
@@ -464,7 +476,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_adaptive_probing",
         c"Stop vector probing early using admission-rate decay",
-        c"Applies when vector_cluster_max_probe is at least 100. May stop probing early after competitive-candidate admission decays. Threshold pruning remains enabled independently.",
+        c"Applies when the internal probe-work budget is at least 100. May stop probing early after competitive-candidate admission decays. Threshold pruning remains enabled independently.",
         &VECTOR_ADAPTIVE_PROBING,
         GucContext::Userset,
         GucFlags::default(),
@@ -801,11 +813,11 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.vector_cluster_max_probe",
-        c"Global IVF probe-work budget in whole average-cluster units for vector ORDER BY queries",
+        c"Global IVF probe budget normalized by filter selectivity for vector ORDER BY queries",
         c"Controls the router request and the work ceiling. Adaptive probing may stop before the ceiling is reached.",
         &VECTOR_CLUSTER_MAX_PROBE,
         1,
-        100_000,
+        MAX_VECTOR_CLUSTER_MAX_PROBE,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1595,7 +1607,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(vector_cluster_max_probe(), 100);
-        assert!(vector_adaptive_probing().is_some());
+        assert!(vector_adaptive_probing(vector_cluster_max_probe()).is_some());
         for (budget, adaptive) in [
             (1, false),
             (MIN_ADAPTIVE_PROBE_BUDGET - 1, false),
@@ -1609,15 +1621,35 @@ mod tests {
             ))
             .unwrap();
             assert_eq!(vector_cluster_max_probe(), budget);
-            assert_eq!(vector_adaptive_probing().is_some(), adaptive);
+            assert_eq!(
+                vector_adaptive_probing(vector_cluster_max_probe()).is_some(),
+                adaptive
+            );
         }
         assert_eq!(vector_cluster_max_probe(), 25);
         Spi::run("SET paradedb.vector_adaptive_probing = off;").unwrap();
-        assert!(vector_adaptive_probing().is_none());
+        assert!(vector_adaptive_probing(vector_cluster_max_probe()).is_none());
         assert_eq!(vector_cluster_max_probe(), 25);
         Spi::run("RESET paradedb.vector_cluster_max_probe;").unwrap();
         assert_eq!(vector_cluster_max_probe(), 100);
-        assert!(vector_adaptive_probing().is_none());
+        assert!(vector_adaptive_probing(vector_cluster_max_probe()).is_none());
+    }
+
+    #[pg_test]
+    fn test_normalized_vector_probe_budget() {
+        for (probe, selectivity, work) in [
+            (62, 1.0, 62),
+            (63, 0.1, 12),
+            (64, 0.01, 7),
+            (1, 0.0, 1),
+            (MAX_VECTOR_CLUSTER_MAX_PROBE, 0.0, MAX_VECTOR_WORK_BUDGET),
+        ] {
+            Spi::run(&format!("SET paradedb.vector_cluster_max_probe = {probe}")).unwrap();
+            assert_eq!(vector_probe_budget(selectivity), work);
+        }
+        Spi::run("SET paradedb.vector_cluster_max_probe = 100; SET paradedb.vector_adaptive_probing = on").unwrap();
+        assert!(vector_adaptive_probing(vector_probe_budget(0.01)).is_none());
+        assert!(vector_adaptive_probing(vector_probe_budget(1.0)).is_some());
     }
 
     #[pg_test]
@@ -1627,17 +1659,17 @@ mod tests {
     }
 
     #[pg_test(
-        error = "0 is outside the valid range for parameter \"paradedb.vector_cluster_max_probe\" (1 .. 100000)"
+        error = "0 is outside the valid range for parameter \"paradedb.vector_cluster_max_probe\" (1 .. 1000000)"
     )]
     fn test_vector_probe_budget_rejects_zero() {
         Spi::run("SET paradedb.vector_cluster_max_probe = 0;").unwrap();
     }
 
     #[pg_test(
-        error = "100001 is outside the valid range for parameter \"paradedb.vector_cluster_max_probe\" (1 .. 100000)"
+        error = "1000001 is outside the valid range for parameter \"paradedb.vector_cluster_max_probe\" (1 .. 1000000)"
     )]
     fn test_vector_probe_budget_rejects_above_max() {
-        Spi::run("SET paradedb.vector_cluster_max_probe = 100001;").unwrap();
+        Spi::run("SET paradedb.vector_cluster_max_probe = 1000001;").unwrap();
     }
 
     #[pg_test]

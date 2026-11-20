@@ -26,8 +26,6 @@ permissions:
   id-token: write
 
 jobs:
-  # Stable releases build the full matrix. Beta releases (`-rc.` tags) build only what the PG 18
-  # Docker image needs (the Debian 13 (Trixie) .deb for both arches).
   publish-pg_search-debian:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
     # Compute-optimized c-family — Rust release build inside matrix.image container is CPU-bound.
@@ -181,20 +179,7 @@ jobs:
             arch: arm64
 
     steps:
-      # A job-level `if` cannot read the `matrix` context, so beta filtering happens here, per step:
-      # stable releases build every row; beta (`-rc.`) releases build only the Debian 13 (Trixie)
-      # PG 18 .deb (both arches) that the PG 18 Docker image installs.
-      - name: Determine Whether to Build This Row
-        id: guard
-        run: |
-          if [[ "$GITHUB_REF" != *-rc.* || ( "${{ matrix.pg_version }}" == "18" && "${{ matrix.name }}" == "Debian 13 (Trixie)" ) ]]; then
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "build=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Install Dependencies
-        if: steps.guard.outputs.build == 'true'
         uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           packages: >-
@@ -202,40 +187,33 @@ jobs:
             pkg-config libssl-dev jq gettext-base lld
 
       - name: Checkout Git Repository
-        if: steps.guard.outputs.build == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
-        if: steps.guard.outputs.build == 'true'
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       # Used to upload the release to GitHub Releases
       - name: Configure GitHub CLI Repository
-        if: steps.guard.outputs.build == 'true'
         run: |
           curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
       - name: Install GitHub CLI
-        if: steps.guard.outputs.build == 'true'
         uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           packages: gh
 
       - name: Verify GitHub CLI
-        if: steps.guard.outputs.build == 'true'
         run: gh --version
 
       - name: Install Rust
-        if: steps.guard.outputs.build == 'true'
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
         with:
           cache: false # Disable cache on publish workflows
           rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Retrieve OS & GitHub Tag Versions
-        if: steps.guard.outputs.build == 'true'
         id: version
         env:
           INPUTS_VERSION: ${{ github.event.inputs.version }}
@@ -266,7 +244,6 @@ jobs:
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version
-        if: steps.guard.outputs.build == 'true'
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
@@ -274,12 +251,10 @@ jobs:
           extra_packages: libopenblas-dev clang llvm libclang-dev
 
       - name: Extract pgrx Version
-        if: steps.guard.outputs.build == 'true'
         id: pgrx
         run: echo version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml) >> $GITHUB_OUTPUT
 
       - name: Cache pgrx binary
-        if: steps.guard.outputs.build == 'true'
         id: cache-pgrx
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -287,20 +262,18 @@ jobs:
           key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-debian-${{ matrix.image }}
 
       - name: Install pgrx
-        if: ${{ steps.guard.outputs.build == 'true' && steps.cache-pgrx.outputs.cache-hit != 'true' }}
+        if: ${{ steps.cache-pgrx.outputs.cache-hit != 'true' }}
         env:
           STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
         run: cargo install --locked cargo-pgrx --version "${STEP_PGRX_VERSION}" --debug
 
       - name: Initialize pgrx Environment
-        if: steps.guard.outputs.build == 'true'
         working-directory: pg_search/
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
       - name: Build Native DEB Package
-        if: steps.guard.outputs.build == 'true'
         env:
           PG_CONFIG: /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           PACKAGE_FORMAT: deb
@@ -309,20 +282,17 @@ jobs:
         run: ./scripts/package-linux.sh
 
       - name: Install Cosign
-        if: steps.guard.outputs.build == 'true'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2; Upstream does not publish a moving @v4 tag
 
       # Keyless Sigstore signature over the .deb. Works without GitHub Enterprise;
       # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.
       - name: Sign .deb with Cosign (keyless)
-        if: steps.guard.outputs.build == 'true'
         env:
           COSIGN_YES: "true"
           DEB: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
         run: cosign sign-blob --yes --bundle "${DEB}.cosign.bundle" "$DEB"
 
       - name: Retrieve GitHub Release Upload URL
-        if: steps.guard.outputs.build == 'true'
         id: upload_url
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -338,7 +308,6 @@ jobs:
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 
       - name: Upload pg_search .deb to GitHub Release
-        if: steps.guard.outputs.build == 'true'
         uses: shogo82148/actions-upload-release-asset@73f83b114970a3485e1423ecc1fb93d887c9b096 # v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -348,7 +317,6 @@ jobs:
           overwrite: true
 
       - name: Upload pg_search .deb Cosign Bundle to GitHub Release
-        if: steps.guard.outputs.build == 'true'
         uses: shogo82148/actions-upload-release-asset@73f83b114970a3485e1423ecc1fb93d887c9b096 # v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -358,7 +326,7 @@ jobs:
           overwrite: true
 
       - name: Notify Slack on Failure
-        if: ${{ failure() && steps.guard.outputs.build == 'true' }}
+        if: ${{ failure() }}
         uses: paradedb/actions/slack-alert@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

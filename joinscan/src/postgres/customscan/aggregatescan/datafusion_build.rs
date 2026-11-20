@@ -79,6 +79,7 @@ type SearchFilterResult = (JoinLevelExpr, Vec<*mut pg_sys::Expr>);
 
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::sync::Arc;
 
 /// An index field name resolved to one of the join sources.
 pub struct ResolvedSourceField {
@@ -208,9 +209,13 @@ fn validate_source_field_candidate(
 /// as numbers and fail the scan's schema at execution, so it is turned down
 /// here. Only the column metadata is read; no values are loaded.
 fn check_json_sub_field_is_text(index: &PgSearchRelation, field: &str) -> Result<(), String> {
-    let reader =
-        SearchIndexReader::open(index, SearchQueryInput::All, false, MvccSatisfies::Snapshot)
-            .map_err(|e| format!("could not open index to inspect field '{field}': {e}"))?;
+    let reader = SearchIndexReader::open(
+        index,
+        Arc::new(SearchQueryInput::All),
+        false,
+        MvccSatisfies::Snapshot,
+    )
+    .map_err(|e| format!("could not open index to inspect field '{field}': {e}"))?;
     for segment in reader.segment_readers() {
         let handles = segment
             .fast_fields()
@@ -643,7 +648,7 @@ unsafe fn build_scan_node(
         })?;
         optimize_quals_with_heap_expr(&mut qual);
         let query = SearchQueryInput::from(&qual);
-        candidate = candidate.with_query(query);
+        candidate = candidate.with_query(Arc::new(query));
         if state.uses_our_operator {
             candidate = candidate.with_search_predicate();
         }

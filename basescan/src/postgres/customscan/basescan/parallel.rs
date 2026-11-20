@@ -99,15 +99,22 @@ impl ParallelScanHandle {
 }
 
 // LIMIT can shut down the leader scan before its workers; collect after Gather joins them.
+// On abnormal transaction/subtransaction abort (`!IsTransactionState()`), `AtEOXact_Parallel` /
+// `AtEOSubXact_Parallel` detaches `Gather`'s DSM segment before `XactCallback` runs, so join any
+// live `PgTokioRuntime` worker threads before the segment unmaps.
 #[pgrx::pg_guard]
-unsafe extern "C-unwind" fn collect_buffer_hits_on_detach(
+unsafe extern "C-unwind" fn on_basescan_dsm_detach(
     _seg: *mut pg_sys::dsm_segment,
     arg: pg_sys::Datum,
 ) {
     let (parallel, trace) =
-        *unsafe { Box::from_raw(arg.cast_mut_ptr::<(ParallelScanHandle, Trace)>()) };
+        *unsafe { Box::from_raw(arg.cast_mut_ptr::<(ParallelScanHandle, Option<Trace>)>()) };
     if unsafe { pg_sys::IsTransactionState() } {
-        parallel.finalize_buffer_hits(&trace);
+        if let Some(trace) = trace {
+            parallel.finalize_buffer_hits(&trace);
+        }
+    } else {
+        crate::postgres::customscan::mpp::interrupt::shutdown_all_backend_runtimes();
     }
 }
 
@@ -141,16 +148,14 @@ impl ParallelQueryCapable for BaseScan {
                 .attach_parallel(pscan_state, ParallelRole::Leader);
             leader_publish_query(state, &mut *pscan_state);
 
-            if !(*pcxt).seg.is_null()
-                && let Some(trace) = state.custom_state().io_trace.clone()
-            {
+            if !(*pcxt).seg.is_null() {
                 let callback = Box::new((
                     ParallelScanHandle::new(pscan_state, ParallelRole::Leader),
-                    trace,
+                    state.custom_state().io_trace.clone(),
                 ));
                 pg_sys::on_dsm_detach(
                     (*pcxt).seg,
-                    Some(collect_buffer_hits_on_detach),
+                    Some(on_basescan_dsm_detach),
                     pg_sys::Datum::from(Box::into_raw(callback)),
                 );
             }

@@ -301,6 +301,7 @@ pub(super) struct RowMatcher {
     empty_index: Index,
     ctid_field: Field,
     slot: *mut pg_sys::TupleTableSlot,
+    slot_owner: crate::postgres::utils::ResourceOwnerStamp,
     expression_state: ExpressionState,
     required_expressions: HashSet<usize>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
@@ -391,6 +392,7 @@ impl RowMatcher {
                 }
             }
         }
+        let slot_owner = crate::postgres::utils::ResourceOwnerStamp::current();
         let slot = pg_sys::MakeSingleTupleTableSlot(tuple_desc, &pg_sys::TTSOpsVirtual);
 
         Self {
@@ -409,6 +411,7 @@ impl RowMatcher {
             ctid_field: schema.ctid_field(),
             _index_relation_guard: index_relation,
             slot,
+            slot_owner,
         }
     }
 
@@ -515,11 +518,10 @@ impl RowMatcher {
 }
 
 crate::impl_safe_drop!(RowMatcher, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            pg_sys::ExecDropSingleTupleTableSlot(self.slot);
-        }
-    }
+    let slot = self.slot;
+    self.slot_owner.run_if_live(|| unsafe {
+        pg_sys::ExecDropSingleTupleTableSlot(slot);
+    });
 });
 
 fn ctid_is_valid_procoid() -> pg_sys::Oid {

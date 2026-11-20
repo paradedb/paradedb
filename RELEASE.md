@@ -33,7 +33,7 @@ The sync workflow:
 | **Patch**     | Triggered from a stable branch (e.g., `0.25.x`). Publishes `x.y.z` and syncs artifacts to `main`.                                  |
 | **Beta (RC)** | Marked with `beta: true`. Can be triggered from any branch/commit. Produces a tag like `vX.Y.Z-rc.N` without modifying the branch. |
 
-> **Note:** Minor and patch releases publish Docker images for all supported PostgreSQL major versions and prebuilt extension binaries for all supported platforms. Beta releases publish only the PostgreSQL 18 Docker image and the Debian 13 packages required to build it; the remaining prebuilt extension binaries are skipped.
+> **Note:** Minor and patch releases publish Docker images for all supported PostgreSQL major versions and prebuilt extension binaries for all supported platforms. Beta releases publish the PostgreSQL 18 Docker image and Debian 12 and 13 packages for all supported PostgreSQL majors on amd64 and arm64. Other prebuilt extension binaries are skipped.
 
 ## Workflow Inputs
 

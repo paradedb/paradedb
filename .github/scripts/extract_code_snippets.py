@@ -44,11 +44,6 @@ IGNORED_CODEGROUPS = {
         "Non-executable distance metric fragments; "
         "covered by the runnable vector index examples."
     ),
-    # Remove once the 0.27 ORM client packages ship target_leaf_size support.
-    "reference__indexing__indexing-vectors__group-003": (
-        "ORM variants use target_leaf_size, pending client releases; "
-        "the SQL fence still runs in the standalone inventory."
-    ),
 }
 EXTERNAL_INDEXES = "reference/filtering/external-indexes.mdx::fence-"
 SYNONYMS = "reference/tokenizers/synonyms.mdx::fence-"

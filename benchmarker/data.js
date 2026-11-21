@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795194678604,
+  "lastUpdate": 1795239326356,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -107887,6 +107887,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14573437009-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8dec8a0f49d8f217e76ea822ff11ea24de59bc6c",
+          "message": "docs: Share analytics choices with the website and Cloud (#7606)\n\nUpdate the docs banner with the shared analytics and personalized ad\nchoices. Deploy after paradedb/website#578 so the hosted consent\ncontroller accepts the updated choices. Companion Cloud PR is\nparadedb/cloud#1746.",
+          "timestamp": "2026-11-20T16:47:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8dec8a0f49d8f217e76ea822ff11ea24de59bc6c"
+        },
+        "date": 1795239323164,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 6.723,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 8.842,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 10.202,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 21.703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 28.872,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 32.787,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p50 latency",
+            "value": 369.357,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p95 latency",
+            "value": 2141.303,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p99 latency",
+            "value": 2877.938,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.439,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 3.894,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 4.37,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.181,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 19.326,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 20.364,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 76.676,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 290.66,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 488.736,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14669064435-latency"
       }
     ],
     "benchmarker msmarco-113m-8cpu-32gb (throughput)": [
@@ -107942,6 +108055,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14573437009-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8dec8a0f49d8f217e76ea822ff11ea24de59bc6c",
+          "message": "docs: Share analytics choices with the website and Cloud (#7606)\n\nUpdate the docs banner with the shared analytics and personalized ad\nchoices. Deploy after paradedb/website#578 so the hosted consent\ncontroller accepts the updated choices. Companion Cloud PR is\nparadedb/cloud#1746.",
+          "timestamp": "2026-11-20T16:47:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8dec8a0f49d8f217e76ea822ff11ea24de59bc6c"
+        },
+        "date": 1795239324254,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 143.7732423768012,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 51.55303560860707,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) QPS",
+            "value": 1.5823234832368667,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 287.0306219218408,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 102.6044254427553,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 9.454222927432445,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14669064435-throughput"
       }
     ],
     "benchmarker msmarco-113m-8cpu-32gb (buffers)": [
@@ -107997,6 +108163,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14573437009-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8dec8a0f49d8f217e76ea822ff11ea24de59bc6c",
+          "message": "docs: Share analytics choices with the website and Cloud (#7606)\n\nUpdate the docs banner with the shared analytics and personalized ad\nchoices. Deploy after paradedb/website#578 so the hosted consent\ncontroller accepts the updated choices. Companion Cloud PR is\nparadedb/cloud#1746.",
+          "timestamp": "2026-11-20T16:47:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8dec8a0f49d8f217e76ea822ff11ea24de59bc6c"
+        },
+        "date": 1795239325487,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 2284.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 7025.94,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r99 shared hits/query",
+            "value": 51789.18,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 958.36,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3496.76,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 28286.7,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14669064435-buffers"
       }
     ],
     "benchmarker msmarco-113m-8cpu-32gb (index build)": [
@@ -108037,6 +108256,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14573437009-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8dec8a0f49d8f217e76ea822ff11ea24de59bc6c",
+          "message": "docs: Share analytics choices with the website and Cloud (#7606)\n\nUpdate the docs banner with the shared analytics and personalized ad\nchoices. Deploy after paradedb/website#578 so the hosted consent\ncontroller accepts the updated choices. Companion Cloud PR is\nparadedb/cloud#1746.",
+          "timestamp": "2026-11-20T16:47:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8dec8a0f49d8f217e76ea822ff11ea24de59bc6c"
+        },
+        "date": 1795239326340,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 145.29487157526668,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 509645.2890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx peak container memory",
+            "value": 28.080528259277344,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14669064435-index"
       }
     ]
   }

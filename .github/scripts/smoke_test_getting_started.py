@@ -316,11 +316,14 @@ def setup_efcore(cwd, env):
     migration = next((cwd / "Migrations").glob("*_CreateMockItems.cs"))
     source = migration.read_text()
     # Insert exactly where the prose requests: at the end of Up, before Down.
-    end = re.search(
-        r"^        }",
-        source[source.index("protected override void Up") :],
-        re.MULTILINE,
-    ).start() + source.index("protected override void Up")
+    up = re.search(r"^([ \t]*)protected override void Up\(", source, re.MULTILINE)
+    if up is None:
+        raise ValueError(f"Missing Up method in {migration}")
+    closing_brace = re.compile(rf"^{re.escape(up[1])}}}$", re.MULTILINE)
+    closing = closing_brace.search(source, up.end())
+    if closing is None:
+        raise ValueError(f"Missing closing brace for Up in {migration}")
+    end = closing.start()
     source = source[:end] + block("efcore", "cs", 1) + "\n" + source[end:]
     migration.write_text(source)
     shell(block("efcore", "bash", command="dotnet ef database update"), cwd, env)

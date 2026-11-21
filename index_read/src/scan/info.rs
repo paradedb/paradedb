@@ -265,27 +265,6 @@ impl ScanMode {
     pub fn has_parameters(&self) -> bool {
         self.queries().any(|q| q.has_parameters())
     }
-
-    /// Initialize runtime `PostgresExpression` nodes in this scan mode against `planstate`.
-    pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        for q in self.queries_mut() {
-            q.init_postgres_expressions(planstate);
-        }
-    }
-
-    /// Solve all runtime `PostgresExpression` and parameterized heap filters in this scan mode.
-    /// Resets `ecxt_per_tuple_memory` once up front, then solves each query with the no-reset
-    /// variant (rule 2 in `solve_expr.rs`).
-    pub fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        assert!(
-            !expr_context.is_null(),
-            "expr_context was never initialized"
-        );
-        unsafe { pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory) };
-        for q in self.queries_mut() {
-            q.solve_postgres_expressions_no_reset(expr_context);
-        }
-    }
 }
 
 /// Information about a scan of a ParadeDB table.

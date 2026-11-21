@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795248574445,
+  "lastUpdate": 1795248604337,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -184403,6 +184403,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14508234331-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795248602040,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 153.40391404012914,
+            "unit": "median tps",
+            "extra": "avg tps: 151.35561944985585, max tps: 159.35216867362038, count: 59095"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 548.6311960686828,
+            "unit": "median tps",
+            "extra": "avg tps: 563.6361687972267, max tps: 5068.4831374669175, count: 59095"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2846.2638508411515,
+            "unit": "median tps",
+            "extra": "avg tps: 2886.779386532211, max tps: 3318.282331539315, count: 59095"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 188.53278495901466,
+            "unit": "median tps",
+            "extra": "avg tps: 185.97694219369288, max tps: 197.56893998147382, count: 59095"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 270.90556887709994,
+            "unit": "median tps",
+            "extra": "avg tps: 375.5984477570574, max tps: 2756.41873769868, count: 118190"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 29.43768488306579,
+            "unit": "median tps",
+            "extra": "avg tps: 28.903464237483085, max tps: 48.835767511468475, count: 59095"
+          }
+        ],
+        "publication_id": "14698521110-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -235002,6 +235061,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14508234331-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795248604248,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 11.442193,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.906918047204895, max cpu: 38.247013, count: 59095"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 51.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.32104675205178, max mem: 51.32421875, count: 59095"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6043167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.410520607549106, max cpu: 37.317787, count: 59095"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 33.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.00268291522126, max mem: 33.00390625, count: 59095"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.219814008269189, max cpu: 18.43495, count: 59095"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 50.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.931059892968946, max mem: 50.4609375, count: 59095"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2522,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2509.4344868432186, max block_count: 2531.0, count: 59095"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.9050319379470975, max cpu: 4.6421666, count: 59095"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 29.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.129114138251968, max mem: 29.15625, count: 59095"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.84947965140875, max segment_count: 37.0, count: 59095"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.598971295071063, max cpu: 36.97641, count: 59095"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 62.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.45285484442423, max mem: 62.55859375, count: 59095"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6715326,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.5074583361093845, max cpu: 37.317787, count: 118190"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.71878189382562, max mem: 58.546875, count: 118190"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.577822292660666, max cpu: 18.82353, count: 59095"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 46.5,
+            "unit": "median mem",
+            "extra": "avg mem: 46.343101084588376, max mem: 46.5, count: 59095"
+          }
+        ],
+        "publication_id": "14698521110-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

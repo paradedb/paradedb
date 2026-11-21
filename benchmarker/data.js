@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795299566953,
+  "lastUpdate": 1795299598425,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -109741,6 +109741,89 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14701003434-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d9317887c25f37d2c422bbe009c9b294cab42c4a",
+          "message": "fix: select EF Core docs smoke snippets by command (#7615)\n\n## What\n\nSelect the EF Core setup commands by their contents and explicitly run\nthe optional VectorData install snippet.\n\n## Why\n\nAdding the VectorData callout shifted the Bash snippet positions. The\ndocs smoke test installed the package where it expected to create the\nmigration, then raised `StopIteration` while looking for the missing\nmigration file.\n\n[Failed PostgreSQL 18 docs smoke\ntest](https://github.com/paradedb/paradedb/actions/runs/44724576728/job/136248903688?pr=7601)\n\n## Tests\n\n- Exercised `setup_efcore` against the current docs with mocked shell\nexecution. Verified command order, migration seed insertion, and setup\ncoverage.\n- Ran `git diff --check`.",
+          "timestamp": "2026-11-21T17:00:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d9317887c25f37d2c422bbe009c9b294cab42c4a"
+        },
+        "date": 1795299594652,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p50 latency",
+            "value": 7.685,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p95 latency",
+            "value": 11.555,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p99 latency",
+            "value": 15.587,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p50 latency",
+            "value": 22.296,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p95 latency",
+            "value": 37.4,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p99 latency",
+            "value": 49.699,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p50 latency",
+            "value": 2.798,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p95 latency",
+            "value": 4.536,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p99 latency",
+            "value": 5.689,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p50 latency",
+            "value": 8.877,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p95 latency",
+            "value": 14.658,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p99 latency",
+            "value": 17.707,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14724693544-latency"
       }
     ],
     "benchmarker msmarco-113m-pg_vectorsearch-8cpu-32gb (throughput)": [
@@ -109839,6 +109922,49 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14701003434-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d9317887c25f37d2c422bbe009c9b294cab42c4a",
+          "message": "fix: select EF Core docs smoke snippets by command (#7615)\n\n## What\n\nSelect the EF Core setup commands by their contents and explicitly run\nthe optional VectorData install snippet.\n\n## Why\n\nAdding the VectorData callout shifted the Bash snippet positions. The\ndocs smoke test installed the package where it expected to create the\nmigration, then raised `StopIteration` while looking for the missing\nmigration file.\n\n[Failed PostgreSQL 18 docs smoke\ntest](https://github.com/paradedb/paradedb/actions/runs/44724576728/job/136248903688?pr=7601)\n\n## Tests\n\n- Exercised `setup_efcore` against the current docs with mocked shell\nexecution. Verified command order, migration seed insertion, and setup\ncoverage.\n- Ran `git diff --check`.",
+          "timestamp": "2026-11-21T17:00:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d9317887c25f37d2c422bbe009c9b294cab42c4a"
+        },
+        "date": 1795299596577,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) QPS",
+            "value": 123.70313585584009,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) QPS",
+            "value": 42.38347163981775,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) QPS",
+            "value": 336.454233621289,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) QPS",
+            "value": 106.6784840986611,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14724693544-throughput"
       }
     ],
     "benchmarker msmarco-113m-pg_vectorsearch-8cpu-32gb (buffers)": [
@@ -109937,6 +110063,49 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14701003434-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d9317887c25f37d2c422bbe009c9b294cab42c4a",
+          "message": "fix: select EF Core docs smoke snippets by command (#7615)\n\n## What\n\nSelect the EF Core setup commands by their contents and explicitly run\nthe optional VectorData install snippet.\n\n## Why\n\nAdding the VectorData callout shifted the Bash snippet positions. The\ndocs smoke test installed the package where it expected to create the\nmigration, then raised `StopIteration` while looking for the missing\nmigration file.\n\n[Failed PostgreSQL 18 docs smoke\ntest](https://github.com/paradedb/paradedb/actions/runs/44724576728/job/136248903688?pr=7601)\n\n## Tests\n\n- Exercised `setup_efcore` against the current docs with mocked shell\nexecution. Verified command order, migration seed insertion, and setup\ncoverage.\n- Ran `git diff --check`.",
+          "timestamp": "2026-11-21T17:00:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d9317887c25f37d2c422bbe009c9b294cab42c4a"
+        },
+        "date": 1795299597498,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 4925.94,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 9580.46,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1216.28,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3023.62,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14724693544-buffers"
       }
     ],
     "benchmarker msmarco-113m-pg_vectorsearch-8cpu-32gb (index build)": [
@@ -110015,6 +110184,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14701003434-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d9317887c25f37d2c422bbe009c9b294cab42c4a",
+          "message": "fix: select EF Core docs smoke snippets by command (#7615)\n\n## What\n\nSelect the EF Core setup commands by their contents and explicitly run\nthe optional VectorData install snippet.\n\n## Why\n\nAdding the VectorData callout shifted the Bash snippet positions. The\ndocs smoke test installed the package where it expected to create the\nmigration, then raised `StopIteration` while looking for the missing\nmigration file.\n\n[Failed PostgreSQL 18 docs smoke\ntest](https://github.com/paradedb/paradedb/actions/runs/44724576728/job/136248903688?pr=7601)\n\n## Tests\n\n- Exercised `setup_efcore` against the current docs with mocked shell\nexecution. Verified command order, migration seed insertion, and setup\ncoverage.\n- Ran `git diff --check`.",
+          "timestamp": "2026-11-21T17:00:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d9317887c25f37d2c422bbe009c9b294cab42c4a"
+        },
+        "date": 1795299598412,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_prism_idx build time",
+            "value": 179.5090409768667,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_prism_idx index size",
+            "value": 34150.40625,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_prism_idx peak container memory",
+            "value": 17.64834213256836,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14724693544-index"
       }
     ],
     "benchmarker msmarco-113m-8cpu-32gb (latency)": [

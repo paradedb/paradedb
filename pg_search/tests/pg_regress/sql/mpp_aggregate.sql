@@ -354,6 +354,18 @@ ORDER BY f.title;
 -- also guards against nested PgTokioRuntime::block_on when the InitPlan
 -- runs a ColumnarExecState BaseScan locally.
 SET max_parallel_workers_per_gather TO 0;
+
+EXPLAIN (COSTS OFF)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.id @@@ pdb.term_set(ARRAY(
@@ -406,6 +418,20 @@ CROSS JOIN LATERAL (
     ))
 ) r
 ORDER BY v.k, r.id;
+
+-- Heap-filter function running a parallel-planned RegularExecState BaseScan
+-- under block_on's HeldInterrupts: exercises BaseScan's es_query_dsa == NULL
+-- private-memory fallback in initialize_dsm_custom_scan.
+CREATE FUNCTION nested_scan(i int) RETURNS bool LANGUAGE plpgsql STABLE
+SET max_parallel_workers_per_gather = 1
+AS $$ BEGIN PERFORM content FROM mpp_files WHERE content ||| 'Section'; RETURN true; END $$;
+
+SET max_parallel_workers_per_gather TO 0;
+SELECT DISTINCT title
+FROM mpp_files
+WHERE content ||| 'Section' AND nested_scan(id) AND id <= 2
+ORDER BY title;
+DROP FUNCTION nested_scan(int);
 
 RESET debug_parallel_query;
 SET max_parallel_workers_per_gather TO 3;

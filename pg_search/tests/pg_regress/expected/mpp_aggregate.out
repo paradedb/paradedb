@@ -794,6 +794,42 @@ ORDER BY f.title;
 -- also guards against nested PgTokioRuntime::block_on when the InitPlan
 -- runs a ColumnarExecState BaseScan locally.
 SET max_parallel_workers_per_gather TO 0;
+EXPLAIN (COSTS OFF)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: title
+   InitPlan 1
+     ->  Custom Scan (ParadeDB Base Scan) on mpp_files
+           Table: mpp_files
+           Index: mpp_files_idx
+           Exec Method: ColumnarExecState
+           Columnar: id
+           Scores: false
+           Tantivy Query: {"with_index":{"query":{"term_set":{"field":"id","terms":[1,2]}}}}
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+         Group By: title
+         Aggregates: COUNT(*), SUM(size_bytes)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[title@0, size_bytes@2]
+           :     CooperativeExec
+           :       PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query={"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('mpp_files_idx'::regclass, paradedb.to_search_query_input('id'::paradedb.fieldname, pdb.term_set($1)))"}}}
+           :     CooperativeExec
+           :       PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(22 rows)
+
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.id @@@ pdb.term_set(ARRAY(
@@ -868,6 +904,24 @@ ORDER BY v.k, r.id;
  2 |  2
 (2 rows)
 
+-- Heap-filter function running a parallel-planned RegularExecState BaseScan
+-- under block_on's HeldInterrupts: exercises BaseScan's es_query_dsa == NULL
+-- private-memory fallback in initialize_dsm_custom_scan.
+CREATE FUNCTION nested_scan(i int) RETURNS bool LANGUAGE plpgsql STABLE
+SET max_parallel_workers_per_gather = 1
+AS $$ BEGIN PERFORM content FROM mpp_files WHERE content ||| 'Section'; RETURN true; END $$;
+SET max_parallel_workers_per_gather TO 0;
+SELECT DISTINCT title
+FROM mpp_files
+WHERE content ||| 'Section' AND nested_scan(id) AND id <= 2
+ORDER BY title;
+ title  
+--------
+ file-1
+ file-2
+(2 rows)
+
+DROP FUNCTION nested_scan(int);
 RESET debug_parallel_query;
 SET max_parallel_workers_per_gather TO 3;
 -- =====================================================================

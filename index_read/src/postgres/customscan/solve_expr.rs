@@ -34,7 +34,7 @@
 //! | Context | Created | Per-tuple memory reset | Use it for |
 //! |---|---|---|---|
 //! | `ps_ExprContext` | PostgreSQL, in `ExecInitCustomScan` | by the scan, per row | evaluating heap filters, snippets, projection |
-//! | runtime context (`BaseScanState::runtime_context`, `AggregateScanState::runtime_context`) | [`SolvePostgresExpressions::init_expr_context`], only when the base query has something to solve | once, at the start of each solve | the solved query |
+//! | runtime context (`BaseScanState::runtime_context`, `AggregateScanState::runtime_context`, `DataFusionAggState::runtime_context`) | [`SolvePostgresExpressions::init_expr_context`], only when the base query has something to solve | once, at the start of each solve | the solved query |
 //!
 //! Both live in the EState's per-query memory and are freed with it.
 //!

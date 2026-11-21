@@ -95,6 +95,10 @@ pub struct DataFusionAggState {
     pub having_filter: Option<FilterExpr>,
     /// Pristine pre-solve snapshot for rescans when runtime expressions or parameters exist.
     pub base: Option<DataFusionAggBase>,
+    /// Dedicated context where this DataFusion aggregate solves runtime expressions and
+    /// parameters; `None` when there is nothing to solve. Separate from `ps_ExprContext`, which
+    /// is reset per emitted row: see the rules in `solve_expr.rs`.
+    pub runtime_context: Option<NonNull<pg_sys::ExprContext>>,
     /// Mapping from `group_columns[i]` to its 0-based column index in DataFusion's
     /// output RecordBatch. Needed because DataFusion deduplicates grouping
     /// expressions (e.g. metadata.brand).
@@ -171,6 +175,45 @@ impl DataFusionAggState {
     }
 }
 
+/// Solves runtime Postgres expressions and parameters for the DataFusion aggregate path before
+/// any execution or `PgTokioRuntime::block_on` entry (see `solve_expr.rs`).
+impl SolvePostgresExpressions for DataFusionAggState {
+    fn has_postgres_expressions(&mut self) -> bool {
+        DataFusionAggState::has_postgres_expressions(self)
+    }
+
+    fn has_parameters(&mut self) -> bool {
+        DataFusionAggState::has_parameters(self)
+    }
+
+    fn init_search_query_input(&mut self) {
+        if let Some(base) = &self.base {
+            self.plan = base.plan.clone();
+            self.targetlist = base.targetlist.clone();
+            self.having_filter = base.having_filter.clone();
+        }
+    }
+
+    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        self.visit_queries_mut(&mut |q| {
+            q.init_postgres_expressions(planstate);
+        });
+    }
+
+    /// Resets `expr_context` once, then solves every query and `FILTER` without resetting
+    /// (rule 2 in `solve_expr.rs`): a reset per query would free the trees solved before it.
+    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        assert!(
+            !expr_context.is_null(),
+            "expr_context was never initialized"
+        );
+        unsafe { pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory) };
+        self.visit_queries_mut(&mut |q| {
+            q.solve_postgres_expressions_no_reset(expr_context);
+        });
+    }
+}
+
 /// State for projecting wrapped aggregate expressions through Postgres' own
 /// `ExecBuildProjectionInfo`.
 ///
@@ -200,9 +243,10 @@ pub struct AggregateScanState {
     pub execution_rti: pg_sys::Index,
     pub aggregate_clause: AggregateCSClause,
     pub base_aggregate_clause: Option<AggregateCSClause>,
-    /// Where both the Tantivy and DataFusion paths solve runtime expressions and parameters;
-    /// `None` when there is nothing to solve. Separate from `ps_ExprContext`, which both paths
-    /// reset per emitted row: see the rules in `solve_expr.rs`.
+    /// Where the Tantivy path solves `aggregate_clause`; `None` when it has nothing to solve.
+    /// Separate from `ps_ExprContext`, which wrapped-aggregate projection resets per row: see the
+    /// rules in `solve_expr.rs`. Unused on the DataFusion path (which uses
+    /// `DataFusionAggState::runtime_context`).
     pub runtime_context: Option<NonNull<pg_sys::ExprContext>>,
 
     /// Wrapped-aggregate projection state. `Some` only when the targetlist
@@ -270,13 +314,11 @@ impl CustomScanState for AggregateScanState {
     }
 }
 
-/// Solves runtime Postgres expressions and parameters for both the Tantivy and DataFusion
-/// aggregate paths before any execution or `PgTokioRuntime::block_on` entry (see `solve_expr.rs`).
+/// Tantivy aggregate path only: `begin_custom_scan` and `exec_datafusion_aggregate` solve the
+/// DataFusion path through [`DataFusionAggState`]'s own `SolvePostgresExpressions` impl instead
+/// (see `solve_expr.rs`).
 impl SolvePostgresExpressions for AggregateScanState {
     fn has_postgres_expressions(&mut self) -> bool {
-        if let Some(df_state) = self.datafusion_state.as_ref() {
-            return df_state.has_postgres_expressions();
-        }
         self.aggregate_clause.query_mut().has_postgres_expressions()
             || self
                 .aggregate_clause
@@ -285,9 +327,6 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn has_parameters(&mut self) -> bool {
-        if let Some(df_state) = self.datafusion_state.as_ref() {
-            return df_state.has_parameters();
-        }
         self.aggregate_clause.query_mut().has_parameters()
             || self
                 .aggregate_clause
@@ -296,14 +335,6 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn init_search_query_input(&mut self) {
-        if let Some(df_state) = self.datafusion_state.as_mut() {
-            if let Some(base) = &df_state.base {
-                df_state.plan = base.plan.clone();
-                df_state.targetlist = base.targetlist.clone();
-                df_state.having_filter = base.having_filter.clone();
-            }
-            return;
-        }
         if let Some(base) = &self.base_aggregate_clause {
             self.aggregate_clause = base.clone();
         }
@@ -328,12 +359,6 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        if let Some(df_state) = self.datafusion_state.as_mut() {
-            df_state.visit_queries_mut(&mut |q| {
-                q.init_postgres_expressions(planstate);
-            });
-            return;
-        }
         self.aggregate_clause
             .query_mut()
             .init_postgres_expressions(planstate);
@@ -342,7 +367,7 @@ impl SolvePostgresExpressions for AggregateScanState {
             .for_each(|agg| agg.init_postgres_expressions(planstate));
     }
 
-    /// Resets `expr_context` once, then solves every query and `FILTER` without resetting
+    /// Resets `expr_context` once, then solves the query and every `FILTER` without resetting
     /// (rule 2 in `solve_expr.rs`): a reset per query would free the trees solved before it.
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         assert!(
@@ -350,12 +375,6 @@ impl SolvePostgresExpressions for AggregateScanState {
             "expr_context was never initialized"
         );
         unsafe { pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory) };
-        if let Some(df_state) = self.datafusion_state.as_mut() {
-            df_state.visit_queries_mut(&mut |q| {
-                q.solve_postgres_expressions_no_reset(expr_context);
-            });
-            return;
-        }
         self.aggregate_clause
             .query_mut()
             .solve_postgres_expressions_no_reset(expr_context);

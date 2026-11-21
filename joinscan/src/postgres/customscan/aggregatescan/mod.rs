@@ -969,6 +969,7 @@ impl CustomScan for AggregateScan {
                     custom_scan_tlist,
                     having_filter,
                     base: None,
+                    runtime_context: None,
                     runtime: None,
                     physical_plan: None,
                     stream: None,
@@ -1206,15 +1207,14 @@ impl CustomScan for AggregateScan {
         estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
-        if state.custom_state().is_datafusion_backend() {
+        if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
             // DataFusion logical/physical planning and any MPP manifest pinning / worker launch
             // happen lazily on first `exec_custom_scan`, once `ExecutePlan` has initialized
             // `estate->es_use_parallel_mode`. Only allocate the dedicated `runtime_context`
             // (separate from `ps_ExprContext`, which is reset per emitted row) when the query
             // has runtime expressions or parameters to solve.
             if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0 {
-                let custom_state = state.custom_state_mut();
-                custom_state.runtime_context = unsafe { custom_state.init_expr_context(estate) };
+                df_state.runtime_context = unsafe { df_state.init_expr_context(estate) };
             }
             return;
         }
@@ -2263,10 +2263,13 @@ impl AggregateScan {
             // entering `PgTokioRuntime::block_on` (#7593): `block_on` holds `HeldInterrupts`
             // (breaking parallel InitPlan DSM allocation) and installs a Tokio runtime context
             // (panicking if an InitPlan itself calls `block_on`).
-            let runtime_context = state.custom_state().runtime_context;
-            state
+            let df_state = state
                 .custom_state_mut()
-                .prepare_query_for_execution(ps, runtime_context);
+                .datafusion_state
+                .as_mut()
+                .expect("DataFusion state must be initialized");
+            let runtime_context = df_state.runtime_context;
+            df_state.prepare_query_for_execution(ps, runtime_context);
 
             let runtime = PgTokioRuntime::new()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));

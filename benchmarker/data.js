@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795281050245,
+  "lastUpdate": 1795282706134,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -109643,6 +109643,104 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14576965521-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8dec8a0f49d8f217e76ea822ff11ea24de59bc6c",
+          "message": "docs: Share analytics choices with the website and Cloud (#7606)\n\nUpdate the docs banner with the shared analytics and personalized ad\nchoices. Deploy after paradedb/website#578 so the hosted consent\ncontroller accepts the updated choices. Companion Cloud PR is\nparadedb/cloud#1746.",
+          "timestamp": "2026-11-20T16:47:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8dec8a0f49d8f217e76ea822ff11ea24de59bc6c"
+        },
+        "date": 1795282702361,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p50 latency",
+            "value": 7.852,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p95 latency",
+            "value": 11.429,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p99 latency",
+            "value": 15.968,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p50 latency",
+            "value": 21.344,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p95 latency",
+            "value": 31.925,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p99 latency",
+            "value": 35.454,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p50 latency",
+            "value": 2.531,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p95 latency",
+            "value": 4.176,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p99 latency",
+            "value": 5.253,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p50 latency",
+            "value": 12.319,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p95 latency",
+            "value": 19.557,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p99 latency",
+            "value": 20.784,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r99) p50 latency",
+            "value": 449.616,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r99) p95 latency",
+            "value": 726.749,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r99) p99 latency",
+            "value": 800.892,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14701003434-latency"
       }
     ],
     "benchmarker msmarco-113m-pg_vectorsearch-8cpu-32gb (throughput)": [
@@ -109693,6 +109791,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14576965521-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8dec8a0f49d8f217e76ea822ff11ea24de59bc6c",
+          "message": "docs: Share analytics choices with the website and Cloud (#7606)\n\nUpdate the docs banner with the shared analytics and personalized ad\nchoices. Deploy after paradedb/website#578 so the hosted consent\ncontroller accepts the updated choices. Companion Cloud PR is\nparadedb/cloud#1746.",
+          "timestamp": "2026-11-20T16:47:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8dec8a0f49d8f217e76ea822ff11ea24de59bc6c"
+        },
+        "date": 1795282704351,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) QPS",
+            "value": 123.95778832218045,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) QPS",
+            "value": 45.411379459941834,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) QPS",
+            "value": 370.2333797332528,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) QPS",
+            "value": 78.61067147724116,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r99) QPS",
+            "value": 2.1289799083503413,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14701003434-throughput"
       }
     ],
     "benchmarker msmarco-113m-pg_vectorsearch-8cpu-32gb (buffers)": [
@@ -109743,6 +109889,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14576965521-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8dec8a0f49d8f217e76ea822ff11ea24de59bc6c",
+          "message": "docs: Share analytics choices with the website and Cloud (#7606)\n\nUpdate the docs banner with the shared analytics and personalized ad\nchoices. Deploy after paradedb/website#578 so the hosted consent\ncontroller accepts the updated choices. Companion Cloud PR is\nparadedb/cloud#1746.",
+          "timestamp": "2026-11-20T16:47:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8dec8a0f49d8f217e76ea822ff11ea24de59bc6c"
+        },
+        "date": 1795282705242,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 4923.16,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 9191.83,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1132.74,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 4030.4,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 26628.07,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14701003434-buffers"
       }
     ],
     "benchmarker msmarco-113m-pg_vectorsearch-8cpu-32gb (index build)": [
@@ -109783,6 +109977,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14576965521-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8dec8a0f49d8f217e76ea822ff11ea24de59bc6c",
+          "message": "docs: Share analytics choices with the website and Cloud (#7606)\n\nUpdate the docs banner with the shared analytics and personalized ad\nchoices. Deploy after paradedb/website#578 so the hosted consent\ncontroller accepts the updated choices. Companion Cloud PR is\nparadedb/cloud#1746.",
+          "timestamp": "2026-11-20T16:47:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8dec8a0f49d8f217e76ea822ff11ea24de59bc6c"
+        },
+        "date": 1795282706118,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_prism_idx build time",
+            "value": 181.98263536048336,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_prism_idx index size",
+            "value": 34153.3671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_prism_idx peak container memory",
+            "value": 17.71442413330078,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14701003434-index"
       }
     ],
     "benchmarker msmarco-113m-8cpu-32gb (latency)": [

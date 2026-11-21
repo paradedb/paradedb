@@ -42,6 +42,7 @@ FROM generate_series(1, 100) AS i;
 CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb ((id::pdb.literal), (category::pdb.unicode_words('columnar=true')));
 CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, (document_id::pdb.literal), (title::pdb.unicode_words('columnar=true')), (content::pdb.unicode_words('columnar=true')));
 SET paradedb.enable_join_custom_scan = on;
+SET paradedb.enable_rank_join = off;
 -- =============================================================================
 -- TEST 1: ASC LIMIT — SegmentedTopKExec should appear in plan
 -- =============================================================================
@@ -716,6 +717,7 @@ LIMIT 5;
   8 | File Title 00008
 (5 rows)
 
+RESET paradedb.enable_rank_join;
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================

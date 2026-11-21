@@ -342,6 +342,8 @@ LIMIT 10;
 -- tighten its threshold between batches and the pre-filter actually prunes.
 -- =============================================================================
 
+SET paradedb.enable_rank_join = off;
+
 DROP TABLE IF EXISTS dyn_filter_t1 CASCADE;
 DROP TABLE IF EXISTS dyn_filter_t2 CASCADE;
 
@@ -390,6 +392,8 @@ WHERE t1.val ||| 'val'
 ORDER BY t1.val ASC
 LIMIT 10;
 
+RESET paradedb.enable_rank_join;
+
 -- =============================================================================
 -- TEST 5b: Top K dynamic score filter pushdown
 -- ORDER BY score DESC on the probe side allows Top K to tighten its score
@@ -421,6 +425,8 @@ RESET paradedb.enable_rank_join;
 -- has already tightened its threshold from earlier batches). This ensures the
 -- pre-filter is active when it encounters NULL values.
 -- =============================================================================
+
+SET paradedb.enable_rank_join = off;
 
 DROP TABLE IF EXISTS null_val_t1 CASCADE;
 DROP TABLE IF EXISTS null_val_t2 CASCADE;
@@ -495,6 +501,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.val ASC NULLS LAST
 LIMIT 10;
+
+RESET paradedb.enable_rank_join;
 
 -- TEST 9: WHERE val IS NULL alone (no BM25 predicate)
 -- Should fetch exactly the 10 NULL rows. 

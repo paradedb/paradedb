@@ -621,6 +621,28 @@ WHERE p.description ||| 'laptop';
  {"buckets": [{"key": "computer", "doc_count": 1}, {"key": "kids", "doc_count": 1}, {"key": "tech", "doc_count": 3}], "sum_other_doc_count": 0} | {"buckets": [{"key": "Apple", "doc_count": 2}, {"key": "Dell", "doc_count": 1}, {"key": "Fisher Price", "doc_count": 2}], "sum_other_doc_count": 0}
 (1 row)
 
+-- Runtime expressions are solved before resolving `threshold`, so an InitPlan
+-- query follows the solved row estimate rather than always checking visibility.
+SET LOCAL paradedb.visibility_threshold TO 10;
+SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'threshold'),
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb, 'threshold')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description ||| (SELECT 'laptop');
+                                                                                                         agg                                                                                                          |                                                                                        agg                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "budget", "doc_count": 1}, {"key": "computer", "doc_count": 1}, {"key": "gaming", "doc_count": 1}, {"key": "kids", "doc_count": 1}, {"key": "tech", "doc_count": 4}], "sum_other_doc_count": 0} | {"buckets": [{"key": "Apple", "doc_count": 2}, {"key": "Dell", "doc_count": 2}, {"key": "Fisher Price", "doc_count": 2}, {"key": "HP", "doc_count": 2}], "sum_other_doc_count": 0}
+(1 row)
+
+SET LOCAL paradedb.visibility_threshold TO 1000;
+SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'threshold'),
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb, 'threshold')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description ||| (SELECT 'laptop');
+                                                                      agg                                                                       |                                                                         agg                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "computer", "doc_count": 1}, {"key": "kids", "doc_count": 1}, {"key": "tech", "doc_count": 3}], "sum_other_doc_count": 0} | {"buckets": [{"key": "Apple", "doc_count": 2}, {"key": "Dell", "doc_count": 1}, {"key": "Fisher Price", "doc_count": 2}], "sum_other_doc_count": 0}
+(1 row)
+
 ROLLBACK;
 -- Test 3.6: conflicting visibility settings are rejected
 SELECT pdb.agg('{"sum": {"field": "weight"}}'::jsonb, 'raw'), pdb.agg('{"sum": {"field": "price"}}'::jsonb)

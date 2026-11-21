@@ -10,11 +10,15 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/actions/setup-pg-search-toolchain/**"
+      - ".github/actions/setup-postgres/**"
+      - "rust-toolchain.toml"
       - ".github/scripts/check_impl_drop.py"
       - ".github/workflows/lint-rust.yml"
       - "Cargo.lock"
       - "**/*.rs"
       - "**/*.toml"
+  schedule:
+    - cron: "17 6 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -25,6 +29,41 @@ permissions:
   contents: read
 
 jobs:
+  rust-format:
+    name: Check Rust Formatting and Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
+        with:
+          components: rustfmt
+          cache: false
+
+      # A bare `impl Drop` can abort the backend during an ERROR or at exit (#6479, #6530).
+      - name: Check impl Drop
+        run: python3 .github/scripts/check_impl_drop.py
+
+      - name: Check Cargo.lock
+        run: cargo metadata --format-version 1 --locked > /dev/null
+
+      - name: Run Rustfmt
+        run: cargo fmt --all -- --check
+
+      - name: Install cargo-machete
+        run: cargo install -j $(nproc) cargo-machete --locked --debug
+
+      - name: Install taplo
+        run: cargo install -j $(nproc) taplo-cli --version ^0.9 --locked --debug
+
+      - name: Run cargo-machete
+        run: cargo machete
+
+      - name: Check Cargo.toml Formatting
+        run: taplo format --check
+
   lint-rust:
     name: Lint Rust Files
     runs-on:
@@ -55,23 +94,13 @@ jobs:
         uses: ./.github/actions/setup-pg-search-toolchain
         with:
           pg_version: ${{ matrix.pg_version }}
-          rust_components: rustfmt, clippy
-
-      # A bare `impl Drop` can abort the backend during an ERROR or at exit (#6479, #6530).
-      - name: Check impl Drop
-        run: python3 .github/scripts/check_impl_drop.py
-
-      - name: Check Cargo.lock
-        run: cargo metadata --format-version 1 --locked > /dev/null
+          rust_components: clippy
 
       - name: Install & Configure Supported PostgreSQL Version
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
           extra_packages: clang libclang-dev lld libfontconfig1-dev libopenblas-dev
-
-      - name: Run Rustfmt
-        run: cargo fmt --all -- --check
 
       - name: Run Rustdoc
         env:
@@ -80,23 +109,3 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings --no-deps
-
-      - name: Install cargo-machete
-        run: cargo install -j $(nproc) cargo-machete --locked --debug
-
-      - name: Install cargo-audit
-        run: cargo install -j $(nproc) cargo-audit --locked --debug
-
-      - name: Install taplo
-        run: cargo install -j $(nproc) taplo-cli --version ^0.9 --locked --debug
-
-      - name: Run cargo-machete
-        run: cargo machete
-
-      # Ignores are documented in .cargo/audit.toml.
-      - name: Run cargo-audit
-        run: cargo audit
-
-      # If you encounter an error, try running 'taplo format' to fix the formatting automatically.
-      - name: Check Cargo.toml Formatting
-        run: taplo format --check

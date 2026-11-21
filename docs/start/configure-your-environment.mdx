@@ -55,7 +55,7 @@ To get started, create a TypeScript project with [Drizzle](https://orm.drizzle.t
 ```bash
 npm init -y
 npm pkg set type=module
-npm install drizzle-orm@1.0.0-rc.4 postgres @paradedb/drizzle-paradedb@0.8.0 tsx
+npm install drizzle-orm@1.0.0-rc.6 postgres @paradedb/drizzle-paradedb@0.9.0 tsx
 ```
 
 Create a `db.ts` file with your database connection and a schema for ParadeDB's built-in test table:
@@ -139,12 +139,12 @@ index](/start/create-your-first-index) from the REPL.
 </Tab>
 
 <Tab title="Django">
-To start you'll need a [Django](https://www.djangoproject.com/) project with [Psycopg](https://www.psycopg.org/) and [django-paradedb](https://pypi.org/project/django-paradedb/) installed. Run the following to create one:
+Use Python 3.11 or later and a [Django](https://www.djangoproject.com/) project with [Psycopg](https://www.psycopg.org/) and [django-paradedb](https://pypi.org/project/django-paradedb/) installed. Run the following to create one:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install django "psycopg[binary]" django-paradedb==0.17.0
+pip install "django>=4.2" "psycopg[binary]" django-paradedb==0.18.0
 python3 -m django startproject myproject .
 python3 manage.py startapp myapp
 ```
@@ -228,12 +228,12 @@ index](/start/create-your-first-index) in your Python shell.
 </Tab>
 
 <Tab title="SQLAlchemy">
-To get started, install [SQLAlchemy](https://www.sqlalchemy.org/), [Alembic](https://alembic.sqlalchemy.org/en/latest/), [Psycopg](https://www.psycopg.org/), and [sqlalchemy-paradedb](https://pypi.org/project/sqlalchemy-paradedb/).
+With Python 3.11 or later, install [SQLAlchemy](https://www.sqlalchemy.org/), [Alembic](https://alembic.sqlalchemy.org/en/latest/), [Psycopg](https://www.psycopg.org/), and [sqlalchemy-paradedb](https://pypi.org/project/sqlalchemy-paradedb/).
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install sqlalchemy "psycopg[binary]" alembic sqlalchemy-paradedb==0.15.0
+pip install "sqlalchemy>=2.1" "psycopg[binary]" alembic sqlalchemy-paradedb==0.17.0
 ```
 
 Initialize Alembic:
@@ -403,7 +403,7 @@ index](/start/create-your-first-index) in your shell.
 </Tab>
 
 <Tab title="Rails">
-To get started, create a [Rails](https://rubyonrails.org/) app that uses Postgres.
+With Ruby 3.4 or later, create a [Rails](https://rubyonrails.org/) app that uses Postgres.
 
 ```bash
 rails new paradedb -d postgresql
@@ -413,7 +413,7 @@ cd paradedb
 Add the [rails-paradedb](https://rubygems.org/gems/rails-paradedb) gem to your `Gemfile`:
 
 ```ruby Gemfile
-gem "rails-paradedb", "0.15.0", require: "parade_db"
+gem "rails-paradedb", "0.16.0", require: "parade_db"
 ```
 
 Then install it:
@@ -485,15 +485,15 @@ rails console
 </Tab>
 
 <Tab title="EF Core">
-To get started, create a .NET project with [EF Core](https://learn.microsoft.com/en-us/ef/core/), [Npgsql.EntityFrameworkCore.PostgreSQL](https://www.nuget.org/packages/npgsql.entityframeworkcore.postgresql), and [ParadeDB.EntityFrameworkCore](https://www.nuget.org/packages/ParadeDB.EntityFrameworkCore) installed.
+To get started, create a .NET 11 project with [EF Core](https://learn.microsoft.com/en-us/ef/core/), [Npgsql.EntityFrameworkCore.PostgreSQL](https://www.nuget.org/packages/npgsql.entityframeworkcore.postgresql), and [ParadeDB.EntityFrameworkCore](https://www.nuget.org/packages/ParadeDB.EntityFrameworkCore) installed.
 
 ```bash
-dotnet new console --framework net10.0
+dotnet new console --framework net11.0
 dotnet new tool-manifest
-dotnet tool install dotnet-ef --version 10.0.15
-dotnet add package Microsoft.EntityFrameworkCore.Design --version 10.0.15
-dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL --version 10.0.3
-dotnet add package ParadeDB.EntityFrameworkCore --version 0.6.0
+dotnet tool install dotnet-ef --version 11.0.0
+dotnet add package Microsoft.EntityFrameworkCore.Design --version 11.0.0
+dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL --version 11.0.0
+dotnet add package ParadeDB.EntityFrameworkCore --version 0.7.0
 ```
 
 <Note>
@@ -521,7 +521,7 @@ adapter to search your ParadeDB indexes through that interface using an existing
 EF Core query.
 
 ```bash
-dotnet add package ParadeDB.VectorData --version 0.6.0
+dotnet add package ParadeDB.VectorData --version 0.7.0
 ```
 
 See the [ParadeDB.VectorData package page](https://www.nuget.org/packages/ParadeDB.VectorData) for a setup example.

@@ -2172,7 +2172,8 @@ impl SearchIndexReader {
                 && let Some(threshold) = score_threshold
             {
                 let mut pruning_scorer = base_weight
-                    .ra_scorer(segment_reader, 1.0, threshold)
+                    .get()
+                    .pruning_scorer(segment_reader, 1.0, threshold)
                     .expect("pruning scorer should be constructable");
                 intersect_scorer_with_lookup(
                     segment_ord,
@@ -2216,7 +2217,8 @@ impl SearchIndexReader {
         {
             if let Some(dw) = disjunct_weight {
                 let mut pruning_scorer = dw
-                    .ra_scorer(segment_reader, 1.0, threshold)
+                    .get()
+                    .pruning_scorer(segment_reader, 1.0, threshold)
                     .expect("pruning scorer should be constructable");
                 intersect_scorer_with_lookup(
                     segment_ord,

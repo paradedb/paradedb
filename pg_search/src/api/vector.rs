@@ -330,7 +330,6 @@ LANGUAGE c
 AS 'MODULE_PATHNAME', 'vector_error_audit_internal_wrapper';
 "#
 )]
-#[allow(clippy::type_complexity)]
 fn vector_error_audit_internal(
     index: Option<PgRelation>,
     field: Option<String>,
@@ -585,7 +584,6 @@ LANGUAGE c
 AS 'MODULE_PATHNAME', 'vector_error_cone_audit_internal_wrapper';
 "#
 )]
-#[allow(clippy::type_complexity)]
 fn vector_error_cone_audit_internal(
     index: Option<PgRelation>,
     field: Option<String>,

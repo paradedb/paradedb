@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+- Removed `paradedb.vector_clustering_threshold`. Index builds and merges now always produce clustered vector storage, including for small segments, so they can participate in global routing. Existing flat segments become clustered when rebuilt or merged.

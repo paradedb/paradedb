@@ -1,7 +1,6 @@
 SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
-SET paradedb.vector_clustering_threshold = 64;
 
 CREATE TABLE review_storage (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX review_storage_idx ON review_storage

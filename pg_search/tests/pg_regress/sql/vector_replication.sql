@@ -8,7 +8,6 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- a full-probe query scores every row.
 SET max_parallel_maintenance_workers = 0;
 SET paradedb.vector_adaptive_probing = off;
-SET paradedb.vector_clustering_threshold = 64;
 SET paradedb.vector_cluster_max_probe = 100000;
 SET paradedb.vector_stats = on;
 

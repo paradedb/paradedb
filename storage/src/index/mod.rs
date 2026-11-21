@@ -41,6 +41,8 @@ use tantivy::vector::clustering::SuperKMeansClusterer;
 use tantivy::{Index, IndexSettings};
 
 pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions, memory_limit: usize) {
+    // Override legacy stored thresholds so every merge output participates in routing.
+    index.settings_mut().vector_clustering_threshold = 0;
     let clusterer = SuperKMeansClusterer::new()
         .with_target_leaf_size(options.target_leaf_size())
         .with_training_sample_ratio(options.training_sample_ratio())
@@ -73,7 +75,7 @@ pub fn index_settings(
         sort_by_field: SearchIndexSchema::build_sort_by_field(&options.sort_by(), schema),
         docstore_compress_dedicated_thread: false,
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
-        vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),
+        vector_clustering_threshold: 0,
         vector_centroid_quantization: options.vector_router_quantization(),
         vector_replication: options.replication(),
         vector_quantization,

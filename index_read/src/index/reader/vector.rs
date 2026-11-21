@@ -333,7 +333,6 @@ mod tests {
     fn router_audit_routes_every_segment_and_flat_ranks_every_centroid() {
         Spi::run(
             "SET max_parallel_workers_per_gather = 0;
-             SET paradedb.vector_clustering_threshold = 1;
              SET paradedb.global_mutable_segment_rows = 0;
              SET paradedb.vector_stats = on;
              SET paradedb.vector_adaptive_probing = off;

@@ -7,7 +7,6 @@ SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
 SET paradedb.vector_adaptive_probing = off;
-SET paradedb.vector_clustering_threshold = 64;
 SET paradedb.vector_cluster_max_probe = 100000;
 SET paradedb.vector_stats = on;
 SELECT pg_get_function_result('paradedb.vector_clusters(regclass,text)'::regprocedure)
@@ -648,7 +647,6 @@ RESET paradedb.vector_stats;
 DROP FUNCTION quant_explain_has_segment_info();
 RESET paradedb.vector_cluster_max_probe;
 RESET paradedb.vector_adaptive_probing;
-RESET paradedb.vector_clustering_threshold;
 DROP TABLE q_cosine;
 DROP TABLE q_estimator;
 DROP TABLE q_l2;

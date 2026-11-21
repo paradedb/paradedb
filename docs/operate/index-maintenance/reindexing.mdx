@@ -23,12 +23,13 @@ ON mock_items USING paradedb (id, description, category);
 ```
 
 ```ts Drizzle
-import { indexing } from "@paradedb/drizzle-paradedb";
+import { sql } from "drizzle-orm";
 
-indexing
-  .paradedbIndex("search_idx_v2")
-  .on(mockItems.id, mockItems.description, mockItems.category)
-  .concurrently();
+// Run this statement outside a transaction.
+await db.execute(sql`
+  CREATE INDEX CONCURRENTLY search_idx_v2
+  ON mock_items USING paradedb (id, description, category)
+`);
 ```
 
 ```python Django

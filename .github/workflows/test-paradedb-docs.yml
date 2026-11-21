@@ -190,10 +190,15 @@ jobs:
         with:
           packages: libsecret-1-dev libopenblas-dev lld
 
+      - name: Install Ruby
+        uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1
+        with:
+          ruby-version: "3.4"
+
       - name: Install .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 11.0.x
 
       - name: Check Documentation Snippet Coverage
         run: python3 .github/scripts/extract_code_snippets.py

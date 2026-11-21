@@ -61,7 +61,7 @@ SELECT bool_and(vector_total_rows = vector_num_vectors) AS unreplicated_one_row_
 FROM paradedb.vector_info('replication_off_idx', 'emb');
 
 -- 2. Full-precision scoring at full probe gives the same top-10 set for three query vectors.
-SET paradedb.vector_max_scan_levels = 0;
+SET paradedb.max_scan_levels = 0;
 SELECT q,
        (SELECT array_agg(id ORDER BY id) FROM (
             SELECT id FROM replication_on WHERE id @@@ pdb.all()
@@ -73,7 +73,7 @@ SELECT q,
 FROM (VALUES (0), (7), (1000)) AS queries (q)
 ORDER BY q;
 
-RESET paradedb.vector_max_scan_levels;
+RESET paradedb.max_scan_levels;
 
 -- 3. A filter matching 5% of the rows takes the located path on the replicated index, which holds
 -- one primary row per document: it drops nothing and returns the unreplicated index's ids.

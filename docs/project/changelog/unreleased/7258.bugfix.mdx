@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Under `SERIALIZABLE`, a search that runs while a concurrent `INSERT` is still in progress no longer lets both transactions commit with write skew. A new row can become searchable after Postgres has already checked the insert for conflicting reads, so the insert now checks again once its rows are searchable (#7258).

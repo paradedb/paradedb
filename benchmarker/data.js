@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795263995429,
+  "lastUpdate": 1795264023023,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -23474,6 +23474,224 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14629960741-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795264020965,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 24.482,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 97.69,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 269.187,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p50 latency",
+            "value": 56.249,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p95 latency",
+            "value": 128.464,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p99 latency",
+            "value": 218.203,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p50 latency",
+            "value": 0.368,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p95 latency",
+            "value": 0.425,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p99 latency",
+            "value": 0.469,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 28.878,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 110.639,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 202.401,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p50 latency",
+            "value": 96.406,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p95 latency",
+            "value": 209.292,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p99 latency",
+            "value": 236.757,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p50 latency",
+            "value": 0.357,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p95 latency",
+            "value": 0.412,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p99 latency",
+            "value": 0.464,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 61.248,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 174.128,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 214.168,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p50 latency",
+            "value": 66.832,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p95 latency",
+            "value": 179.174,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p99 latency",
+            "value": 254.933,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p50 latency",
+            "value": 0.36,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p95 latency",
+            "value": 0.416,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p99 latency",
+            "value": 0.467,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 25.989,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 128.338,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 220.742,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p50 latency",
+            "value": 63.806,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p95 latency",
+            "value": 126.921,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p99 latency",
+            "value": 293.71,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p50 latency",
+            "value": 0.356,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p95 latency",
+            "value": 0.406,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p99 latency",
+            "value": 0.452,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 30.885,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 102.193,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 192.097,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14706604311-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -52155,6 +52373,94 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14629960741-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795264023013,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 20.92,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) QPS",
+            "value": 15.48,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) updates/sec",
+            "value": 997.32,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 23.36,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) QPS",
+            "value": 9.12,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) updates/sec",
+            "value": 997.6,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 13.36,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) QPS",
+            "value": 12.2,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) updates/sec",
+            "value": 997.12,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 23.28,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) QPS",
+            "value": 14.24,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) updates/sec",
+            "value": 997.84,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 25.16,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14706604311-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

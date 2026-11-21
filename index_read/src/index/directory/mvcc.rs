@@ -22,6 +22,7 @@ use crate::index::reader::io_stats::Trace;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::buffile::{self, BufFileReleaseGuard, TempFileOwner};
+use crate::postgres::customscan::mpp::run_on_main_thread;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
@@ -32,6 +33,7 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::mutable_cache::{self, MutableCacheKey};
 use crate::postgres::utils::ActiveSnapshotGuard;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -117,23 +119,7 @@ impl Seek for PgTempFile {
     }
 }
 
-/// The `(max_doc, num_deleted_docs)` pair of a mutable segment's meta entry as one reader
-/// loaded it. A mutable segment is materialized from the heap on open, from the prefix of its
-/// add/remove log these two counts bound, so two opens agree on the segment's `DocId` space
-/// only if they use the same pair. Distinct from [`SegmentMetaEntry::mutable_snapshot`], which
-/// returns the ctid set a bound selects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MutableSegmentBound {
-    pub max_doc: u32,
-    pub num_deleted_docs: u32,
-}
-
-impl MutableSegmentBound {
-    /// Docs the materialized segment exposes: Adds minus Removes.
-    pub fn live_docs(self) -> u32 {
-        self.max_doc - self.num_deleted_docs
-    }
-}
+pub use crate::postgres::storage::block::MutableSegmentBound;
 
 /// One segment of a [`SegmentView`], in the origin reader's ordinal position.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -350,9 +336,9 @@ enum LoadedSegmentMetaEntry {
         meta: SegmentMetaEntry,
         tantivy_meta: SegmentMeta,
         entry: SegmentMetaEntryMutable,
-        // Created lazily on first read so that indexing occurs in whichever parallel worker is
-        // responsible for this segment.
-        directory: Arc<OnceLock<(RamDirectory, pg_sys::TransactionId)>>,
+        // Resolved lazily on first read: loaded from the shared-memory mutable segment cache if
+        // present, or indexed by whichever process touches it first and published to shared memory.
+        directory: Arc<OnceLock<(Arc<dyn Directory>, pg_sys::TransactionId)>>,
     },
 }
 
@@ -472,13 +458,9 @@ impl MVCCDirectory {
             .iter()
             .filter_map(|(id, lsme)| match lsme {
                 LoadedSegmentMetaEntry::Persisted { .. } => None,
-                LoadedSegmentMetaEntry::Memory { meta, .. } => Some((
-                    *id,
-                    MutableSegmentBound {
-                        max_doc: meta.max_doc(),
-                        num_deleted_docs: meta.num_deleted_docs() as u32,
-                    },
-                )),
+                LoadedSegmentMetaEntry::Memory { meta, .. } => {
+                    meta.mutable_bound().map(|bound| (*id, bound))
+                }
             })
             .collect()
     }
@@ -557,9 +539,9 @@ impl MVCCDirectory {
                         OpenDirectoryError::DoesNotExist(path.to_path_buf()),
                     ));
                 }
-                let file_handle = directory
-                    .get_or_init(|| {
-                        crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+                let dir = directory.get_or_init(|| {
+                    run_on_main_thread(|_| {
+                        let build = || {
                             let _snapshot_guard = ActiveSnapshotGuard::ensure();
                             let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
                                 let heaprel = self
@@ -579,19 +561,33 @@ impl MVCCDirectory {
                                 expression_state,
                                 &self.mvcc_style,
                             )
-                            .expect("Failed to index mutable segment.")
-                        })
-                    })
-                    .0
-                    .get_file_handle(path)
-                    .map_err(|err| match err {
-                        OpenReadError::FileDoesNotExist(missing) => {
-                            TantivyError::OpenDirectoryError(OpenDirectoryError::DoesNotExist(
-                                missing,
-                            ))
+                        };
+                        let key = MutableCacheKey::for_segment(&self.indexrel, &meta).expect(
+                            "LoadedSegmentMetaEntry::Memory should have a mutable SegmentMetaEntry",
+                        );
+                        if matches!(
+                            &*self.mvcc_style,
+                            MvccSatisfies::Snapshot
+                                | MvccSatisfies::ParallelWorker(_)
+                                | MvccSatisfies::LargestSegment
+                        ) {
+                            mutable_cache::get_or_build(&key, || build().map(|(dir, _)| dir))
+                                .map(|dir| (dir, pg_sys::InvalidTransactionId))
+                        } else {
+                            // Maintenance must recheck heap visibility instead of retaining cached dead rows.
+                            build().map(|(dir, horizon)| {
+                                (Arc::new(dir) as Arc<dyn Directory>, horizon)
+                            })
                         }
-                        other => other.into(),
-                    })?;
+                        .expect("Failed to index mutable segment.")
+                    })
+                });
+                let file_handle = dir.0.get_file_handle(path).map_err(|err| match err {
+                    OpenReadError::FileDoesNotExist(missing) => {
+                        TantivyError::OpenDirectoryError(OpenDirectoryError::DoesNotExist(missing))
+                    }
+                    other => other.into(),
+                })?;
                 Ok(file_handle)
             }
         }
@@ -1136,20 +1132,14 @@ pub fn index_memory_segment(
     let categorized_fields = search_schema.categorized_fields();
     let created_by_version = indexrel.created_by_version();
 
-    // Query-visible materialization (Snapshot / ParallelWorker / LargestSegment) fetches each ctid
-    // with the active MVCC snapshot; maintenance materialization (e.g. Mergeable) must index every
-    // live ctid regardless of any single snapshot. See the `HeapDocFetcher` docs for the full
-    // reasoning. Because query-visible materialization happens lazily inside query planning or
-    // execution, the active snapshot here is the snapshot that defines query-visible heap rows,
-    // so indexing an invisible ctid as empty cannot change a query result or estimate.
-    let query_visible = match mvcc_style {
-        MvccSatisfies::Snapshot
-        | MvccSatisfies::ParallelWorker(_)
-        | MvccSatisfies::LargestSegment => true,
-        MvccSatisfies::Vacuum | MvccSatisfies::VacuumMerge { .. } | MvccSatisfies::Mergeable => {
-            false
-        }
-    };
+    // Shared entries must include rows visible to later snapshots, not just the builder's.
+    let query_visible = !crate::gucs::enable_mutable_segment_cache()
+        && matches!(
+            mvcc_style,
+            MvccSatisfies::Snapshot
+                | MvccSatisfies::ParallelWorker(_)
+                | MvccSatisfies::LargestSegment
+        );
 
     let mut fetcher = HeapDocFetcher::new(
         heap_fetch_state,

@@ -56,11 +56,22 @@ def run(command, cwd, env, source=None):
     subprocess.run(command, cwd=cwd, env=env, input=source, text=True, check=True)
 
 
-def block(target, info=None, index=0):
-    """Read a numbered fence from a getting-started language tab."""
+def block(target, info=None, index=0, *, command=None):
+    """Read a fence from a getting-started language tab."""
     fences = FENCE_PATTERN.findall(TABS[LABELS[target]])
     if info is not None:
         fences = [(label, body) for label, body in fences if label == info]
+    if command is not None:
+        fences = [
+            (label, body)
+            for label, body in fences
+            if any(
+                line == command or line.startswith(command + " ")
+                for line in map(str.strip, body.splitlines())
+            )
+        ]
+        if len(fences) != 1:
+            raise ValueError(f"Expected one {target} fence containing {command!r}")
     info, body = fences[index]
     CONSUMED_FENCES.add(fence_digest(info, body))
     return body
@@ -288,11 +299,20 @@ def setup_rails(cwd, env):
 
 def setup_efcore(cwd, env):
     """Execute EF Core migration creation, seed insertion and tutorial query."""
-    shell(block("efcore", "bash", 0), cwd, env)
+    shell(block("efcore", "bash", command="dotnet new tool-manifest"), cwd, env)
+    shell(
+        block("efcore", "bash", command="dotnet add package ParadeDB.VectorData"),
+        cwd,
+        env,
+    )
     (cwd / "Program.cs").write_text(
         connection_text(block("efcore", "cs Program.cs"), env)
     )
-    shell(block("efcore", "bash", 1), cwd, env)
+    shell(
+        block("efcore", "bash", command="dotnet ef migrations add CreateMockItems"),
+        cwd,
+        env,
+    )
     migration = next((cwd / "Migrations").glob("*_CreateMockItems.cs"))
     source = migration.read_text()
     # Insert exactly where the prose requests: at the end of Up, before Down.
@@ -303,7 +323,7 @@ def setup_efcore(cwd, env):
     ).start() + source.index("protected override void Up")
     source = source[:end] + block("efcore", "cs", 1) + "\n" + source[end:]
     migration.write_text(source)
-    shell(block("efcore", "bash", 2), cwd, env)
+    shell(block("efcore", "bash", command="dotnet ef database update"), cwd, env)
     program = cwd / "Program.cs"
     source = program.read_text().replace(
         "// Replace this with the query you want to run.",
@@ -319,7 +339,7 @@ def setup_efcore(cwd, env):
         ),
     )
     program.write_text(source)
-    shell(block("efcore", "bash", 3), cwd, env)
+    shell(block("efcore", "bash", command="dotnet run"), cwd, env)
 
 
 def validate_setup_coverage(target):

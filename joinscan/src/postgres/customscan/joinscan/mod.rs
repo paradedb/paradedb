@@ -1849,8 +1849,6 @@ impl CustomScan for JoinScan {
                     );
                 }
 
-                // Deserialize the logical plan and convert to execution plan
-                let planstate = state.planstate();
                 // Clone plan_bytes to release the immutable borrow on `state`
                 // before the mutable borrow in ensure_source_manifests below.
                 let plan_bytes = state
@@ -1900,7 +1898,6 @@ impl CustomScan for JoinScan {
                             // exists; serial plans never have one.
                             None,
                             Some(runtime_context),
-                            Some(planstate),
                             source_manifests.clone(),
                         )
                         .expect("Failed to deserialize logical plan");
@@ -1961,7 +1958,6 @@ impl CustomScan for JoinScan {
                                 &serial_ctx.task_ctx(),
                                 None,
                                 Some(runtime_context),
-                                Some(planstate),
                                 source_manifests.clone(),
                             )
                             .expect("Failed to deserialize serial fallback logical plan");

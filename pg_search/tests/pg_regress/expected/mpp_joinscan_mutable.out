@@ -256,19 +256,20 @@ LIMIT 25;
      : │     VisibilityFilterExec: tables=[t, c]
      : │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
      : │         CoalescePartitionsExec
-     : │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=3
+     : │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=4
      : │         CooperativeExec
      : │           DistributedLeafExec:
      : │             t0: PgSearchScan: table=t, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"message","value":"beer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   ┌───── Stage 1 ── tasks=4, partitions=4
      :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
      :   │   DistributedLeafExec:
-     :   │     t0: PgSearchScan: table=c, segments=3, query="all"
-     :   │     t1: PgSearchScan: table=c, segments=3, query="all"
-     :   │     t2: PgSearchScan: table=c, segments=3, query="all"
+     :   │     t0: PgSearchScan: table=c, segments=4, query="all"
+     :   │     t1: PgSearchScan: table=c, segments=4, query="all"
+     :   │     t2: PgSearchScan: table=c, segments=4, query="all"
+     :   │     t3: PgSearchScan: table=c, segments=4, query="all"
      :   └──────────────────────────────────────────────────
-(25 rows)
+(26 rows)
 
 SELECT t.id, t.message, c.name
 FROM mpp_mut_test_small t

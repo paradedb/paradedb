@@ -3787,7 +3787,6 @@ impl SearchIndexReader {
             self.need_scores,
             self.searcher.clone(),
         ));
-        let _ = unconstrained_weight.get();
         let constrained_weight = partition_bounds.map(|bounds| {
             let range_query = Box::new(ConstScoreQuery::new(self.make_query(bounds, None), 0.0));
             unconstrained_weight.and_query(range_query)
@@ -3912,6 +3911,7 @@ mod tests {
     use crate::query::pdb_query::to_search_query_input;
     use crate::scan::range_partitioning::RangePartitioning;
     use pgrx::prelude::*;
+    use std::iter::empty;
     use std::ops::Bound;
     use tantivy::index::SegmentComponent;
     use tantivy::vector::PostFilterStage;
@@ -3919,6 +3919,47 @@ mod tests {
     use super::test_support::{
         assert_pruning_matches_tantivy, open_index, open_snapshot_reader, range_query, term_query,
     };
+
+    #[pg_test]
+    fn topk_without_assigned_segments_skips_scoring_preparation() {
+        let (index, _) = segmented_index_fixture("unassigned_topk", 2, true);
+        let reader = open_snapshot_reader(&index, term_query("title", "silver"), true);
+        let mutable = reader
+            .segment_ids()
+            .into_iter()
+            .find(|id| reader.directory.is_mutable(id))
+            .unwrap();
+        let collector = TopDocs::with_limit(10).order_by_score();
+        assert_eq!(
+            reader.directory.mutable_segment_materialized(&mutable),
+            Some(false)
+        );
+        let fruits = reader.collect_segment_readers_by_query_kind(empty(), None, &collector);
+        assert!(fruits.is_empty());
+        assert_eq!(
+            reader.directory.mutable_segment_materialized(&mutable),
+            Some(false)
+        );
+
+        let fruits = reader.collect_segment_readers_by_query_kind(
+            reader
+                .candidate_segment_readers()
+                .map(|(ordinal, segment)| (ordinal, segment, SegmentQueryKind::Unconstrained)),
+            None,
+            &collector,
+        );
+        assert_eq!(
+            reader.directory.mutable_segment_materialized(&mutable),
+            Some(true)
+        );
+        assert_eq!(
+            collector.merge_fruits(fruits).unwrap(),
+            reader
+                .searcher
+                .search(reader.query().as_ref(), &collector)
+                .unwrap()
+        );
+    }
 
     #[pg_test]
     fn bitmap_postings_are_requested_only_for_counts() {
@@ -6210,6 +6251,10 @@ mod tests {
             );
         }
         assert_eq!(reader.search().count(), 15);
+        crate::postgres::storage::mutable_cache::invalidate_index(
+            unsafe { pg_sys::MyDatabaseId },
+            index_rel.oid(),
+        );
         let impossible_query = range_query("id", 100, 200);
         let impossible = open_snapshot_reader(&index_rel, impossible_query.clone(), false);
         assert_eq!(impossible.segment_pruning_estimate().candidate_segments, 1);
@@ -6240,6 +6285,10 @@ mod tests {
         };
         let partition_segments = segments_for_partition(&reader, &partitioning, 0);
         assert!(!partition_segments.partially_included.is_empty());
+        crate::postgres::storage::mutable_cache::invalidate_index(
+            unsafe { pg_sys::MyDatabaseId },
+            index_rel.oid(),
+        );
         let bounds = range_query("id", 1, 10);
         let matching = open_snapshot_reader(&index_rel, bounds.clone(), false);
         assert_eq!(

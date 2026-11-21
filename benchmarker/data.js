@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795273188469,
+  "lastUpdate": 1795281050245,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -107998,6 +107998,299 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14652401592-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795281046538,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) p50 latency",
+            "value": 29.736,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p95 latency",
+            "value": 34.815,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p99 latency",
+            "value": 38.989,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p50 latency",
+            "value": 33.006,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p95 latency",
+            "value": 39.781,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p99 latency",
+            "value": 45.34,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p50 latency",
+            "value": 60.542,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p95 latency",
+            "value": 71.918,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p99 latency",
+            "value": 76.968,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p50 latency",
+            "value": 13.6,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p95 latency",
+            "value": 18.415,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p99 latency",
+            "value": 19.493,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p50 latency",
+            "value": 20.034,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p95 latency",
+            "value": 26.203,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p99 latency",
+            "value": 28.194,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p50 latency",
+            "value": 60.268,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p95 latency",
+            "value": 73.055,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p99 latency",
+            "value": 80.67,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p50 latency",
+            "value": 34.891,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p95 latency",
+            "value": 55.127,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p99 latency",
+            "value": 58.585,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p50 latency",
+            "value": 46.921,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p95 latency",
+            "value": 71.436,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p99 latency",
+            "value": 76.301,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p50 latency",
+            "value": 161.712,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p95 latency",
+            "value": 229.029,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p99 latency",
+            "value": 246.062,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p50 latency",
+            "value": 3.367,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p95 latency",
+            "value": 3.411,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p99 latency",
+            "value": 3.466,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p50 latency",
+            "value": 3.385,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p95 latency",
+            "value": 3.423,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p99 latency",
+            "value": 3.488,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p50 latency",
+            "value": 3.394,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p95 latency",
+            "value": 3.428,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p99 latency",
+            "value": 3.496,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p50 latency",
+            "value": 10.801,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p95 latency",
+            "value": 11.03,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p99 latency",
+            "value": 11.895,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p50 latency",
+            "value": 10.763,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p95 latency",
+            "value": 11.016,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p99 latency",
+            "value": 11.834,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p50 latency",
+            "value": 10.745,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p95 latency",
+            "value": 10.998,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p99 latency",
+            "value": 11.812,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p50 latency",
+            "value": 23.096,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p95 latency",
+            "value": 25.784,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p99 latency",
+            "value": 26.487,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p50 latency",
+            "value": 34.464,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p95 latency",
+            "value": 37.215,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p99 latency",
+            "value": 38.351,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p50 latency",
+            "value": 66.515,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p95 latency",
+            "value": 70.116,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p99 latency",
+            "value": 71.343,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14716377707-latency"
       }
     ],
     "benchmarker hackernews-vector-28m-8cpu-32gb (throughput)": [
@@ -108339,6 +108632,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14652401592-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795281048123,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) QPS",
+            "value": 33.0618904706199,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) QPS",
+            "value": 29.95681072190355,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) QPS",
+            "value": 16.502617126857423,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) QPS",
+            "value": 72.35481879037931,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) QPS",
+            "value": 48.872932788519364,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) QPS",
+            "value": 16.415970462826927,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) QPS",
+            "value": 28.232957059352927,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) QPS",
+            "value": 20.962725723711333,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) QPS",
+            "value": 5.9698312451866835,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) QPS",
+            "value": 294.09089869181884,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) QPS",
+            "value": 292.8676744532354,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) QPS",
+            "value": 291.94402048922734,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) QPS",
+            "value": 91.97394302519729,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) QPS",
+            "value": 92.2623361448043,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) QPS",
+            "value": 92.41887655506672,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) QPS",
+            "value": 43.69711409804786,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) QPS",
+            "value": 29.060988196702002,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) QPS",
+            "value": 15.081660593181432,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14716377707-throughput"
       }
     ],
     "benchmarker hackernews-vector-28m-8cpu-32gb (buffers)": [
@@ -108680,6 +109086,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14652401592-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795281049179,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "range_0.1pct@r90 shared hits/query",
+            "value": 19407.22,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r95 shared hits/query",
+            "value": 23220.55,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r99 shared hits/query",
+            "value": 42098.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r90 shared hits/query",
+            "value": 6776.17,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r95 shared hits/query",
+            "value": 9763.94,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r99 shared hits/query",
+            "value": 24288.29,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r90 shared hits/query",
+            "value": 28302.69,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r95 shared hits/query",
+            "value": 35498.37,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r99 shared hits/query",
+            "value": 67758.02,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r90 shared hits/query",
+            "value": 1323.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r95 shared hits/query",
+            "value": 1323.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r99 shared hits/query",
+            "value": 1323.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r90 shared hits/query",
+            "value": 7378.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r95 shared hits/query",
+            "value": 7378.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r99 shared hits/query",
+            "value": 7378.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r90 shared hits/query",
+            "value": 10699.77,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r95 shared hits/query",
+            "value": 17093.03,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r99 shared hits/query",
+            "value": 33142.26,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14716377707-buffers"
       }
     ],
     "benchmarker hackernews-vector-28m-8cpu-32gb (index build)": [
@@ -108796,6 +109315,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14652401592-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795281050231,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hn_items_bm25_idx build time",
+            "value": 29.411313343666666,
+            "unit": "min"
+          },
+          {
+            "name": "hn_items_bm25_idx index size",
+            "value": 162535.59375,
+            "unit": "MiB"
+          },
+          {
+            "name": "hn_items_bm25_idx peak container memory",
+            "value": 19.488101959228516,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14716377707-index"
       }
     ],
     "benchmarker hackernews-vector-28m-pg-vectorsearch-8cpu-32gb (latency)": [

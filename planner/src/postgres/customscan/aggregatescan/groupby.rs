@@ -16,13 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
 
+use crate::postgres::catalog::is_ltree_oid;
 use crate::postgres::customscan::aggregatescan::{
     CustomScanBuildError, CustomScanClause, GroupingPushdownDeclineReason,
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
+use crate::postgres::customscan::pullup::{Access, ResTarget, ResolvedFastField, SourceContext};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
-use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
+use crate::postgres::node::{NodeExt, WalkControl};
+use crate::postgres::utils::{is_unnest_func, strip_relabel, strip_unnest_and_relabel};
 use crate::postgres::var::{VarContext, find_one_resolved_var_and_fieldname};
 use crate::schema::{FieldSource, SearchFieldType};
 use pgrx::pg_sys;
@@ -47,6 +49,82 @@ impl GroupByClause {
     pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
         self.grouping_columns.clone()
     }
+}
+
+/// Returns true when the Tantivy result decoder can evaluate this I/O cast of a group key.
+pub fn can_decode_group_key_cast(
+    original_typoid: pg_sys::Oid,
+    expected_typoid: pg_sys::Oid,
+) -> bool {
+    expected_typoid == pg_sys::TEXTOID
+        && (matches!(
+            original_typoid,
+            pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID
+        ) || is_ltree_oid(original_typoid))
+}
+
+/// Reject stripped casts that the backend's result decoder cannot evaluate.
+pub unsafe fn validate_grouping_casts(
+    expr: *mut pg_sys::Node,
+    stripped: *mut pg_sys::Node,
+    supports_io_cast: impl Fn(pg_sys::Oid, pg_sys::Oid) -> bool,
+) -> Result<(), String> {
+    let expected_type = unsafe { pg_sys::exprType(expr) };
+    let needs_evaluation = expr.walk(|node| unsafe {
+        if node == stripped {
+            return WalkControl::SkipChildren;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_RelabelType | pg_sys::NodeTag::T_PlaceHolderVar => {
+                WalkControl::Continue
+            }
+            pg_sys::NodeTag::T_FuncExpr
+                if is_unnest_func((*node.cast::<pg_sys::FuncExpr>()).funcid) =>
+            {
+                WalkControl::Continue
+            }
+            pg_sys::NodeTag::T_CoerceViaIO => {
+                let cast = &*node.cast::<pg_sys::CoerceViaIO>();
+                if cast.resulttype == expected_type
+                    && supports_io_cast(pg_sys::exprType(cast.arg.cast()), expected_type)
+                {
+                    WalkControl::Continue
+                } else {
+                    WalkControl::Break
+                }
+            }
+            _ => WalkControl::Break,
+        }
+    });
+    if needs_evaluation {
+        return Err("grouping cast requires PostgreSQL evaluation".into());
+    }
+    Ok(())
+}
+
+/// Validate a Tantivy grouping cast, using an indexed expression when required.
+pub(super) fn resolve_grouping_cast(
+    expr: *mut pg_sys::Node,
+    stripped: *mut pg_sys::Node,
+    context: &SourceContext,
+    access: Access,
+) -> Result<Option<ResolvedFastField>, String> {
+    // The scan replaces `unnest()` with a placeholder of the element type and PostgreSQL
+    // evaluates any cast above it, so the decoder must not apply that cast too.
+    let supports_io_cast = |source, target| {
+        !matches!(access, Access::List) && can_decode_group_key_cast(source, target)
+    };
+    let cast_validation = unsafe { validate_grouping_casts(expr, stripped, supports_io_cast) };
+    let indexed_field = if cast_validation.is_err() {
+        context.resolve_fast_field(ResTarget::Expr(expr), access)
+    } else {
+        None
+    };
+    if indexed_field.is_some() {
+        return Ok(indexed_field);
+    }
+    cast_validation?;
+    Ok(None)
 }
 
 impl CustomScanClause for GroupByClause {
@@ -101,18 +179,34 @@ impl CustomScanClause for GroupByClause {
                     Access::Scalar
                 };
 
-                let var_context = VarContext::from_planner(args.root);
-
-                let (resolved, field_name) = unsafe {
-                    find_one_resolved_var_and_fieldname(var_context, context, expr, access)
-                };
-                let Some(resolved) = resolved else {
-                    last_error = Some(match field_name {
-                        Some(name) => unresolved_reason(context, &name, is_unnest)?,
-                        None => "could not resolve grouping column from expression".to_string(),
-                    });
-                    continue;
-                };
+                let resolved =
+                    match resolve_grouping_cast(member.em_expr.cast(), expr, context, access) {
+                        Ok(Some(resolved)) => resolved,
+                        Ok(None) => {
+                            let var_context = VarContext::from_planner(args.root);
+                            let (resolved, field_name) = unsafe {
+                                find_one_resolved_var_and_fieldname(
+                                    var_context,
+                                    context,
+                                    expr,
+                                    access,
+                                )
+                            };
+                            let Some(resolved) = resolved else {
+                                last_error = Some(match field_name {
+                                    Some(name) => unresolved_reason(context, &name, is_unnest)?,
+                                    None => "could not resolve grouping column from expression"
+                                        .to_string(),
+                                });
+                                continue;
+                            };
+                            resolved
+                        }
+                        Err(error) => {
+                            last_error = Some(error);
+                            continue;
+                        }
+                    };
 
                 let field_type = resolved
                     .field

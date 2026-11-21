@@ -23,7 +23,10 @@ pub use common::api::window_aggregate::{make_window_agg_placeholder, window_agg_
 mod pdb {
     use pgrx::prelude::*;
 
-    #[pg_extern(volatile, parallel_safe, name = "window_agg")]
+    /// It is STABLE because the aggregate it stands for holds for the whole statement. Postgres
+    /// computes a volatile target after the sort, above the scan, where no scan can replace it:
+    /// over a partitioned table that is a Result above the Merge Append (#6783).
+    #[pg_extern(stable, parallel_safe, name = "window_agg")]
     pub fn window_agg_placeholder(window_aggregate_json: &str) -> i64 {
         pgrx::error!(
             "window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {}",

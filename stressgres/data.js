@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795248713141,
+  "lastUpdate": 1795248740441,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -381271,6 +381271,137 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14510544084-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795248737298,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 15.448191787883312,
+            "unit": "median tps",
+            "extra": "avg tps: 13.451811881667158, max tps: 17.767937668443604, count: 58977"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 3.0298806402182894,
+            "unit": "median tps",
+            "extra": "avg tps: 3.4780318330648843, max tps: 12.749692907709202, count: 58977"
+          },
+          {
+            "name": "Upsert 1 - Primary - tps",
+            "value": 155.37925096521093,
+            "unit": "median tps",
+            "extra": "avg tps: 166.6876072912376, max tps: 329.9321026903542, count: 58977"
+          },
+          {
+            "name": "Upsert 10 - Primary - tps",
+            "value": 156.78697206522702,
+            "unit": "median tps",
+            "extra": "avg tps: 166.3657645442412, max tps: 440.2039687840636, count: 58977"
+          },
+          {
+            "name": "Upsert 11 - Primary - tps",
+            "value": 146.05697222765934,
+            "unit": "median tps",
+            "extra": "avg tps: 155.3029681178689, max tps: 365.2757395825523, count: 58977"
+          },
+          {
+            "name": "Upsert 12 - Primary - tps",
+            "value": 155.30218603564163,
+            "unit": "median tps",
+            "extra": "avg tps: 171.7538876469337, max tps: 508.3001772839659, count: 58977"
+          },
+          {
+            "name": "Upsert 13 - Primary - tps",
+            "value": 159.61266089864387,
+            "unit": "median tps",
+            "extra": "avg tps: 160.16699058833262, max tps: 476.94498351187013, count: 58977"
+          },
+          {
+            "name": "Upsert 14 - Primary - tps",
+            "value": 176.23932587805336,
+            "unit": "median tps",
+            "extra": "avg tps: 180.7943434054235, max tps: 352.1679677944922, count: 58977"
+          },
+          {
+            "name": "Upsert 15 - Primary - tps",
+            "value": 160.89930773921273,
+            "unit": "median tps",
+            "extra": "avg tps: 170.4051383179086, max tps: 325.081736746426, count: 58977"
+          },
+          {
+            "name": "Upsert 16 - Primary - tps",
+            "value": 152.19436707269446,
+            "unit": "median tps",
+            "extra": "avg tps: 168.09822882401653, max tps: 391.38695459045283, count: 58977"
+          },
+          {
+            "name": "Upsert 2 - Primary - tps",
+            "value": 157.0758423094704,
+            "unit": "median tps",
+            "extra": "avg tps: 161.91930841952365, max tps: 344.93815281004566, count: 58977"
+          },
+          {
+            "name": "Upsert 3 - Primary - tps",
+            "value": 139.4320769030073,
+            "unit": "median tps",
+            "extra": "avg tps: 149.80283610951938, max tps: 394.1854422913686, count: 58977"
+          },
+          {
+            "name": "Upsert 4 - Primary - tps",
+            "value": 167.31091001442718,
+            "unit": "median tps",
+            "extra": "avg tps: 170.82982322738889, max tps: 445.7072288223374, count: 58977"
+          },
+          {
+            "name": "Upsert 5 - Primary - tps",
+            "value": 157.98085010919337,
+            "unit": "median tps",
+            "extra": "avg tps: 167.90753843771864, max tps: 309.7720092695774, count: 58977"
+          },
+          {
+            "name": "Upsert 6 - Primary - tps",
+            "value": 148.16851522343518,
+            "unit": "median tps",
+            "extra": "avg tps: 156.6426753559425, max tps: 333.3091663355917, count: 58977"
+          },
+          {
+            "name": "Upsert 7 - Primary - tps",
+            "value": 154.30215191829427,
+            "unit": "median tps",
+            "extra": "avg tps: 168.25126387066354, max tps: 289.26327074953144, count: 58977"
+          },
+          {
+            "name": "Upsert 8 - Primary - tps",
+            "value": 171.90108530643724,
+            "unit": "median tps",
+            "extra": "avg tps: 179.49749212629388, max tps: 324.643656498167, count: 58977"
+          },
+          {
+            "name": "Upsert 9 - Primary - tps",
+            "value": 168.58374843287012,
+            "unit": "median tps",
+            "extra": "avg tps: 170.57577926203922, max tps: 264.83294746214835, count: 58977"
+          }
+        ],
+        "publication_id": "14697837823-tps"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - Other Metrics": [
@@ -396606,6 +396737,275 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14510544084-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795248740347,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.559322,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.790979142705355, max cpu: 31.923988, count: 58977"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 49.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.980869462353965, max mem: 51.99609375, count: 58977"
+          },
+          {
+            "name": "Background Merging - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.7400066657409996, max cpu: 4.5283017, count: 58977"
+          },
+          {
+            "name": "Background Merging - Primary - mem",
+            "value": 33.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 32.54543846276938, max mem: 33.73046875, count: 58977"
+          },
+          {
+            "name": "Background Merging - Primary - merged_away",
+            "value": 1242,
+            "unit": "median merged_away",
+            "extra": "avg merged_away: 1233.5156416908287, max merged_away: 1631.0, count: 58977"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 22.813688,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.731943982335114, max cpu: 32.19933, count: 58977"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 117.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 117.16098529405531, max mem: 150.76953125, count: 58977"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 16451,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16200.58161656239, max block_count: 16453.0, count: 58977"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 15,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 15.126100005086728, max segment_count: 25.0, count: 58977"
+          },
+          {
+            "name": "Upsert 1 - Primary - cpu",
+            "value": 18.011257,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.29556189995847, max cpu: 32.12237, count: 58977"
+          },
+          {
+            "name": "Upsert 1 - Primary - mem",
+            "value": 128,
+            "unit": "median mem",
+            "extra": "avg mem: 113.21595845891194, max mem: 260.62109375, count: 58977"
+          },
+          {
+            "name": "Upsert 10 - Primary - cpu",
+            "value": 17.952314,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.95977630616336, max cpu: 32.15311, count: 58977"
+          },
+          {
+            "name": "Upsert 10 - Primary - mem",
+            "value": 117.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 106.52602239273361, max mem: 249.19921875, count: 58977"
+          },
+          {
+            "name": "Upsert 11 - Primary - cpu",
+            "value": 18.028168,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.442037073330614, max cpu: 32.24568, count: 58977"
+          },
+          {
+            "name": "Upsert 11 - Primary - mem",
+            "value": 91.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 100.51702875167439, max mem: 234.42578125, count: 58977"
+          },
+          {
+            "name": "Upsert 12 - Primary - cpu",
+            "value": 18.011257,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.133593045137076, max cpu: 32.15311, count: 58977"
+          },
+          {
+            "name": "Upsert 12 - Primary - mem",
+            "value": 62.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 80.15353336894043, max mem: 236.796875, count: 58977"
+          },
+          {
+            "name": "Upsert 13 - Primary - cpu",
+            "value": 18.028168,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.399383722009457, max cpu: 32.076374, count: 58977"
+          },
+          {
+            "name": "Upsert 13 - Primary - mem",
+            "value": 83.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 106.35218489570087, max mem: 229.75, count: 58977"
+          },
+          {
+            "name": "Upsert 14 - Primary - cpu",
+            "value": 13.72736,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.357768130867708, max cpu: 32.137733, count: 58977"
+          },
+          {
+            "name": "Upsert 14 - Primary - mem",
+            "value": 85.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 80.18409738913051, max mem: 172.62890625, count: 58977"
+          },
+          {
+            "name": "Upsert 15 - Primary - cpu",
+            "value": 18.087612,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.748629040350167, max cpu: 32.137733, count: 58977"
+          },
+          {
+            "name": "Upsert 15 - Primary - mem",
+            "value": 130,
+            "unit": "median mem",
+            "extra": "avg mem: 127.30473300237804, max mem: 251.7578125, count: 58977"
+          },
+          {
+            "name": "Upsert 16 - Primary - cpu",
+            "value": 17.985947,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.198241598724277, max cpu: 32.04578, count: 58977"
+          },
+          {
+            "name": "Upsert 16 - Primary - mem",
+            "value": 120.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 110.44363096524917, max mem: 194.23046875, count: 58977"
+          },
+          {
+            "name": "Upsert 2 - Primary - cpu",
+            "value": 17.877094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.848097212005502, max cpu: 32.076374, count: 58977"
+          },
+          {
+            "name": "Upsert 2 - Primary - mem",
+            "value": 83.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 85.60140969943792, max mem: 206.4375, count: 58977"
+          },
+          {
+            "name": "Upsert 3 - Primary - cpu",
+            "value": 18.079096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.551753285665484, max cpu: 32.18391, count: 58977"
+          },
+          {
+            "name": "Upsert 3 - Primary - mem",
+            "value": 143.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 125.5361594217873, max mem: 235.83984375, count: 58977"
+          },
+          {
+            "name": "Upsert 4 - Primary - cpu",
+            "value": 17.81076,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.72626595310706, max cpu: 31.98477, count: 58977"
+          },
+          {
+            "name": "Upsert 4 - Primary - mem",
+            "value": 86,
+            "unit": "median mem",
+            "extra": "avg mem: 105.34938818840395, max mem: 194.19140625, count: 58977"
+          },
+          {
+            "name": "Upsert 5 - Primary - cpu",
+            "value": 17.985947,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.893982463982457, max cpu: 32.030506, count: 58977"
+          },
+          {
+            "name": "Upsert 5 - Primary - mem",
+            "value": 123.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 115.80255604144412, max mem: 321.609375, count: 58977"
+          },
+          {
+            "name": "Upsert 6 - Primary - cpu",
+            "value": 17.985947,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.030912410721392, max cpu: 32.168503, count: 58977"
+          },
+          {
+            "name": "Upsert 6 - Primary - mem",
+            "value": 75.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 79.6993323403615, max mem: 169.13671875, count: 58977"
+          },
+          {
+            "name": "Upsert 7 - Primary - cpu",
+            "value": 17.910448,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.782721454516178, max cpu: 32.030506, count: 58977"
+          },
+          {
+            "name": "Upsert 7 - Primary - mem",
+            "value": 97.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 100.3779722259313, max mem: 203.44140625, count: 58977"
+          },
+          {
+            "name": "Upsert 8 - Primary - cpu",
+            "value": 17.744917,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.773765199187675, max cpu: 32.030506, count: 58977"
+          },
+          {
+            "name": "Upsert 8 - Primary - mem",
+            "value": 105.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 94.77275814353477, max mem: 239.6015625, count: 58977"
+          },
+          {
+            "name": "Upsert 9 - Primary - cpu",
+            "value": 17.985947,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.21481608953856, max cpu: 32.12237, count: 58977"
+          },
+          {
+            "name": "Upsert 9 - Primary - mem",
+            "value": 87.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 116.63634585569375, max mem: 262.83203125, count: 58977"
+          }
+        ],
+        "publication_id": "14697837823-other"
       }
     ],
     "pg_search single-node-planner-paths.toml Performance - TPS": [

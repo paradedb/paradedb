@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795248549652,
+  "lastUpdate": 1795248574445,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -462609,6 +462609,89 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14508563727-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795248571774,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 517.6180535054755,
+            "unit": "median tps",
+            "extra": "avg tps: 520.1972806291295, max tps: 659.3199840685483, count: 54813"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 482.44307710279656,
+            "unit": "median tps",
+            "extra": "avg tps: 484.0811509703015, max tps: 599.8703696702147, count: 54813"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 186.61037590822684,
+            "unit": "median tps",
+            "extra": "avg tps: 186.9535868856632, max tps: 209.51686429778377, count: 54813"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 516.3549088819875,
+            "unit": "median tps",
+            "extra": "avg tps: 518.084236906624, max tps: 653.0936614493002, count: 54813"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 377.23260135731596,
+            "unit": "median tps",
+            "extra": "avg tps: 378.3662293814654, max tps: 450.162486558762, count: 54813"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 15.05347277829614,
+            "unit": "median tps",
+            "extra": "avg tps: 15.022677880907779, max tps: 16.127917060034864, count: 54813"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 635.0543749004518,
+            "unit": "median tps",
+            "extra": "avg tps: 637.9484612543156, max tps: 804.2626357618489, count: 54813"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 645.5826441224867,
+            "unit": "median tps",
+            "extra": "avg tps: 648.3237810008766, max tps: 816.2400494967966, count: 54813"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 288.32603527193953,
+            "unit": "median tps",
+            "extra": "avg tps: 288.8891616665415, max tps: 330.51726162976104, count: 54813"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 544.334637361824,
+            "unit": "median tps",
+            "extra": "avg tps: 546.2967739999945, max tps: 650.6332486799689, count: 54813"
+          }
+        ],
+        "publication_id": "14697927587-tps"
       }
     ],
     "pg_search logical-replication-mixed-workload.toml Performance - Other Metrics": [
@@ -504998,6 +505081,281 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14508563727-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e0eeecd05de41fb03fe859a247962abace44b67",
+          "message": "fix: Solve AggregateScan parameters before entering a runtime. (#7605)\n\n# Ticket(s) Closed\n\n- Closes #7593\n\n## What\n\nFixes DataFusion `AggregateScan` queries (`SELECT DISTINCT`, `GROUP BY`,\n`FILTER`) whose predicates evaluate an `InitPlan` containing a ParadeDB\n`BaseScan` (parallel or serial). Previously, parallel `InitPlan`s failed\nwith `es_query_dsa must be set during parallel initialization or\nexecution`, and serial `ColumnarExecState` `InitPlan`s panicked with\n`Cannot start a runtime from within a runtime`. Also fixes\nparallel-aware `BaseScan` queries with a bitmap intersection child\nfailing outside parallel mode (e.g., PL/pgSQL `SELECT INTO`), and makes\n`pdb.agg(..., 'threshold')` with runtime expressions resolve against the\nsolved row estimate.\n\n## Why\n\nUnlike `BaseScan`, Tantivy `AggregateScan`, and `JoinScan`, the\nDataFusion `AggregateScan` path left runtime Postgres expressions\nunsolved until `PgSearchTableProvider::scan`, which runs inside\n`PgTokioRuntime::block_on`. Inside `block_on`, `HeldInterrupts` forces\nPostgreSQL's `InitializeParallelDSM` into its private-memory fallback\n(`es_query_dsa == NULL`), and an active Tokio runtime panics if an\n`InitPlan` itself enters `block_on`. Separately, `BaseScan`'s DSM hooks\nasserted `es_query_dsa != NULL` even under PostgreSQL's private-memory\nfallback.\n\n## How\n\n- Implemented `SolvePostgresExpressions` on `DataFusionAggState`,\npre-solving `plan`, `targetlist` `FILTER`s, and `having_filter` into\n`runtime_context` before entering `PgTokioRuntime::block_on` (retaining\na pristine base snapshot for rescans).\n- Replaced in-`scan` solving in the DataFusion table provider with an\ninternal error guard and removed now-dead `planstate` /\n`ensure_own_expr_context` plumbing.\n- Updated the basescan to return early on `es_query_dsa == NULL`\n(matching PostgreSQL's `ExecBitmapHeapInitializeDSM` /\n`ExecBitmapHeapReInitializeDSM`) and populate private bitmaps lazily in\n`exec_custom_scan` when `parallel` is unattached.\n\n## Tests\n\nExpanded regress tests.",
+          "timestamp": "2026-11-21T06:07:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e0eeecd05de41fb03fe859a247962abace44b67"
+        },
+        "date": 1795248574366,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 4.5304394,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.918353439273646, max cpu: 9.17782, count: 54813"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 48.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.517754185252585, max mem: 48.5390625, count: 54813"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.534719,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.03776597923065, max cpu: 4.5411544, count: 54813"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 21.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.6626273648587, max mem: 21.68359375, count: 54813"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 22.630835,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.013815487172973, max cpu: 41.084164, count: 54813"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 42.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.00863411451207, max mem: 44.99609375, count: 54813"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - cpu",
+            "value": 4.532578,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9959122786948225, max cpu: 13.572103, count: 54813"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - mem",
+            "value": 46.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.43919147544834, max mem: 46.453125, count: 54813"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5283017,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6277649286559015, max cpu: 9.099526, count: 54813"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 29.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.36611595903344, max mem: 29.3671875, count: 54813"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 574,
+            "unit": "median pages",
+            "extra": "avg pages: 573.4149380621385, max pages: 607.0, count: 54813"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 4.484375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 4.479804346140514, max relation_size:MB: 4.7421875, count: 54813"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 4,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 4.462536259646434, max segment_count: 11.0, count: 54813"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.4588947,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.134237251074372, max cpu: 4.4588947, count: 54813"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 21.375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.354256745662525, max mem: 21.375, count: 54813"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 54813"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 21.375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.358231623884844, max mem: 21.375, count: 54813"
+          },
+          {
+            "name": "JoinScan - Subscriber - cpu",
+            "value": 9.065156,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.337025100001794, max cpu: 18.242281, count: 54813"
+          },
+          {
+            "name": "JoinScan - Subscriber - mem",
+            "value": 82.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 81.92702567992538, max mem: 82.06640625, count: 54813"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - cpu",
+            "value": 4.5304394,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.962488691097051, max cpu: 13.597734, count: 54813"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - mem",
+            "value": 59.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.257443204622994, max mem: 59.37109375, count: 54813"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.6004441992394165, max cpu: 13.72736, count: 54813"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 46.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.714016790610806, max mem: 46.76171875, count: 54813"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - cpu",
+            "value": 18.079096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.308353005099264, max cpu: 45.64907, count: 54813"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - mem",
+            "value": 46.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.614827487320525, max mem: 46.70703125, count: 54813"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - cpu",
+            "value": 4.5304394,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.859196806554958, max cpu: 9.151573, count: 54813"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - mem",
+            "value": 42.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.492035277899404, max mem: 42.515625, count: 54813"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 4.532578,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.936799960848684, max cpu: 9.18221, count: 54813"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 42.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.60573891572255, max mem: 42.64453125, count: 54813"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - cpu",
+            "value": 4.5605702,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.773141909070789, max cpu: 13.760153, count: 54813"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - mem",
+            "value": 46.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.4160440241138, max mem: 46.44140625, count: 54813"
+          },
+          {
+            "name": "Rotate join keys - Publisher - cpu",
+            "value": 4.477612,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.498625386054857, max cpu: 4.481793, count: 54813"
+          },
+          {
+            "name": "Rotate join keys - Publisher - mem",
+            "value": 21.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.787506499370586, max mem: 21.80859375, count: 54813"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00020643154253759658, max replication_lag:MB: 0.11841583251953125, count: 54813"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 4.5304394,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.928509644989421, max cpu: 13.597734, count: 54813"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 58.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.754581913733965, max mem: 58.8359375, count: 54813"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.465116,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.917373668258814, max cpu: 4.567079, count: 54813"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 21.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.72498027384015, max mem: 21.74609375, count: 54813"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.4859815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8741309357197027, max cpu: 4.4859815, count: 54813"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 21.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.787506499370586, max mem: 21.80859375, count: 54813"
+          },
+          {
+            "name": "Update joined rows - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 54813"
+          },
+          {
+            "name": "Update joined rows - Publisher - mem",
+            "value": 21.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.77582644628099, max mem: 21.87109375, count: 54813"
+          }
+        ],
+        "publication_id": "14697927587-other"
       }
     ],
     "pg_search partitioned-table.toml Performance - TPS": [

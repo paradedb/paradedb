@@ -25,6 +25,7 @@ ON mock_items USING paradedb (id, description, category);
 ```ts Drizzle
 import { sql } from "drizzle-orm";
 
+// Run this statement outside a transaction.
 await db.execute(sql`
   CREATE INDEX CONCURRENTLY search_idx_v2
   ON mock_items USING paradedb (id, description, category)
@@ -93,8 +94,7 @@ modelBuilder.Entity<MockItem>()
 
 <Note>
   The `CONCURRENTLY` clause is required. `CONCURRENTLY` allows the existing
-  index to continue serving queries while the new index is being built. Run the
-  Drizzle statement outside a transaction.
+  index to continue serving queries while the new index is being built.
 </Note>
 
 From another psql session, you can use `pg_stat_progress_create_index` to [track the progress](/reference/indexing/create-index#tracking-create-index-progress) of the new index.

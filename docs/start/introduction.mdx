@@ -9,7 +9,7 @@ import { Architecture } from "/snippets/architecture.jsx";
 
 When Postgres queries get too slow, developers usually reach for systems like Elasticsearch. ParadeDB makes text and vector search, filters, facets, and joins fast in Postgres, so you can keep scaling with it.
 
-ParadeDB accelerates these queries with a custom index in your existing Postgres database. The `pg_search` extension keeps the index up to date as you write, so there’s nothing to sync with an external search engine.
+ParadeDB accelerates these queries with a custom index that runs inside Postgres through the `pg_search` extension. When your application data and search index live in the same Postgres database, writes update the index automatically and there’s nothing to sync with an external search engine.
 
 <Architecture />
 

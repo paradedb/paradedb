@@ -70,10 +70,23 @@ impl std::str::FromStr for StopwordsLanguage {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let value = value.trim();
 
-        if let Ok(language) =
-            serde_json::from_value::<Language>(serde_json::Value::String(value.to_owned()))
-        {
-            return Ok(Self::Tantivy(language));
+        // SQL tokenizer options are normalized to lowercase, while Tantivy's
+        // serde representation uses title-cased language names.
+        let tantivy_name = {
+            let mut chars = value.chars();
+            chars.next().map(|first| {
+                first
+                    .to_uppercase()
+                    .chain(chars.flat_map(char::to_lowercase))
+                    .collect()
+            })
+        };
+        if let Some(tantivy_name) = tantivy_name {
+            if let Ok(language) =
+                serde_json::from_value::<Language>(serde_json::Value::String(tantivy_name))
+            {
+                return Ok(Self::Tantivy(language));
+            }
         }
 
         if stop_words::lookup(value).is_some() {
@@ -128,15 +141,9 @@ impl SearchTokenizerFilters {
             let s = value.as_str().ok_or_else(|| {
                 anyhow::anyhow!("stopwords_language tokenizer requires language strings")
             })?;
-            if let Ok(language) = serde_json::from_value::<Language>(value.clone()) {
-                Ok(StopwordsLanguage::Tantivy(language))
-            } else if stop_words::lookup(s).is_some() {
-                Ok(StopwordsLanguage::Additional(s.to_owned()))
-            } else {
-                Err(anyhow::anyhow!(
-                    "stopwords_language tokenizer requires a valid language: {s}"
-                ))
-            }
+            s.parse().map_err(|_| {
+                anyhow::anyhow!("stopwords_language tokenizer requires a valid language: {s}")
+            })
         }
 
         match value {

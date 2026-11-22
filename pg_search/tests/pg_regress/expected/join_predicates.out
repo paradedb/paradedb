@@ -786,13 +786,12 @@ WARNING:  JoinScan not used: join predicates must reference columnar indexed fie
 (18 rows)
 
 -- =============================================================================
--- TEST 12: Functions in cross-table predicates (native DF + UDF fallback)
+-- TEST 12: Functions and arithmetic in cross-table predicates
 -- =============================================================================
 -- Exercise PredicateTranslator's FuncExpr + arithmetic-OpExpr paths inside a
 -- multi-table predicate. Both sides' columns are fast fields, so JoinScan
--- should absorb these and the EXPLAIN should show `abs(...)` natively while
--- the arithmetic OpExpr (`-`) gets wrapped as `pdb_eval_expr_opexpr_*` via
--- `try_wrap_as_udf`.
+-- should absorb these and the EXPLAIN should show `abs(...)` natively around
+-- the checked integer subtraction `pdb_int_sub`.
 -- 12a: abs() wrapping a cross-table arithmetic OpExpr
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
@@ -815,7 +814,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@2 as col_1, supplier_id@1 as col_2, id@4 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=abs(pdb_eval_expr_opexpr_1d849f2b(supplier_id@0, id@1)) >= 0
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=abs(pdb_int_sub(CAST(supplier_id@0 AS Int32), CAST(id@1 AS Int32))) >= 0
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec

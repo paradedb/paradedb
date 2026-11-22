@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795334978101,
+  "lastUpdate": 1795335003938,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -184758,6 +184758,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14698521110-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "82d66f9e9afb081d1b5544a42c92a4cd47bbb910",
+          "message": "docs: Remove completed native vector search roadmap item (#7620)\n\n## What\n\nRemove native vector search from the in-progress roadmap now that it has\nshipped.\n\n## Tests\n\n`git diff --check` passed.",
+          "timestamp": "2026-11-22T01:07:05Z",
+          "url": "https://github.com/paradedb/paradedb/commit/82d66f9e9afb081d1b5544a42c92a4cd47bbb910"
+        },
+        "date": 1795335001684,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 159.2913828431576,
+            "unit": "median tps",
+            "extra": "avg tps: 157.28469140160874, max tps: 162.46020282472364, count: 59077"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 543.1183422099667,
+            "unit": "median tps",
+            "extra": "avg tps: 556.2342705845722, max tps: 4650.737753873167, count: 59077"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2960.341393918583,
+            "unit": "median tps",
+            "extra": "avg tps: 2968.2833899826833, max tps: 3072.0939107018894, count: 59077"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 194.9248120102979,
+            "unit": "median tps",
+            "extra": "avg tps: 193.15493801965138, max tps: 207.23821287226716, count: 59077"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 273.7768879523072,
+            "unit": "median tps",
+            "extra": "avg tps: 376.471420745801, max tps: 2567.317845878046, count: 118154"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 30.621801701349973,
+            "unit": "median tps",
+            "extra": "avg tps: 30.171500620826006, max tps: 48.66313132261816, count: 59077"
+          }
+        ],
+        "publication_id": "14745367022-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -235476,6 +235535,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14698521110-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "82d66f9e9afb081d1b5544a42c92a4cd47bbb910",
+          "message": "docs: Remove completed native vector search roadmap item (#7620)\n\n## What\n\nRemove native vector search from the in-progress roadmap now that it has\nshipped.\n\n## Tests\n\n`git diff --check` passed.",
+          "timestamp": "2026-11-22T01:07:05Z",
+          "url": "https://github.com/paradedb/paradedb/commit/82d66f9e9afb081d1b5544a42c92a4cd47bbb910"
+        },
+        "date": 1795335003864,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.37958,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.723161859147458, max cpu: 38.247013, count: 59077"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 51.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.16538069489818, max mem: 51.18359375, count: 59077"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.351326829829121, max cpu: 41.860466, count: 59077"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 31.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 31.572975470572302, max mem: 31.57421875, count: 59077"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5736065,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.779348309702507, max cpu: 18.303146, count: 59077"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.68025098600132, max mem: 49.2578125, count: 59077"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2505,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2516.240127291501, max block_count: 2555.0, count: 59077"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 59077"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 29.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.718400482632834, max mem: 29.74609375, count: 59077"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.630482251976236, max segment_count: 36.0, count: 59077"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.160305,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.173485912092913, max cpu: 33.566433, count: 59077"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 60.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 60.81474343071331, max mem: 60.859375, count: 59077"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.418474434968442, max cpu: 41.860466, count: 118154"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 49.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.43503820358388, max mem: 56.97265625, count: 118154"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.129815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.904259184976441, max cpu: 18.390804, count: 59077"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 48.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.38146818717521, max mem: 50.97265625, count: 59077"
+          }
+        ],
+        "publication_id": "14745367022-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795334944714,
+  "lastUpdate": 1795334978101,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -113376,6 +113376,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14698698753-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "82d66f9e9afb081d1b5544a42c92a4cd47bbb910",
+          "message": "docs: Remove completed native vector search roadmap item (#7620)\n\n## What\n\nRemove native vector search from the in-progress roadmap now that it has\nshipped.\n\n## Tests\n\n`git diff --check` passed.",
+          "timestamp": "2026-11-22T01:07:05Z",
+          "url": "https://github.com/paradedb/paradedb/commit/82d66f9e9afb081d1b5544a42c92a4cd47bbb910"
+        },
+        "date": 1795334975850,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1721.7667662553868,
+            "unit": "median tps",
+            "extra": "avg tps: 1736.0044010818672, max tps: 1917.1524726133634, count: 59237"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.8986927349590434,
+            "unit": "median tps",
+            "extra": "avg tps: 5.94400533717693, max tps: 6.970940553805675, count: 59237"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1842.0393769491088,
+            "unit": "median tps",
+            "extra": "avg tps: 1833.8304726067056, max tps: 1854.4663511119277, count: 59237"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2806.0287964208724,
+            "unit": "median tps",
+            "extra": "avg tps: 2746.359925600143, max tps: 3042.398207464162, count: 59237"
+          }
+        ],
+        "publication_id": "14745886691-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -159254,6 +159301,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14698698753-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "82d66f9e9afb081d1b5544a42c92a4cd47bbb910",
+          "message": "docs: Remove completed native vector search roadmap item (#7620)\n\n## What\n\nRemove native vector search from the in-progress roadmap now that it has\nshipped.\n\n## Tests\n\n`git diff --check` passed.",
+          "timestamp": "2026-11-22T01:07:05Z",
+          "url": "https://github.com/paradedb/paradedb/commit/82d66f9e9afb081d1b5544a42c92a4cd47bbb910"
+        },
+        "date": 1795334978011,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.9054813714401472, max background_merging: 2.0, count: 59237"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.5736065,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.338443921699618, max cpu: 9.80092, count: 59237"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.21047814288367, max mem: 27.2109375, count: 59237"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.5823393,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.663377684369795, max cpu: 9.805924, count: 59237"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 44.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.2251796148311, max mem: 44.24609375, count: 59237"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45328,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45059.010635244864, max block_count: 45328.0, count: 59237"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.66927764741631, max segment_count: 18.0, count: 59237"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 22.988506,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.877977594364243, max cpu: 33.566433, count: 59237"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 36.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 36.54561984591556, max mem: 36.56640625, count: 59237"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.5823393,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.40347543672947, max cpu: 9.566517, count: 59237"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 43.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.56567079063761, max mem: 43.56640625, count: 59237"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.402262862145557, max cpu: 9.80092, count: 59237"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 44.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.18284470643348, max mem: 44.18359375, count: 59237"
+          }
+        ],
+        "publication_id": "14745886691-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

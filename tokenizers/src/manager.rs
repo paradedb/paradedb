@@ -81,12 +81,11 @@ impl std::str::FromStr for StopwordsLanguage {
                     .collect()
             })
         };
-        if let Some(tantivy_name) = tantivy_name {
-            if let Ok(language) =
+        if let Some(tantivy_name) = tantivy_name
+            && let Ok(language) =
                 serde_json::from_value::<Language>(serde_json::Value::String(tantivy_name))
-            {
-                return Ok(Self::Tantivy(language));
-            }
+        {
+            return Ok(Self::Tantivy(language));
         }
 
         if stop_words::lookup(value).is_some() {

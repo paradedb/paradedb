@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795335003938,
+  "lastUpdate": 1795335030287,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -538686,6 +538686,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14698418120-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "82d66f9e9afb081d1b5544a42c92a4cd47bbb910",
+          "message": "docs: Remove completed native vector search roadmap item (#7620)\n\n## What\n\nRemove native vector search from the in-progress roadmap now that it has\nshipped.\n\n## Tests\n\n`git diff --check` passed.",
+          "timestamp": "2026-11-22T01:07:05Z",
+          "url": "https://github.com/paradedb/paradedb/commit/82d66f9e9afb081d1b5544a42c92a4cd47bbb910"
+        },
+        "date": 1795335028180,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3924.576930289486,
+            "unit": "median tps",
+            "extra": "avg tps: 3917.0375423461396, max tps: 4328.038379120773, count: 58916"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4564.533098232267,
+            "unit": "median tps",
+            "extra": "avg tps: 4577.745476241652, max tps: 5812.3717948200465, count: 58916"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.73791737215731,
+            "unit": "median tps",
+            "extra": "avg tps: 163.81453668167356, max tps: 2933.986525666881, count: 58916"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.818954730241998,
+            "unit": "median tps",
+            "extra": "avg tps: 40.19139817779818, max tps: 580.3451894734575, count: 58916"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.365170880024216,
+            "unit": "median tps",
+            "extra": "avg tps: 39.60719811207049, max tps: 572.0379345659688, count: 58916"
+          }
+        ],
+        "publication_id": "14745329468-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -554992,6 +555045,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14698418120-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "82d66f9e9afb081d1b5544a42c92a4cd47bbb910",
+          "message": "docs: Remove completed native vector search roadmap item (#7620)\n\n## What\n\nRemove native vector search from the in-progress roadmap now that it has\nshipped.\n\n## Tests\n\n`git diff --check` passed.",
+          "timestamp": "2026-11-22T01:07:05Z",
+          "url": "https://github.com/paradedb/paradedb/commit/82d66f9e9afb081d1b5544a42c92a4cd47bbb910"
+        },
+        "date": 1795335030194,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.295910728522052, max cpu: 9.155937, count: 58916"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 20.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.57495251449097, max mem: 20.66796875, count: 58916"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.569253,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4031603784386215, max cpu: 4.701273, count: 58916"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.169820698112567, max mem: 20.171875, count: 58916"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.217475,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.46853269335736, max cpu: 37.573387, count: 58916"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 22.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 22.8530687493635, max mem: 22.88671875, count: 58916"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.0070948469, max document_count: 10002.0, count: 58916"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.01527598615, max document_count: 10002.0, count: 58916"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58916"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.207682,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.43963129854822, max cpu: 32.416786, count: 58916"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 61.875,
+            "unit": "median mem",
+            "extra": "avg mem: 61.32497333332626, max mem: 71.875, count: 58916"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.224964,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.61539458924571, max cpu: 32.292168, count: 58916"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 60.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.95490706578009, max mem: 74.5234375, count: 58916"
+          }
+        ],
+        "publication_id": "14745329468-other"
       }
     ]
   }

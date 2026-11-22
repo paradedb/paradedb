@@ -42,10 +42,10 @@ cargo install --locked cargo-pgrx --version 0.20.1
 # `export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c@79/lib/pkgconfig"`
 # (the icu4c version may differ depending on what Homebrew has installed)
 
-cargo pgrx init
+cargo pgrx init --pg15 download --pg16 download --pg17 download --pg18 download
 ```
 
-`cargo pgrx init` builds every supported Postgres version this project targets (currently 15–18) into `~/.pgrx/<version>/pgrx-install/` and points future `cargo pgrx` commands at it — no system Postgres required. To target only a single version, pass e.g. `cargo pgrx init --pg18 download`.
+This builds the PostgreSQL versions supported by ParadeDB into `~/.pgrx/<version>/pgrx-install/` and registers them with pgrx. The version flags keep the setup scoped to PostgreSQL 15–18 now that pgrx also downloads PostgreSQL 19 by default. To set up only PostgreSQL 18, run `cargo pgrx init --pg18 download`.
 
 ### pgvector
 

@@ -1868,13 +1868,15 @@ impl FilterExpr {
                             return None;
                         }
                         let source = sources.iter().find(|s| s.heap_rti == rti)?;
-                        let resolved =
-                            source.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)?;
+                        let field_name = source
+                            .resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)
+                            .map(|r| r.field.name())
+                            .or_else(|| source.get_attname(attno).map(|n| n.into_inner()))?;
                         Some(Self::ColumnRef(FilterColumnRef {
                             plan_position: pp,
                             rti: source.heap_rti,
                             attno,
-                            field_name: resolved.field.name(),
+                            field_name,
                         }))
                     }
                     FilterExprBuildContext::Having {

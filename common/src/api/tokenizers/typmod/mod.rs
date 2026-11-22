@@ -37,6 +37,7 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 use tantivy::tokenizer::Language;
 use thiserror::Error;
+use tokenizers::StopwordsLanguage;
 use tokenizers::chinese_convert::ConvertMode;
 use tokenizers::manager::SearchTokenizerFilters;
 pub use validation::{TypmodSchema, ValidationError};
@@ -314,41 +315,17 @@ impl Property {
         }
     }
 
-    /// Parse comma-separated languages (e.g., "English,French")
-    pub fn as_languages(&self) -> Result<Vec<Language>> {
+    /// Parse comma-separated languages (e.g., "English,French") into the StopwordsLanguage enum
+    pub fn as_stopwords_languages(&self) -> Result<Vec<StopwordsLanguage>> {
         match self {
-            Property::String(_, value) => {
-                let languages: std::result::Result<Vec<_>, _> = value
-                    .split(',')
-                    .map(|s| {
-                        let lcase = s.trim().to_lowercase();
-                        match lcase.as_str() {
-                            "arabic" => Ok(Language::Arabic),
-                            "czech" => Ok(Language::Czech),
-                            "danish" => Ok(Language::Danish),
-                            "dutch" => Ok(Language::Dutch),
-                            "english" => Ok(Language::English),
-                            "finnish" => Ok(Language::Finnish),
-                            "french" => Ok(Language::French),
-                            "german" => Ok(Language::German),
-                            "greek" => Ok(Language::Greek),
-                            "hungarian" => Ok(Language::Hungarian),
-                            "italian" => Ok(Language::Italian),
-                            "norwegian" => Ok(Language::Norwegian),
-                            "polish" => Ok(Language::Polish),
-                            "portuguese" => Ok(Language::Portuguese),
-                            "romanian" => Ok(Language::Romanian),
-                            "russian" => Ok(Language::Russian),
-                            "spanish" => Ok(Language::Spanish),
-                            "swedish" => Ok(Language::Swedish),
-                            "tamil" => Ok(Language::Tamil),
-                            "turkish" => Ok(Language::Turkish),
-                            other => Err(Error::InvalidLanguage(other.to_string())),
-                        }
-                    })
-                    .collect();
-                languages
-            }
+            Property::String(_, value) => value
+                .split(',')
+                .map(|s| {
+                    s.trim()
+                        .parse::<StopwordsLanguage>()
+                        .map_err(|_| Error::InvalidLanguage(s.to_string()))
+                })
+                .collect(),
             _ => Err(Error::InvalidProperty(self.clone())),
         }
     }
@@ -441,7 +418,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
                 }),
             stopwords_language: value
                 .get("stopwords_language")
-                .and_then(|p| p.as_languages().ok()),
+                .and_then(|p| p.as_stopwords_languages().ok()),
             stopwords: None, // TODO: handle stopwords list in a new way we haven't done up to this point
             alpha_num_only: value.get("alpha_num_only").and_then(|p| p.as_bool()),
             ascii_folding: value.get("ascii_folding").and_then(|p| p.as_bool()),

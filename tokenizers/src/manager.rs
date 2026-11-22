@@ -42,6 +42,12 @@ use tantivy::tokenizer::{
     SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StopwordsLanguage {
+    Tantivy(Language),
+    Additional(String),
+}
+
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct SearchTokenizerFilters {
     pub remove_short: Option<usize>,
@@ -50,12 +56,32 @@ pub struct SearchTokenizerFilters {
     pub stemmer: Option<Language>,
     /// Supports one or more languages for stopwords filtering.
     /// Useful for documents containing multiple languages.
-    pub stopwords_language: Option<Vec<Language>>,
+    pub stopwords_language: Option<Vec<StopwordsLanguage>>,
     pub stopwords: Option<Vec<String>>,
     pub alpha_num_only: Option<bool>,
     pub ascii_folding: Option<bool>,
     pub trim: Option<bool>,
     pub normalizer: Option<SearchNormalizer>,
+}
+
+impl std::str::FromStr for StopwordsLanguage {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let value = value.trim();
+
+        if let Ok(language) =
+            serde_json::from_value::<Language>(serde_json::Value::String(value.to_owned()))
+        {
+            return Ok(Self::Tantivy(language));
+        }
+
+        if stop_words::lookup(value).is_some() {
+            return Ok(Self::Additional(value.to_owned()));
+        }
+
+        anyhow::bail!("unsupported stopwords language: {value}");
+    }
 }
 
 impl SearchTokenizerFilters {
@@ -97,27 +123,28 @@ impl SearchTokenizerFilters {
     /// Parse stopwords_language from JSON - supports both a single string and an array of strings
     fn parse_stopwords_language(
         value: &serde_json::Value,
-    ) -> Result<Option<Vec<Language>>, anyhow::Error> {
+    ) -> Result<Option<Vec<StopwordsLanguage>>, anyhow::Error> {
+        fn parse_language(value: &serde_json::Value) -> Result<StopwordsLanguage, anyhow::Error> {
+            let s = value.as_str().ok_or_else(|| {
+                anyhow::anyhow!("stopwords_language tokenizer requires language strings")
+            })?;
+            if let Ok(language) = serde_json::from_value::<Language>(value.clone()) {
+                Ok(StopwordsLanguage::Tantivy(language))
+            } else if stop_words::lookup(s).is_some() {
+                Ok(StopwordsLanguage::Additional(s.to_owned()))
+            } else {
+                Err(anyhow::anyhow!(
+                    "stopwords_language tokenizer requires a valid language: {s}"
+                ))
+            }
+        }
+
         match value {
             serde_json::Value::Null => Ok(None),
-            serde_json::Value::String(s) => {
-                let lang: Language = serde_json::from_value(serde_json::Value::String(s.clone()))
-                    .map_err(|e| {
-                    anyhow::anyhow!("stopwords_language tokenizer requires a valid language: {e}")
-                })?;
-                Ok(Some(vec![lang]))
-            }
+            serde_json::Value::String(_) => Ok(Some(vec![parse_language(value)?])),
             serde_json::Value::Array(arr) => {
-                let languages: Vec<Language> = arr
-                    .iter()
-                    .map(|v| {
-                        serde_json::from_value(v.clone()).map_err(|e| {
-                            anyhow::anyhow!(
-                                "stopwords_language tokenizer requires valid languages: {e}"
-                            )
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                let languages: Vec<StopwordsLanguage> =
+                    arr.iter().map(parse_language).collect::<Result<_, _>>()?;
                 if languages.is_empty() {
                     Ok(None)
                 } else {
@@ -220,10 +247,32 @@ impl SearchTokenizerFilters {
             is_empty = false;
         }
         if let Some(value) = self.stopwords_language.as_ref() {
-            if value.len() == 1 {
-                write!(buffer, "{}stopwords_language={:?}", sep(is_empty), value[0]).unwrap();
+            let languages: Vec<String> = value
+                .iter()
+                .map(|language| match language {
+                    StopwordsLanguage::Tantivy(language) => {
+                        format!("{language:?}")
+                    }
+                    StopwordsLanguage::Additional(code) => code.clone(),
+                })
+                .collect();
+
+            if languages.len() == 1 {
+                write!(
+                    buffer,
+                    "{}stopwords_language={}",
+                    sep(is_empty),
+                    languages[0]
+                )
+                .unwrap();
             } else {
-                write!(buffer, "{}stopwords_language={value:?}", sep(is_empty)).unwrap();
+                write!(
+                    buffer,
+                    "{}stopwords_language=[{}]",
+                    sep(is_empty),
+                    languages.join(", ")
+                )
+                .unwrap();
             }
             is_empty = false;
         }
@@ -271,14 +320,21 @@ impl SearchTokenizerFilters {
     }
 
     /// Returns StopWordFilters for all specified languages.
-    /// Uses Tantivy's built-in StopWordFilter::new() for each language.
+    /// Uses the appropriate stopword list for each language source.
     fn stopwords_languages(&self) -> Vec<StopWordFilter> {
         self.stopwords_language
             .as_ref()
             .map(|languages| {
                 languages
                     .iter()
-                    .filter_map(|lang| StopWordFilter::new(*lang))
+                    .filter_map(|lang| match lang {
+                        StopwordsLanguage::Tantivy(language) => StopWordFilter::new(*language),
+                        StopwordsLanguage::Additional(code) => {
+                            stop_words::lookup(code).map(|words| {
+                                StopWordFilter::remove(words.iter().map(|word| (*word).to_owned()))
+                            })
+                        }
+                    })
                     .collect()
             })
             .unwrap_or_default()
@@ -908,6 +964,17 @@ pub static LANGUAGES: Lazy<HashMap<Language, &str>> = Lazy::new(|| {
     map
 });
 
+pub static STOPWORDS_LANGUAGES: Lazy<Vec<&'static str>> = Lazy::new(|| {
+    let mut languages: Vec<&'static str> = LANGUAGES.values().copied().collect();
+
+    languages.extend(stop_words::available_languages().iter().copied());
+
+    languages.sort_unstable();
+    languages.dedup();
+
+    languages
+});
+
 impl SearchTokenizer {
     pub fn name(&self) -> String {
         let filters_suffix = self.filters().name_suffix();
@@ -1523,7 +1590,7 @@ mod tests {
                     remove_long: None,
                     lowercase: None,
                     stemmer: None,
-                    stopwords_language: Some(vec![Language::English]),
+                    stopwords_language: Some(vec![StopwordsLanguage::Tantivy(Language::English)]),
                     stopwords: None,
                     ascii_folding: None,
                     trim: None,
@@ -1900,5 +1967,91 @@ mod tests {
             tokens.push(token_stream.token().text.clone());
         }
         assert_eq!(tokens, expected);
+    }
+
+    #[rstest]
+    fn test_additional_language_stopwords() {
+        use tantivy::tokenizer::TokenStream;
+
+        let cases = [
+            ("et", "ja on see et kass koer", vec!["kass", "koer"]),
+            ("lv", "un ir māja kaķis", vec!["māja", "kaķis"]),
+            ("lt", "ir arba namas katė", vec!["namas", "katė"]),
+        ];
+
+        for (language, text, expected) in cases {
+            let config = serde_json::json!({
+                "type": "default",
+                "stopwords_language": language,
+            });
+
+            let tokenizer = SearchTokenizer::from_json_value(&config).unwrap();
+            let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+            let mut stream = analyzer.token_stream(text);
+
+            let mut tokens = Vec::new();
+            while stream.advance() {
+                tokens.push(stream.token().text.clone());
+            }
+
+            let expected: Vec<String> = expected.iter().map(|word| word.to_string()).collect();
+
+            assert_eq!(
+                tokens, expected,
+                "incorrect stopword filtering for language {language}"
+            );
+        }
+    }
+
+    #[rstest]
+    fn test_mixed_tantivy_and_additional_language_stopwords() {
+        use tantivy::tokenizer::TokenStream;
+
+        let config = serde_json::json!({
+            "type": "default",
+            "stopwords_language": ["English", "et"],
+        });
+
+        let tokenizer = SearchTokenizer::from_json_value(&config).unwrap();
+
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+        let mut stream = analyzer.token_stream("the quick ja on see et fox and");
+
+        let mut tokens = Vec::new();
+        while stream.advance() {
+            tokens.push(stream.token().text.clone());
+        }
+
+        assert_eq!(tokens, vec!["quick", "fox"]);
+    }
+
+    #[rstest]
+    fn test_stopwords_language_preserves_existing_tokenizer_names() {
+        let english = SearchTokenizer::from_json_value(&serde_json::json!({
+            "type": "default",
+            "stopwords_language": "English",
+        }))
+        .unwrap();
+
+        assert_eq!(english.name(), "default[stopwords_language=English]");
+
+        let estonian = SearchTokenizer::from_json_value(&serde_json::json!({
+            "type": "default",
+            "stopwords_language": "et",
+        }))
+        .unwrap();
+
+        assert_eq!(estonian.name(), "default[stopwords_language=et]");
+
+        assert_ne!(english.name(), estonian.name());
+    }
+
+    #[rstest]
+    fn test_stopwords_languages_contains_tantivy_and_additional_languages() {
+        assert!(STOPWORDS_LANGUAGES.contains(&"English"));
+        assert!(STOPWORDS_LANGUAGES.contains(&"French"));
+        assert!(STOPWORDS_LANGUAGES.contains(&"et"));
+        assert!(STOPWORDS_LANGUAGES.contains(&"lv"));
+        assert!(STOPWORDS_LANGUAGES.contains(&"lt"));
     }
 }

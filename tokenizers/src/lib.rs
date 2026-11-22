@@ -30,7 +30,7 @@ mod unicode_words;
 use tantivy::tokenizer::{LowerCaser, RawTokenizer, TextAnalyzer, TokenizerManager};
 use tracing::debug;
 
-pub use manager::{SearchNormalizer, SearchTokenizer};
+pub use manager::{SearchNormalizer, SearchTokenizer, StopwordsLanguage};
 
 pub fn create_tokenizer_manager(search_tokenizers: Vec<SearchTokenizer>) -> TokenizerManager {
     let tokenizer_manager = TokenizerManager::default();

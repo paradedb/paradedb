@@ -19,7 +19,7 @@ use crate::api::HashSet;
 use crate::api::tokenizers::typmod::{ParsedTypmod, Property};
 use std::sync::OnceLock;
 use thiserror::Error;
-use tokenizers::manager::LANGUAGES;
+use tokenizers::manager::{LANGUAGES, STOPWORDS_LANGUAGES};
 
 #[derive(Debug, Clone)]
 pub enum ValueConstraint {
@@ -262,7 +262,9 @@ impl TypmodSchema {
                 ),
                 rule!(
                     "stopwords_language",
-                    ValueConstraint::StringChoiceMultiple(LANGUAGES.values().cloned().collect())
+                    ValueConstraint::StringChoiceMultiple(
+                        STOPWORDS_LANGUAGES.iter().copied().collect()
+                    )
                 ),
                 rule!("stopwords", ValueConstraint::String),
                 rule!("alpha_num_only", ValueConstraint::Boolean),

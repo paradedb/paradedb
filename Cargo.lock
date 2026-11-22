@@ -7194,6 +7194,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "stop-words"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1ed527ae13a020ac2404e32746ecee62d632aafe64f8e0df2bb3545ae96f6d1"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "storage"
 version = "0.27.0"
 dependencies = [
@@ -7791,6 +7800,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "stop-words",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "tantivy",

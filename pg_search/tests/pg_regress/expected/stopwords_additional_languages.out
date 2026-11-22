@@ -1,0 +1,102 @@
+-- Regression tests for additional stopword languages.
+-- Tests Estonian, Latvian, Lithuanian and mixed-language filtering.
+-- 1. Estonian
+SELECT
+    'ja on see et kass koer'::pdb.simple(
+        'stopwords_language=et'
+    )::text[];
+    text     
+-------------
+ {kass,koer}
+(1 row)
+
+-- 2. Latvian
+SELECT
+    'un ir māja kaķis'::pdb.simple(
+        'stopwords_language=lv'
+    )::text[];
+     text     
+--------------
+ {māja,kaķis}
+(1 row)
+
+-- 3. Lithuanian
+SELECT
+    'ir arba namas katė'::pdb.simple(
+        'stopwords_language=lt'
+    )::text[];
+     text     
+--------------
+ {namas,katė}
+(1 row)
+
+-- 4. Existing Tantivy language + additional language
+SELECT
+    'the quick ja on see et fox and'::pdb.simple(
+        'stopwords_language=English,et'
+    )::text[];
+    text     
+-------------
+ {quick,fox}
+(1 row)
+
+-- 5. Test v1 tokenizer API with mixed languages
+SELECT *
+FROM paradedb.tokenize(
+    paradedb.tokenizer(
+        'default',
+        stopwords_languages => ARRAY['English', 'et']
+    ),
+    'the quick ja on see et fox and'
+);
+ token | position 
+-------+----------
+ quick |        1
+ fox   |        6
+(2 rows)
+
+-- 6. Verify filtering during indexing and querying
+DROP TABLE IF EXISTS additional_stopwords_test;
+CREATE TABLE additional_stopwords_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+INSERT INTO additional_stopwords_test (content) VALUES
+    ('ja on see et the quick fox'),
+    ('quick fox');
+CREATE INDEX additional_stopwords_idx
+ON additional_stopwords_test
+USING paradedb (
+    id,
+    (content::pdb.simple('stopwords_language=English,et'))
+);
+-- Estonian stopword should not match
+SELECT id
+FROM additional_stopwords_test
+WHERE content ||| 'ja'
+ORDER BY id;
+ id 
+----
+(0 rows)
+
+-- English stopword should not match
+SELECT id
+FROM additional_stopwords_test
+WHERE content ||| 'the'
+ORDER BY id;
+ id 
+----
+(0 rows)
+
+-- Non-stopword should still match
+SELECT id
+FROM additional_stopwords_test
+WHERE content ||| 'quick'
+ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+DROP TABLE additional_stopwords_test;

@@ -25,6 +25,7 @@ tantivy.workspace = true
 tracing = "0.1.44"
 strum_macros = "0.28.0"
 strum = { version = "0.28.0", features = ["derive"] }
+stop-words = "0.10.1"
 tantivy-jieba = { workspace = true }
 emojis = "0.9.0"
 icu_properties = "2.3.0"

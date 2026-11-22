@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795248740441,
+  "lastUpdate": 1795334914095,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -515154,6 +515154,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14698722512-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "82d66f9e9afb081d1b5544a42c92a4cd47bbb910",
+          "message": "docs: Remove completed native vector search roadmap item (#7620)\n\n## What\n\nRemove native vector search from the in-progress roadmap now that it has\nshipped.\n\n## Tests\n\n`git diff --check` passed.",
+          "timestamp": "2026-11-22T01:07:05Z",
+          "url": "https://github.com/paradedb/paradedb/commit/82d66f9e9afb081d1b5544a42c92a4cd47bbb910"
+        },
+        "date": 1795334911419,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.3765510109172,
+            "unit": "median tps",
+            "extra": "avg tps: 57.236704038743845, max tps: 537.8115415009863, count: 58777"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.055372421861552,
+            "unit": "median tps",
+            "extra": "avg tps: 31.321439749000543, max tps: 350.22191846539, count: 58777"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.97033950232493,
+            "unit": "median tps",
+            "extra": "avg tps: 133.52381090214612, max tps: 1256.1688737489028, count: 58777"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.098146339127027,
+            "unit": "median tps",
+            "extra": "avg tps: 30.255104758752193, max tps: 266.54846748711907, count: 58777"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 46.18178340456908,
+            "unit": "median tps",
+            "extra": "avg tps: 73.15601194830475, max tps: 551.5679255461008, count: 58777"
+          }
+        ],
+        "publication_id": "14745334543-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -529438,6 +529491,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14698722512-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "82d66f9e9afb081d1b5544a42c92a4cd47bbb910",
+          "message": "docs: Remove completed native vector search roadmap item (#7620)\n\n## What\n\nRemove native vector search from the in-progress roadmap now that it has\nshipped.\n\n## Tests\n\n`git diff --check` passed.",
+          "timestamp": "2026-11-22T01:07:05Z",
+          "url": "https://github.com/paradedb/paradedb/commit/82d66f9e9afb081d1b5544a42c92a4cd47bbb910"
+        },
+        "date": 1795334913971,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 20.7265625,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 20.947713125457238, max partition_index_size:MB: 26.0703125, count: 58777"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.900763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.20134555564336, max cpu: 32.292168, count: 58777"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 50.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.91013292295456, max mem: 58.2578125, count: 58777"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.999521,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.90439174183166, max cpu: 32.605534, count: 58777"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 68.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 68.35990879723362, max mem: 76.203125, count: 58777"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.681709,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.06713552297015, max cpu: 23.143684, count: 58777"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 47.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.2825538555685, max mem: 51.5234375, count: 58777"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.999521,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.90934705112254, max cpu: 36.363636, count: 58777"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 65.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.40805455631029, max mem: 73.95703125, count: 58777"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.900763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.92103406245869, max cpu: 32.307693, count: 58777"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 62.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.4594243656107, max mem: 72.03125, count: 58777"
+          }
+        ],
+        "publication_id": "14745334543-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

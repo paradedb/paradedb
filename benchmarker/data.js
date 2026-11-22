@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795359407118,
+  "lastUpdate": 1795359433068,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -103467,6 +103467,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14709907378-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Tahsin Tunan",
+            "username": "tahsintunan",
+            "email": "tahsintunan@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "56a759e6703abe0e67e2ed19c38c9d99e276be8e",
+          "message": "perf: evaluate integer `+`, `-`, `*` natively in Join Scan with overflow checks (#7388)\n\n# Ticket(s) Closed\n\n- Closes #7134\n\n## What\n\nJoin Scan evaluates integer `+`, `-`, `*` natively again, with checked\nUDFs (`pdb_int_add/sub/mul`) that still raise PostgreSQL's `integer out\nof range` (SQLSTATE 22003). Aggregate Scan gets this too, since it\nshares the same translator.\n\n## Why\n\n#7103 fixed overflow wrapping (#6931) by sending all integer `+ - *` to\nthe PostgreSQL fallback, which is correct but evaluates every row\nthrough PostgreSQL.\n\n## How\n\n- Operands are cast to the operator's result type, so cross-width\noperators (`int24pl`, `int48mul`) check at PostgreSQL's width.\n- Only plain integer arithmetic (columns, constants, nested integer `+ -\n*`) runs natively. Anything else keeps the whole expression on the\nfallback, since other native translations differ from PostgreSQL in edge\ncases (`/` by zero, `abs(INT_MIN)`).\n- Chains deeper than 16 operators fall back as one call. Join Scan\nserializes every plan to protobuf, which can't be decoded past 100\nnesting levels, and each nested call adds 2.\n\n## Tests\n\n- `issue_6931` covers each width, NULLs, SQLSTATE, the fallback cases,\nthe 16/17 depth boundary, long sums, MPP and Aggregate Scan.\n- Benchmark on generated Stack Overflow-like data (PG 18, 5M posts\njoined to 1M users, ~1.88M joined rows): integer arithmetic is 5-7x\nfaster per row (71 \u2192 14 ns), and whole queries 2-6% faster, since search\nand join dominate.\n\n<details><summary>Benchmark setup</summary>\n\n```sql\nCREATE TABLE bench_users (id int PRIMARY KEY, display_name text, reputation int, up_votes int, age smallint);\nCREATE TABLE bench_posts (id int PRIMARY KEY, title text, owner_user_id int, score int, view_count int,\n                          answer_count smallint, favorite_count bigint);\nINSERT INTO bench_users\nSELECT g, 'user ' || g, ((g::bigint * 7919) % 100000)::int, ((g::bigint * 104729) % 5000)::int, (18 + g % 60)::smallint\nFROM generate_series(1, 1000000) g;\nINSERT INTO bench_posts\nSELECT g,\n       (ARRAY['error','python','java','rust','sql','linux','memory','thread'])[1 + g % 8]\n         || ' ' || (ARRAY['handling','question','crash','performance','install'])[1 + (g / 8) % 5],\n       1 + (g * 31) % 1000000, (g * 13) % 2000 - 100, (g * 17) % 100000, (g % 30)::smallint, (g * 3) % 500\nFROM generate_series(1, 5000000) g;\nCREATE INDEX bench_users_idx ON bench_users USING paradedb (id, display_name, reputation, up_votes, age)\n  WITH (key_field = 'id');\nCREATE INDEX bench_posts_idx ON bench_posts USING paradedb\n  (id, title, owner_user_id, score, view_count, answer_count, favorite_count) WITH (key_field\nVACUUM ANALYZE bench_users;\nVACUUM ANALYZE bench_posts;\n\nSET work_mem = '4GB';\nSET paradedb.enable_join_custom_scan = on;\n\n-- q0: control, no arithmetic, never-true cross-table filter\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.owner_user_id <> u.id\nORDER BY p.id LIMIT 20;\n\n-- q2: never-true integer filter, so every joined row evaluates it\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.view_count + u.up_votes * 20 > 200000\nORDER BY p.id LIMIT 20;\n```\n\nMedian of 10 runs after 3 warm-ups.\n\n| Query | main | this PR | Per row |\n|---|---|---|---|\n| q0 control | 2883 ms | 2886 ms | n/a |\n| q2 `+`, `*` | 3018 ms | 2912 ms | 71 \u2192 14 ns |\n\n</details>\n\n---------\n\nSigned-off-by: Tahsin Tunan <tahsintunan@gmail.com>",
+          "timestamp": "2026-11-22T08:01:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/56a759e6703abe0e67e2ed19c38c9d99e276be8e"
+        },
+        "date": 1795359428393,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 3.052,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 3.389,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 3.514,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 3.829,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 4.353,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 4.692,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 7.091,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 8.085,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 8.574,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 3.93,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 4.554,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 4.684,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 5.494,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 6.21,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 6.346,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 9.479,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 10.28,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 10.641,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 2.261,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 2.536,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 2.719,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 3.107,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 3.639,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 3.833,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 7.837,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 8.787,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 9.208,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14757408326-latency"
       }
     ],
     "benchmarker cohere-1m-8cpu-32gb (throughput)": [
@@ -103877,6 +104035,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14709907378-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Tahsin Tunan",
+            "username": "tahsintunan",
+            "email": "tahsintunan@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "56a759e6703abe0e67e2ed19c38c9d99e276be8e",
+          "message": "perf: evaluate integer `+`, `-`, `*` natively in Join Scan with overflow checks (#7388)\n\n# Ticket(s) Closed\n\n- Closes #7134\n\n## What\n\nJoin Scan evaluates integer `+`, `-`, `*` natively again, with checked\nUDFs (`pdb_int_add/sub/mul`) that still raise PostgreSQL's `integer out\nof range` (SQLSTATE 22003). Aggregate Scan gets this too, since it\nshares the same translator.\n\n## Why\n\n#7103 fixed overflow wrapping (#6931) by sending all integer `+ - *` to\nthe PostgreSQL fallback, which is correct but evaluates every row\nthrough PostgreSQL.\n\n## How\n\n- Operands are cast to the operator's result type, so cross-width\noperators (`int24pl`, `int48mul`) check at PostgreSQL's width.\n- Only plain integer arithmetic (columns, constants, nested integer `+ -\n*`) runs natively. Anything else keeps the whole expression on the\nfallback, since other native translations differ from PostgreSQL in edge\ncases (`/` by zero, `abs(INT_MIN)`).\n- Chains deeper than 16 operators fall back as one call. Join Scan\nserializes every plan to protobuf, which can't be decoded past 100\nnesting levels, and each nested call adds 2.\n\n## Tests\n\n- `issue_6931` covers each width, NULLs, SQLSTATE, the fallback cases,\nthe 16/17 depth boundary, long sums, MPP and Aggregate Scan.\n- Benchmark on generated Stack Overflow-like data (PG 18, 5M posts\njoined to 1M users, ~1.88M joined rows): integer arithmetic is 5-7x\nfaster per row (71 \u2192 14 ns), and whole queries 2-6% faster, since search\nand join dominate.\n\n<details><summary>Benchmark setup</summary>\n\n```sql\nCREATE TABLE bench_users (id int PRIMARY KEY, display_name text, reputation int, up_votes int, age smallint);\nCREATE TABLE bench_posts (id int PRIMARY KEY, title text, owner_user_id int, score int, view_count int,\n                          answer_count smallint, favorite_count bigint);\nINSERT INTO bench_users\nSELECT g, 'user ' || g, ((g::bigint * 7919) % 100000)::int, ((g::bigint * 104729) % 5000)::int, (18 + g % 60)::smallint\nFROM generate_series(1, 1000000) g;\nINSERT INTO bench_posts\nSELECT g,\n       (ARRAY['error','python','java','rust','sql','linux','memory','thread'])[1 + g % 8]\n         || ' ' || (ARRAY['handling','question','crash','performance','install'])[1 + (g / 8) % 5],\n       1 + (g * 31) % 1000000, (g * 13) % 2000 - 100, (g * 17) % 100000, (g % 30)::smallint, (g * 3) % 500\nFROM generate_series(1, 5000000) g;\nCREATE INDEX bench_users_idx ON bench_users USING paradedb (id, display_name, reputation, up_votes, age)\n  WITH (key_field = 'id');\nCREATE INDEX bench_posts_idx ON bench_posts USING paradedb\n  (id, title, owner_user_id, score, view_count, answer_count, favorite_count) WITH (key_field\nVACUUM ANALYZE bench_users;\nVACUUM ANALYZE bench_posts;\n\nSET work_mem = '4GB';\nSET paradedb.enable_join_custom_scan = on;\n\n-- q0: control, no arithmetic, never-true cross-table filter\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.owner_user_id <> u.id\nORDER BY p.id LIMIT 20;\n\n-- q2: never-true integer filter, so every joined row evaluates it\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.view_count + u.up_votes * 20 > 200000\nORDER BY p.id LIMIT 20;\n```\n\nMedian of 10 runs after 3 warm-ups.\n\n| Query | main | this PR | Per row |\n|---|---|---|---|\n| q0 control | 2883 ms | 2886 ms | n/a |\n| q2 `+`, `*` | 3018 ms | 2912 ms | 71 \u2192 14 ns |\n\n</details>\n\n---------\n\nSigned-off-by: Tahsin Tunan <tahsintunan@gmail.com>",
+          "timestamp": "2026-11-22T08:01:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/56a759e6703abe0e67e2ed19c38c9d99e276be8e"
+        },
+        "date": 1795359429507,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 323.04004115361704,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 256.9011241812817,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 138.88374532372865,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 246.3675418773177,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 183.92236027790827,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 105.05681121408637,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 439.2825509592185,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 316.12772688055077,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 140.82068973966193,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14757408326-throughput"
       }
     ],
     "benchmarker cohere-1m-8cpu-32gb (buffers)": [
@@ -104287,6 +104513,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14709907378-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Tahsin Tunan",
+            "username": "tahsintunan",
+            "email": "tahsintunan@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "56a759e6703abe0e67e2ed19c38c9d99e276be8e",
+          "message": "perf: evaluate integer `+`, `-`, `*` natively in Join Scan with overflow checks (#7388)\n\n# Ticket(s) Closed\n\n- Closes #7134\n\n## What\n\nJoin Scan evaluates integer `+`, `-`, `*` natively again, with checked\nUDFs (`pdb_int_add/sub/mul`) that still raise PostgreSQL's `integer out\nof range` (SQLSTATE 22003). Aggregate Scan gets this too, since it\nshares the same translator.\n\n## Why\n\n#7103 fixed overflow wrapping (#6931) by sending all integer `+ - *` to\nthe PostgreSQL fallback, which is correct but evaluates every row\nthrough PostgreSQL.\n\n## How\n\n- Operands are cast to the operator's result type, so cross-width\noperators (`int24pl`, `int48mul`) check at PostgreSQL's width.\n- Only plain integer arithmetic (columns, constants, nested integer `+ -\n*`) runs natively. Anything else keeps the whole expression on the\nfallback, since other native translations differ from PostgreSQL in edge\ncases (`/` by zero, `abs(INT_MIN)`).\n- Chains deeper than 16 operators fall back as one call. Join Scan\nserializes every plan to protobuf, which can't be decoded past 100\nnesting levels, and each nested call adds 2.\n\n## Tests\n\n- `issue_6931` covers each width, NULLs, SQLSTATE, the fallback cases,\nthe 16/17 depth boundary, long sums, MPP and Aggregate Scan.\n- Benchmark on generated Stack Overflow-like data (PG 18, 5M posts\njoined to 1M users, ~1.88M joined rows): integer arithmetic is 5-7x\nfaster per row (71 \u2192 14 ns), and whole queries 2-6% faster, since search\nand join dominate.\n\n<details><summary>Benchmark setup</summary>\n\n```sql\nCREATE TABLE bench_users (id int PRIMARY KEY, display_name text, reputation int, up_votes int, age smallint);\nCREATE TABLE bench_posts (id int PRIMARY KEY, title text, owner_user_id int, score int, view_count int,\n                          answer_count smallint, favorite_count bigint);\nINSERT INTO bench_users\nSELECT g, 'user ' || g, ((g::bigint * 7919) % 100000)::int, ((g::bigint * 104729) % 5000)::int, (18 + g % 60)::smallint\nFROM generate_series(1, 1000000) g;\nINSERT INTO bench_posts\nSELECT g,\n       (ARRAY['error','python','java','rust','sql','linux','memory','thread'])[1 + g % 8]\n         || ' ' || (ARRAY['handling','question','crash','performance','install'])[1 + (g / 8) % 5],\n       1 + (g * 31) % 1000000, (g * 13) % 2000 - 100, (g * 17) % 100000, (g % 30)::smallint, (g * 3) % 500\nFROM generate_series(1, 5000000) g;\nCREATE INDEX bench_users_idx ON bench_users USING paradedb (id, display_name, reputation, up_votes, age)\n  WITH (key_field = 'id');\nCREATE INDEX bench_posts_idx ON bench_posts USING paradedb\n  (id, title, owner_user_id, score, view_count, answer_count, favorite_count) WITH (key_field\nVACUUM ANALYZE bench_users;\nVACUUM ANALYZE bench_posts;\n\nSET work_mem = '4GB';\nSET paradedb.enable_join_custom_scan = on;\n\n-- q0: control, no arithmetic, never-true cross-table filter\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.owner_user_id <> u.id\nORDER BY p.id LIMIT 20;\n\n-- q2: never-true integer filter, so every joined row evaluates it\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.view_count + u.up_votes * 20 > 200000\nORDER BY p.id LIMIT 20;\n```\n\nMedian of 10 runs after 3 warm-ups.\n\n| Query | main | this PR | Per row |\n|---|---|---|---|\n| q0 control | 2883 ms | 2886 ms | n/a |\n| q2 `+`, `*` | 3018 ms | 2912 ms | 71 \u2192 14 ns |\n\n</details>\n\n---------\n\nSigned-off-by: Tahsin Tunan <tahsintunan@gmail.com>",
+          "timestamp": "2026-11-22T08:01:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/56a759e6703abe0e67e2ed19c38c9d99e276be8e"
+        },
+        "date": 1795359430357,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 1113.64,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 1654.33,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 3943.24,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 1973.82,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 3045.37,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 6304.45,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 770.98,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 1186.29,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 2877.23,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14757408326-buffers"
       }
     ],
     "benchmarker cohere-1m-8cpu-32gb (router)": [
@@ -104554,6 +104848,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14709907378-router"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Tahsin Tunan",
+            "username": "tahsintunan",
+            "email": "tahsintunan@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "56a759e6703abe0e67e2ed19c38c9d99e276be8e",
+          "message": "perf: evaluate integer `+`, `-`, `*` natively in Join Scan with overflow checks (#7388)\n\n# Ticket(s) Closed\n\n- Closes #7134\n\n## What\n\nJoin Scan evaluates integer `+`, `-`, `*` natively again, with checked\nUDFs (`pdb_int_add/sub/mul`) that still raise PostgreSQL's `integer out\nof range` (SQLSTATE 22003). Aggregate Scan gets this too, since it\nshares the same translator.\n\n## Why\n\n#7103 fixed overflow wrapping (#6931) by sending all integer `+ - *` to\nthe PostgreSQL fallback, which is correct but evaluates every row\nthrough PostgreSQL.\n\n## How\n\n- Operands are cast to the operator's result type, so cross-width\noperators (`int24pl`, `int48mul`) check at PostgreSQL's width.\n- Only plain integer arithmetic (columns, constants, nested integer `+ -\n*`) runs natively. Anything else keeps the whole expression on the\nfallback, since other native translations differ from PostgreSQL in edge\ncases (`/` by zero, `abs(INT_MIN)`).\n- Chains deeper than 16 operators fall back as one call. Join Scan\nserializes every plan to protobuf, which can't be decoded past 100\nnesting levels, and each nested call adds 2.\n\n## Tests\n\n- `issue_6931` covers each width, NULLs, SQLSTATE, the fallback cases,\nthe 16/17 depth boundary, long sums, MPP and Aggregate Scan.\n- Benchmark on generated Stack Overflow-like data (PG 18, 5M posts\njoined to 1M users, ~1.88M joined rows): integer arithmetic is 5-7x\nfaster per row (71 \u2192 14 ns), and whole queries 2-6% faster, since search\nand join dominate.\n\n<details><summary>Benchmark setup</summary>\n\n```sql\nCREATE TABLE bench_users (id int PRIMARY KEY, display_name text, reputation int, up_votes int, age smallint);\nCREATE TABLE bench_posts (id int PRIMARY KEY, title text, owner_user_id int, score int, view_count int,\n                          answer_count smallint, favorite_count bigint);\nINSERT INTO bench_users\nSELECT g, 'user ' || g, ((g::bigint * 7919) % 100000)::int, ((g::bigint * 104729) % 5000)::int, (18 + g % 60)::smallint\nFROM generate_series(1, 1000000) g;\nINSERT INTO bench_posts\nSELECT g,\n       (ARRAY['error','python','java','rust','sql','linux','memory','thread'])[1 + g % 8]\n         || ' ' || (ARRAY['handling','question','crash','performance','install'])[1 + (g / 8) % 5],\n       1 + (g * 31) % 1000000, (g * 13) % 2000 - 100, (g * 17) % 100000, (g % 30)::smallint, (g * 3) % 500\nFROM generate_series(1, 5000000) g;\nCREATE INDEX bench_users_idx ON bench_users USING paradedb (id, display_name, reputation, up_votes, age)\n  WITH (key_field = 'id');\nCREATE INDEX bench_posts_idx ON bench_posts USING paradedb\n  (id, title, owner_user_id, score, view_count, answer_count, favorite_count) WITH (key_field\nVACUUM ANALYZE bench_users;\nVACUUM ANALYZE bench_posts;\n\nSET work_mem = '4GB';\nSET paradedb.enable_join_custom_scan = on;\n\n-- q0: control, no arithmetic, never-true cross-table filter\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.owner_user_id <> u.id\nORDER BY p.id LIMIT 20;\n\n-- q2: never-true integer filter, so every joined row evaluates it\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.view_count + u.up_votes * 20 > 200000\nORDER BY p.id LIMIT 20;\n```\n\nMedian of 10 runs after 3 warm-ups.\n\n| Query | main | this PR | Per row |\n|---|---|---|---|\n| q0 control | 2883 ms | 2886 ms | n/a |\n| q2 `+`, `*` | 3018 ms | 2912 ms | 71 \u2192 14 ns |\n\n</details>\n\n---------\n\nSigned-off-by: Tahsin Tunan <tahsintunan@gmail.com>",
+          "timestamp": "2026-11-22T08:01:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/56a759e6703abe0e67e2ed19c38c9d99e276be8e"
+        },
+        "date": 1795359431203,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 router vs flat, clusters",
+            "value": 1.1673624288425049,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 adaptive on vs off, vectors probed",
+            "value": 1,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vs flat, clusters",
+            "value": 1.0788280432507846,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 adaptive on vs off, vectors probed",
+            "value": 1,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vs flat, clusters",
+            "value": 1.0361768646717284,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 adaptive on vs off, vectors probed",
+            "value": 0.8481580723842304,
+            "unit": "ratio"
+          }
+        ],
+        "publication_id": "14757408326-router"
       }
     ],
     "benchmarker cohere-1m-8cpu-32gb (router detail)": [
@@ -104896,6 +105243,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14709907378-router-detail"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Tahsin Tunan",
+            "username": "tahsintunan",
+            "email": "tahsintunan@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "56a759e6703abe0e67e2ed19c38c9d99e276be8e",
+          "message": "perf: evaluate integer `+`, `-`, `*` natively in Join Scan with overflow checks (#7388)\n\n# Ticket(s) Closed\n\n- Closes #7134\n\n## What\n\nJoin Scan evaluates integer `+`, `-`, `*` natively again, with checked\nUDFs (`pdb_int_add/sub/mul`) that still raise PostgreSQL's `integer out\nof range` (SQLSTATE 22003). Aggregate Scan gets this too, since it\nshares the same translator.\n\n## Why\n\n#7103 fixed overflow wrapping (#6931) by sending all integer `+ - *` to\nthe PostgreSQL fallback, which is correct but evaluates every row\nthrough PostgreSQL.\n\n## How\n\n- Operands are cast to the operator's result type, so cross-width\noperators (`int24pl`, `int48mul`) check at PostgreSQL's width.\n- Only plain integer arithmetic (columns, constants, nested integer `+ -\n*`) runs natively. Anything else keeps the whole expression on the\nfallback, since other native translations differ from PostgreSQL in edge\ncases (`/` by zero, `abs(INT_MIN)`).\n- Chains deeper than 16 operators fall back as one call. Join Scan\nserializes every plan to protobuf, which can't be decoded past 100\nnesting levels, and each nested call adds 2.\n\n## Tests\n\n- `issue_6931` covers each width, NULLs, SQLSTATE, the fallback cases,\nthe 16/17 depth boundary, long sums, MPP and Aggregate Scan.\n- Benchmark on generated Stack Overflow-like data (PG 18, 5M posts\njoined to 1M users, ~1.88M joined rows): integer arithmetic is 5-7x\nfaster per row (71 \u2192 14 ns), and whole queries 2-6% faster, since search\nand join dominate.\n\n<details><summary>Benchmark setup</summary>\n\n```sql\nCREATE TABLE bench_users (id int PRIMARY KEY, display_name text, reputation int, up_votes int, age smallint);\nCREATE TABLE bench_posts (id int PRIMARY KEY, title text, owner_user_id int, score int, view_count int,\n                          answer_count smallint, favorite_count bigint);\nINSERT INTO bench_users\nSELECT g, 'user ' || g, ((g::bigint * 7919) % 100000)::int, ((g::bigint * 104729) % 5000)::int, (18 + g % 60)::smallint\nFROM generate_series(1, 1000000) g;\nINSERT INTO bench_posts\nSELECT g,\n       (ARRAY['error','python','java','rust','sql','linux','memory','thread'])[1 + g % 8]\n         || ' ' || (ARRAY['handling','question','crash','performance','install'])[1 + (g / 8) % 5],\n       1 + (g * 31) % 1000000, (g * 13) % 2000 - 100, (g * 17) % 100000, (g % 30)::smallint, (g * 3) % 500\nFROM generate_series(1, 5000000) g;\nCREATE INDEX bench_users_idx ON bench_users USING paradedb (id, display_name, reputation, up_votes, age)\n  WITH (key_field = 'id');\nCREATE INDEX bench_posts_idx ON bench_posts USING paradedb\n  (id, title, owner_user_id, score, view_count, answer_count, favorite_count) WITH (key_field\nVACUUM ANALYZE bench_users;\nVACUUM ANALYZE bench_posts;\n\nSET work_mem = '4GB';\nSET paradedb.enable_join_custom_scan = on;\n\n-- q0: control, no arithmetic, never-true cross-table filter\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.owner_user_id <> u.id\nORDER BY p.id LIMIT 20;\n\n-- q2: never-true integer filter, so every joined row evaluates it\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.view_count + u.up_votes * 20 > 200000\nORDER BY p.id LIMIT 20;\n```\n\nMedian of 10 runs after 3 warm-ups.\n\n| Query | main | this PR | Per row |\n|---|---|---|---|\n| q0 control | 2883 ms | 2886 ms | n/a |\n| q2 `+`, `*` | 3018 ms | 2912 ms | 71 \u2192 14 ns |\n\n</details>\n\n---------\n\nSigned-off-by: Tahsin Tunan <tahsintunan@gmail.com>",
+          "timestamp": "2026-11-22T08:01:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/56a759e6703abe0e67e2ed19c38c9d99e276be8e"
+        },
+        "date": 1795359432104,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 flat vectors probed",
+            "value": 13389.84,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router vectors probed, adaptive on",
+            "value": 15533.09,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router routing time",
+            "value": 0.13810956,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 flat vectors probed",
+            "value": 28619.82,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vectors probed, adaptive on",
+            "value": 30874.65,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router routing time",
+            "value": 0.23060966,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 flat vectors probed",
+            "value": 109515.16,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vectors probed, adaptive on",
+            "value": 96304.49,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router routing time",
+            "value": 0.68402281,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14757408326-router-detail"
       }
     ],
     "benchmarker cohere-1m-8cpu-32gb (index build)": [
@@ -105096,6 +105511,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14709907378-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Tahsin Tunan",
+            "username": "tahsintunan",
+            "email": "tahsintunan@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "56a759e6703abe0e67e2ed19c38c9d99e276be8e",
+          "message": "perf: evaluate integer `+`, `-`, `*` natively in Join Scan with overflow checks (#7388)\n\n# Ticket(s) Closed\n\n- Closes #7134\n\n## What\n\nJoin Scan evaluates integer `+`, `-`, `*` natively again, with checked\nUDFs (`pdb_int_add/sub/mul`) that still raise PostgreSQL's `integer out\nof range` (SQLSTATE 22003). Aggregate Scan gets this too, since it\nshares the same translator.\n\n## Why\n\n#7103 fixed overflow wrapping (#6931) by sending all integer `+ - *` to\nthe PostgreSQL fallback, which is correct but evaluates every row\nthrough PostgreSQL.\n\n## How\n\n- Operands are cast to the operator's result type, so cross-width\noperators (`int24pl`, `int48mul`) check at PostgreSQL's width.\n- Only plain integer arithmetic (columns, constants, nested integer `+ -\n*`) runs natively. Anything else keeps the whole expression on the\nfallback, since other native translations differ from PostgreSQL in edge\ncases (`/` by zero, `abs(INT_MIN)`).\n- Chains deeper than 16 operators fall back as one call. Join Scan\nserializes every plan to protobuf, which can't be decoded past 100\nnesting levels, and each nested call adds 2.\n\n## Tests\n\n- `issue_6931` covers each width, NULLs, SQLSTATE, the fallback cases,\nthe 16/17 depth boundary, long sums, MPP and Aggregate Scan.\n- Benchmark on generated Stack Overflow-like data (PG 18, 5M posts\njoined to 1M users, ~1.88M joined rows): integer arithmetic is 5-7x\nfaster per row (71 \u2192 14 ns), and whole queries 2-6% faster, since search\nand join dominate.\n\n<details><summary>Benchmark setup</summary>\n\n```sql\nCREATE TABLE bench_users (id int PRIMARY KEY, display_name text, reputation int, up_votes int, age smallint);\nCREATE TABLE bench_posts (id int PRIMARY KEY, title text, owner_user_id int, score int, view_count int,\n                          answer_count smallint, favorite_count bigint);\nINSERT INTO bench_users\nSELECT g, 'user ' || g, ((g::bigint * 7919) % 100000)::int, ((g::bigint * 104729) % 5000)::int, (18 + g % 60)::smallint\nFROM generate_series(1, 1000000) g;\nINSERT INTO bench_posts\nSELECT g,\n       (ARRAY['error','python','java','rust','sql','linux','memory','thread'])[1 + g % 8]\n         || ' ' || (ARRAY['handling','question','crash','performance','install'])[1 + (g / 8) % 5],\n       1 + (g * 31) % 1000000, (g * 13) % 2000 - 100, (g * 17) % 100000, (g % 30)::smallint, (g * 3) % 500\nFROM generate_series(1, 5000000) g;\nCREATE INDEX bench_users_idx ON bench_users USING paradedb (id, display_name, reputation, up_votes, age)\n  WITH (key_field = 'id');\nCREATE INDEX bench_posts_idx ON bench_posts USING paradedb\n  (id, title, owner_user_id, score, view_count, answer_count, favorite_count) WITH (key_field\nVACUUM ANALYZE bench_users;\nVACUUM ANALYZE bench_posts;\n\nSET work_mem = '4GB';\nSET paradedb.enable_join_custom_scan = on;\n\n-- q0: control, no arithmetic, never-true cross-table filter\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.owner_user_id <> u.id\nORDER BY p.id LIMIT 20;\n\n-- q2: never-true integer filter, so every joined row evaluates it\nSELECT p.id, u.display_name FROM bench_posts p JOIN bench_users u ON p.owner_user_id = u.id\nWHERE p.title ||| 'error OR python OR java' AND p.view_count + u.up_votes * 20 > 200000\nORDER BY p.id LIMIT 20;\n```\n\nMedian of 10 runs after 3 warm-ups.\n\n| Query | main | this PR | Per row |\n|---|---|---|---|\n| q0 control | 2883 ms | 2886 ms | n/a |\n| q2 `+`, `*` | 3018 ms | 2912 ms | 71 \u2192 14 ns |\n\n</details>\n\n---------\n\nSigned-off-by: Tahsin Tunan <tahsintunan@gmail.com>",
+          "timestamp": "2026-11-22T08:01:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/56a759e6703abe0e67e2ed19c38c9d99e276be8e"
+        },
+        "date": 1795359433054,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.4354119839333333,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4601.3515625,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "14757408326-index"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (latency)": [

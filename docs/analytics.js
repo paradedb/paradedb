@@ -9,7 +9,7 @@
     const consent = shared.create({
       gtmId: "GTM-KMGRG564",
       posthogKey: "phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj",
-      posthogHost: "https://us.i.posthog.com",
+      posthogHost: "https://g.paradedb.com",
       // Previews don't have the website's country endpoint.
       regionEndpoint: ["www.paradedb.com", "paradedb.com"].includes(
         location.hostname,

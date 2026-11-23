@@ -18,6 +18,7 @@ END
 $$;
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
+DO $$ BEGIN PERFORM pdb.setup_pgvector(); END $$;
 
 -- Pin parallelism so regress plans and index builds don't depend on the local cluster's worker
 -- config. These values drive how much a query or build parallelizes, so a stock cluster and a

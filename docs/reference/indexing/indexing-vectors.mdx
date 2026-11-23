@@ -10,24 +10,53 @@ canonical: https://www.paradedb.com/docs/reference/indexing/indexing-vectors
   [How Vector Search Works](/concepts/vector/overview) for background.
 </Note>
 
-<Note>
-  Make sure the [pgvector](https://github.com/pgvector/pgvector) extension is
-  installed first. ParadeDB uses pgvector's vector types, but not its HNSW or
-  IVF indexes.
-</Note>
+ParadeDB provides `pdb.vector(N)`, a dense vector type containing `N` single-precision
+floats. It does not require pgvector. Existing pgvector `vector(N)` columns are
+also supported, with the same index structures and search behavior.
 
-The ParadeDB index can index pgvector's `vector` type alongside your text and other columns. This lets you combine vector search with full text search and filters in a single index,
-which can significantly improve latency/recall for selective queries.
+For example:
+
+```sql
+CREATE TABLE items (id bigint PRIMARY KEY, embedding pdb.vector(3));
+INSERT INTO items VALUES (1, '[1, 2, 3]');
+CREATE INDEX items_search ON items
+USING paradedb (id, embedding pdb.vector_cosine_ops);
+```
+
+You can cast `real[]` and `double precision[]` arrays to `pdb.vector(N)`. Arrays
+must be one-dimensional, contain no NULL elements, and contain only finite
+values after conversion to single precision. A vector must contain between 1
+and 16,000 elements, and `pdb.vector(N)` enforces the declared length.
+
+When pgvector is installed, casts between its `vector` type and `pdb.vector`
+reuse the same binary representation without converting the elements:
+
+```sql
+SELECT '[1, 2, 3]'::vector::pdb.vector;
+SELECT '[1, 2, 3]'::pdb.vector::vector;
+```
+
+After installing both extensions, register compatibility once as a superuser:
+
+```sql
+SELECT pdb.setup_pgvector();
+```
+
+This works in either installation order and is safe to run again. Upgrades
+register compatibility automatically to preserve existing pgvector indexes.
+The registration is explicit on fresh installations so that `pg_dump` can
+restore the compatibility casts and operator classes without duplicate objects.
+Existing pgvector columns and their ParadeDB indexes do not need to be rebuilt.
 
 ## Creating the Index
 
-The `mock_items` table comes with an `embedding` column of type `vector(8)` populated with sample embeddings.
+The `mock_items` table comes with an `embedding` column of type `pdb.vector(8)` populated with sample embeddings.
 In this example, `embedding` is added to the ParadeDB index with cosine similarity as the distance function.
 
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category, embedding vector_cosine_ops);
+USING paradedb (id, description, category, embedding pdb.vector_cosine_ops);
 ```
 
 ```ts Drizzle
@@ -109,9 +138,9 @@ The desired distance function is encoded into the index definition, and cannot b
 
 <CodeGroup>
 ```sql SQL
-embedding vector_l2_ops      -- L2 (default)
-embedding vector_cosine_ops  -- cosine
-embedding vector_ip_ops      -- inner product
+embedding pdb.vector_l2_ops      -- L2 (default)
+embedding pdb.vector_cosine_ops  -- cosine
+embedding pdb.vector_ip_ops      -- inner product
 ```
 
 ```ts Drizzle
@@ -147,9 +176,12 @@ embedding: { metric: :ip }      # inner product
 </CodeGroup>
 
 <Note>
-  Only pgvector's `vector` type is supported. The `halfvec`, `sparsevec`, and
-  `bit` types are not yet indexable. Each ParadeDB index currently supports one
-  vector field, whose dimensions must be declared with `vector(N)`.
+  `pdb.vector` and pgvector's `vector` are supported. The `halfvec`,
+  `sparsevec`, and `bit` types are not yet indexable. Each ParadeDB index
+  currently supports one vector field, whose dimensions must be declared with
+  `pdb.vector(N)` or pgvector's `vector(N)`. For pgvector columns, the existing
+  unqualified `vector_l2_ops`, `vector_cosine_ops`, and `vector_ip_ops` classes
+  remain supported.
 </Note>
 
 <Note>
@@ -167,7 +199,7 @@ We recommend keeping the defaults, which work well for most workloads. The follo
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category, embedding vector_cosine_ops)
+USING paradedb (id, description, category, embedding pdb.vector_cosine_ops)
 WITH (target_leaf_size=400, replication=2);
 ```
 

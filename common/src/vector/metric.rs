@@ -34,8 +34,8 @@
 //! `metric_from_opclass_name`. The metric is then persisted in the
 //! tantivy schema's `VectorOptions::metric`.
 
-use crate::postgres::catalog::lookup_opfamily_name;
-use pgrx::{IntoDatum, direct_function_call, pg_sys};
+use crate::postgres::catalog::{is_vector_oid, lookup_opfamily_name};
+use pgrx::{IntoDatum, pg_sys};
 use serde::{Deserialize, Serialize};
 use tantivy::schema::Metric as TantivyMetric;
 
@@ -81,40 +81,36 @@ impl VectorMetric {
         !matches!(&self, VectorMetric::L2)
     }
 
-    /// Map a pgvector distance operator OID (`<->`, `<=>`, `<#>`) to its
-    /// implied metric. Returns `None` when `opoid` is not one of them —
-    /// which includes the case where pgvector is not installed at all.
-    ///
-    /// The operator OIDs are resolved once and cached. Resolving them via
-    /// `regoperatorin` raises `type "vector" does not exist` when pgvector is
-    /// absent (a Postgres ereport, not catchable by `unwrap_or`), and this runs
-    /// on every custom-scan plan — so gate the lookups on the `vector` type
-    /// existing (`to_regtype` returns NULL rather than erroring); absent it, all
-    /// OIDs stay INVALID and no metric ever matches.
+    /// Recognize distance operators owned by either supported vector extension.
     pub fn from_opoid(opoid: pg_sys::Oid) -> Option<Self> {
-        use std::sync::OnceLock;
-        static OP_METRICS: OnceLock<[(pg_sys::Oid, VectorMetric); 3]> = OnceLock::new();
-        let cached = OP_METRICS.get_or_init(|| unsafe {
-            let vector_type_exists =
-                direct_function_call::<pg_sys::Oid>(pg_sys::to_regtype, &["vector".into_datum()])
-                    .is_some();
-            let lookup = |sig: &std::ffi::CStr| -> pg_sys::Oid {
-                if !vector_type_exists {
-                    return pg_sys::Oid::INVALID;
-                }
-                direct_function_call::<pg_sys::Oid>(pg_sys::regoperatorin, &[sig.into_datum()])
-                    .unwrap_or(pg_sys::Oid::INVALID)
-            };
-            [
-                (lookup(c"<->(vector,vector)"), VectorMetric::L2),
-                (lookup(c"<=>(vector,vector)"), VectorMetric::Cosine),
-                (lookup(c"<#>(vector,vector)"), VectorMetric::InnerProduct),
-            ]
-        });
-        cached
-            .iter()
-            .find(|(oid, _)| *oid != pg_sys::Oid::INVALID && *oid == opoid)
-            .map(|(_, metric)| *metric)
+        unsafe {
+            let tuple = pg_sys::SearchSysCache1(
+                pg_sys::SysCacheIdentifier::OPEROID as _,
+                opoid.into_datum()?,
+            );
+            if tuple.is_null() {
+                return None;
+            }
+            let operator = *pgrx::GETSTRUCT!(tuple)
+                .get()
+                .cast::<pg_sys::FormData_pg_operator>();
+            pg_sys::ReleaseSysCache(tuple);
+            if operator.oprleft != operator.oprright || !is_vector_oid(operator.oprleft) {
+                return None;
+            }
+            let extension = pg_sys::getExtensionOfObject(pg_sys::TypeRelationId, operator.oprleft);
+            if extension == pg_sys::InvalidOid
+                || pg_sys::getExtensionOfObject(pg_sys::OperatorRelationId, opoid) != extension
+            {
+                return None;
+            }
+            match pgrx::name_data_to_str(&operator.oprname) {
+                "<->" => Some(Self::L2),
+                "<=>" => Some(Self::Cosine),
+                "<#>" => Some(Self::InnerProduct),
+                _ => None,
+            }
+        }
     }
 
     /// Map a pg_opfamily name (e.g. `vector_cosine_ops`) to its implied

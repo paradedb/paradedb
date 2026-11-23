@@ -871,23 +871,6 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
     OPERATOR 2 pg_catalog.@@@(anyelement, paradedb.searchqueryinput),    /* for querying with a paradedb.searchqueryinput structure */
     STORAGE anyelement;
 
-CREATE OPERATOR CLASS public.vector_l2_ops DEFAULT FOR TYPE public.vector USING bm25 AS
-    STORAGE public.vector;
-
-CREATE OPERATOR CLASS public.vector_cosine_ops FOR TYPE public.vector USING bm25 AS
-    STORAGE public.vector;
-
-CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING bm25 AS
-    STORAGE public.vector;
-
-CREATE OPERATOR CLASS public.vector_l2_ops DEFAULT FOR TYPE public.vector USING paradedb AS
-    STORAGE public.vector;
-
-CREATE OPERATOR CLASS public.vector_cosine_ops FOR TYPE public.vector USING paradedb AS
-    STORAGE public.vector;
-
-CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING paradedb AS
-    STORAGE public.vector;
 "#,
     name = "bm25_ops_anyelement_operator",
     requires = [

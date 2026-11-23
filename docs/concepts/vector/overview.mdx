@@ -19,13 +19,14 @@ search. pgvector works well for many use cases, but separate vector indexes can
 struggle when a query also needs selective filters, text predicates, or frequent
 updates.
 
-The ParadeDB index supports pgvector's `vector` type inside the same index that
+The ParadeDB index supports its own `pdb.vector` type and pgvector's `vector` type inside the same index that
 stores text and columnar data. This lets ParadeDB evaluate vector similarity,
 full-text predicates, filters, and ranking from one index-backed query path.
 
 ParadeDB vectors use ParadeDB-built index structures designed for fast
 nearest-neighbor retrieval at scale. They are independent from pgvector's HNSW
-and IVFFlat indexes, while still using pgvector's `vector` type.
+and IVFFlat indexes. The `pdb.vector` type works without pgvector and is
+binary-compatible with its `vector` type.
 
 Because vectors live in the same index as text and filters, vector search can be
 combined with [text search](/concepts/full-text/overview) into a single ranking.

@@ -36,6 +36,7 @@ mod synonyms;
 pub mod tokenize;
 pub mod tokenizers;
 mod vector;
+mod vector_type;
 pub mod window_aggregate;
 
 use pgrx::{extension_sql, pg_cast, pg_extern};

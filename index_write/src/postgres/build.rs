@@ -190,7 +190,9 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
             pg_sys::ereport!(
                 ERROR,
                 PgSqlErrorCode::ERRCODE_INVALID_PARAMETER_VALUE,
-                format!("vector field '{field_name}' must declare dimensions using vector(N)")
+                format!(
+                    "vector field '{field_name}' must declare dimensions using pdb.vector(N) or vector(N)"
+                )
             );
         }
     }
@@ -442,7 +444,7 @@ mod tests {
                             CREATE INDEX ON unspecified_vector_dims USING paradedb (id, embedding)
                             WITH (target_segment_count = 4{partition_option});
                         EXCEPTION WHEN invalid_parameter_value THEN
-                            IF SQLERRM <> 'vector field ''embedding'' must declare dimensions using vector(N)' THEN
+                            IF SQLERRM <> 'vector field ''embedding'' must declare dimensions using pdb.vector(N) or vector(N)' THEN
                                 RAISE;
                             END IF;
                             RETURN;

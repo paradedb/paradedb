@@ -16,7 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::sql::ParsedStatement;
-use pg_query::{Node, NodeEnum, protobuf::ObjectType};
+use pg_query::{
+    Node, NodeEnum,
+    protobuf::{DropBehavior, DropStmt, ObjectType},
+};
 use std::collections::{BTreeMap, HashSet};
 
 fn statements(sql: &str) -> Result<BTreeMap<String, String>, String> {
@@ -35,6 +38,20 @@ pub fn check(expected: &str, fragments: &[String]) -> Result<(), String> {
         for statement in crate::sql::parse(fragment)? {
             if let Some(drop) = crate::schema::replacement_drop(&statement)? {
                 actual.insert(drop);
+            }
+            if let Some(NodeEnum::AlterExtensionContentsStmt(detach)) = &statement.node.node
+                && detach.action < 0
+                && let Some(object) = &detach.object
+            {
+                let drop = Node {
+                    node: Some(NodeEnum::DropStmt(DropStmt {
+                        remove_type: detach.objtype,
+                        objects: vec![object.as_ref().clone()],
+                        behavior: DropBehavior::DropRestrict as i32,
+                        ..Default::default()
+                    })),
+                };
+                actual.insert(crate::sql::comparison(&drop));
             }
             actual.insert(statement.comparison);
         }
@@ -222,6 +239,31 @@ mod tests {
             &[include_str!("../../pg_search/sql/pg_search--0.25.11--0.26.0.sql").into()],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn extension_detach_covers_removal_without_dropping_indexes() {
+        check(
+            "DROP OPERATOR CLASS public.vector_l2_ops USING paradedb",
+            &[
+                "ALTER EXTENSION pg_search DROP OPERATOR CLASS public.vector_l2_ops USING paradedb"
+                    .into(),
+            ],
+        )
+        .unwrap();
+        for fragment in [
+            "ALTER EXTENSION pg_search ADD OPERATOR CLASS public.vector_l2_ops USING paradedb",
+            "ALTER EXTENSION pg_search DROP OPERATOR CLASS public.vector_l2_ops USING bm25",
+            "ALTER EXTENSION pg_search DROP OPERATOR CLASS other.vector_l2_ops USING paradedb",
+        ] {
+            assert!(
+                check(
+                    "DROP OPERATOR CLASS public.vector_l2_ops USING paradedb",
+                    &[fragment.into()]
+                )
+                .is_err()
+            );
+        }
     }
 
     #[test]

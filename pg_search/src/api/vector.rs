@@ -22,7 +22,7 @@ use crate::index::reader::open_vector_field;
 use crate::postgres::access::IndexOid;
 #[cfg(feature = "pg_test")]
 use crate::postgres::catalog::OidExt;
-use crate::postgres::catalog::is_pgvector_oid;
+use crate::postgres::catalog::is_vector_oid;
 #[cfg(feature = "pg_test")]
 use crate::postgres::rel::PgSearchRelation;
 use crate::vector::PgVector;
@@ -122,7 +122,7 @@ type ExactEConeAuditRow = (
 CREATE FUNCTION paradedb.vector_estimator_info(
     index regclass,
     field text,
-    queries vector[] DEFAULT NULL
+    queries pdb.vector[] DEFAULT NULL
 ) RETURNS TABLE(
     depth integer,
     bias real,
@@ -134,7 +134,8 @@ CREATE FUNCTION paradedb.vector_estimator_info(
 STABLE PARALLEL UNSAFE
 LANGUAGE c
 AS 'MODULE_PATHNAME', 'vector_estimator_info_internal_wrapper';
-"#
+"#,
+    requires = ["pdb_vector_type"]
 )]
 fn vector_estimator_info_internal(
     index: Option<IndexOid>,
@@ -291,7 +292,7 @@ fn vector_estimator_info_internal(
 CREATE FUNCTION paradedb.vector_error_audit(
     index regclass,
     field text,
-    queries vector[]
+    queries pdb.vector[]
 ) RETURNS TABLE(
     source text,
     protocol text,
@@ -328,7 +329,8 @@ CREATE FUNCTION paradedb.vector_error_audit(
 STABLE PARALLEL UNSAFE
 LANGUAGE c
 AS 'MODULE_PATHNAME', 'vector_error_audit_internal_wrapper';
-"#
+"#,
+    requires = ["pdb_vector_type"]
 )]
 fn vector_error_audit_internal(
     index: Option<PgRelation>,
@@ -563,7 +565,7 @@ fn vector_error_audit_internal(
 CREATE FUNCTION paradedb.vector_error_cone_audit(
     index regclass,
     field text,
-    queries vector[]
+    queries pdb.vector[]
 ) RETURNS TABLE(
     protocol text,
     depth integer,
@@ -582,7 +584,8 @@ CREATE FUNCTION paradedb.vector_error_cone_audit(
 STABLE PARALLEL UNSAFE
 LANGUAGE c
 AS 'MODULE_PATHNAME', 'vector_error_cone_audit_internal_wrapper';
-"#
+"#,
+    requires = ["pdb_vector_type"]
 )]
 fn vector_error_cone_audit_internal(
     index: Option<PgRelation>,
@@ -787,19 +790,19 @@ fn decode_queries_capped(
 ) -> Result<(Vec<Vec<f32>>, usize)> {
     let element_oid = unsafe { pg_sys::get_element_type(queries.oid()) };
     ensure!(
-        is_pgvector_oid(element_oid),
-        "queries must have type vector[]"
+        is_vector_oid(element_oid),
+        "queries must have type pdb.vector[] or pgvector vector[]"
     );
 
     let array = queries
         .value::<pgrx::Array<pg_sys::Datum>>()?
-        .context("could not decode queries vector[]")?;
+        .context("could not decode queries pdb.vector[]")?;
     let mut decoded = Vec::new();
     let mut input_count = 0usize;
     for (query_idx, datum) in array.iter().enumerate() {
         let datum =
             datum.with_context(|| format!("{query_kind} query {} is NULL", query_idx + 1))?;
-        // SAFETY: `element_oid` is pgvector and `datum` is non-null.
+        // SAFETY: `element_oid` is a supported vector type and `datum` is non-null.
         let query = unsafe { PgVector::from_polymorphic_datum(datum, false, element_oid) }
             .with_context(|| format!("could not decode {query_kind} query {}", query_idx + 1))?;
         ensure!(

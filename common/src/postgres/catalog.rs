@@ -260,10 +260,16 @@ pub fn is_citext_oid(oid: pg_sys::Oid) -> bool {
 }
 
 pub fn is_pgvector_oid(oid: pg_sys::Oid) -> bool {
-    static VECTOR_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
-    let vid = *VECTOR_OID
-        .get_or_init(|| lookup_typoid(c"public", c"vector").unwrap_or(pg_sys::Oid::INVALID));
-    vid != pg_sys::Oid::INVALID && oid == vid
+    unsafe {
+        let extension = pg_sys::get_extension_oid(c"vector".as_ptr(), true);
+        extension != pg_sys::InvalidOid
+            && pg_sys::getExtensionOfObject(pg_sys::TypeRelationId, oid) == extension
+            && lookup_type_name(oid).as_deref() == Some("vector")
+    }
+}
+
+pub fn is_vector_oid(oid: pg_sys::Oid) -> bool {
+    lookup_typoid(c"pdb", c"vector") == Some(oid) || is_pgvector_oid(oid)
 }
 
 /// Lookup a `pg_opfamily.opfname` by OID. Returns the opfamily name

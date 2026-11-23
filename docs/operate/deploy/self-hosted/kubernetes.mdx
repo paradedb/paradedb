@@ -156,7 +156,7 @@ kubectl create secret docker-registry paradedb-enterprise-registry-cred \
 
 ### Configuring the Extension Image
 
-The `pg_search` extension requires [pgvector](https://github.com/pgvector/pgvector), which is not bundled in the ParadeDB extension image. Add both extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource and save it as `cluster.yaml`:
+`pg_search` includes `pdb.vector`. The [pgvector](https://github.com/pgvector/pgvector) image is optional and is needed only for pgvector columns. When using only `pdb.vector`, omit the `vector` entries from both the Cluster and Database resources below. Add the required extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource and save it as `cluster.yaml`:
 
 <CodeGroup>
 
@@ -176,7 +176,7 @@ spec:
     shared_preload_libraries:
       - "pg_search"
     extensions:
-      # You can omit this if pgvector is already installed on your cluster
+      # Optional: only needed for pgvector columns
       - name: vector
         image:
           reference: ghcr.io/cloudnative-pg/pgvector:0.8.6-18-trixie
@@ -209,7 +209,7 @@ spec:
     shared_preload_libraries:
       - "pg_search"
     extensions:
-      # You can omit this if pgvector is already installed on your cluster
+      # Optional: only needed for pgvector columns
       - name: vector
         image:
           reference: ghcr.io/cloudnative-pg/pgvector:0.8.6-18-trixie
@@ -226,7 +226,7 @@ spec:
 
 </CodeGroup>
 
-Configure your database to enable pgvector and `pg_search` using a `Database` resource and save it as `database.yaml`:
+Configure your database to enable `pg_search` and, optionally, pgvector using a `Database` resource and save it as `database.yaml`:
 
 ```yaml
 apiVersion: postgresql.cnpg.io/v1

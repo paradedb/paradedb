@@ -128,6 +128,13 @@ extension_sql!(
     finalize
 );
 
+#[cfg(feature = "pg_test")]
+extension_sql!(
+    "CREATE EXTENSION IF NOT EXISTS vector; SELECT pdb.setup_pgvector();",
+    name = "pg_test_pgvector",
+    requires = ["pdb_vector_pgvector_compat"]
+);
+
 /// Initializes option parsing
 fn check_for_interrupts() {
     pgrx::check_for_interrupts();

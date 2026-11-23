@@ -32,6 +32,7 @@
 use crate::api::{FieldName, QueryVector};
 use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
+use crate::postgres::customscan::aggregatescan::join_targetlist::unwrap_to_var;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::node::CustomScanNodeExt;
@@ -43,6 +44,7 @@ use crate::postgres::var::{
     VarContext, fieldname_from_var, find_one_fieldname, find_one_var, strip_identity_wrappers,
 };
 use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
+use crate::vector::PgVector;
 use crate::vector::metric::VectorMetric;
 use pgrx::{FromDatum, PgList, pg_sys};
 
@@ -267,21 +269,13 @@ pub unsafe fn analyze_sort_expression(
     None
 }
 
-/// Try to interpret `node` as a reference to an indexed vector
-/// column. Accepts only a direct `T_Var` whose schema entry resolves
-/// to `SearchFieldType::Vector` — pgvector convention. The metric
-/// travels via the index attribute's opclass (see
-/// `VectorMetric::from_index_attr`); the column type itself
-/// is just plain `vector`, so there is no cast wrapper to unwrap.
+/// Resolve an indexed vector column through binary-compatible type relabels.
 fn resolve_vector_expr(
     node: *mut pg_sys::Node,
     context: VarContext,
     source: &SourceContext,
 ) -> Option<(*mut pg_sys::Var, VectorMetric)> {
-    if node.is_null() || unsafe { (*node).type_ } != pg_sys::NodeTag::T_Var {
-        return None;
-    }
-    let var = node as *mut pg_sys::Var;
+    let var = unwrap_to_var(node)?;
     let (relid, attno) = context.var_relation(var);
     if relid != source.heaprel.oid() {
         return None;
@@ -317,10 +311,7 @@ pub unsafe fn extract_vector_distance(
     let left = args.get_ptr(0)?;
     let right = args.get_ptr(1)?;
 
-    // One side must be a direct Var on the indexed vector column; the
-    // other carries the query vector. The metric travels via the index
-    // attribute's opclass (pgvector convention), not via a cast on the
-    // column, so there's no wrapper expression to unwrap here.
+    // Binary-compatible vector casts preserve both the indexed values and metric.
     let (var_node, field_metric, value_node) =
         if let Some((var, metric)) = resolve_vector_expr(left, context, source) {
             (var, metric, right)
@@ -345,7 +336,7 @@ pub unsafe fn extract_vector_distance(
             return None;
         }
         let datum = (*const_node).constvalue;
-        let query_vector = unsafe { crate::vector::PgVector::from_datum(datum, false) }
+        let query_vector = unsafe { PgVector::from_datum(datum, false) }
             .expect("vector ORDER BY constant should not be NULL")
             .0;
         return Some((

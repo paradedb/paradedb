@@ -37,6 +37,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use arrow_array::RecordBatch;
 use datafusion::physical_plan::{ExecutionPlan, SendableRecordBatchStream};
 use datafusion_distributed::{DistributedExec, NetworkBoundaryExt};
+use parking_lot::RwLock;
 use pgrx::pg_sys;
 
 use crate::parallel_worker::builder::ParallelProcessFinish;
@@ -272,7 +273,7 @@ pub unsafe fn leader_setup(
 }
 
 struct LeaderDsmDetachArg {
-    dsm_detached: Arc<AtomicBool>,
+    dsm_detached: Arc<RwLock<bool>>,
     wakeup_reservation: Arc<WakeupSlotReservation>,
 }
 
@@ -282,7 +283,8 @@ unsafe extern "C-unwind" fn mark_dsm_detached_on_dsm_detach(
     arg: pg_sys::Datum,
 ) {
     let detach_arg = unsafe { Box::from_raw(arg.cast_mut_ptr::<LeaderDsmDetachArg>()) };
-    detach_arg.dsm_detached.store(true, Ordering::SeqCst);
+    // Wait for any poll already accessing the mapping before PostgreSQL unmaps it.
+    *detach_arg.dsm_detached.write() = true;
     detach_arg.wakeup_reservation.release();
 }
 
@@ -294,7 +296,7 @@ impl MppLeaderState {
     /// `seg` must be the live DSM segment that owns the ring memory.
     pub unsafe fn register_streams_on_dsm_detach(&self, seg: *mut pg_sys::dsm_segment) {
         let detach_arg = Box::into_raw(Box::new(LeaderDsmDetachArg {
-            dsm_detached: Arc::clone(self.session.shutdown_handle.detached_flag()),
+            dsm_detached: Arc::clone(self.session.shutdown_handle.detached_state()),
             wakeup_reservation: Arc::clone(&self.session.wakeup_reservation),
         }));
         unsafe {
@@ -681,7 +683,7 @@ mod tests {
             .unwrap()
         };
         let detach_arg = Box::into_raw(Box::new(LeaderDsmDetachArg {
-            dsm_detached: Arc::clone(state.session.shutdown_handle.detached_flag()),
+            dsm_detached: Arc::clone(state.session.shutdown_handle.detached_state()),
             wakeup_reservation: Arc::clone(&state.session.wakeup_reservation),
         }));
         unsafe {
@@ -690,13 +692,7 @@ mod tests {
                 pg_sys::Datum::from(detach_arg as *mut c_void),
             );
         }
-        assert!(
-            state
-                .session
-                .shutdown_handle
-                .detached_flag()
-                .load(Ordering::Acquire)
-        );
+        assert!(*state.session.shutdown_handle.detached_state().read());
         assert!(state.session.wakeup_reservation.slots().is_empty());
     }
 

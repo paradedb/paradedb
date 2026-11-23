@@ -193,7 +193,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.mpp_min_rows TO 0;
 SET max_parallel_workers TO 8;
 SET max_parallel_workers_per_gather TO 3;
-SET parallel_leader_participation TO off;
+SET parallel_leader_participation TO on;
 SET min_parallel_table_scan_size TO 0;
 SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;

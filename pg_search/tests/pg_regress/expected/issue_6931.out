@@ -484,7 +484,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.mpp_min_rows TO 0;
 SET max_parallel_workers TO 8;
 SET max_parallel_workers_per_gather TO 3;
-SET parallel_leader_participation TO off;
+SET parallel_leader_participation TO on;
 SET min_parallel_table_scan_size TO 0;
 SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
@@ -551,14 +551,14 @@ WHERE m.body @@@ 'x' AND m.a * n.b > 3 GROUP BY m.grp ORDER BY m.grp;
          DataFusion Physical Plan: 
            : ┌───── DistributedExec
            : │ CoalescePartitionsExec
-           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 3 ── tasks=2, partitions=3
+           :   ┌───── Stage 3 ── tasks=2, partitions=4
            :   │ AggregateExec: mode=FinalPartitioned, gby=[grp@0 as grp], aggr=[sum(m_0.a) as agg_0]
-           :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   │   [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 2 ── tasks=2, partitions=6
-           :     │ RepartitionExec: partitioning=Hash([grp@0], 6), input_partitions=1
+           :     ┌───── Stage 2 ── tasks=2, partitions=8
+           :     │ RepartitionExec: partitioning=Hash([grp@0], 8), input_partitions=1
            :     │   AggregateExec: mode=Partial, gby=[grp@0 as grp], aggr=[sum(m_0.a) as agg_0]
            :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, id@0)], filter=pdb_int_mul(CAST(a@0 AS Int32), CAST(b@1 AS Int32)) > 3, projection=[grp@0, a@1]
            :     │       CoalescePartitionsExec

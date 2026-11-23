@@ -167,7 +167,7 @@ tokio-stream = "0.1.17"
 tonic = "0.14.2"
 tower = "0.5.2"
 hyper-util = { version = "0.1.16", features = ["tokio"] }
-url = "2.5.4"
+url = "2.5.9"
 libc = "0.2"
 bytes = { version = "1", features = ["serde"] }
 # Here and the equivalent in our datafusion-distributed fork will need to be updated in sync so that

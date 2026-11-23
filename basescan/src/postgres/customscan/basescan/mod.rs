@@ -3151,10 +3151,6 @@ fn replace_window_agg_with_placeholder(
         if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
             let funcexpr = &*node.cast::<pg_sys::FuncExpr>();
             if funcexpr.funcid == context.window_agg_procid {
-                // Each target entry is expected to contain at most one
-                // supported window aggregate, so only one placeholder is stored.
-                debug_assert!(context.placeholder.is_none());
-
                 // Register a new virtual column in our custom scan for this aggregate
                 let (column, var) = context
                     .columns

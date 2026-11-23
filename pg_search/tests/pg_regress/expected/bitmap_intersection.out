@@ -414,6 +414,19 @@ ORDER BY id LIMIT 5;
 
 -- Parallel partial paths carry the same bitmap child (one build shared via DSA);
 -- not golden-tested because the parallel plan shape depends on segment count.
+-- A parallel-aware Base Scan that falls back to local execution (e.g. PL/pgSQL
+-- SELECT INTO with es_use_parallel_mode = false) still populates its bitmap privately.
+SET max_parallel_workers_per_gather TO 1;
+SET debug_parallel_query TO on;
+DO $$ DECLARE x bigint; BEGIN
+  SELECT id INTO x FROM providers
+  WHERE description === 'cardiology' AND specialty = 'specialty13';
+  IF x IS NULL OR x % 50 <> 13 THEN
+    RAISE EXCEPTION 'unexpected id: %', x;
+  END IF;
+END $$;
+RESET debug_parallel_query;
+SET max_parallel_workers_per_gather TO 0;
 -- True executor rescans: a lateral nested loop rescans the inner Base Scan per
 -- outer row (a generic-plan EXECUTE only creates fresh executor states).
 SELECT v.k, s.id FROM (VALUES (13), (17)) v(k)

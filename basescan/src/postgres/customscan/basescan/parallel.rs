@@ -130,6 +130,16 @@ impl ParallelQueryCapable for BaseScan {
         pcxt: *mut pg_sys::ParallelContext,
         coordinate: *mut c_void,
     ) {
+        let Some(area) = try_query_area(state) else {
+            // PostgreSQL's `InitializeParallelDSM` fell back to backend-private memory
+            // (`pcxt->seg == NULL`, `pcxt->nworkers == 0`, `pei->area == NULL`), e.g. due to
+            // DSM exhaustion or held interrupts. No workers will launch, so leave `parallel`
+            // unattached and let the leader run serially (matching PostgreSQL's
+            // `ExecBitmapHeapInitializeDSM`).
+            debug_assert!(unsafe { (*pcxt).seg.is_null() && (*pcxt).nworkers == 0 });
+            return;
+        };
+
         let args = state.custom_state().parallel_scan_args();
 
         unsafe {
@@ -139,7 +149,7 @@ impl ParallelQueryCapable for BaseScan {
             state
                 .custom_state_mut()
                 .attach_parallel(pscan_state, ParallelRole::Leader);
-            leader_publish_query(state, &mut *pscan_state);
+            leader_publish_query(state, &mut *pscan_state, area);
 
             if !(*pcxt).seg.is_null()
                 && let Some(trace) = state.custom_state().io_trace.clone()
@@ -162,7 +172,6 @@ impl ParallelQueryCapable for BaseScan {
             let planned_workers = (*pcxt).nworkers as u32;
             (*pscan_state).bitmap_slots = planned_workers + 1;
             leader_publish_bitmap(state, pscan_state);
-            let area = query_area(state);
             state
                 .custom_state_mut()
                 .leader_publish_vector_routing_plan(area, pg_sys::parallel_leader_participation);
@@ -173,6 +182,14 @@ impl ParallelQueryCapable for BaseScan {
         state: &mut CustomScanStateWrapper<Self>,
         coordinate: *mut c_void,
     ) {
+        let Some(area) = try_query_area(state) else {
+            // Same private-memory fallback as `initialize_dsm_custom_scan` (matching
+            // PostgreSQL's `ExecBitmapHeapReInitializeDSM`): no workers will launch, and
+            // `rescan_custom_scan` resets local state because `parallel` is `None`.
+            debug_assert!(state.custom_state().parallel.is_none());
+            return;
+        };
+
         // The one place the shared segment work queue is reset for a rescan.
         // PostgreSQL guarantees this runs while no workers are attached (see
         // nodeGather.c: "ReInitializeDSM should reset only shared state, ReScan
@@ -205,10 +222,9 @@ impl ParallelQueryCapable for BaseScan {
         if state.custom_state().needs_vector_routing() {
             BaseScan::init_search_reader(state);
         }
-        unsafe { leader_publish_query(state, pscan_state) };
+        unsafe { leader_publish_query(state, pscan_state, area) };
         unsafe { leader_publish_bitmap(state, pscan_state) };
         unsafe {
-            let area = query_area(state);
             state
                 .custom_state_mut()
                 .leader_publish_vector_routing_plan(area, pg_sys::parallel_leader_participation)
@@ -238,25 +254,31 @@ impl ParallelQueryCapable for BaseScan {
     }
 }
 
-/// The parallel query's DSA area. Postgres installs it on the EState around the DSM
-/// callbacks and local execution in the leader, and for the whole run in a worker.
-pub(super) fn query_area(state: &CustomScanStateWrapper<BaseScan>) -> *mut dsa_area {
+/// The parallel query's DSA area, if Postgres created a DSM segment for this parallel context.
+/// Returns `None` when `InitializeParallelDSM` fell back to backend-private memory
+/// (`pcxt->seg == NULL`, `pcxt->nworkers == 0`, `pei->area == NULL`).
+pub(super) fn try_query_area(state: &CustomScanStateWrapper<BaseScan>) -> Option<*mut dsa_area> {
     let area = unsafe { (*state.csstate.ss.ps.state).es_query_dsa };
-    assert!(
-        !area.is_null(),
-        "es_query_dsa must be set during parallel initialization or execution"
-    );
-    area
+    (!area.is_null()).then_some(area)
+}
+
+/// The parallel query's DSA area, required for workers and leader paths that attached parallel
+/// DSM state. Leader DSM init/reinit use [`try_query_area`] because PostgreSQL's private-memory
+/// fallback leaves `es_query_dsa` null.
+pub(super) fn query_area(state: &CustomScanStateWrapper<BaseScan>) -> *mut dsa_area {
+    try_query_area(state)
+        .expect("es_query_dsa must be set during parallel initialization or execution")
 }
 
 /// Leader-only: hand the coming round's workers the solved query.
 unsafe fn leader_publish_query(
     state: &mut CustomScanStateWrapper<BaseScan>,
     pscan_state: &mut ParallelScanState,
+    area: *mut dsa_area,
 ) {
     let query = serde_json::to_vec(&state.custom_state().search_query_input())
         .expect("should be able to serialize query");
-    unsafe { pscan_state.publish_query(query_area(state), &query) };
+    unsafe { pscan_state.publish_query(area, &query) };
 }
 
 /// Leader-only: ensure the reader (and with it the executed query and cell) exists,

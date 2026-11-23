@@ -1172,7 +1172,7 @@ fn json_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE (metadata -> 'color') @@@ pdb.term('white')
+    WHERE (metadata -> 'color') === 'white'
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -1251,8 +1251,8 @@ fn json_arrays(mut conn: PgConnection) {
     let rows: Vec<(String, serde_json::Value)> = r#"
     SELECT description, metadata
     FROM mock_items
-    WHERE (metadata -> 'colors') @@@ pdb.term('blue')
-       OR (metadata -> 'colors') @@@ pdb.term('red');
+    WHERE (metadata -> 'colors') === 'blue'
+       OR (metadata -> 'colors') === 'red';
     "#
     .fetch(&mut conn);
 
@@ -1838,7 +1838,7 @@ fn autocomplete(mut conn: PgConnection) {
     // Fuzzy term
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE description @@@ pdb.fuzzy_term(value => 'shoez') ORDER BY rating DESC
+    WHERE description === 'shoez'::pdb.fuzzy(2, t, f) ORDER BY rating DESC
     "#
     .fetch(&mut conn);
     assert_eq!(rows, expected);
@@ -1846,14 +1846,14 @@ fn autocomplete(mut conn: PgConnection) {
     // Match
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE description @@@ pdb.match(value => 'ruining shoez', distance => 2) ORDER BY rating DESC
+    WHERE description ||| 'ruining shoez'::pdb.fuzzy(2) ORDER BY rating DESC
     "#
     .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE description @@@ pdb.match(value => 'ruining shoez', distance => 2, conjunction_mode => true)
+    WHERE description &&& 'ruining shoez'::pdb.fuzzy(2)
     "#
     .fetch(&mut conn);
     assert_eq!(rows, vec![expected[0].clone()]);
@@ -1861,12 +1861,8 @@ fn autocomplete(mut conn: PgConnection) {
     // Multiple fuzzy fields
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE id @@@ paradedb.boolean(
-        should => ARRAY[
-            paradedb.match(field => 'description', value => 'ruining shoez', distance => 2),
-            paradedb.match(field => 'category', value => 'ruining shoez', distance => 2)
-        ]
-    ) ORDER BY rating DESC
+    WHERE description ||| 'ruining shoez'::pdb.fuzzy(2)
+       OR category ||| 'ruining shoez'::pdb.fuzzy(2) ORDER BY rating DESC
     "#
     .fetch(&mut conn);
     assert_eq!(rows, expected);
@@ -1890,7 +1886,7 @@ fn autocomplete(mut conn: PgConnection) {
     // Ngram term set
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE description @@@ pdb.match(value => 'hsoes', distance => 0) ORDER BY rating DESC
+    WHERE description ||| 'hsoes'::pdb.fuzzy(0) ORDER BY rating DESC
     "#
     .fetch(&mut conn);
     assert_eq!(rows, expected);

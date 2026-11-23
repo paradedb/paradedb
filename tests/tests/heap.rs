@@ -36,7 +36,7 @@ fn mvcc_heap_filter(mut conn: PgConnection) {
         let results: Vec<(i32, String)> = r#"
             SELECT id, description
             FROM heap_and_clauses_table
-            WHERE description @@@ pdb.match('Sleek running', conjunction_mode := true)
+            WHERE description &&& 'Sleek running'
             AND description ILIKE 'Sleek running shoes'
             ORDER BY id;
         "#

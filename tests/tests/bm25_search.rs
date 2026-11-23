@@ -944,7 +944,7 @@ fn json_term(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
         SELECT id FROM paradedb.bm25_search
-        WHERE (paradedb.bm25_search.metadata -> 'color') @@@ pdb.term('white')
+        WHERE (paradedb.bm25_search.metadata -> 'color') === 'white'
         ORDER BY id
     "
     .fetch(&mut conn);
@@ -967,7 +967,7 @@ fn json_term(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.bm25_search
-    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'keywords') @@@ pdb.term('electronics')
+    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'keywords') === 'electronics'
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1012,7 +1012,7 @@ fn json_phrase(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.bm25_search
-    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'review') @@@ pdb.phrase(ARRAY['good', 'quality'])
+    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'review') ### ARRAY['good', 'quality']
     ORDER BY id
     "
     .fetch(&mut conn);

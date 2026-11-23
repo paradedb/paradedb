@@ -139,8 +139,10 @@ impl BaseScan {
     ///    segment view with `MvccSatisfies::ParallelWorker`.
     ///
     /// 2. **Serial or Replicated Scan** (no `parallel_state`):
-    ///    Either the main backend running a serial path, or a `parallel_safe` but not
-    ///    `parallel_aware` scan inside a worker (e.g. the inner side of a Parallel Hash Join).
+    ///    Either the main backend running a serial path, a `parallel_safe` but not
+    ///    `parallel_aware` scan inside a worker (e.g. the inner side of a Parallel Hash Join),
+    ///    or a `parallel_aware` scan running locally on the leader when `es_use_parallel_mode`
+    ///    is false or `InitializeParallelDSM` falls back to private memory (`es_query_dsa == NULL`).
     ///    Each such scan reads the full data set on its own, so it opens with
     ///    `MvccSatisfies::Snapshot`. The leader's very first open falls here too: it runs from
     ///    `estimate_dsm_custom_scan`, before any DSM is attached, and it is the open the
@@ -237,16 +239,6 @@ impl BaseScan {
         }
         state.custom_state_mut().search_reader = Some(search_reader);
         state.custom_state_mut().score_explanation_weight.take();
-
-        let parallel_aware = unsafe { (*(*state.planstate()).plan).parallel_aware };
-        if !parallel_aware
-            && let Some(cell) = state.custom_state().bitmap_cell.clone()
-            && cell.get().is_none()
-            && let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut()
-            && let Some(source) = unsafe { bitmap_exec.private_source() }
-        {
-            cell.fill(source);
-        }
 
         let csstate = addr_of_mut!(state.csstate);
         state.custom_state_mut().init_exec_method(csstate);
@@ -2207,6 +2199,20 @@ impl CustomScan for BaseScan {
             .map(|stats| stats.enter());
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
+        }
+        // Populate the private bitmap cursor source when running without attached parallel DSM
+        // state. Handling this here (rather than gating on `!plan.parallel_aware` in
+        // `init_search_reader`) covers both genuinely serial scans and `parallel_aware` scans
+        // that fell back to leader-only local execution (e.g. `es_use_parallel_mode = false` or
+        // PostgreSQL's `InitializeParallelDSM` private-memory fallback with `es_query_dsa == NULL`),
+        // without eagerly building a private bitmap during `estimate_dsm_custom_scan`.
+        if state.custom_state().parallel.is_none()
+            && let Some(cell) = state.custom_state().bitmap_cell.clone()
+            && cell.get().is_none()
+            && let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut()
+            && let Some(source) = unsafe { bitmap_exec.private_source() }
+        {
+            cell.fill(source);
         }
         // Build the leader's routing plan on first execution; workers wait for publication
         // only when they need the plan, after evaluating their segment filters.

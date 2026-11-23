@@ -1014,7 +1014,7 @@ impl PgSearchScanPlan {
 
     /// Returns `true` if `col_idx` refers to a scalar, raw-sortable fast-field column that can be
     /// used as the sort key at `position` in `LazySortConfig`'s `orderby_info`.
-    pub fn is_sortable_tiebreaker_field(&self, col_idx: usize, position: usize) -> bool {
+    pub fn is_sortable_at_position(&self, col_idx: usize, position: usize) -> bool {
         self.check_scalar_search_field(col_idx, |_, sf| {
             sf.is_raw_sortable()
                 && crate::postgres::customscan::orderby::sortable_at_position(

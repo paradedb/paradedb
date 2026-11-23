@@ -12,8 +12,7 @@ SET paradedb.rank_join_min_rows = 0;
 DROP TABLE IF EXISTS lss_posts CASCADE;
 DROP TABLE IF EXISTS lss_users CASCADE;
 
--- No primary key on `lss_users.id`: a unique inner side lets the planner pick an INNER join
--- instead of SEMI for the `IN` subqueries depending on platform-specific cost ties.
+-- Omit PRIMARY KEY on `id` so PG 18.7+ keeps the `IN (SELECT ...)` as a Semi join.
 CREATE TABLE lss_users (
     id INT NOT NULL,
     bio TEXT NOT NULL
@@ -162,7 +161,35 @@ LIMIT 5;
 RESET paradedb.enable_join_custom_scan;
 
 -- =============================================================================
--- TEST 5: First lazy-sort window is all dead rows (deleted without VACUUM), so the
+-- TEST 5: Explicit INNER JOIN with a TEXT primary sort key
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.title
+FROM lss_posts p
+JOIN lss_users u ON p.user_id = u.id
+WHERE u.bio ||| 'rare'
+ORDER BY p.title ASC, p.id ASC
+LIMIT 5;
+
+SELECT p.id, p.title
+FROM lss_posts p
+JOIN lss_users u ON p.user_id = u.id
+WHERE u.bio ||| 'rare'
+ORDER BY p.title ASC, p.id ASC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, p.title
+FROM lss_posts p
+JOIN lss_users u ON p.user_id = u.id
+WHERE u.bio ||| 'rare'
+ORDER BY p.title ASC, p.id ASC
+LIMIT 5;
+RESET paradedb.enable_join_custom_scan;
+
+-- =============================================================================
+-- TEST 6: First lazy-sort window is all dead rows (deleted without VACUUM), so the
 -- leaf must re-query
 -- =============================================================================
 

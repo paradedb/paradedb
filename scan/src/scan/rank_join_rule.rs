@@ -2223,7 +2223,7 @@ fn resolve_scan_sort_key_order_by(
             return None;
         }
         OrderByFeature::Score { rti: 0 }
-    } else if scan.is_sortable_tiebreaker_field(col.index(), position) {
+    } else if scan.is_sortable_at_position(col.index(), position) {
         OrderByFeature::Field {
             name: FieldName::from(field_name.clone()),
             rti: 0,

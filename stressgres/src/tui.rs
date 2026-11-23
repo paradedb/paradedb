@@ -255,6 +255,7 @@ fn refresh_runner_view(siv: &mut Cursive, sr: &Arc<SuiteRunner>, runner: &Arc<Jo
         if let Some(worker_error) = runner.worker_error() {
             update_error_view(siv, &runner, &conninfo, worker_error);
         } else {
+            let failed = runtime_stats.failed(sr.suite().ignore_errors());
             let panel = siv.find_name::<Panel<ResizedView<NamedView<ResultsTable>>>>(
                 &runner.view_id(&conninfo, "panel"),
             );
@@ -285,11 +286,14 @@ fn refresh_runner_view(siv: &mut Cursive, sr: &Arc<SuiteRunner>, runner: &Arc<Jo
                     }
                     Ok(rows) => make_results_view(rows, results_table),
 
-                    Err(e) => {
+                    Err(e) if failed => {
                         update_error_view(siv, &runner, &conninfo, Arc::new(anyhow::anyhow!(e)))
                     }
+                    Err(_) => {}
                 }
-            } else if let Err(e) = runtime_stats.results {
+            } else if let Err(e) = runtime_stats.results
+                && failed
+            {
                 update_error_view(siv, &runner, &conninfo, Arc::new(anyhow::anyhow!(e)));
             }
         }

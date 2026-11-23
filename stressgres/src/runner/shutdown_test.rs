@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn read_packet(stream: &mut TcpStream) -> Vec<u8> {
+pub(super) fn read_packet(stream: &mut TcpStream) -> Vec<u8> {
     stream.set_read_timeout(Some(TEST_TIMEOUT)).unwrap();
     let mut length = [0; 4];
     stream.read_exact(&mut length).unwrap();

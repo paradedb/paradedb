@@ -1090,6 +1090,14 @@ impl RuntimeStats {
         if !tps.is_normal() { 0.0 } else { tps }
     }
 
+    pub(crate) fn failed(&self, ignore_patterns: &[String]) -> bool {
+        self.assert_error.is_some()
+            || self
+                .results
+                .as_ref()
+                .is_err_and(|e| !is_ignorable_error(e, ignore_patterns))
+    }
+
     pub fn update(
         &mut self,
         duration: Duration,
@@ -1346,17 +1354,16 @@ impl JobRunner {
             || self
                 .runtime_stats
                 .read()
-                .iter()
-                .any(|(_, stats)| stats.results.is_err() || stats.assert_error.is_some())
+                .values()
+                .any(|stats| stats.failed(self.suite.ignore_errors()))
     }
 
     /// Did this job encounter an error?
     pub fn connection_errored(&self, conninfo: &ConnInfo) -> bool {
         self.runtime_stats
             .read()
-            .iter()
-            .filter(|(this_conninfo, _)| *this_conninfo == conninfo)
-            .any(|(_, stats)| stats.results.is_err() || stats.assert_error.is_some())
+            .get(conninfo)
+            .is_some_and(|stats| stats.failed(self.suite.ignore_errors()))
     }
 
     pub fn worker_error(&self) -> Option<Arc<anyhow::Error>> {
@@ -1731,5 +1738,7 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod cancel_test;
 #[cfg(test)]
 mod shutdown_test;

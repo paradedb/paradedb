@@ -7,7 +7,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 read -r pg_major pg_minor < <("$PG_CONFIG" --version | awk '{split($2, v, "."); print v[1], v[2] + 0}')
 # CVE-2026-6460 moved DatumGetHeapTupleHeader into a server C symbol starting in these
-# point releases; pgrx 0.20.0 links against it when built with those headers.
+# point releases; pgrx 0.20.1 links against it when built with those headers.
 case "$pg_major" in
   15) pg_min_minor=20 ;;
   16) pg_min_minor=16 ;;

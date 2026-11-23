@@ -90,13 +90,19 @@ AND EXISTS (
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
 
--- Test 3: NOT EXISTS with multiple search predicates
+-- Test 3: NOT EXISTS with DisMax scoring and multiple search predicates
 -- Verify the plan uses an Anti Join with combined predicates
 EXPLAIN (COSTS OFF)
 SELECT id
 FROM score_aj_items AS s
 WHERE s.state === 'active'
-AND (s.title &&& 'Item'::pdb.fuzzy(1, f, t)::pdb.boost(2) OR s.title &&& 'Item')
+AND s.id @@@ paradedb.disjunction_max(
+    tie_breaker => 0.75,
+    disjuncts => ARRAY[
+        paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
+        paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
+    ]
+)
 AND NOT EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -108,7 +114,13 @@ LIMIT 5;
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
 WHERE s.state === 'active'
-AND (s.title &&& 'Item'::pdb.fuzzy(1, f, t)::pdb.boost(2) OR s.title &&& 'Item')
+AND s.id @@@ paradedb.disjunction_max(
+    tie_breaker => 0.75,
+    disjuncts => ARRAY[
+        paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
+        paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
+    ]
+)
 AND NOT EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id

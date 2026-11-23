@@ -710,7 +710,10 @@ mod backend {
         }
 
         client
-            .execute("DELETE FROM cache_corrupt_toast WHERE id=2", &[])
+            .batch_execute(
+                "TRUNCATE cache_corrupt_toast;
+                 INSERT INTO cache_corrupt_toast VALUES (1, 'marker'), (3, 'marker');",
+            )
             .unwrap();
         for _ in 0..2 {
             let ids: Vec<i64> = client

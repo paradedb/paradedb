@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795421311617,
+  "lastUpdate": 1795421338472,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -517345,6 +517345,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14745334543-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Tony Nguyen",
+            "username": "tuannx",
+            "email": "tuannx87@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b859805314f8286e0b319031a627a128e2401cd",
+          "message": "fix: resolve aggregate FILTER vars through fast-field mapping (#7621)\n\nFixes #7517.\n\n### Root Cause\nIn `joinscan/src/postgres/customscan/aggregatescan/datafusion_build.rs`:\n1. `FilterExpr::from_pg_node` resolved `T_Var` in `FILTER` clauses with\n`source.get_attname(varattno)` instead of resolving the heap attribute\nthrough the index's fast-field mapping\n(`source.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)`).\nWhen an index alias matched another SQL column's name (e.g. `maker`\naliased as `category`, `category` aliased as `brand`),\n`FilterExpr::to_datafusion` read the wrong indexed field; when an\naliased column had no colliding name, DataFusion failed with a schema\nerror (`No field named ...`).\n2. `populate_required_fields` ignored the `attno` already stored on\n`FilterColumnRef` and looked up `context.get_attno_by_name(&field_name)`\ninstead, so an aliased fast field referenced only in `FILTER` would not\nbe registered.\n\n### Changes\n- Resolve `FILTER` `T_Var` nodes through\n`source.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)` and\nstore `resolved.field.name()` in `FilterColumnRef`.\n- Register `FILTER` columns in `populate_required_fields` directly via\ntheir stored `attno`.\n- Add `pg_regress` test `aggregate_join_filter_alias` covering:\n1. `pdb.agg()` + `FILTER` with an alias colliding with another heap\ncolumn name (`{\"value\": 0.0}` before -> `{\"value\": 2.0}` after, matching\nnative Postgres and `WHERE` parity).\n2. Standard `count(*) FILTER (...)` referencing aliased-only columns\n(`Schema error: No field named p_0.maker` before -> `2 | 1` after).\n3. `GROUP BY` + `FILTER` on aliased columns (`acme | 0` before -> `acme\n| 2` after).\n\n### Testing\nVerified on PostgreSQL 18.7 (macOS arm64):\n- `cargo pgrx regress pg18 aggregate_join_filter_alias\naggregate_join_alias aggregate_join aggregate_join_numeric_filter\naggregate_join_edge_cases aggregate_join_fallback groupby-agg-filter\npdb_agg_datafusion pdb_agg_composite window_agg_normal_scan` (17/17\npassed, including `setup` and expanded `aggregate_join_*` suites).\n- `cargo fmt --all -- --check`\n- `cargo clippy -p joinscan --no-default-features --features pg18 -- -D\nwarnings`",
+          "timestamp": "2026-11-22T17:12:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b859805314f8286e0b319031a627a128e2401cd"
+        },
+        "date": 1795421334882,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 36.652701768804334,
+            "unit": "median tps",
+            "extra": "avg tps: 56.45583492099869, max tps: 530.2850117597628, count: 58781"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.048702070219488,
+            "unit": "median tps",
+            "extra": "avg tps: 31.398738952483882, max tps: 347.88754399429797, count: 58781"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 73.02614095110125,
+            "unit": "median tps",
+            "extra": "avg tps: 134.05494260937206, max tps: 1248.0814647733687, count: 58781"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.087219730692762,
+            "unit": "median tps",
+            "extra": "avg tps: 30.349365561753945, max tps: 269.0832030797579, count: 58781"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.169246027640284,
+            "unit": "median tps",
+            "extra": "avg tps: 59.37471350693241, max tps: 547.2171313945281, count: 58781"
+          }
+        ],
+        "publication_id": "14799253055-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -531718,6 +531771,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14745334543-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Tony Nguyen",
+            "username": "tuannx",
+            "email": "tuannx87@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b859805314f8286e0b319031a627a128e2401cd",
+          "message": "fix: resolve aggregate FILTER vars through fast-field mapping (#7621)\n\nFixes #7517.\n\n### Root Cause\nIn `joinscan/src/postgres/customscan/aggregatescan/datafusion_build.rs`:\n1. `FilterExpr::from_pg_node` resolved `T_Var` in `FILTER` clauses with\n`source.get_attname(varattno)` instead of resolving the heap attribute\nthrough the index's fast-field mapping\n(`source.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)`).\nWhen an index alias matched another SQL column's name (e.g. `maker`\naliased as `category`, `category` aliased as `brand`),\n`FilterExpr::to_datafusion` read the wrong indexed field; when an\naliased column had no colliding name, DataFusion failed with a schema\nerror (`No field named ...`).\n2. `populate_required_fields` ignored the `attno` already stored on\n`FilterColumnRef` and looked up `context.get_attno_by_name(&field_name)`\ninstead, so an aliased fast field referenced only in `FILTER` would not\nbe registered.\n\n### Changes\n- Resolve `FILTER` `T_Var` nodes through\n`source.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)` and\nstore `resolved.field.name()` in `FilterColumnRef`.\n- Register `FILTER` columns in `populate_required_fields` directly via\ntheir stored `attno`.\n- Add `pg_regress` test `aggregate_join_filter_alias` covering:\n1. `pdb.agg()` + `FILTER` with an alias colliding with another heap\ncolumn name (`{\"value\": 0.0}` before -> `{\"value\": 2.0}` after, matching\nnative Postgres and `WHERE` parity).\n2. Standard `count(*) FILTER (...)` referencing aliased-only columns\n(`Schema error: No field named p_0.maker` before -> `2 | 1` after).\n3. `GROUP BY` + `FILTER` on aliased columns (`acme | 0` before -> `acme\n| 2` after).\n\n### Testing\nVerified on PostgreSQL 18.7 (macOS arm64):\n- `cargo pgrx regress pg18 aggregate_join_filter_alias\naggregate_join_alias aggregate_join aggregate_join_numeric_filter\naggregate_join_edge_cases aggregate_join_fallback groupby-agg-filter\npdb_agg_datafusion pdb_agg_composite window_agg_normal_scan` (17/17\npassed, including `setup` and expanded `aggregate_join_*` suites).\n- `cargo fmt --all -- --check`\n- `cargo clippy -p joinscan --no-default-features --features pg18 -- -D\nwarnings`",
+          "timestamp": "2026-11-22T17:12:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b859805314f8286e0b319031a627a128e2401cd"
+        },
+        "date": 1795421338345,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 21.765625,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 21.34139991026012, max partition_index_size:MB: 27.2109375, count: 58781"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.889843,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.292239108138023, max cpu: 32.214767, count: 58781"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 51.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.95992958768565, max mem: 59.82421875, count: 58781"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.9775,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.930793807975792, max cpu: 37.55501, count: 58781"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 69.25,
+            "unit": "median mem",
+            "extra": "avg mem: 69.96524267514162, max mem: 77.25, count: 58781"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.688212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.016057861975938, max cpu: 23.13253, count: 58781"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 42.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.214221272605094, max mem: 48.3671875, count: 58781"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.9775,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.916737837102524, max cpu: 37.55501, count: 58781"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 67.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 66.67527061518604, max mem: 75.0625, count: 58781"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.889843,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.209177478220347, max cpu: 32.860634, count: 58781"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 62.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 63.28239992514588, max mem: 70.73828125, count: 58781"
+          }
+        ],
+        "publication_id": "14799253055-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

@@ -89,6 +89,168 @@ WITH agg AS (
 SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;
 
 -- =====================================================================
+-- Window Aggregates Nested Inside CASE Expressions
+-- =====================================================================
+
+-- Test 5: pdb.agg() inside CASE with ELSE
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    log_id,
+    description,
+    category,
+    CASE
+        WHEN category = 'app' THEN
+            pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+        ELSE '{}'::jsonb
+    END AS agg_result
+FROM fn_wrapped_agg_logs
+WHERE description @@@ paradedb.all()
+ORDER BY log_id DESC
+LIMIT 3;
+
+SELECT
+    log_id,
+    description,
+    category,
+    CASE
+        WHEN category = 'app' THEN
+            pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+        ELSE '{}'::jsonb
+    END AS agg_result
+FROM fn_wrapped_agg_logs
+WHERE description @@@ paradedb.all()
+ORDER BY log_id DESC
+LIMIT 3;
+
+-- Test 6: pdb.agg() inside CASE without ELSE
+-- The implicit NULL branch should not prevent window-function replacement.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    log_id,
+    category,
+    CASE
+        WHEN category = 'app' THEN
+            pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+    END AS agg_result
+FROM fn_wrapped_agg_logs
+WHERE description @@@ paradedb.all()
+ORDER BY log_id DESC
+LIMIT 3;
+
+SELECT
+    log_id,
+    category,
+    CASE
+        WHEN category = 'app' THEN
+            pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+    END AS agg_result
+FROM fn_wrapped_agg_logs
+WHERE description @@@ paradedb.all()
+ORDER BY log_id DESC
+LIMIT 3;
+
+-- Test 7: CASE expression containing pdb.agg() wrapped in jsonb_pretty
+-- Exercises traversal through both FuncExpr and CaseExpr.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    log_id,
+    jsonb_pretty(
+        CASE
+            WHEN log_id > 0 THEN
+                pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+            ELSE '{}'::jsonb
+        END
+    ) AS agg_result
+FROM fn_wrapped_agg_logs
+WHERE description @@@ paradedb.all()
+ORDER BY log_id DESC
+LIMIT 3;
+
+SELECT
+    log_id,
+    jsonb_pretty(
+        CASE
+            WHEN log_id > 0 THEN
+                pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+            ELSE '{}'::jsonb
+        END
+    ) AS agg_result
+FROM fn_wrapped_agg_logs
+WHERE description @@@ paradedb.all()
+ORDER BY log_id DESC
+LIMIT 3;
+
+-- Test 8: pdb.agg() inside CASE in a CTE
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+WITH agg AS (
+    SELECT
+        log_id,
+        description,
+        category,
+        CASE
+            WHEN category = 'app' THEN
+                pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+            ELSE '{}'::jsonb
+        END AS agg_result
+    FROM fn_wrapped_agg_logs
+    WHERE description @@@ paradedb.all()
+    ORDER BY log_id DESC
+    LIMIT 3
+)
+SELECT * FROM agg;
+
+WITH agg AS (
+    SELECT
+        log_id,
+        description,
+        category,
+        CASE
+            WHEN category = 'app' THEN
+                pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+            ELSE '{}'::jsonb
+        END AS agg_result
+    FROM fn_wrapped_agg_logs
+    WHERE description @@@ paradedb.all()
+    ORDER BY log_id DESC
+    LIMIT 3
+)
+SELECT * FROM agg;
+
+-- Test 9: nested CASE expressions containing pdb.agg()
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    log_id,
+    CASE
+        WHEN category = 'app' THEN
+            CASE
+                WHEN log_id > 0 THEN
+                    pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+                ELSE '{}'::jsonb
+            END
+        ELSE '{}'::jsonb
+    END AS agg_result
+FROM fn_wrapped_agg_logs
+WHERE description @@@ paradedb.all()
+ORDER BY log_id DESC
+LIMIT 3;
+
+SELECT
+    log_id,
+    CASE
+        WHEN category = 'app' THEN
+            CASE
+                WHEN log_id > 0 THEN
+                    pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+                ELSE '{}'::jsonb
+            END
+        ELSE '{}'::jsonb
+    END AS agg_result
+FROM fn_wrapped_agg_logs
+WHERE description @@@ paradedb.all()
+ORDER BY log_id DESC
+LIMIT 3;
+
+-- =====================================================================
 -- Non-Window Aggregates Wrapped in Functions (Issue #3757)
 -- =====================================================================
 

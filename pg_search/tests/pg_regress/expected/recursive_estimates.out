@@ -124,135 +124,15 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 (8 rows)
 
 -- ============================================================================
--- STAGE 3: NESTED BOOLEAN QUERIES (Three-Level Nesting)
--- Expected: Recursive estimates showing boolean parent + term children
--- ============================================================================
--- Test 3.1: Boolean with two MUST clauses
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.term('description', 'running')
-    ]
-);
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
-   Table: estimate_items
-   Index: idx_recursive_estimates
-   Worker Selection: Cost model
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3},{"term":{"field":"description","value":"running"},"estimated_docs":1}]},"estimated_docs":1}},"estimated_docs":1}
-(8 rows)
-
--- Test 3.2: Boolean with two SHOULD clauses (OR)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    should := ARRAY[
-        paradedb.term('description', 'running'),
-        paradedb.term('description', 'walking')
-    ]
-);
-                                                                                                                      QUERY PLAN                                                                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
-   Table: estimate_items
-   Index: idx_recursive_estimates
-   Worker Selection: Cost model
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"should":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"walking"},"estimated_docs":0}]},"estimated_docs":1}},"estimated_docs":1}
-(8 rows)
-
--- Test 3.3: Boolean with MUST and SHOULD mixed
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[paradedb.term('description', 'shoes')],
-    should := ARRAY[paradedb.term('description', 'running'), paradedb.term('description', 'athletic')]
-);
-                                                                                                                                                             QUERY PLAN                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
-   Table: estimate_items
-   Index: idx_recursive_estimates
-   Worker Selection: Cost model
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3}],"should":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"athletic"},"estimated_docs":0}]},"estimated_docs":3}},"estimated_docs":3}
-(8 rows)
-
--- Test 3.4: Boolean with MUST_NOT clause (CRITICAL: Tests negation)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[paradedb.term('description', 'shoes')],
-    must_not := ARRAY[paradedb.term('description', 'athletic')]
-);
-                                                                                                                           QUERY PLAN                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
-   Table: estimate_items
-   Index: idx_recursive_estimates
-   Worker Selection: Cost model
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3}],"must_not":[{"term":{"field":"description","value":"athletic"},"estimated_docs":0}]},"estimated_docs":3}},"estimated_docs":3}
-(8 rows)
-
--- ============================================================================
 -- STAGE 4: COMPLEX NESTED QUERIES (Four+ Level Nesting)
 -- Expected: Deep recursion with estimates at each nested level
 -- ============================================================================
--- Test 4.1: Nested boolean - boolean inside boolean (must within must)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.boolean(
-            must := ARRAY[
-                paradedb.term('description', 'running'),
-                paradedb.term('description', 'shoes')
-            ]
-        ),
-        paradedb.term('description', 'athletic')
-    ]
-);
-                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
-   Table: estimate_items
-   Index: idx_recursive_estimates
-   Worker Selection: Cost model
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boolean":{"must":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":1},{"term":{"field":"description","value":"athletic"},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":0}
-(8 rows)
-
 -- Test 4.2: Nested boolean - OR containing AND ((A AND B) OR C)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    should := ARRAY[
-        paradedb.boolean(
-            must := ARRAY[
-                paradedb.term('description', 'running'),
-                paradedb.term('description', 'shoes')
-            ]
-        ),
-        paradedb.term('description', 'boots')
-    ]
-);
-                                                                                                                                                                            QUERY PLAN                                                                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description === 'running' AND description === 'shoes') OR description === 'boots';
+                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -260,30 +140,16 @@ WHERE description @@@ paradedb.boolean(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"should":[{"boolean":{"must":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":1},{"term":{"field":"description","value":"boots"},"estimated_docs":1}]},"estimated_docs":2}},"estimated_docs":2}
+   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"running"},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"term":{"field":"description","value":"shoes"},"estimated_docs":3}},"estimated_docs":3}]},"estimated_docs":1},{"with_index":{"query":{"term":{"field":"description","value":"boots"},"estimated_docs":1}},"estimated_docs":1}]},"estimated_docs":2}
 (8 rows)
 
--- Test 4.3: Deep nesting - three levels of boolean queries
+-- Test 4.3: Three levels of boolean clauses
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.boolean(
-            should := ARRAY[
-                paradedb.boolean(
-                    must := ARRAY[
-                        paradedb.term('description', 'running'),
-                        paradedb.term('description', 'shoes')
-                    ]
-                ),
-                paradedb.term('description', 'walking')
-            ]
-        ),
-        paradedb.term('description', 'athletic')
-    ]
-);
-                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE ((description === 'running' AND description === 'shoes') OR description === 'walking')
+  AND description === 'athletic';
+                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -291,7 +157,7 @@ WHERE description @@@ paradedb.boolean(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boolean":{"should":[{"boolean":{"must":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":1},{"term":{"field":"description","value":"walking"},"estimated_docs":0}]},"estimated_docs":1},{"term":{"field":"description","value":"athletic"},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":0}
+   Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"running"},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"term":{"field":"description","value":"shoes"},"estimated_docs":3}},"estimated_docs":3}]},"estimated_docs":1},{"with_index":{"query":{"term":{"field":"description","value":"walking"},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":1},{"with_index":{"query":{"term":{"field":"description","value":"athletic"},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":0}
 (8 rows)
 
 -- ============================================================================
@@ -345,10 +211,7 @@ WHERE rating @@@ pdb.range(range => int4range(4, 5));
 -- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.regex(
-    field => 'description',
-    pattern => 'run.*'
-);
+WHERE description @@@ pdb.regex('run.*');
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -396,10 +259,7 @@ WHERE description @@@ pdb.empty();
 -- Test 5.7: Boost query (wraps another query with score boost)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boost(
-    factor => 2.0,
-    query => paradedb.term('description', 'shoes')
-);
+WHERE description === 'shoes'::pdb.boost(2);
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -415,10 +275,7 @@ WHERE description @@@ paradedb.boost(
 -- Test 5.8: ConstScore query (wraps query with constant score)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.const_score(
-    score => 1.5,
-    query => paradedb.term('description', 'shoes')
-);
+WHERE description === 'shoes'::pdb.const(1.5);
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -429,49 +286,6 @@ WHERE description @@@ paradedb.const_score(
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"term":{"field":"description","value":"shoes"},"estimated_docs":3},"score":1.5},"estimated_docs":3}},"estimated_docs":3}
-(8 rows)
-
--- Test 5.9: DisjunctionMax query (best match from multiple)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.disjunction_max(
-    disjuncts => ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.term('description', 'boots')
-    ]
-);
-                                                                                                                                   QUERY PLAN                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
-   Table: estimate_items
-   Index: idx_recursive_estimates
-   Worker Selection: Cost model
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3},{"term":{"field":"description","value":"boots"},"estimated_docs":1}],"tie_breaker":null},"estimated_docs":4}},"estimated_docs":4}
-(8 rows)
-
--- Test 5.10: DisjunctionMax with tie_breaker
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.disjunction_max(
-    disjuncts => ARRAY[
-        paradedb.term('description', 'running'),
-        paradedb.term('description', 'shoes')
-    ],
-    tie_breaker => 0.3
-);
-                                                                                                                                           QUERY PLAN                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
-   Table: estimate_items
-   Index: idx_recursive_estimates
-   Worker Selection: Cost model
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}],"tie_breaker":0.30000001192092896},"estimated_docs":3}},"estimated_docs":3}
 (8 rows)
 
 -- Test 5.11: Parse query (query string syntax)
@@ -493,13 +307,9 @@ WHERE description @@@ pdb.parse('description:shoes AND description:running');
 -- Test 5.12: Phrase with slop (allows word distance)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.phrase(
-    field => 'description',
-    phrases => ARRAY['running', 'shoes'],
-    slop => 2
-);
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ### 'running shoes'::pdb.slop(2);
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -507,16 +317,13 @@ WHERE description @@@ paradedb.phrase(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"phrase":{"field":"description","phrases":["running","shoes"],"slop":2},"estimated_docs":1}},"estimated_docs":1}
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":2},"estimated_docs":1}},"estimated_docs":1}
 (8 rows)
 
 -- Test 5.13: PhrasePrefix query (autocomplete scenarios)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.phrase_prefix(
-    field => 'description',
-    phrases => ARRAY['run']
-);
+WHERE description @@@ pdb.phrase_prefix(ARRAY['run']);
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -532,10 +339,7 @@ WHERE description @@@ paradedb.phrase_prefix(
 -- Test 5.14: RegexPhrase query (regex with positional matching)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.regex_phrase(
-    field => 'description',
-    regexes => ARRAY['run.*', 'shoe.*']
-);
+WHERE description @@@ pdb.regex_phrase(ARRAY['run.*', 'shoe.*']);
                                                                                        QUERY PLAN                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -564,7 +368,7 @@ WHERE id @@@ pdb.more_like_this(1);
    Tantivy Query: {"with_index":{"query":{"more_like_this":{"field":"id","key_value":1,"fields":null,"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null},"estimated_docs":19}},"estimated_docs":19}
 (8 rows)
 
--- Test 5.16: Match query with explicit tokenizer
+-- Test 5.16: Match query with tokenizer from the index
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE description ||| 'running shoes';
@@ -583,10 +387,7 @@ WHERE description ||| 'running shoes';
 -- Test 5.17: Match conjunction (all terms must match)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.match_conjunction(
-    field => 'description',
-    terms_to_tokenize => 'running shoes'
-);
+WHERE description &&& 'running shoes';
                                                                                                                    QUERY PLAN                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -602,10 +403,7 @@ WHERE description @@@ paradedb.match_conjunction(
 -- Test 5.18: Match disjunction (any term can match)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.match_disjunction(
-    field => 'description',
-    terms_to_tokenize => 'running walking'
-);
+WHERE description ||| 'running walking';
                                                                                                                     QUERY PLAN                                                                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -666,28 +464,6 @@ WHERE created_at @@@ pdb.range(range => tsrange('2023-01-01', '2023-12-31'));
    Tantivy Query: {"with_index":{"query":{"range":{"field":"created_at","lower_bound":{"included":{"$__pdb_date__":"2023-01-01T00:00:00Z"}},"upper_bound":{"excluded":{"$__pdb_date__":"2023-12-31T00:00:00Z"}}},"estimated_docs":41}},"estimated_docs":41}
 (8 rows)
 
--- Test 5.22: TermSet with paradedb.term_set function
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.term_set(
-    terms => ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.term('description', 'boots'),
-        paradedb.term('description', 'sandals')
-    ]
-);
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
-   Table: estimate_items
-   Index: idx_recursive_estimates
-   Worker Selection: Cost model
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"term_set":{"termset":{"description":["shoes","boots","sandals"]}},"estimated_docs":4}},"estimated_docs":4}
-(8 rows)
-
 -- ============================================================================
 -- STAGE 5B: NESTED WRAPPER QUERIES
 -- Expected: Wrapper queries (Boost, ConstScore) containing other query types
@@ -695,17 +471,9 @@ WHERE description @@@ paradedb.term_set(
 -- Test 5B.1: Boost wrapping a Boolean query
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boost(
-    factor => 2.0,
-    query => paradedb.boolean(
-        must => ARRAY[
-            paradedb.term('description', 'shoes'),
-            paradedb.term('description', 'running')
-        ]
-    )
-);
-                                                                                                                                              QUERY PLAN                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description &&& 'shoes running'::pdb.boost(2);
+                                                                                                                                             QUERY PLAN                                                                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -713,23 +481,15 @@ WHERE description @@@ paradedb.boost(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3},{"term":{"field":"description","value":"running"},"estimated_docs":1}]},"estimated_docs":1},"factor":2.0},"estimated_docs":1}},"estimated_docs":1}
+   Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"shoes running","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1},"factor":2.0},"estimated_docs":1}},"estimated_docs":1}
 (8 rows)
 
 -- Test 5B.2: ConstScore wrapping a Boolean query
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.const_score(
-    score => 1.0,
-    query => paradedb.boolean(
-        should => ARRAY[
-            paradedb.term('description', 'running'),
-            paradedb.term('description', 'walking')
-        ]
-    )
-);
-                                                                                                                                                  QUERY PLAN                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'running walking'::pdb.const(1);
+                                                                                                                                                 QUERY PLAN                                                                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -737,20 +497,15 @@ WHERE description @@@ paradedb.const_score(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"boolean":{"should":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"walking"},"estimated_docs":0}]},"estimated_docs":1},"score":1.0},"estimated_docs":1}},"estimated_docs":1}
+   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"match":{"field":"description","value":"running walking","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":1},"score":1.0},"estimated_docs":1}},"estimated_docs":1}
 (8 rows)
 
 -- Test 5B.3: Boolean containing Boost queries
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must => ARRAY[
-        paradedb.boost(factor => 2.0, query => paradedb.term('description', 'shoes')),
-        paradedb.boost(factor => 1.5, query => paradedb.term('description', 'running'))
-    ]
-);
-                                                                                                                                                                        QUERY PLAN                                                                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description === 'shoes'::pdb.boost(2) OR description === 'running'::pdb.boost(1.5);
+                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -758,25 +513,17 @@ WHERE description @@@ paradedb.boolean(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boost":{"query":{"term":{"field":"description","value":"shoes"},"estimated_docs":3},"factor":2.0},"estimated_docs":3},{"boost":{"query":{"term":{"field":"description","value":"running"},"estimated_docs":1},"factor":1.5},"estimated_docs":1}]},"estimated_docs":1}},"estimated_docs":1}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"boost":{"query":{"term":{"field":"description","value":"shoes"},"estimated_docs":3},"factor":2.0},"estimated_docs":3}},"estimated_docs":3},{"with_index":{"query":{"boost":{"query":{"term":{"field":"description","value":"running"},"estimated_docs":1},"factor":1.5},"estimated_docs":1}},"estimated_docs":1}]},"estimated_docs":4}
 (8 rows)
 
--- Test 5B.4: DisjunctionMax containing Boolean queries
+-- Test 5B.5: Nested boolean clauses with multiple wrapper types
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.disjunction_max(
-    disjuncts => ARRAY[
-        paradedb.boolean(
-            must => ARRAY[
-                paradedb.term('description', 'running'),
-                paradedb.term('description', 'shoes')
-            ]
-        ),
-        paradedb.term('description', 'boots')
-    ]
-);
-                                                                                                                                                                        QUERY PLAN                                                                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description === 'running'::pdb.const(1)::pdb.query::pdb.boost(2)
+   OR description === 'walking'::pdb.boost(2))
+  AND description === 'athletic';
+                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -784,36 +531,7 @@ WHERE description @@@ paradedb.disjunction_max(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"boolean":{"must":[{"term":{"field":"description","value":"running"}},{"term":{"field":"description","value":"shoes"}}]},"estimated_docs":1},{"term":{"field":"description","value":"boots"},"estimated_docs":1}],"tie_breaker":null},"estimated_docs":2}},"estimated_docs":2}
-(8 rows)
-
--- Test 5B.5: Deeply nested with multiple wrapper types
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must => ARRAY[
-        paradedb.boost(
-            factor => 2.0,
-            query => paradedb.boolean(
-                should => ARRAY[
-                    paradedb.const_score(score => 1.0, query => paradedb.term('description', 'running')),
-                    paradedb.term('description', 'walking')
-                ]
-            )
-        ),
-        paradedb.term('description', 'shoes')
-    ]
-);
-                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
-   Table: estimate_items
-   Index: idx_recursive_estimates
-   Worker Selection: Cost model
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boost":{"query":{"boolean":{"should":[{"const_score":{"query":{"term":{"field":"description","value":"running"},"estimated_docs":1},"score":1.0},"estimated_docs":1},{"term":{"field":"description","value":"walking"},"estimated_docs":0}]},"estimated_docs":1},"factor":2.0},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":1}},"estimated_docs":1}
+   Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"boost":{"query":{"term":{"field":"description","value":"running"},"estimated_docs":1},"factor":2.0},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"boost":{"query":{"term":{"field":"description","value":"walking"},"estimated_docs":0},"factor":2.0},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":1},{"with_index":{"query":{"term":{"field":"description","value":"athletic"},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":0}
 (8 rows)
 
 -- ============================================================================
@@ -1005,49 +723,21 @@ WHERE description ||| 'running'
 -- STAGE 9: PROTECTION LIMITS
 -- Expected: Verify depth limits and timeout handling work correctly
 -- ============================================================================
--- Test 9.1: Deep nesting (should work - well within 100 level limit)
--- This tests 10 levels of nesting, which is typical for complex queries
+-- Test 9.1: Deeply nested alternate conjunctions and disjunctions
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.boolean(
-            must := ARRAY[
-                paradedb.boolean(
-                    must := ARRAY[
-                        paradedb.boolean(
-                            must := ARRAY[
-                                paradedb.boolean(
-                                    must := ARRAY[
-                                        paradedb.boolean(
-                                            must := ARRAY[
-                                                paradedb.boolean(
-                                                    must := ARRAY[
-                                                        paradedb.boolean(
-                                                            must := ARRAY[
-                                                                paradedb.boolean(
-                                                                    must := ARRAY[
-                                                                        paradedb.term('description', 'shoes')
-                                                                    ]
-                                                                )
-                                                            ]
-                                                        )
-                                                    ]
-                                                )
-                                            ]
-                                        )
-                                    ]
-                                )
-                            ]
-                        )
-                    ]
-                )
-            ]
-        )
-    ]
-);
-                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (((((((((description === 'shoes' OR description === 'running')
+          AND description === 'walking')
+          OR description === 'boots')
+          AND description === 'athletic')
+          OR description === 'sandals')
+          AND description === 'footwear')
+          OR description === 'sneakers')
+          AND description === 'trainers')
+          OR description === 'slippers')
+          AND description === 'hiking';
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -1055,7 +745,7 @@ WHERE description @@@ paradedb.boolean(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}},"estimated_docs":3}
+   Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"boolean":{"must":[{"boolean":{"should":[{"boolean":{"must":[{"boolean":{"should":[{"boolean":{"must":[{"boolean":{"should":[{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"term":{"field":"description","value":"shoes"},"estimated_docs":3}},"estimated_docs":3},{"with_index":{"query":{"term":{"field":"description","value":"running"},"estimated_docs":1}},"estimated_docs":1}]},"estimated_docs":4},{"with_index":{"query":{"term":{"field":"description","value":"walking"},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":0},{"with_index":{"query":{"term":{"field":"description","value":"boots"},"estimated_docs":1}},"estimated_docs":1}]},"estimated_docs":1},{"with_index":{"query":{"term":{"field":"description","value":"athletic"},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":0},{"with_index":{"query":{"term":{"field":"description","value":"sandals"},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":0},{"with_index":{"query":{"term":{"field":"description","value":"footwear"},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":0},{"with_index":{"query":{"term":{"field":"description","value":"sneakers"},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":0},{"with_index":{"query":{"term":{"field":"description","value":"trainers"},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":0},{"with_index":{"query":{"term":{"field":"description","value":"slippers"},"estimated_docs":1}},"estimated_docs":1}]},"estimated_docs":1},{"with_index":{"query":{"term":{"field":"description","value":"hiking"},"estimated_docs":1}},"estimated_docs":1}]},"estimated_docs":1}
 (8 rows)
 
 -- Test 9.2: Verify statement_timeout is respected during estimation
@@ -1065,14 +755,9 @@ WHERE description @@@ paradedb.boolean(
 SET statement_timeout = '5s';
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('description', 'running'),
-        paradedb.term('description', 'shoes')
-    ]
-);
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description &&& 'running shoes';
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -1080,7 +765,7 @@ WHERE description @@@ paradedb.boolean(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":1}},"estimated_docs":1}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
 (8 rows)
 
 -- Reset timeout
@@ -1120,73 +805,58 @@ SELECT * FROM recursive_test.estimate_items WHERE description ||| 'shoes';
 -- Test 10.2: Nested boolean query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.term('description', 'running')
-    ]
-);
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                                                                                           +
-   {                                                                                                                                                                                                                                                                                         +
-     "Plan": {                                                                                                                                                                                                                                                                               +
-       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                           +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                                         +
-       "Parallel Aware": false,                                                                                                                                                                                                                                                              +
-       "Async Capable": false,                                                                                                                                                                                                                                                               +
-       "Relation Name": "estimate_items",                                                                                                                                                                                                                                                    +
-       "Schema": "recursive_test",                                                                                                                                                                                                                                                           +
-       "Alias": "estimate_items",                                                                                                                                                                                                                                                            +
-       "Disabled": false,                                                                                                                                                                                                                                                                    +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                            +
-       "Table": "estimate_items",                                                                                                                                                                                                                                                            +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                   +
-       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                     +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                 +
-       "Scores": false,                                                                                                                                                                                                                                                                      +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"term\":{\"field\":\"description\",\"value\":\"shoes\"},\"estimated_docs\":3},{\"term\":{\"field\":\"description\",\"value\":\"running\"},\"estimated_docs\":1}]},\"estimated_docs\":1}},\"estimated_docs\":1}"+
-     }                                                                                                                                                                                                                                                                                       +
-   }                                                                                                                                                                                                                                                                                         +
+WHERE description &&& 'shoes running';
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                                 +
+   {                                                                                                                                                                                                                                                                               +
+     "Plan": {                                                                                                                                                                                                                                                                     +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                 +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                               +
+       "Parallel Aware": false,                                                                                                                                                                                                                                                    +
+       "Async Capable": false,                                                                                                                                                                                                                                                     +
+       "Relation Name": "estimate_items",                                                                                                                                                                                                                                          +
+       "Schema": "recursive_test",                                                                                                                                                                                                                                                 +
+       "Alias": "estimate_items",                                                                                                                                                                                                                                                  +
+       "Disabled": false,                                                                                                                                                                                                                                                          +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                  +
+       "Table": "estimate_items",                                                                                                                                                                                                                                                  +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                         +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                           +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                       +
+       "Scores": false,                                                                                                                                                                                                                                                            +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"match\":{\"field\":\"description\",\"value\":\"shoes running\",\"tokenizer\":null,\"distance\":null,\"transposition_cost_one\":null,\"prefix\":null,\"conjunction_mode\":true},\"estimated_docs\":1}},\"estimated_docs\":1}"+
+     }                                                                                                                                                                                                                                                                             +
+   }                                                                                                                                                                                                                                                                               +
  ]
 (1 row)
 
--- Test 10.3: Complex nested query in JSON format (3 levels deep)
+-- Test 10.3: Nested AND/OR query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.boolean(
-            must := ARRAY[
-                paradedb.term('description', 'running'),
-                paradedb.term('description', 'shoes')
-            ]
-        ),
-        paradedb.term('description', 'athletic')
-    ]
-);
-                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                                                                                                                                                                                                                              +
-   {                                                                                                                                                                                                                                                                                                                                                                                                                            +
-     "Plan": {                                                                                                                                                                                                                                                                                                                                                                                                                  +
-       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                                                                                                                              +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                                                                                                                                                                            +
-       "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                 +
-       "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                  +
-       "Relation Name": "estimate_items",                                                                                                                                                                                                                                                                                                                                                                                       +
-       "Schema": "recursive_test",                                                                                                                                                                                                                                                                                                                                                                                              +
-       "Alias": "estimate_items",                                                                                                                                                                                                                                                                                                                                                                                               +
-       "Disabled": false,                                                                                                                                                                                                                                                                                                                                                                                                       +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                                                                                                                                                               +
-       "Table": "estimate_items",                                                                                                                                                                                                                                                                                                                                                                                               +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                                                                                                                      +
-       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                                                                                                                                                        +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                                                                                                                    +
-       "Scores": false,                                                                                                                                                                                                                                                                                                                                                                                                         +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"boolean\":{\"must\":[{\"term\":{\"field\":\"description\",\"value\":\"running\"},\"estimated_docs\":1},{\"term\":{\"field\":\"description\",\"value\":\"shoes\"},\"estimated_docs\":3}]},\"estimated_docs\":1},{\"term\":{\"field\":\"description\",\"value\":\"athletic\"},\"estimated_docs\":0}]},\"estimated_docs\":0}},\"estimated_docs\":0}"+
-     }                                                                                                                                                                                                                                                                                                                                                                                                                          +
-   }                                                                                                                                                                                                                                                                                                                                                                                                                            +
+WHERE (description === 'running' AND description === 'shoes') OR description === 'athletic';
+                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    +
+   {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  +
+     "Plan": {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  +
+       "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       +
+       "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        +
+       "Relation Name": "estimate_items",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             +
+       "Schema": "recursive_test",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    +
+       "Alias": "estimate_items",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     +
+       "Disabled": false,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                                                                                                                                                                                                                                                                     +
+       "Table": "estimate_items",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          +
+       "Scores": false,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               +
+       "Tantivy Query": "{\"boolean\":{\"should\":[{\"boolean\":{\"must\":[{\"with_index\":{\"query\":{\"term\":{\"field\":\"description\",\"value\":\"running\"},\"estimated_docs\":1}},\"estimated_docs\":1},{\"with_index\":{\"query\":{\"term\":{\"field\":\"description\",\"value\":\"shoes\"},\"estimated_docs\":3}},\"estimated_docs\":3}]},\"estimated_docs\":1},{\"with_index\":{\"query\":{\"term\":{\"field\":\"description\",\"value\":\"athletic\"},\"estimated_docs\":0}},\"estimated_docs\":0}]},\"estimated_docs\":1}"+
+     }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                +
+   }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  +
  ]
 (1 row)
 

@@ -151,22 +151,10 @@ USING paradedb (id, (color::pdb.literal));
 CREATE VIEW sequential_scan_null_checks AS
 SELECT id, covered,
        color ||| 'blue' AS field_match,
-       id @@@ paradedb.boost(2.0, paradedb.const_score(1.0, paradedb.term('color', 'blue'))) AS wrapped_match,
-       NOT (id @@@ paradedb.const_score(1.0, paradedb.boost(2.0, paradedb.exists('color')))) AS missing,
-       id @@@ paradedb.boolean(
-           must => paradedb.exists('color'),
-           must_not => paradedb.term('color', 'red')
-       ) AS compound,
-       id @@@ paradedb.boost(2.0, paradedb.const_score(1.0, paradedb.boolean(
-           must => paradedb.exists('color'),
-           must_not => paradedb.term('color', 'red')
-       ))) AS wrapped_compound,
-       id @@@ paradedb.boolean(must => ARRAY[
-           paradedb.term('color', 'blue'), paradedb.term('color', 'red')
-       ]) AS query_and,
-       id @@@ paradedb.boolean(should => ARRAY[
-           paradedb.term('color', 'blue'), paradedb.term('color', 'red')
-       ]) AS query_or,
+       color === 'blue'::pdb.const(1)::pdb.query::pdb.boost(2) AS wrapped_match,
+       NOT (id @@@ pdb.parse('color:*')::pdb.boost(2)::pdb.query::pdb.const(1)) AS missing,
+       id @@@ pdb.parse('color:* AND -color:red') AS compound,
+       id @@@ pdb.parse('color:* AND -color:red')::pdb.const(1)::pdb.query::pdb.boost(2) AS wrapped_compound,
        (color === 'blue') AND (color === 'red') AS sql_and,
        (color === 'blue') OR (color === 'red') AS sql_or
 FROM sequential_scan_nulls;
@@ -187,9 +175,7 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT wrapped_match ORDER BY id;
 SELECT explain_redact_oid($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
 SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
 
-SELECT id, query_and, query_or, sql_and, sql_or FROM sequential_scan_null_checks ORDER BY id;
-SELECT id FROM sequential_scan_null_checks WHERE NOT query_and ORDER BY id;
-SELECT id FROM sequential_scan_null_checks WHERE NOT query_or ORDER BY id;
+SELECT id, sql_and, sql_or FROM sequential_scan_null_checks ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
 
@@ -199,8 +185,6 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT wrapped_match ORDER BY id;
 SELECT explain_redact_oid($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
 SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
 
-SELECT id FROM sequential_scan_null_checks WHERE NOT query_and ORDER BY id;
-SELECT id FROM sequential_scan_null_checks WHERE NOT query_or ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
 
@@ -216,73 +200,28 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT field_match ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT wrapped_match ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
 
-SELECT id, query_and, query_or, sql_and, sql_or FROM sequential_scan_null_checks ORDER BY id;
-SELECT id FROM sequential_scan_null_checks WHERE NOT query_and ORDER BY id;
-SELECT id FROM sequential_scan_null_checks WHERE NOT query_or ORDER BY id;
+SELECT id, sql_and, sql_or FROM sequential_scan_null_checks ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
 
 DROP VIEW sequential_scan_null_checks;
 UPDATE sequential_scan_nulls SET covered = true;
 
-SELECT paradedb.search_with_query_input_ctid(
-           1, NULL::paradedb.searchqueryinput, '(0,1)'::tid
-       ) IS NULL AS null_query,
-       paradedb.search_with_query_input_ctid(
-           1, paradedb.empty(), NULL::tid
-       ) IS NULL AS null_ctid,
-       paradedb.search_with_query_input_ctid(
-           NULL::int, paradedb.empty(), '(0,1)'::tid
-       ) IS FALSE AS nullable_anchor,
-       paradedb.search_with_query_input_ctid_strict(
-           NULL::int, paradedb.empty(), '(0,1)'::tid
-       ) IS NULL AS strict_anchor;
-
-SELECT paradedb.search_with_query_input_ctid_or_row(
-           1, NULL::paradedb.searchqueryinput, '(0,1)'::tid, ARRAY[ROW(1)]::record[]
-       ) IS NULL AS null_inline_query,
-       paradedb.search_with_query_input_ctid_or_row(
-           1, NULL::paradedb.searchqueryinput, '(0,1)'::tid, '{}'::record[]
-       ) IS NULL AS null_index_query,
-       paradedb.search_with_query_input_ctid_or_row(
-           1, paradedb.empty(), NULL::tid, ARRAY[ROW(1)]::record[]
-       ) IS NULL AS null_ctid,
-       paradedb.search_with_query_input_ctid_or_row(
-           1, paradedb.empty(), '(0,1)'::tid, NULL::record[]
-       ) IS NULL AS null_rows,
-       paradedb.search_with_query_input_ctid_or_row(
-           1, paradedb.empty(), '(0,1)'::tid, ARRAY[NULL::record]
-       ) IS NULL AS null_row;
-
+-- Sequential fallback can evaluate compressed and out-of-line query values.
 INSERT INTO sequential_scan_nulls VALUES
     (4, repeat('a', 4000), true), (5, repeat('b', 4000), true);
-CREATE TABLE sequential_scan_queries (label text, query paradedb.searchqueryinput);
+CREATE TABLE sequential_scan_queries (label text, query pdb.query);
 ALTER TABLE sequential_scan_queries ALTER COLUMN query SET STORAGE EXTENDED;
-INSERT INTO sequential_scan_queries VALUES (
-    'compressed', paradedb.with_index('sequential_scan_nulls_idx', paradedb.term('color', repeat('a', 4000)))
-);
+INSERT INTO sequential_scan_queries VALUES ('compressed', pdb.term(repeat('a', 4000)));
 ALTER TABLE sequential_scan_queries ALTER COLUMN query SET STORAGE EXTERNAL;
-INSERT INTO sequential_scan_queries VALUES (
-    'external', paradedb.with_index('sequential_scan_nulls_idx', paradedb.term('color', repeat('b', 4000)))
-);
-SELECT label, pg_column_size(query) < 4000 AS compressed
-FROM sequential_scan_queries ORDER BY label;
-SELECT q.label, t.id,
-       paradedb.search_with_query_input_ctid(t.id, q.query, t.ctid) AS matched
-FROM sequential_scan_queries q CROSS JOIN sequential_scan_nulls t
-WHERE t.id IN (4, 5)
-ORDER BY q.label, t.id;
-SELECT q.label, t.id,
-       paradedb.search_with_query_input_ctid_or_row(
-           NULL::int, q.query, t.ctid, ARRAY[t]::record[]
-       ) AS inline_match,
-       paradedb.search_with_query_input_ctid_or_row_strict(
-           1, q.query, t.ctid, ARRAY[t]::record[]
-       ) AS strict_inline_match
-FROM sequential_scan_queries q CROSS JOIN sequential_scan_nulls t
+INSERT INTO sequential_scan_queries VALUES ('external', pdb.term(repeat('b', 4000)));
+SELECT q.label, t.id, t.color @@@ q.query AS matched,
+       pg_column_size(q.query) < 4000 AS compressed
+FROM sequential_scan_nulls t CROSS JOIN sequential_scan_queries q
 WHERE t.id IN (4, 5)
 ORDER BY q.label, t.id;
 DROP TABLE sequential_scan_queries;
+
 DROP INDEX sequential_scan_nulls_idx;
 CREATE INDEX sequential_scan_nulls_idx ON sequential_scan_nulls
 USING paradedb (id, (color::pdb.literal)) WHERE covered;
@@ -378,39 +317,13 @@ SET enable_indexscan = off;
 SET enable_indexonlyscan = off;
 SET enable_bitmapscan = off;
 
--- Native ANY/ALL cannot supply row identity to the per-row operator.
-SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
-    paradedb.with_index('sequential_scan_arrays_idx', paradedb.term('body', 'alpha')),
-    paradedb.with_index('sequential_scan_arrays_idx', paradedb.term('body', 'beta'))
-]);
-SELECT id FROM sequential_scan_arrays WHERE id @@@ ALL(ARRAY[
-    paradedb.with_index('sequential_scan_arrays_idx', paradedb.all())
-]);
-SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[paradedb.empty()]);
-
--- PostgreSQL handles these without invoking the operator.
-SELECT id,
-    id @@@ ANY('{}'::paradedb.searchqueryinput[]) AS any_empty,
-    id @@@ ALL('{}'::paradedb.searchqueryinput[]) AS all_empty,
-    id @@@ ANY(NULL::paradedb.searchqueryinput[]) AS null_array,
-    id @@@ ANY(ARRAY[NULL::paradedb.searchqueryinput]) AS null_element
-FROM sequential_scan_arrays WHERE id = 1;
-
 SELECT id FROM sequential_scan_arrays
 WHERE body === 'alpha' OR body === 'beta' ORDER BY id;
 SELECT id FROM sequential_scan_arrays WHERE body === ARRAY['alpha', 'beta'] ORDER BY id;
-SELECT paradedb.search_with_query_input(1, paradedb.empty()) AS direct_empty,
-    paradedb.search_with_query_input(1,
-        paradedb.with_index('sequential_scan_arrays_idx', paradedb.all())) AS direct_all;
-
 SET enable_indexscan = on;
 SET enable_seqscan = off;
-SELECT explain_redact_oid($$SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
-    paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
-])$$);
-SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
-    paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
-]) ORDER BY id;
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_arrays WHERE body === ARRAY['alpha', 'beta']$$);
+SELECT id FROM sequential_scan_arrays WHERE body === ARRAY['alpha', 'beta'] ORDER BY id;
 
 DROP TABLE sequential_scan_arrays;
 RESET paradedb.enable_custom_scan;

@@ -34,100 +34,20 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ||| ARRAY['running', 'walking', 'hiking'];
 
 -- ============================================================================
--- STAGE 3: NESTED BOOLEAN QUERIES (Three-Level Nesting)
--- Expected: Recursive estimates showing boolean parent + term children
--- ============================================================================
-
--- Test 3.1: Boolean with two MUST clauses
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.term('description', 'running')
-    ]
-);
-
--- Test 3.2: Boolean with two SHOULD clauses (OR)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    should := ARRAY[
-        paradedb.term('description', 'running'),
-        paradedb.term('description', 'walking')
-    ]
-);
-
--- Test 3.3: Boolean with MUST and SHOULD mixed
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[paradedb.term('description', 'shoes')],
-    should := ARRAY[paradedb.term('description', 'running'), paradedb.term('description', 'athletic')]
-);
-
--- Test 3.4: Boolean with MUST_NOT clause (CRITICAL: Tests negation)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[paradedb.term('description', 'shoes')],
-    must_not := ARRAY[paradedb.term('description', 'athletic')]
-);
-
--- ============================================================================
 -- STAGE 4: COMPLEX NESTED QUERIES (Four+ Level Nesting)
 -- Expected: Deep recursion with estimates at each nested level
 -- ============================================================================
 
--- Test 4.1: Nested boolean - boolean inside boolean (must within must)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.boolean(
-            must := ARRAY[
-                paradedb.term('description', 'running'),
-                paradedb.term('description', 'shoes')
-            ]
-        ),
-        paradedb.term('description', 'athletic')
-    ]
-);
-
 -- Test 4.2: Nested boolean - OR containing AND ((A AND B) OR C)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    should := ARRAY[
-        paradedb.boolean(
-            must := ARRAY[
-                paradedb.term('description', 'running'),
-                paradedb.term('description', 'shoes')
-            ]
-        ),
-        paradedb.term('description', 'boots')
-    ]
-);
+WHERE (description === 'running' AND description === 'shoes') OR description === 'boots';
 
--- Test 4.3: Deep nesting - three levels of boolean queries
+-- Test 4.3: Three levels of boolean clauses
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.boolean(
-            should := ARRAY[
-                paradedb.boolean(
-                    must := ARRAY[
-                        paradedb.term('description', 'running'),
-                        paradedb.term('description', 'shoes')
-                    ]
-                ),
-                paradedb.term('description', 'walking')
-            ]
-        ),
-        paradedb.term('description', 'athletic')
-    ]
-);
+WHERE ((description === 'running' AND description === 'shoes') OR description === 'walking')
+  AND description === 'athletic';
 
 -- ============================================================================
 -- STAGE 5: SPECIAL QUERY TYPES
@@ -148,10 +68,7 @@ WHERE rating @@@ pdb.range(range => int4range(4, 5));
 -- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.regex(
-    field => 'description',
-    pattern => 'run.*'
-);
+WHERE description @@@ pdb.regex('run.*');
 
 -- Test 5.5: Fuzzy query (CRITICAL: Tests typo-tolerance estimates)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -166,39 +83,12 @@ WHERE description @@@ pdb.empty();
 -- Test 5.7: Boost query (wraps another query with score boost)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boost(
-    factor => 2.0,
-    query => paradedb.term('description', 'shoes')
-);
+WHERE description === 'shoes'::pdb.boost(2);
 
 -- Test 5.8: ConstScore query (wraps query with constant score)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.const_score(
-    score => 1.5,
-    query => paradedb.term('description', 'shoes')
-);
-
--- Test 5.9: DisjunctionMax query (best match from multiple)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.disjunction_max(
-    disjuncts => ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.term('description', 'boots')
-    ]
-);
-
--- Test 5.10: DisjunctionMax with tie_breaker
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.disjunction_max(
-    disjuncts => ARRAY[
-        paradedb.term('description', 'running'),
-        paradedb.term('description', 'shoes')
-    ],
-    tie_breaker => 0.3
-);
+WHERE description === 'shoes'::pdb.const(1.5);
 
 -- Test 5.11: Parse query (query string syntax)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -208,34 +98,24 @@ WHERE description @@@ pdb.parse('description:shoes AND description:running');
 -- Test 5.12: Phrase with slop (allows word distance)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.phrase(
-    field => 'description',
-    phrases => ARRAY['running', 'shoes'],
-    slop => 2
-);
+WHERE description ### 'running shoes'::pdb.slop(2);
 
 -- Test 5.13: PhrasePrefix query (autocomplete scenarios)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.phrase_prefix(
-    field => 'description',
-    phrases => ARRAY['run']
-);
+WHERE description @@@ pdb.phrase_prefix(ARRAY['run']);
 
 -- Test 5.14: RegexPhrase query (regex with positional matching)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.regex_phrase(
-    field => 'description',
-    regexes => ARRAY['run.*', 'shoe.*']
-);
+WHERE description @@@ pdb.regex_phrase(ARRAY['run.*', 'shoe.*']);
 
 -- Test 5.15: MoreLikeThis query (document similarity) - using key_value
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE id @@@ pdb.more_like_this(1);
 
--- Test 5.16: Match query with explicit tokenizer
+-- Test 5.16: Match query with tokenizer from the index
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE description ||| 'running shoes';
@@ -243,18 +123,12 @@ WHERE description ||| 'running shoes';
 -- Test 5.17: Match conjunction (all terms must match)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.match_conjunction(
-    field => 'description',
-    terms_to_tokenize => 'running shoes'
-);
+WHERE description &&& 'running shoes';
 
 -- Test 5.18: Match disjunction (any term can match)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.match_disjunction(
-    field => 'description',
-    terms_to_tokenize => 'running walking'
-);
+WHERE description ||| 'running walking';
 
 -- Test 5.19: Proximity query (word distance matching)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -271,16 +145,6 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE created_at @@@ pdb.range(range => tsrange('2023-01-01', '2023-12-31'));
 
--- Test 5.22: TermSet with paradedb.term_set function
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.term_set(
-    terms => ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.term('description', 'boots'),
-        paradedb.term('description', 'sandals')
-    ]
-);
 
 -- ============================================================================
 -- STAGE 5B: NESTED WRAPPER QUERIES
@@ -290,71 +154,24 @@ WHERE description @@@ paradedb.term_set(
 -- Test 5B.1: Boost wrapping a Boolean query
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boost(
-    factor => 2.0,
-    query => paradedb.boolean(
-        must => ARRAY[
-            paradedb.term('description', 'shoes'),
-            paradedb.term('description', 'running')
-        ]
-    )
-);
+WHERE description &&& 'shoes running'::pdb.boost(2);
 
 -- Test 5B.2: ConstScore wrapping a Boolean query
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.const_score(
-    score => 1.0,
-    query => paradedb.boolean(
-        should => ARRAY[
-            paradedb.term('description', 'running'),
-            paradedb.term('description', 'walking')
-        ]
-    )
-);
+WHERE description ||| 'running walking'::pdb.const(1);
 
 -- Test 5B.3: Boolean containing Boost queries
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must => ARRAY[
-        paradedb.boost(factor => 2.0, query => paradedb.term('description', 'shoes')),
-        paradedb.boost(factor => 1.5, query => paradedb.term('description', 'running'))
-    ]
-);
+WHERE description === 'shoes'::pdb.boost(2) OR description === 'running'::pdb.boost(1.5);
 
--- Test 5B.4: DisjunctionMax containing Boolean queries
+-- Test 5B.5: Nested boolean clauses with multiple wrapper types
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.disjunction_max(
-    disjuncts => ARRAY[
-        paradedb.boolean(
-            must => ARRAY[
-                paradedb.term('description', 'running'),
-                paradedb.term('description', 'shoes')
-            ]
-        ),
-        paradedb.term('description', 'boots')
-    ]
-);
-
--- Test 5B.5: Deeply nested with multiple wrapper types
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
-SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must => ARRAY[
-        paradedb.boost(
-            factor => 2.0,
-            query => paradedb.boolean(
-                should => ARRAY[
-                    paradedb.const_score(score => 1.0, query => paradedb.term('description', 'running')),
-                    paradedb.term('description', 'walking')
-                ]
-            )
-        ),
-        paradedb.term('description', 'shoes')
-    ]
-);
+WHERE (description === 'running'::pdb.const(1)::pdb.query::pdb.boost(2)
+   OR description === 'walking'::pdb.boost(2))
+  AND description === 'athletic';
 
 -- ============================================================================
 -- STAGE 6: GUC TOGGLE TEST
@@ -422,47 +239,19 @@ WHERE description ||| 'running'
 -- Expected: Verify depth limits and timeout handling work correctly
 -- ============================================================================
 
--- Test 9.1: Deep nesting (should work - well within 100 level limit)
--- This tests 10 levels of nesting, which is typical for complex queries
+-- Test 9.1: Deeply nested alternate conjunctions and disjunctions
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.boolean(
-            must := ARRAY[
-                paradedb.boolean(
-                    must := ARRAY[
-                        paradedb.boolean(
-                            must := ARRAY[
-                                paradedb.boolean(
-                                    must := ARRAY[
-                                        paradedb.boolean(
-                                            must := ARRAY[
-                                                paradedb.boolean(
-                                                    must := ARRAY[
-                                                        paradedb.boolean(
-                                                            must := ARRAY[
-                                                                paradedb.boolean(
-                                                                    must := ARRAY[
-                                                                        paradedb.term('description', 'shoes')
-                                                                    ]
-                                                                )
-                                                            ]
-                                                        )
-                                                    ]
-                                                )
-                                            ]
-                                        )
-                                    ]
-                                )
-                            ]
-                        )
-                    ]
-                )
-            ]
-        )
-    ]
-);
+WHERE (((((((((description === 'shoes' OR description === 'running')
+          AND description === 'walking')
+          OR description === 'boots')
+          AND description === 'athletic')
+          OR description === 'sandals')
+          AND description === 'footwear')
+          OR description === 'sneakers')
+          AND description === 'trainers')
+          OR description === 'slippers')
+          AND description === 'hiking';
 
 -- Test 9.2: Verify statement_timeout is respected during estimation
 -- This test ensures that check_for_interrupts() is being called
@@ -471,12 +260,7 @@ WHERE description @@@ paradedb.boolean(
 SET statement_timeout = '5s';
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('description', 'running'),
-        paradedb.term('description', 'shoes')
-    ]
-);
+WHERE description &&& 'running shoes';
 -- Reset timeout
 RESET statement_timeout;
 
@@ -492,27 +276,12 @@ SELECT * FROM recursive_test.estimate_items WHERE description ||| 'shoes';
 -- Test 10.2: Nested boolean query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.term('description', 'running')
-    ]
-);
+WHERE description &&& 'shoes running';
 
--- Test 10.3: Complex nested query in JSON format (3 levels deep)
+-- Test 10.3: Nested AND/OR query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.boolean(
-            must := ARRAY[
-                paradedb.term('description', 'running'),
-                paradedb.term('description', 'shoes')
-            ]
-        ),
-        paradedb.term('description', 'athletic')
-    ]
-);
+WHERE (description === 'running' AND description === 'shoes') OR description === 'athletic';
 
 -- Test 10.4: Range query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)

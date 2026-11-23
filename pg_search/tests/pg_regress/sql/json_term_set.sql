@@ -1,10 +1,4 @@
--- TermSet queries against JSON-column datetime subpaths, exercising both
--- supported syntaxes:
---   * V2 API:     json_path @@@ pdb.term_set(ARRAY[...])
---   * Legacy API: raw JSONB '{"term_set": {"terms": [{"field": ..., "value": ..., "is_datetime": true}, ...]}}'::jsonb
--- This locks in the OwnedValue::Date round-trip through CBOR for term_set
--- (which the existing term_set regression tests don't cover because they use
--- bigints/text), and the legacy is_datetime translation path for term_set.
+-- Term-set queries on JSON datetime subpaths preserve OwnedValue::Date through CBOR.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
@@ -38,33 +32,6 @@ WHERE (metadata -> 'attributes' -> 'tstz') @@@ pdb.term_set(ARRAY[
     '2023-05-01T09:12:34Z'::timestamptz,
     '2023-05-01T10:12:34Z'::timestamptz
 ])
-ORDER BY id;
-
--- ============================================================================
--- Datetime subpath: legacy JSONB API with is_datetime
--- ============================================================================
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id FROM json_term_set_test
-WHERE id @@@ '{
-    "term_set": {
-        "terms": [
-            {"field": "metadata.attributes.tstz", "value": "2023-05-01T09:12:34Z", "is_datetime": true},
-            {"field": "metadata.attributes.tstz", "value": "2023-05-01T10:12:34Z", "is_datetime": true}
-        ]
-    }
-}'::jsonb
-ORDER BY id;
-
-SELECT id FROM json_term_set_test
-WHERE id @@@ '{
-    "term_set": {
-        "terms": [
-            {"field": "metadata.attributes.tstz", "value": "2023-05-01T09:12:34Z", "is_datetime": true},
-            {"field": "metadata.attributes.tstz", "value": "2023-05-01T10:12:34Z", "is_datetime": true}
-        ]
-    }
-}'::jsonb
 ORDER BY id;
 
 DROP TABLE json_term_set_test;

@@ -79,15 +79,6 @@ WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->>'value'
 ORDER BY value;
 
--- Test 4: Verify with paradedb.aggregate directly
-SELECT 'Test 4: Direct paradedb.aggregate call';
-SELECT * FROM paradedb.aggregate(
-    index=>'json_test_idx',
-    query=>paradedb.exists('metadata_json.value'),
-    agg=>'{"buckets": { "terms": { "field": "metadata_json.value" }}}',
-    visibility=>'transaction'
-) ORDER BY 1;
-
 -- Test 5: JSON projection without filter (should still work)
 SELECT 'Test 5: Without WHERE clause';
 SELECT

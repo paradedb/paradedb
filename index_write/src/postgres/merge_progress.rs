@@ -19,21 +19,12 @@ use crate::index::merge_policy::MUTABLE_SEGMENT_LAYER;
 use crate::index::writer::index::format_bytes;
 use crate::postgres::ps_status::set_ps_display_suffix;
 use crate::postgres::storage::block::{CTID_MAP_EXT, STATS_EXT};
-use log::{Level, LevelFilter, Log, Metadata, Record, max_level, set_max_level};
 use pgrx::pg_sys::{self, BackendState};
-use std::cell::RefCell;
 use std::ffi::CString;
-
-const MERGER_LOG_TARGET: &str = "tantivy::indexer::merger";
-const MERGE_PLUGIN_PREFIX: &str = "merge-plugin: ";
-
-thread_local! {
-    static MERGE_STATUS: RefCell<Option<String>> = const { RefCell::new(None) };
-}
+use tantivy::MergePhase;
 
 pub(super) struct MergeProgress {
-    previous: Option<String>,
-    previous_log_level: LevelFilter,
+    status: String,
 }
 
 impl MergeProgress {
@@ -44,82 +35,36 @@ impl MergeProgress {
             format!("target layer {}", format_bytes(layer))
         };
         let segment_label = if segments == 1 { "segment" } else { "segments" };
-        let status =
-            format!("merging batch {batch}/{batches}: {segments} {segment_label}; {target}");
-        let previous = MERGE_STATUS.replace(Some(status));
-        let previous_log_level = max_level();
-        set_max_level(previous_log_level.max(LevelFilter::Debug));
         let progress = Self {
-            previous,
-            previous_log_level,
+            status: format!(
+                "merging batch {batch}/{batches}: {segments} {segment_label}; {target}"
+            ),
         };
         progress.report("preparing");
         progress
     }
 
+    pub fn report_merge_phase(&self, phase: MergePhase<'_>) {
+        let phase = match phase {
+            MergePhase::DocIdMapping => "document mapping",
+            MergePhase::InvertedIndex => "inverted index",
+            MergePhase::FastFields => "fast fields",
+            MergePhase::Store => "document store",
+            MergePhase::Vectors => "vectors",
+            MergePhase::Custom([STATS_EXT]) => "statistics",
+            MergePhase::Custom([CTID_MAP_EXT]) => "tuple map",
+            _ => "custom components",
+        };
+        self.report(phase);
+    }
+
     pub fn report(&self, phase: &str) {
-        report_phase(phase);
-    }
-}
-
-// We intentionally do NOT use `impl_safe_drop!` here because cleanup only touches Rust state
-// and must restore the logging scope during unwinding.
-impl Drop for MergeProgress {
-    fn drop(&mut self) {
-        MERGE_STATUS.set(self.previous.take());
-        set_max_level(self.previous_log_level);
-    }
-}
-
-fn report_phase(phase: &str) {
-    let status = MERGE_STATUS.with_borrow(|status| {
-        status
-            .as_ref()
-            .map(|status| CString::new(format!("{status}; phase={phase}")).expect("merge status"))
-    });
-    if let Some(status) = status {
+        let status = CString::new(format!("{}; phase={phase}", self.status)).expect("merge status");
         unsafe {
             set_ps_display_suffix(status.as_ptr());
             pg_sys::pgstat_report_activity(BackendState::STATE_RUNNING, status.as_ptr());
         }
     }
-}
-
-pub(super) struct MergeProgressLogger;
-
-impl Log for MergeProgressLogger {
-    fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.target() == MERGER_LOG_TARGET && metadata.level() == Level::Debug
-    }
-
-    fn log(&self, record: &Record) {
-        if !self.enabled(record.metadata()) || !MERGE_STATUS.with_borrow(Option::is_some) {
-            return;
-        }
-        // Tantivy's pinned merge loop emits this record before each component on the calling thread.
-        let message = record.args().to_string();
-        let Some(extensions) = message.strip_prefix(MERGE_PLUGIN_PREFIX) else {
-            return;
-        };
-        let phase = if extensions.contains("\"term\"") {
-            "inverted index"
-        } else if extensions.contains("\"fast\"") {
-            "fast fields"
-        } else if extensions.contains("\"store\"") {
-            "document store"
-        } else if extensions.contains("\"vec\"") {
-            "vectors"
-        } else if extensions.contains(STATS_EXT) {
-            "statistics"
-        } else if extensions.contains(CTID_MAP_EXT) {
-            "tuple map"
-        } else {
-            "custom components"
-        };
-        report_phase(phase);
-    }
-
-    fn flush(&self) {}
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -129,7 +74,6 @@ mod tests {
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::writer::index::{Mergeable, SearchIndexMerger};
     use crate::postgres::PgSearchRelation;
-    use log::debug;
     use pgrx::pg_sys::Oid;
     use pgrx::prelude::*;
     use std::ffi::CStr;
@@ -153,19 +97,10 @@ mod tests {
         let progress = MergeProgress::start(2, 5, TARGET_LAYER_BYTES, 8);
         let prefix = "merging batch 2/5: 8 segments; target layer 1024 kB";
         assert_eq!(activity(), format!("{prefix}; phase=preparing"));
-        debug!(target: MERGER_LOG_TARGET, "merge-plugin: {:?}", ["fast"]);
-        assert_eq!(activity(), format!("{prefix}; phase=fast fields"));
-
-        thread::spawn(|| {
-            debug!(target: MERGER_LOG_TARGET, "merge-plugin: {:?}", ["vec", "centroids"]);
-        })
-        .join()
-        .unwrap();
+        progress.report_merge_phase(MergePhase::FastFields);
         assert_eq!(activity(), format!("{prefix}; phase=fast fields"));
 
         progress.report("complete");
-        drop(progress);
-        debug!(target: MERGER_LOG_TARGET, "merge-plugin: {:?}", ["store"]);
         assert_eq!(activity(), format!("{prefix}; phase=complete"));
 
         let _progress = MergeProgress::start(1, 1, MUTABLE_SEGMENT_LAYER, 1);
@@ -196,8 +131,27 @@ mod tests {
             .into_iter()
             .collect::<Vec<_>>();
         assert_eq!(segments.len(), 2);
-        let _progress = MergeProgress::start(1, 1, TARGET_LAYER_BYTES, segments.len());
-        let merged = merger.merge_segments(&segments).unwrap().unwrap();
+        let progress = MergeProgress::start(1, 1, TARGET_LAYER_BYTES, segments.len());
+        let caller = thread::current().id();
+        let mut expected = [
+            MergePhase::DocIdMapping,
+            MergePhase::InvertedIndex,
+            MergePhase::FastFields,
+            MergePhase::Store,
+            MergePhase::Vectors,
+            MergePhase::Custom(&[STATS_EXT]),
+            MergePhase::Custom(&[CTID_MAP_EXT]),
+        ]
+        .into_iter();
+        let merged = merger
+            .merge_segments_with_progress(&segments, &mut |phase| {
+                assert_eq!(thread::current().id(), caller);
+                assert_eq!(Some(phase), expected.next());
+                progress.report_merge_phase(phase);
+            })
+            .unwrap()
+            .unwrap();
+        assert!(expected.next().is_none());
         assert_eq!(merged.num_docs(), 2);
         assert!(activity().ends_with("; phase=tuple map"));
     }

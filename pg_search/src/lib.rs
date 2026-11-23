@@ -140,12 +140,16 @@ fn check_for_interrupts() {
 pub unsafe extern "C-unwind" fn _PG_init() {
     // Optional: initialize env_logger for dependency debug output (tantivy, lindera, etc.)
     // Enable with: cargo build --features debug-logging
+    // Without this feature, log! macros (to stderr) in dependencies become no-ops.
+    // We can't implement our own logger that sends messages to Postgres `ereport()` because
+    // of threading concerns.
     #[cfg(feature = "debug-logging")]
-    let dependency_logger = {
+    {
         std::env::set_var("RUST_LOG", "warn");
         std::env::set_var("RUST_LOG_STYLE", "never");
-        env_logger::Builder::from_default_env().build()
-    };
+        // Use try_init() because parallel workers may call _PG_init() multiple times
+        let _ = env_logger::try_init();
+    }
 
     if !pg_sys::process_shared_preload_libraries_in_progress {
         error!(
@@ -157,10 +161,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     dst::init();
 
     postgres::options::init();
-    #[cfg(feature = "debug-logging")]
-    postgres::logging::init_with_logger(dependency_logger);
-    #[cfg(not(feature = "debug-logging"))]
-    postgres::logging::init();
+    postgres::build_logging::init();
     gucs::init();
     postgres::mutable_sweep::init();
     postgres::customscan::mpp::wakeup::init_wakeup_pool();

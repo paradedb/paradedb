@@ -631,7 +631,11 @@ pub unsafe fn merge_index(
             let progress = (mode == MergeMode::Background).then(|| {
                 MergeProgress::start(batch + 1, ncandidates, *layer_size, candidate.0.len())
             });
-            merge_result = merger.merge_segments(&candidate.0);
+            merge_result = merger.merge_segments_with_progress(&candidate.0, &mut |phase| {
+                if let Some(progress) = &progress {
+                    progress.report_merge_phase(phase);
+                }
+            });
             if merge_result.is_err() {
                 break;
             }

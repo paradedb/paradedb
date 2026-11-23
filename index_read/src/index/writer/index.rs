@@ -25,7 +25,8 @@ use tantivy::indexer::merger::IndexMerger;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
 use tantivy::{
-    Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
+    Directory, Index, IndexMeta, IndexWriter, MergePhase, Opstamp, Segment, SegmentMeta,
+    TantivyDocument,
     directory::{ManagedDirectory, RamDirectory, TerminatingWrite},
 };
 
@@ -751,11 +752,24 @@ pub trait Mergeable {
     ///
     /// Will panic if a segment_id has already been merged or if our internal tantivy communications
     /// channels fail for some reason.
-    fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>>;
+    fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>> {
+        self.merge_segments_with_progress(segment_ids, &mut |_| {})
+    }
+
+    /// Merge while reporting typed phases synchronously on the calling thread.
+    fn merge_segments_with_progress(
+        &mut self,
+        segment_ids: &[SegmentId],
+        progress: &mut dyn FnMut(MergePhase<'_>),
+    ) -> Result<Option<SegmentMeta>>;
 }
 
 impl Mergeable for SearchIndexMerger {
-    fn merge_segments(&mut self, segment_ids: &[SegmentId]) -> Result<Option<SegmentMeta>> {
+    fn merge_segments_with_progress(
+        &mut self,
+        segment_ids: &[SegmentId],
+        progress: &mut dyn FnMut(MergePhase<'_>),
+    ) -> Result<Option<SegmentMeta>> {
         assert!(
             segment_ids
                 .iter()
@@ -777,7 +791,7 @@ impl Mergeable for SearchIndexMerger {
         // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
         // The block writers underneath do check for interrupts; an entry orphaned by such an
         // ERROR is retired by `MergeEntry::is_live` once its xmin is no longer in progress.
-        let new_segment = writer.merge_foreground(segment_ids, true)?;
+        let new_segment = writer.merge_foreground_with_progress(segment_ids, true, progress)?;
 
         if let Some(new_segment) = new_segment.as_ref() {
             // Use the same cached Tantivy metas as the merger, including VACUUM's filtered counts.

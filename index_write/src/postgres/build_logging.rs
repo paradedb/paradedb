@@ -15,43 +15,60 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Minimal, targeted `log` → Postgres NOTICE bridge for IVF build timings.
-//!
-//! tantivy's IVF build emits one `log::info!` line per IVF merge on the
-//! target `paradedb::ivf_build`. This forwards ONLY that target to
-//! `pgrx::notice!`, so the timings surface during `CREATE INDEX` and are
-//! captured by NOTICE-reading clients (e.g. the benchmark harness via
-//! psycopg). Every other record is rejected at `enabled()`, so this never acts
-//! as a general logger or reconfigures logging broadly. The IVF build runs
-//! synchronously in the backend during `CREATE INDEX`, so emitting via
-//! `ereport` (NOTICE) here is on the backend thread.
+//! Targeted logging bridge for IVF build timings and synchronous merge phases.
+
+use crate::postgres::merge_progress::{MERGER_LOG_TARGET, report_record};
+use log::{Level, LevelFilter, Log, Metadata, Record, set_logger, set_max_level};
+use std::sync::OnceLock;
 
 const IVF_BUILD_TARGET: &str = "paradedb::ivf_build";
 
-struct IvfBuildLogger;
+struct IndexLogger {
+    fallback: Option<Box<dyn Log>>,
+}
 
-impl log::Log for IvfBuildLogger {
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.target() == IVF_BUILD_TARGET && metadata.level() <= log::Level::Info
+impl Log for IndexLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        (metadata.target() == IVF_BUILD_TARGET && metadata.level() <= Level::Info)
+            || (metadata.target() == MERGER_LOG_TARGET && metadata.level() == Level::Debug)
+            || self
+                .fallback
+                .as_ref()
+                .is_some_and(|logger| logger.enabled(metadata))
     }
 
-    fn log(&self, record: &log::Record) {
-        if self.enabled(record.metadata()) {
+    fn log(&self, record: &Record) {
+        report_record(record);
+        if let Some(logger) = &self.fallback {
+            if logger.enabled(record.metadata()) {
+                logger.log(record);
+            }
+        } else if record.target() == IVF_BUILD_TARGET && record.level() <= Level::Info {
             pgrx::notice!("{}", record.args());
         }
     }
 
-    fn flush(&self) {}
+    fn flush(&self) {
+        if let Some(logger) = &self.fallback {
+            logger.flush();
+        }
+    }
 }
 
-static IVF_BUILD_LOGGER: IvfBuildLogger = IvfBuildLogger;
+static INDEX_LOGGER: OnceLock<IndexLogger> = OnceLock::new();
 
-/// Install the bridge. Idempotent and non-fatal: if another logger is already
-/// registered (e.g. `env_logger` under the `debug-logging` feature) we leave it
-/// in place. On success we raise the max level to Info so the targeted record
-/// is evaluated — non-matching records are still dropped at `enabled()`.
+/// Retain optional dependency logging while observing merge records on the backend thread.
 pub fn init() {
-    if log::set_logger(&IVF_BUILD_LOGGER).is_ok() {
-        log::set_max_level(log::LevelFilter::Info);
+    init_inner(None);
+}
+
+pub fn init_with_logger(logger: impl Log + 'static) {
+    init_inner(Some(Box::new(logger)));
+}
+
+fn init_inner(fallback: Option<Box<dyn Log>>) {
+    let logger = INDEX_LOGGER.get_or_init(|| IndexLogger { fallback });
+    if set_logger(logger).is_ok() {
+        set_max_level(LevelFilter::Info);
     }
 }

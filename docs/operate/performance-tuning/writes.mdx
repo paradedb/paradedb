@@ -30,6 +30,18 @@ ALTER INDEX search_idx SET (layer_sizes = '100KB, 1MB');
 
 Setting `layer_sizes` to `0` disables foreground merging, and setting `background_layer_sizes` to `0` disables write-triggered background merging. Periodic mutable sweeps have a separate control described below.
 
+Background mergers and mutable sweeps report their current batch, segment count, target layer, and phase in `pg_stat_activity.query`:
+
+```sql
+SELECT pid, backend_type, query
+FROM pg_stat_activity
+WHERE state = 'active' AND query LIKE 'merging batch %';
+```
+
+For example: `merging batch 2/5: 8 segments; target layer 1024 MB; phase=fast fields`.
+The target layer is the merge policy's target threshold; the resulting segment's actual size can differ.
+Mutable-segment conversions show `mutable conversion` in place of a target layer. Batch counts and phases describe the current worker's selected work and do not represent a percentage of total merge time.
+
 ## Increasing Work Memory for Bulk Updates
 
 `work_mem` controls how much memory to allocate to a single `INSERT`/`UPDATE`/`COPY` statement. Each statement that writes to a ParadeDB index is required to have at least `15MB` memory. If

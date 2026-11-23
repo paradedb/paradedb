@@ -21,7 +21,7 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::io::{Cursor, Read, Write};
 use std::ops::Range;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, bm25_max_free_space};
 use crate::postgres::rel::PgSearchRelation;
@@ -128,6 +128,9 @@ pub struct LinkedBytesList {
     metadata: OnceLock<ComponentMetadata>,
     last_block_ord: Option<usize>,
     blocklist_reader: OnceLock<Mutex<blocklist::reader::BlockList>>,
+    /// The data blocks of a list that is still being written, in file order. Reads resolve
+    /// through them, since the header publishes no block map until the writer finishes.
+    unfinished_blocks: Option<Arc<Vec<pg_sys::BlockNumber>>>,
     cache: UnsafeCache<CacheEntry>,
 }
 
@@ -194,6 +197,17 @@ impl LinkedBytesListWriter {
         Ok(())
     }
 
+    /// The data blocks written so far, in file order: block `i` holds the bytes from
+    /// `i * bm25_max_free_space()`.
+    pub fn blocks(&self) -> Vec<pg_sys::BlockNumber> {
+        self.blocklist_builder.blocks()
+    }
+
+    /// The header block of the list being written.
+    pub fn header_blockno(&self) -> pg_sys::BlockNumber {
+        self.list.header_blockno
+    }
+
     /// Write the pending `BlockList` data to disk.  This must be called once, as soon as the caller
     /// is positive this [`LinkedBytesListWriter`] is itself complete and fully written to disk.
     pub fn finalize_and_write(mut self) -> std::io::Result<LinkedBytesList> {
@@ -249,6 +263,9 @@ impl LinkedList for LinkedBytesList {
     }
 
     fn block_for_ord(&self, ord: usize) -> Option<pg_sys::BlockNumber> {
+        if let Some(blocks) = &self.unfinished_blocks {
+            return blocks.get(ord).copied();
+        }
         let metadata = self.metadata.get_or_init(|| {
             let buffer = self.bman.get_buffer(self.header_blockno);
             let page = buffer.page();
@@ -292,7 +309,24 @@ impl LinkedBytesList {
             metadata: Default::default(),
             last_block_ord: None,
             blocklist_reader: Default::default(),
+            unfinished_blocks: None,
             cache: UnsafeCache::new(),
+        }
+    }
+
+    /// Opens a list that is still being written, for reads within its first `blocks.len()` data
+    /// blocks: `blocks` is [`LinkedBytesListWriter::blocks`] at some point of the write.
+    ///
+    /// The list caches the pages it reads as immutable, so it is dropped before the writer
+    /// writes again.
+    pub fn open_unfinished(
+        rel: &PgSearchRelation,
+        header_blockno: pg_sys::BlockNumber,
+        blocks: Arc<Vec<pg_sys::BlockNumber>>,
+    ) -> Self {
+        Self {
+            unfinished_blocks: Some(blocks),
+            ..Self::open(rel, header_blockno)
         }
     }
 
@@ -349,6 +383,7 @@ impl LinkedBytesList {
             metadata: Default::default(),
             last_block_ord: None,
             blocklist_reader: Default::default(),
+            unfinished_blocks: None,
             cache: UnsafeCache::new(),
         }
     }

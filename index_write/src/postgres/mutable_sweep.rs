@@ -342,10 +342,6 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     .simulate_supported(&merger)
                                     .expect("should be able to validate mutable sweep candidates");
                                 warn_unsupported_vector_merge(&index, skipped);
-                                let candidates = candidates
-                                    .into_iter()
-                                    .map(|(_, candidate)| candidate)
-                                    .collect::<Vec<_>>();
                                 let xid = pg_sys::GetCurrentFullTransactionId();
                                 merge_index(
                                     &index,

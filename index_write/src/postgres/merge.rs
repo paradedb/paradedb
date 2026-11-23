@@ -24,6 +24,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::delete::VacuumSignal;
 use crate::postgres::locks::AdvisoryLock;
+use crate::postgres::merge_progress::MergeProgress;
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::buffer::BufferManager;
@@ -304,7 +305,7 @@ fn backpressure(
     candidates: &[LayeredMergeCandidate],
     visible_segment_count: usize,
     target_segment_count: usize,
-) -> Option<&MergeCandidate> {
+) -> Option<&LayeredMergeCandidate> {
     candidates
         .chunk_by(|(left, _), (right, _)| left == right)
         .filter(|layer| {
@@ -320,7 +321,7 @@ fn backpressure(
             }
         })
         .min_by_key(|layer| layer[0].0)
-        .map(|layer| &layer[0].1)
+        .map(|layer| &layer[0])
 }
 
 /// Kick off a merge of the index, if needed.
@@ -393,7 +394,6 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
                 .iter()
                 .filter(|(layer, _)| layer_sizes.foreground_layer_sizes.contains(layer))
                 .min_by_key(|(layer, _)| *layer)
-                .map(|(_, candidate)| candidate)
         };
         merge_policy.prepare_backpressure(layer_sizes.backpressure_layer_size);
         let (backpressure_candidates, _, skipped) = merge_policy.simulate_supported(&merger)?;
@@ -541,10 +541,6 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 .simulate_supported(&merger)
                 .expect("should be able to validate merge candidates");
             warn_unsupported_vector_merge(&index, skipped);
-            let candidates = candidates
-                .into_iter()
-                .map(|(_, candidate)| candidate)
-                .collect::<Vec<_>>();
             merge_index(
                 &index,
                 merger,
@@ -578,7 +574,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 pub unsafe fn merge_index(
     indexrel: &PgSearchRelation,
     merger: SearchIndexMerger,
-    merge_candidates: &[MergeCandidate],
+    merge_candidates: &[LayeredMergeCandidate],
     merge_lock: MergeLock,
     merge_pins: MergePins,
     mode: MergeMode,
@@ -591,7 +587,11 @@ pub unsafe fn merge_index(
     let metadata = MetaPage::open(indexrel);
     // before we start merging, tell the merger to release pins on the segments it won't be merging
     let mut merger = merger
-        .adjust_pins(merge_candidates.iter().flat_map(|candidate| &candidate.0))
+        .adjust_pins(
+            merge_candidates
+                .iter()
+                .flat_map(|(_, candidate)| &candidate.0),
+        )
         .expect("should be able to adjust merger pins");
 
     let ncandidates = merge_candidates.len();
@@ -601,7 +601,9 @@ pub unsafe fn merge_index(
         let merge_entry = merge_lock
             .merge_list()
             .add_segment_ids(
-                merge_candidates.iter().flat_map(|candidate| &candidate.0),
+                merge_candidates
+                    .iter()
+                    .flat_map(|(_, candidate)| &candidate.0),
                 current_xid,
             )
             .expect("should be able to write current merge segment_id list");
@@ -618,7 +620,7 @@ pub unsafe fn merge_index(
 
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
-        for candidate in merge_candidates {
+        for (batch, (layer_size, candidate)) in merge_candidates.iter().enumerate() {
             if mode == MergeMode::Background && VacuumSignal::new(indexrel.oid()).wants_cancel() {
                 pgrx::debug1!("VACUUM waiting, exiting merge early");
                 break;
@@ -626,12 +628,21 @@ pub unsafe fn merge_index(
 
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
-            merge_result = merger.merge_segments(&candidate.0);
+            let progress = (mode == MergeMode::Background).then(|| {
+                MergeProgress::start(batch + 1, ncandidates, *layer_size, candidate.0.len())
+            });
+            merge_result = merger.merge_segments_with_progress(&candidate.0, &mut |phase| {
+                if let Some(progress) = &progress {
+                    progress.report_merge_phase(phase);
+                }
+            });
             if merge_result.is_err() {
                 break;
             }
-            if mode == MergeMode::Background {
+            if let Some(progress) = &progress {
+                progress.report("reclaiming space");
                 garbage_collect_index(indexrel, current_xid, next_xid);
+                progress.report("complete");
             }
         }
 
@@ -830,7 +841,7 @@ mod tests {
                 assert_eq!(selected.is_some(), expected);
                 assert!(backpressure(&candidates, count, 2).is_none());
                 if let Some(selected) = selected {
-                    assert_eq!(selected.0.len(), 2);
+                    assert_eq!(selected.1.0.len(), 2);
                     assert!(candidates.len() > 1);
                 }
             }
@@ -851,6 +862,7 @@ mod tests {
         assert!(
             backpressure(&candidates, visible_segment_count, 1)
                 .unwrap()
+                .1
                 .0
                 .iter()
                 .all(|id| smallest_pressured_ids.contains(id))
@@ -1025,10 +1037,10 @@ mod tests {
             .filter(|entry| entry.visible())
             .map(|entry| entry.segment_id())
             .collect::<HashSet<_>>();
-        assert_eq!(remaining.len(), ids.len() - selected.0.len() + 1);
+        assert_eq!(remaining.len(), ids.len() - selected.1.0.len() + 1);
         assert_eq!(
             ids.iter().filter(|id| !remaining.contains(id)).count(),
-            selected.0.len()
+            selected.1.0.len()
         );
         assert!(ids[..8].iter().all(|id| remaining.contains(id)));
         let merge_lock = metadata.acquire_merge_lock();

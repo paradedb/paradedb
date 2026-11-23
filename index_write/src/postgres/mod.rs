@@ -26,5 +26,6 @@ pub mod delete;
 pub mod fake_aminsertcleanup;
 pub mod insert;
 pub mod merge;
+mod merge_progress;
 pub mod mutable_sweep;
 pub mod vacuum;

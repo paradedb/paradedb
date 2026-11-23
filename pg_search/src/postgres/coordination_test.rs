@@ -49,13 +49,9 @@ unsafe fn test_merge_index(index: PgRelation) -> i64 {
     let mut policy = LayeredMergePolicy::new(vec![layer_size]);
     policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
     let (candidates, _, _) = policy.simulate_supported(&merger).unwrap();
-    let candidates = candidates
-        .into_iter()
-        .map(|(_, candidate)| candidate)
-        .collect::<Vec<_>>();
     let selected: HashSet<SegmentId> = candidates
         .iter()
-        .flat_map(|candidate| candidate.0.iter().copied())
+        .flat_map(|(_, candidate)| candidate.0.iter().copied())
         .collect();
     merge_index(
         &index,

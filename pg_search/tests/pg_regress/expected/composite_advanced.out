@@ -761,7 +761,7 @@ SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last
 ------------------------------------------------------------
 -- pdb.term() on composite field from type A
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
+SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 === 'first_a';
                                        QUERY PLAN                                       
 ----------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on dual_comp_test
@@ -771,7 +771,7 @@ SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a'
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
+SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 === 'first_a';
  term_a 
 --------
       1
@@ -779,7 +779,7 @@ SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a'
 
 -- pdb.term() on composite field from type B
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
+SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 === 'first_b';
                                        QUERY PLAN                                       
 ----------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on dual_comp_test
@@ -789,7 +789,7 @@ SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b'
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
+SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 === 'first_b';
  term_b 
 --------
       1
@@ -797,17 +797,17 @@ SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b'
 
 -- pdb.match() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a');
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 ||| 'mid_a';
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on dual_comp_test
    Index: idx_dual_comp
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"a0200","value":"mid_a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"a0200","value":"mid_a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a');
+SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 ||| 'mid_a';
  match_a 
 ---------
        1
@@ -833,7 +833,7 @@ SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*
 
 -- Test pdb functions on MVCC test table composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');
+SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content === 'unique_gamma_three';
                                              QUERY PLAN                                              
 -----------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mvcc_test
@@ -843,24 +843,24 @@ SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_g
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');
+SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content === 'unique_gamma_three';
  mvcc_term 
 -----------
          1
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content @@@ pdb.match('unique_delta_updated');
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content ||| 'unique_delta_updated';
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mvcc_test
    Index: idx_mvcc
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"unique_delta_updated","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"unique_delta_updated","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content @@@ pdb.match('unique_delta_updated');
+SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content ||| 'unique_delta_updated';
  mvcc_match 
 ------------
           1
@@ -885,7 +885,7 @@ SELECT COUNT(*) AS mvcc_regex FROM mvcc_test WHERE content @@@ pdb.regex('unique
 
 -- Test pdb functions on parallel test table composite fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field1_100');
+SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 === 'field1_100';
                                        QUERY PLAN                                       
 ----------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on parallel_test
@@ -895,24 +895,24 @@ SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field1_100');
+SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 === 'field1_100';
  parallel_term 
 ---------------
              1
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('field2_500');
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 ||| 'field2_500';
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on parallel_test
    Index: idx_parallel
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"f2","value":"field2_500","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"f2","value":"field2_500","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('field2_500');
+SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 ||| 'field2_500';
  parallel_match 
 ----------------
               1
@@ -920,7 +920,7 @@ SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('fie
 
 -- Test pdb functions on fast fields table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text');
+SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 === 'first_text';
                                        QUERY PLAN                                        
 -----------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on fast_test_50
@@ -930,24 +930,24 @@ SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_tex
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text');
+SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 === 'first_text';
  fast_term 
 -----------
          2
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_text');
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 ||| 'middle_text';
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on fast_test_50
    Index: idx_fast_50
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"t20","value":"middle_text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"t20","value":"middle_text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_text');
+SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 ||| 'middle_text';
  fast_match 
 ------------
           1
@@ -959,7 +959,7 @@ SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_
 -- Top K with pdb.term() on composite field, ORDER BY score
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, t01, pdb.score(id) as score
-FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text')
+FROM fast_test_50 WHERE t01 === 'first_text'
 ORDER BY score DESC, id LIMIT 2;
                                           QUERY PLAN                                           
 -----------------------------------------------------------------------------------------------
@@ -975,7 +975,7 @@ ORDER BY score DESC, id LIMIT 2;
 (9 rows)
 
 SELECT id, t01, pdb.score(id) as score
-FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text')
+FROM fast_test_50 WHERE t01 === 'first_text'
 ORDER BY score DESC, id LIMIT 2;
  id |    t01     |   score    
 ----+------------+------------
@@ -986,10 +986,10 @@ ORDER BY score DESC, id LIMIT 2;
 -- Top K with pdb.match() on composite field, ORDER BY n01 (fast numeric field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, t01, n01
-FROM fast_test_50 WHERE t01 @@@ pdb.match('first_text OR alpha')
+FROM fast_test_50 WHERE t01 ||| 'first_text OR alpha'
 ORDER BY n01 DESC, id LIMIT 3;
-                                                                                                  QUERY PLAN                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
          Table: fast_test_50
@@ -998,11 +998,11 @@ ORDER BY n01 DESC, id LIMIT 3;
          Scores: false
             TopK Order By: n01 desc, id asc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"t01","value":"first_text OR alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"t01","value":"first_text OR alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 SELECT id, t01, n01
-FROM fast_test_50 WHERE t01 @@@ pdb.match('first_text OR alpha')
+FROM fast_test_50 WHERE t01 ||| 'first_text OR alpha'
 ORDER BY n01 DESC, id LIMIT 3;
  id | t01 | n01 
 ----+-----+-----
@@ -1011,7 +1011,7 @@ ORDER BY n01 DESC, id LIMIT 3;
 -- Top K with pdb functions on parallel test (large table)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id) as score
-FROM parallel_test WHERE f1 @@@ pdb.term('field1_1000')
+FROM parallel_test WHERE f1 === 'field1_1000'
 ORDER BY score DESC, id LIMIT 1;
                                           QUERY PLAN                                           
 -----------------------------------------------------------------------------------------------
@@ -1027,7 +1027,7 @@ ORDER BY score DESC, id LIMIT 1;
 (9 rows)
 
 SELECT id, pdb.score(id) as score
-FROM parallel_test WHERE f1 @@@ pdb.term('field1_1000')
+FROM parallel_test WHERE f1 === 'field1_1000'
 ORDER BY score DESC, id LIMIT 1;
   id  |   score   
 ------+-----------

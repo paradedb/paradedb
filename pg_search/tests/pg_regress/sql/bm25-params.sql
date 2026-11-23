@@ -160,7 +160,7 @@ USING paradedb (id, (data::pdb.simple('k1=0.5', 'b=0.3')));
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
 FROM bm25_json_test
-WHERE data @@@ paradedb.term('data.text', 'search')
+WHERE (data -> 'text') === 'search'
 ORDER BY pdb.score(id) DESC, id;
 
 DROP TABLE bm25_json_test CASCADE;

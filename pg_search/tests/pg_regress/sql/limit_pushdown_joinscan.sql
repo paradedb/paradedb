@@ -112,7 +112,7 @@ ANALYZE;
 
 SELECT count(*) FROM (
     SELECT c.id, c.name FROM lj_companies c
-    WHERE c.id @@@ paradedb.all()
+    WHERE c.id @@@ pdb.all()::pdb.const(0)
       AND NOT EXISTS (
           SELECT 1 FROM lj_excluded_emails e
           WHERE e.company_id = c.id
@@ -124,7 +124,7 @@ SELECT count(*) FROM (
 -- Verify JoinScan is NOT used (bailed out)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT c.id, c.name FROM lj_companies c
-WHERE c.id @@@ paradedb.all()
+WHERE c.id @@@ pdb.all()::pdb.const(0)
   AND NOT EXISTS (
       SELECT 1 FROM lj_excluded_emails e
       WHERE e.company_id = c.id
@@ -145,7 +145,7 @@ LIMIT 26;
 SELECT count(*) FROM (
     SELECT c.id FROM lj_companies c
     JOIN lj_people p ON c.id = p.company_id
-    WHERE c.id @@@ paradedb.all()
+    WHERE c.id @@@ pdb.all()::pdb.const(0)
       AND c.id IN (SELECT company_id FROM lj_job_openings)
     ORDER BY c.id ASC
     LIMIT 26
@@ -160,7 +160,7 @@ SELECT count(*) FROM (
 SELECT count(*) FROM (
     SELECT c.id, p.name FROM lj_companies c
     JOIN lj_people p ON c.id = p.company_id
-    WHERE c.id @@@ paradedb.all()
+    WHERE c.id @@@ pdb.all()::pdb.const(0)
       AND (p.dept_id IS NULL
            OR p.dept_id IN (
                SELECT id FROM lj_departments WHERE active))
@@ -178,7 +178,7 @@ SELECT count(*) FROM (
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT c.id, p.name FROM lj_companies c
 JOIN lj_people p ON c.id = p.company_id
-WHERE c.id @@@ paradedb.all()
+WHERE c.id @@@ pdb.all()::pdb.const(0)
 ORDER BY c.id ASC
 LIMIT 26;
 
@@ -190,7 +190,7 @@ LIMIT 26;
 
 SELECT count(*) FROM (
     SELECT c.id FROM lj_companies c
-    WHERE c.id @@@ paradedb.all()
+    WHERE c.id @@@ pdb.all()::pdb.const(0)
       AND NOT EXISTS (
           SELECT 1 FROM lj_excluded_emails e
           WHERE e.company_id = c.id
@@ -209,7 +209,7 @@ SELECT count(*) FROM (
 SELECT count(*) FROM (
     SELECT p.id
     FROM lj_people p
-    WHERE p.id @@@ paradedb.all()
+    WHERE p.id @@@ pdb.all()::pdb.const(0)
       AND p.seniority_slug IN ('manager', 'director')
       AND NOT EXISTS (
           SELECT ec.id FROM lj_excluded_contacts ec
@@ -227,7 +227,7 @@ SELECT count(*) FROM (
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.id
 FROM lj_people p
-WHERE p.id @@@ paradedb.all()
+WHERE p.id @@@ pdb.all()::pdb.const(0)
   AND p.seniority_slug IN ('manager', 'director')
   AND NOT EXISTS (
       SELECT ec.id FROM lj_excluded_contacts ec

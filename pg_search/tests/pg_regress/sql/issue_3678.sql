@@ -5,7 +5,7 @@
 -- The bug: add_path() in hook.rs cleared rel->pathlist for forced parallel
 -- custom paths but did NOT clear rel->partial_pathlist. This left
 -- PostgreSQL's native Parallel Index Scan as a competing partial path.
--- When the native path won the cost comparison, paradedb.score() was
+-- When the native path won the cost comparison, pdb.score() was
 -- evaluated outside the custom scan and hit its panic stub.
 --
 -- The fix: when a path is forced, clear both pathlist and partial_pathlist
@@ -87,7 +87,7 @@ SET parallel_tuple_cost = 0;
 -- an alternative.
 -- Without the fix, this plan shows "Parallel Index Scan" instead.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT profile_id, MAX(paradedb.score(id)) as best_score
+SELECT profile_id, MAX(pdb.score(id)) as best_score
 FROM nhfs_big
 WHERE company_name &&& 'Jarvi'
   AND group_id = '952582b4-bb51-461e-b566-0e5f980f4660'::uuid
@@ -99,7 +99,7 @@ LIMIT 5;
 
 -- Test 2: Execute the query to verify it returns results without panic.
 -- Without the fix: ERROR: Unsupported query shape / CONTEXT: parallel worker
-SELECT profile_id, MAX(paradedb.score(id)) as best_score
+SELECT profile_id, MAX(pdb.score(id)) as best_score
 FROM nhfs_big
 WHERE company_name &&& 'Jarvi'
   AND group_id = '952582b4-bb51-461e-b566-0e5f980f4660'::uuid
@@ -110,7 +110,7 @@ ORDER BY best_score DESC, profile_id
 LIMIT 5;
 
 -- Test 3: pdb.simple + same heap filter + parallel (control — always worked)
-SELECT profile_id, MAX(paradedb.score(id)) as best_score
+SELECT profile_id, MAX(pdb.score(id)) as best_score
 FROM nhfs_big
 WHERE title &&& 'developer'
   AND group_id = '952582b4-bb51-461e-b566-0e5f980f4660'::uuid
@@ -121,7 +121,7 @@ ORDER BY best_score DESC, profile_id
 LIMIT 5;
 
 -- Test 4: pdb.ngram without heap filter + parallel (control — always worked)
-SELECT profile_id, MAX(paradedb.score(id)) as best_score
+SELECT profile_id, MAX(pdb.score(id)) as best_score
 FROM nhfs_big
 WHERE company_name &&& 'Jarvi'
   AND group_id = '952582b4-bb51-461e-b566-0e5f980f4660'::uuid

@@ -66,14 +66,14 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT b.ordinal
 FROM strkey_build b
 JOIN strkey_probe p ON p.fk_uuid = b.id
-WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+WHERE b.id @@@ pdb.all()::pdb.const(0) AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
 
 SELECT b.ordinal
 FROM strkey_build b
 JOIN strkey_probe p ON p.fk_uuid = b.id
-WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+WHERE b.id @@@ pdb.all()::pdb.const(0) AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
 
@@ -85,14 +85,14 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT b.ordinal
 FROM strkey_build b
 JOIN strkey_probe p ON p.fk_txt = b.id_txt
-WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+WHERE b.id @@@ pdb.all()::pdb.const(0) AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
 
 SELECT b.ordinal
 FROM strkey_build b
 JOIN strkey_probe p ON p.fk_txt = b.id_txt
-WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+WHERE b.id @@@ pdb.all()::pdb.const(0) AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
 
@@ -105,7 +105,7 @@ SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
 SELECT b.ordinal
 FROM strkey_build b
 JOIN strkey_probe p ON p.fk_uuid = b.id
-WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+WHERE b.id @@@ pdb.all()::pdb.const(0) AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
 

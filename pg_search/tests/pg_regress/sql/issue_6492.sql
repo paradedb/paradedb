@@ -11,7 +11,7 @@
 SET paradedb.enable_columnar_exec = false;
 
 CREATE TABLE issue_6492 (id int PRIMARY KEY, body text, lib text);
-CREATE INDEX issue_6492_idx ON issue_6492 USING bm25 (id, body);
+CREATE INDEX issue_6492_idx ON issue_6492 USING paradedb (id, body);
 
 -- each insert adds a segment
 INSERT INTO issue_6492
@@ -36,12 +36,12 @@ FROM generate_series(1001, 1500) g;
 SELECT count(*) > 1 AS several_segments FROM paradedb.index_info('issue_6492_idx');
 
 PREPARE scored(text, text) AS
-SELECT id, paradedb.score(id) > 0 AS scored
+SELECT id, pdb.score(id) > 0 AS scored
 FROM issue_6492 WHERE body @@@ $1 AND lib = $2
 ORDER BY id;
 
 PREPARE snippets(text, text) AS
-SELECT id, paradedb.snippet(body) IS NOT NULL AS has_snippet, paradedb.score(id) > 0 AS scored
+SELECT id, pdb.snippet(body) IS NOT NULL AS has_snippet, pdb.score(id) > 0 AS scored
 FROM issue_6492 WHERE body @@@ $1 AND lib = $2
 ORDER BY id;
 
@@ -131,7 +131,7 @@ SELECT l.lib, count(x.id) AS total, count(x.snippet) AS snippets,
        count(*) FILTER (WHERE x.score > 0) AS scored
 FROM (VALUES ('lib1'), ('nolib'), ('lib3')) l(lib)
 LEFT JOIN LATERAL (
-    SELECT id, paradedb.snippet(body) AS snippet, paradedb.score(id) AS score
+    SELECT id, pdb.snippet(body) AS snippet, pdb.score(id) AS score
     FROM issue_6492 WHERE body @@@ 'contrato' AND issue_6492.lib = l.lib
     OFFSET 0
 ) x ON true
@@ -141,7 +141,7 @@ SELECT l.lib, count(x.id) AS total, count(x.snippet) AS snippets,
        count(*) FILTER (WHERE x.score > 0) AS scored
 FROM (VALUES ('lib1'), ('nolib'), ('lib3')) l(lib)
 LEFT JOIN LATERAL (
-    SELECT id, paradedb.snippet(body) AS snippet, paradedb.score(id) AS score
+    SELECT id, pdb.snippet(body) AS snippet, pdb.score(id) AS score
     FROM issue_6492 WHERE body @@@ 'contrato' AND issue_6492.lib = l.lib
     OFFSET 0
 ) x ON true
@@ -166,7 +166,7 @@ CROSS JOIN LATERAL (
 -- The same with a parallel scan: each process solves the query once and reads it
 -- for every segment it claims. Without workers, the leader claims them all.
 CREATE TABLE issue_6492_parallel (id int PRIMARY KEY, body text, lib text);
-CREATE INDEX issue_6492_parallel_idx ON issue_6492_parallel USING bm25 (id, body);
+CREATE INDEX issue_6492_parallel_idx ON issue_6492_parallel USING paradedb (id, body);
 
 INSERT INTO issue_6492_parallel SELECT * FROM issue_6492;
 INSERT INTO issue_6492_parallel
@@ -187,8 +187,8 @@ SET paradedb.min_rows_per_worker = 0;
 SET paradedb.enable_aggregate_custom_scan = false;
 
 PREPARE parallel_snippets(text, text) AS
-SELECT count(*) AS total, count(paradedb.snippet(body)) AS snippets,
-       count(*) FILTER (WHERE paradedb.score(id) > 0) AS scored, sum(id) AS id_sum
+SELECT count(*) AS total, count(pdb.snippet(body)) AS snippets,
+       count(*) FILTER (WHERE pdb.score(id) > 0) AS scored, sum(id) AS id_sum
 FROM issue_6492_parallel WHERE body @@@ $1 AND lib = $2;
 
 SET plan_cache_mode = force_generic_plan;

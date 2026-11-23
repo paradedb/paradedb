@@ -143,10 +143,7 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 -- Test 5.3: Range query on numeric field (CRITICAL: Tests range estimates)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE id @@@ paradedb.range(
-    field => 'rating',
-    range => int4range(4, 5)
-);
+WHERE rating @@@ pdb.range(range => int4range(4, 5));
 
 -- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -159,16 +156,12 @@ WHERE description @@@ paradedb.regex(
 -- Test 5.5: Fuzzy query (CRITICAL: Tests typo-tolerance estimates)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 1::integer
-);
+WHERE description === 'sheos'::pdb.fuzzy(1, f, t);
 
 -- Test 5.6: Empty query (matches nothing)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.empty();
+WHERE description @@@ pdb.empty();
 
 -- Test 5.7: Boost query (wraps another query with score boost)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -210,7 +203,7 @@ WHERE description @@@ paradedb.disjunction_max(
 -- Test 5.11: Parse query (query string syntax)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.parse('description:shoes AND description:running');
+WHERE description @@@ pdb.parse('description:shoes AND description:running');
 
 -- Test 5.12: Phrase with slop (allows word distance)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -245,10 +238,7 @@ WHERE id @@@ pdb.more_like_this(1);
 -- Test 5.16: Match query with explicit tokenizer
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.match(
-    field => 'description',
-    value => 'running shoes'
-);
+WHERE description ||| 'running shoes';
 
 -- Test 5.17: Match conjunction (all terms must match)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -269,20 +259,17 @@ WHERE description @@@ paradedb.match_disjunction(
 -- Test 5.19: Proximity query (word distance matching)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ pdb.proximity('running', 2, 'shoes');
+WHERE description @@@ ('running' ## 2 ## 'shoes');
 
 -- Test 5.20: Proximity in order (words must appear in specific order)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ pdb.proximity_in_order('running', 3, 'shoes');
+WHERE description @@@ ('running' ##> 3 ##> 'shoes');
 
 -- Test 5.21: Range query on date field
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE id @@@ paradedb.range(
-    field => 'created_at',
-    range => tsrange('2023-01-01', '2023-12-31')
-);
+WHERE created_at @@@ pdb.range(range => tsrange('2023-01-01', '2023-12-31'));
 
 -- Test 5.22: TermSet with paradedb.term_set function
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -412,7 +399,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM recursive_test.estimate_items WHERE descriptio
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ||| 'nonexistentterm123456';
 
 -- Test 8.2: Match all query (very broad)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ paradedb.all();
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ pdb.all()::pdb.const(0);
 
 -- Test 8.3: Many AND clauses (wide tree)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -530,19 +517,12 @@ WHERE description @@@ paradedb.boolean(
 -- Test 10.4: Range query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE rating @@@ paradedb.range(
-    field => 'rating',
-    range => int4range(4, 5)
-);
+WHERE rating @@@ pdb.range(range => int4range(4, 5));
 
 -- Test 10.5: Fuzzy query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 1::integer
-);
+WHERE description === 'sheos'::pdb.fuzzy(1, f, t);
 
 -- Test 10.6: JSON format with GUC OFF (verify no estimates shown)
 SET paradedb.explain_recursive_estimates = OFF;

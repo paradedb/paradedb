@@ -16,13 +16,13 @@ USING paradedb (content);
 
 SELECT
     id,
-    paradedb.score(id)
+    pdb.score(id)
 FROM fieldnorms_test
 WHERE content ||| 'test'
 ORDER BY id;
 
 WITH scores AS (
-    SELECT paradedb.score(id) as s
+    SELECT pdb.score(id) as s
     FROM fieldnorms_test
     WHERE content ||| 'test'
 )

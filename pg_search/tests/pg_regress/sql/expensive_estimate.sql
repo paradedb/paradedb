@@ -24,84 +24,42 @@ ANALYZE mock_items;
 -- Fuzzy term query
 -- ============================================================================
 
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 1::integer
-);
-SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 1::integer
-) ORDER BY id;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description === 'sheos'::pdb.fuzzy(1, f, t);
+SELECT id, description, rating, category FROM mock_items WHERE description === 'sheos'::pdb.fuzzy(1, f, t) ORDER BY id;
 
 -- Fuzzy term with higher distance
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 2::integer
-);
-SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 2::integer
-) ORDER BY id;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description === 'sheos'::pdb.fuzzy(2, f, t);
+SELECT id, description, rating, category FROM mock_items WHERE description === 'sheos'::pdb.fuzzy(2, f, t) ORDER BY id;
 
 -- ============================================================================
 -- Regex query
 -- ============================================================================
 
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.regex(
-    field => 'description',
-    pattern => 'sh.*es'
-);
-SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.regex(
-    field => 'description',
-    pattern => 'sh.*es'
-) ORDER BY id;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ pdb.regex('sh.*es');
+SELECT id, description, rating, category FROM mock_items WHERE description @@@ pdb.regex('sh.*es') ORDER BY id;
 
 -- ============================================================================
 -- Range query on numeric field
 -- ============================================================================
 
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ paradedb.range(
-    field => 'rating',
-    range => int4range(3, 5)
-);
-SELECT id, description, rating, category FROM mock_items WHERE id @@@ paradedb.range(
-    field => 'rating',
-    range => int4range(3, 5)
-) ORDER BY id;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE rating @@@ pdb.range(range => int4range(3, 5));
+SELECT id, description, rating, category FROM mock_items WHERE rating @@@ pdb.range(range => int4range(3, 5)) ORDER BY id;
 
 -- ============================================================================
 -- Range query on date field
 -- ============================================================================
 
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ paradedb.range(
-    field => 'created_at',
-    range => tsrange('2023-04-01', '2023-06-01')
-);
-SELECT id, description, rating, category FROM mock_items WHERE id @@@ paradedb.range(
-    field => 'created_at',
-    range => tsrange('2023-04-01', '2023-06-01')
-) ORDER BY id;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE created_at @@@ pdb.range(range => tsrange('2023-04-01', '2023-06-01'));
+SELECT id, description, rating, category FROM mock_items WHERE created_at @@@ pdb.range(range => tsrange('2023-04-01', '2023-06-01')) ORDER BY id;
 
 -- ============================================================================
 -- Boolean query mixing cheap and expensive sub-queries
 -- ============================================================================
 
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.fuzzy_term(field => 'description', value => 'runing', distance => 1::integer)
-    ]
-);
-SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.fuzzy_term(field => 'description', value => 'runing', distance => 1::integer)
-    ]
-) ORDER BY id;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'
+  AND description === 'runing'::pdb.fuzzy(1, f, t);
+SELECT id, description, rating, category FROM mock_items WHERE description === 'shoes'
+  AND description === 'runing'::pdb.fuzzy(1, f, t) ORDER BY id;
 
 -- ============================================================================
 -- Fuzzy match query
@@ -112,7 +70,7 @@ INSERT INTO expensive_estimate_titles
 SELECT g, md5(g::text), CASE WHEN g % 2 = 0 THEN 'en' ELSE 'ja' END FROM generate_series(1, 10000) g;
 INSERT INTO expensive_estimate_titles VALUES (10001, 'naruto', 'ja'), (10002, 'narutoo', 'ja'), (10003, 'naruta', 'ja');
 CREATE INDEX expensive_estimate_titles_idx ON expensive_estimate_titles
-    USING bm25 (id, (title::pdb.literal_normalized), lang);
+    USING paradedb (id, (title::pdb.literal_normalized), lang);
 ANALYZE expensive_estimate_titles;
 
 CREATE FUNCTION expensive_estimate_plan_rows(q text) RETURNS text LANGUAGE plpgsql AS $$

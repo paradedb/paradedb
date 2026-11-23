@@ -134,15 +134,15 @@ SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 F
 SET paradedb.min_rows_per_worker = 300000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items
-WHERE name @@@ pdb.match('item')
-ORDER BY paradedb.score(id) DESC, id
+WHERE name ||| 'item'
+ORDER BY pdb.score(id) DESC, id
 LIMIT 10;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, (paradedb.score(id))
+   Output: id, name, (pdb.score(id))
    ->  Custom Scan (ParadeDB Base Scan) on public.items
-         Output: id, name, paradedb.score(id)
+         Output: id, name, pdb.score(id)
          Table: items
          Index: items_bm25_idx
          Worker Selection: Prunable top-K
@@ -150,12 +150,12 @@ LIMIT 10;
          Scores: true
             TopK Order By: pdb.score() desc, id asc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT id, name FROM items
-WHERE name @@@ pdb.match('item')
-ORDER BY paradedb.score(id) DESC, id
+WHERE name ||| 'item'
+ORDER BY pdb.score(id) DESC, id
 LIMIT 10;
  id |  name   
 ----+---------

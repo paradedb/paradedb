@@ -78,9 +78,9 @@ WHERE
     AND NOT EXISTS (
         SELECT 1 FROM csa_not_exists cne
         WHERE cne.company_id = cccf.company_id
-          AND cne.unique_id @@@ paradedb.parse('speciality:salesforce')
+          AND cne.unique_id @@@ pdb.parse('speciality:salesforce')
     )
-    AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
+    AND contact_id @@@ pdb.range(range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
 
@@ -92,9 +92,9 @@ WHERE
     AND NOT EXISTS (
         SELECT 1 FROM csa_not_exists cne
         WHERE cne.company_id = cccf.company_id
-          AND cne.unique_id @@@ paradedb.parse('speciality:salesforce')
+          AND cne.unique_id @@@ pdb.parse('speciality:salesforce')
     )
-    AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
+    AND contact_id @@@ pdb.range(range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
 
@@ -110,9 +110,9 @@ WHERE
     AND NOT EXISTS (
         SELECT 1 FROM csa_not_exists cne
         WHERE cne.company_id = cccf.company_id
-          AND cne.unique_id @@@ paradedb.parse('speciality:salesforce')
+          AND cne.unique_id @@@ pdb.parse('speciality:salesforce')
     )
-    AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
+    AND contact_id @@@ pdb.range(range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
 
@@ -128,9 +128,9 @@ WHERE
     AND NOT EXISTS (
         SELECT 1 FROM csa_not_exists cne
         WHERE cne.company_id = cccf.company_id
-          AND cne.unique_id @@@ paradedb.parse('speciality:salesforce')
+          AND cne.unique_id @@@ pdb.parse('speciality:salesforce')
     )
-    AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
+    AND contact_id @@@ pdb.range(range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
 

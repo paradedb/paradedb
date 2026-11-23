@@ -7,7 +7,7 @@ INSERT INTO issue_7402_products VALUES
     (1, 'leather sofa'),
     (2, 'soda can'),
     (3, 'oak table');
-CREATE INDEX issue_7402_idx ON issue_7402_products USING bm25 (id, description);
+CREATE INDEX issue_7402_idx ON issue_7402_products USING paradedb (id, description);
 -- The constant gives the rows that the other forms have to give.
 SELECT id FROM issue_7402_products WHERE description @@@ 'sofa'::pdb.fuzzy(1) ORDER BY id;
  id 

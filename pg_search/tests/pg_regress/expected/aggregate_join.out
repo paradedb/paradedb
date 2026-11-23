@@ -1705,10 +1705,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
-WHERE i.id @@@ paradedb.all()
+WHERE i.id @@@ pdb.all()::pdb.const(0)
 GROUP BY i.metadata->>'category';
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: ((i.metadata ->> 'category'::text)), (count(*)), (sum(o.qty))
    Backend: DataFusion
@@ -1719,7 +1719,7 @@ GROUP BY i.metadata->>'category';
      : AggregateExec: mode=Single, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0, sum(o_1.qty) as agg_1]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, item_id@1)], projection=[metadata.category@0, qty@2]
      :     CooperativeExec
-     :       PgSearchScan: table=i, segments=1, eager=[metadata.category], visibility=eager, query={"with_index":{"query":"all"}}
+     :       PgSearchScan: table=i, segments=1, eager=[metadata.category], visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :     CooperativeExec
      :       PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (13 rows)
@@ -1728,7 +1728,7 @@ GROUP BY i.metadata->>'category';
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
-WHERE i.id @@@ paradedb.all()
+WHERE i.id @@@ pdb.all()::pdb.const(0)
 GROUP BY i.metadata->>'category'
 ORDER BY category;
   category   | count | sum 
@@ -1742,7 +1742,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
-WHERE i.id @@@ paradedb.all()
+WHERE i.id @@@ pdb.all()::pdb.const(0)
 GROUP BY i.metadata->>'category'
 ORDER BY category;
   category   | count | sum 
@@ -1925,7 +1925,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category,
        COUNT(*) FILTER (WHERE p.description ||| 'gaming') AS gaming,
        COUNT(*) FILTER (WHERE p.description &&& 'laptop kids') AS kids_laptops,
-       MAX(p.price) FILTER (WHERE p.description @@@ pdb.term('laptop')) AS max_laptop_price,
+       MAX(p.price) FILTER (WHERE p.description === 'laptop') AS max_laptop_price,
        COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') AS tech_tags,
        COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
 FROM agg_join_products p
@@ -1950,7 +1950,7 @@ GROUP BY p.category;
 SELECT p.category,
        COUNT(*) FILTER (WHERE p.description ||| 'gaming') AS gaming,
        COUNT(*) FILTER (WHERE p.description &&& 'laptop kids') AS kids_laptops,
-       MAX(p.price) FILTER (WHERE p.description @@@ pdb.term('laptop')) AS max_laptop_price,
+       MAX(p.price) FILTER (WHERE p.description === 'laptop') AS max_laptop_price,
        COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') AS tech_tags,
        COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
 FROM agg_join_products p
@@ -1970,7 +1970,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category,
        COUNT(*) FILTER (WHERE p.description ||| 'gaming') AS gaming,
        COUNT(*) FILTER (WHERE p.description &&& 'laptop kids') AS kids_laptops,
-       MAX(p.price) FILTER (WHERE p.description @@@ pdb.term('laptop')) AS max_laptop_price,
+       MAX(p.price) FILTER (WHERE p.description === 'laptop') AS max_laptop_price,
        COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') AS tech_tags,
        COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
 FROM agg_join_products p

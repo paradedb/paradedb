@@ -73,7 +73,7 @@ HINT:  Recreate the index with 'columnar=true' on the field's tokenizer, or use 
 -- A Top K window aggregate uses the other segment collection path.
 SELECT id, pdb.agg('{"terms":{"field":"metadata.color"}}') OVER ()
 FROM field_requirements WHERE description ||| 'shoes'
-ORDER BY paradedb.score(id) DESC LIMIT 1;
+ORDER BY pdb.score(id) DESC LIMIT 1;
 ERROR:  field "metadata.color" requires columnar storage
 HINT:  Recreate the index with 'columnar=true' on the field's tokenizer, or use pdb.literal or pdb.literal_normalized, which enable columnar storage by default. For a JSON path, configure its parent JSON field.
 -- An unrelated collection failure must retain the underlying error.
@@ -108,7 +108,7 @@ FROM field_requirements WHERE id @@@ pdb.all();
 
 SELECT id, pdb.agg('{"terms":{"field":"metadata.color"}}') OVER ()
 FROM field_requirements WHERE description ||| 'shoes'
-ORDER BY paradedb.score(id) DESC LIMIT 1;
+ORDER BY pdb.score(id) DESC LIMIT 1;
  id |                                                    agg                                                     
 ----+------------------------------------------------------------------------------------------------------------
   1 | {"buckets": [{"key": "Blue", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}

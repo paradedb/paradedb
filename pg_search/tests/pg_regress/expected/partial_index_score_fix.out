@@ -92,10 +92,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, category, rating
 FROM partial_test
 WHERE category = 'Electronics' AND rating >= 4
-AND id @@@ paradedb.all()
+AND id @@@ pdb.all()::pdb.const(0)
 ORDER BY rating DESC;
-                                                                                        QUERY PLAN                                                                                        
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC
    ->  Custom Scan (ParadeDB Base Scan) on partial_test
@@ -104,13 +104,13 @@ ORDER BY rating DESC;
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(rating >= 4)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}]}},"always_filters":[{"heap_filter":"(rating >= 4)"}]}}]}}
 (9 rows)
 
 SELECT id, description, category, rating
 FROM partial_test
 WHERE category = 'Electronics' AND rating >= 4
-AND id @@@ paradedb.all()
+AND id @@@ pdb.all()::pdb.const(0)
 ORDER BY rating DESC;
  id |  description   |  category   | rating 
 ----+----------------+-------------+--------

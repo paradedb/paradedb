@@ -28,8 +28,8 @@ CREATE TABLE rjf_jobs (
     note TEXT
 ) WITH (autovacuum_enabled = false);
 
-CREATE INDEX rjf_clients_bm25 ON rjf_clients USING bm25 (id, division, name);
-CREATE INDEX rjf_jobs_bm25 ON rjf_jobs USING bm25 (id, division, client_id, body);
+CREATE INDEX rjf_clients_bm25 ON rjf_clients USING paradedb (id, division, name);
+CREATE INDEX rjf_jobs_bm25 ON rjf_jobs USING paradedb (id, division, client_id, body);
 
 -- Term frequencies of 'zebra' decide the ranking. Division 1 rows are visible to the
 -- restricted role, division 2 rows are not.
@@ -283,7 +283,7 @@ LIMIT 10;
 SELECT explain_redact_oid($$
 SELECT j.id, c.id
 FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
-WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.body @@@ pdb.term('crossing')
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.body === 'crossing'
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);
@@ -431,7 +431,7 @@ CREATE TABLE rjf_jobs_part (
 CREATE TABLE rjf_jobs_part_1 PARTITION OF rjf_jobs_part FOR VALUES IN (1);
 CREATE TABLE rjf_jobs_part_2 PARTITION OF rjf_jobs_part FOR VALUES IN (2);
 INSERT INTO rjf_jobs_part SELECT id, division, client_id, body FROM rjf_jobs;
-CREATE INDEX rjf_jobs_part_bm25 ON rjf_jobs_part USING bm25 (id, division, client_id, body);
+CREATE INDEX rjf_jobs_part_bm25 ON rjf_jobs_part USING paradedb (id, division, client_id, body);
 GRANT SELECT ON rjf_jobs_part TO rjf_eq_user;
 ALTER TABLE rjf_jobs_part ENABLE ROW LEVEL SECURITY;
 CREATE POLICY rjf_jobs_part_eq ON rjf_jobs_part TO rjf_eq_user USING (division = 1);
@@ -520,9 +520,9 @@ SELECT g, 1 + g % 2, 100 + g % 61, CASE WHEN g % 5 = 0 THEN 'zebra job' ELSE 'no
 FROM generate_series(200, 320) g;
 DROP INDEX rjf_clients_bm25, rjf_jobs_bm25;
 SET max_parallel_maintenance_workers = 0;
-CREATE INDEX rjf_clients_bm25 ON rjf_clients USING bm25 (id, division, name)
+CREATE INDEX rjf_clients_bm25 ON rjf_clients USING paradedb (id, division, name)
 WITH (target_segment_count = 3, partition_by = 'id');
-CREATE INDEX rjf_jobs_bm25 ON rjf_jobs USING bm25 (id, division, client_id, body)
+CREATE INDEX rjf_jobs_bm25 ON rjf_jobs USING paradedb (id, division, client_id, body)
 WITH (target_segment_count = 3, partition_by = 'client_id,id');
 ANALYZE rjf_clients, rjf_jobs;
 

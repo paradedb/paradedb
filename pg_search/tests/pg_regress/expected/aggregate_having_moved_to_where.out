@@ -23,7 +23,7 @@ Test 1: HAVING on a GROUP BY key
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id, kind
 HAVING account_id > 1
 ORDER BY account_id, kind;
@@ -32,7 +32,7 @@ ORDER BY account_id, kind;
  Custom Scan (ParadeDB Aggregate Scan) on public.having_items
    Output: account_id, kind, pdb.agg_fn('COUNT(*)'::text)
    Index: having_items_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"account_id","lower_bound":{"excluded":1},"upper_bound":null}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"account_id","lower_bound":{"excluded":1},"upper_bound":null}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: account_id, kind
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"kind","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"account_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -40,7 +40,7 @@ ORDER BY account_id, kind;
 
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id, kind
 HAVING account_id > 1
 ORDER BY account_id, kind;
@@ -63,17 +63,17 @@ SELECT *
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     GROUP BY account_id, kind
 ) AS grouped
 WHERE account_id > 1
 ORDER BY account_id, kind;
-                                                                                        QUERY PLAN                                                                                        
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.having_items
    Output: having_items.account_id, having_items.kind, pdb.agg_fn('COUNT(*)'::text)
    Index: having_items_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"account_id","lower_bound":{"excluded":1},"upper_bound":null}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"account_id","lower_bound":{"excluded":1},"upper_bound":null}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: account_id, kind
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"kind","segment_size":65000,"size":65000}}},"terms":{"field":"account_id","segment_size":65000,"size":65000}}}
@@ -83,7 +83,7 @@ SELECT *
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     GROUP BY account_id, kind
 ) AS grouped
 WHERE account_id > 1
@@ -106,16 +106,16 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 WITH grouped AS (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
-                                                                                        QUERY PLAN                                                                                        
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.having_items
    Output: having_items.account_id, having_items.kind, pdb.agg_fn('COUNT(*)'::text)
    Index: having_items_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"kind","lower_bound":{"included":"c"},"upper_bound":null}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"kind","lower_bound":{"included":"c"},"upper_bound":null}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: account_id, kind
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"kind","segment_size":65000,"size":65000}}},"terms":{"field":"account_id","segment_size":65000,"size":65000}}}
@@ -124,7 +124,7 @@ SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
 WITH grouped AS (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
@@ -143,13 +143,13 @@ Test 4: a HAVING condition on an aggregate stays in HAVING -> declined
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 HAVING COUNT(*) > 10
 ORDER BY account_id;
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
-                          QUERY PLAN                          
---------------------------------------------------------------
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: account_id
    ->  HashAggregate
@@ -162,12 +162,12 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
                Columnar: account_id
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
+               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (13 rows)
 
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 HAVING COUNT(*) > 10
 ORDER BY account_id;
@@ -186,14 +186,14 @@ SELECT *
 FROM (
     SELECT account_id, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     GROUP BY account_id
 ) AS grouped
 WHERE n > 10
 ORDER BY account_id;
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
-                          QUERY PLAN                          
---------------------------------------------------------------
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: having_items.account_id
    ->  HashAggregate
@@ -206,14 +206,14 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
                Columnar: account_id
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
+               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (13 rows)
 
 SELECT *
 FROM (
     SELECT account_id, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     GROUP BY account_id
 ) AS grouped
 WHERE n > 10
@@ -229,17 +229,17 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
 \echo 'Test 6: a constant true HAVING on an aggregate without GROUP BY'
 Test 6: a constant true HAVING on an aggregate without GROUP BY
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
-                      QUERY PLAN                       
--------------------------------------------------------
+SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all()::pdb.const(0) HAVING 1 = 1;
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
    Index: having_items_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
+   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
+SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all()::pdb.const(0) HAVING 1 = 1;
  count 
 -------
    120
@@ -248,7 +248,7 @@ SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
 \echo 'Test 7: a constant false HAVING on an aggregate without GROUP BY stays in HAVING -> declined'
 Test 7: a constant false HAVING on an aggregate without GROUP BY stays in HAVING -> declined
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 2;
+SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all()::pdb.const(0) HAVING 1 = 2;
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
            QUERY PLAN           
 --------------------------------
@@ -258,7 +258,7 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
          One-Time Filter: false
 (4 rows)
 
-SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 2;
+SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all()::pdb.const(0) HAVING 1 = 2;
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
  count 
 -------
@@ -269,14 +269,14 @@ Test 8: a constant false HAVING with GROUP BY moves to WHERE
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 HAVING 1 = 2;
-                                                       QUERY PLAN                                                       
-------------------------------------------------------------------------------------------------------------------------
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
    Index: having_items_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":["all"],"must_not":["all"]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"boolean":{"must":["all"],"must_not":["all"]}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: account_id
      Aggregate Definition: {"grouped":{"terms":{"field":"account_id","segment_size":65000,"size":65000}}}
@@ -284,7 +284,7 @@ HAVING 1 = 2;
 
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 HAVING 1 = 2;
  account_id | count 
@@ -296,13 +296,13 @@ Test 9: a volatile HAVING condition stays in HAVING -> declined
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 HAVING account_id > random() * 0
 ORDER BY account_id;
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
-                                      QUERY PLAN                                       
----------------------------------------------------------------------------------------
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: account_id
    ->  HashAggregate
@@ -315,12 +315,12 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
                Columnar: account_id
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
+               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (13 rows)
 
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 HAVING account_id > random() * 0
 ORDER BY account_id;
@@ -337,15 +337,15 @@ Test 10: a moved condition that the index cannot answer is checked on the heap
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id, kind
 HAVING length(kind) = 1 AND kind <> 'b'
 ORDER BY account_id, kind;
-                                                                                                                                          QUERY PLAN                                                                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
    Index: having_items_idx
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":[{"exists":{"field":"kind"}}],"must_not":[{"term":{"field":"kind","value":"b"}}]}}]}},"always_filters":[{"heap_filter":"(length(kind) = 1)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"boolean":{"must":[{"exists":{"field":"kind"}}],"must_not":[{"term":{"field":"kind","value":"b"}}]}}]}},"always_filters":[{"heap_filter":"(length(kind) = 1)"}]}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: account_id, kind
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"kind","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"account_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -353,7 +353,7 @@ ORDER BY account_id, kind;
 
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id, kind
 HAVING length(kind) = 1 AND kind <> 'b'
 ORDER BY account_id, kind;
@@ -375,17 +375,17 @@ Test 11: a moved condition with a parameter in a generic plan
 PREPARE having_param(BIGINT) AS
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id, kind
 HAVING account_id > $1
 ORDER BY account_id, kind;
 SET plan_cache_mode TO force_generic_plan;
 EXPLAIN (COSTS OFF, TIMING OFF) EXECUTE having_param(1);
-                                                                                                               QUERY PLAN                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
    Index: having_items_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('account_id'::paradedb.fieldname, '>'::text, $1)"}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('account_id'::paradedb.fieldname, '>'::text, $1)"}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: account_id, kind
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"kind","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"account_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -420,15 +420,15 @@ Test 12: pdb.agg() with a moved condition
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, pdb.agg('{"terms": {"field": "kind"}}'::jsonb)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 HAVING account_id > 1
 ORDER BY account_id;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
    Index: having_items_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"account_id","lower_bound":{"excluded":1},"upper_bound":null}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"account_id","lower_bound":{"excluded":1},"upper_bound":null}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"kind"}})
      Group By: account_id
      Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"kind"}}},"terms":{"field":"account_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -436,7 +436,7 @@ ORDER BY account_id;
 
 SELECT account_id, pdb.agg('{"terms": {"field": "kind"}}'::jsonb)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 HAVING account_id > 1
 ORDER BY account_id;
@@ -450,7 +450,7 @@ ORDER BY account_id;
 Test 13: pdb.agg() with a condition on an aggregate -> error
 SELECT account_id, pdb.agg('{"terms": {"field": "kind"}}'::jsonb)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 HAVING COUNT(*) > 10
 ORDER BY account_id;
@@ -460,7 +460,7 @@ Same results from PostgreSQL
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id, kind
 HAVING account_id > 1
 ORDER BY account_id, kind;
@@ -480,7 +480,7 @@ SELECT *
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     GROUP BY account_id, kind
 ) AS grouped
 WHERE account_id > 1
@@ -500,7 +500,7 @@ ORDER BY account_id, kind;
 WITH grouped AS (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
@@ -514,7 +514,7 @@ SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
           3 | d    | 10
 (6 rows)
 
-SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
+SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all()::pdb.const(0) HAVING 1 = 1;
  count 
 -------
    120
@@ -522,7 +522,7 @@ SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
 
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 HAVING 1 = 2;
  account_id | count 
@@ -531,7 +531,7 @@ HAVING 1 = 2;
 
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id, kind
 HAVING length(kind) = 1 AND kind <> 'b'
 ORDER BY account_id, kind;
@@ -550,7 +550,7 @@ ORDER BY account_id, kind;
 
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id, kind
 HAVING account_id > 2
 ORDER BY account_id, kind;

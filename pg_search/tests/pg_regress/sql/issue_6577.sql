@@ -39,7 +39,7 @@ SELECT g,
 FROM generate_series(1, 500) g;
 
 CREATE INDEX i6577_s_idx ON i6577_s
-    USING bm25 (id, title, rating, d, ts, tstz, t, ttz);
+    USING paradedb (id, title, rating, d, ts, tstz, t, ttz);
 
 CREATE TABLE i6577_e
 (
@@ -51,8 +51,7 @@ CREATE TABLE i6577_e
 INSERT INTO i6577_e SELECT g, 'u1', g * 2 FROM generate_series(1, 100) g;
 
 CREATE INDEX i6577_e_idx ON i6577_e
-    USING bm25 (id, u, s_id)
-    WITH (text_fields = '{"u": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+    USING paradedb (id, (u::pdb.literal), s_id);
 
 ANALYZE i6577_s;
 ANALYZE i6577_e;
@@ -65,11 +64,11 @@ SET paradedb.enable_join_custom_scan = on;
 
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SELECT s.id, s.d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 -- =============================================================================
@@ -78,16 +77,16 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
 
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 SET paradedb.enable_join_custom_scan = on;
 
@@ -97,16 +96,16 @@ SET paradedb.enable_join_custom_scan = on;
 
 EXPLAIN (COSTS OFF)
 SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 SET paradedb.enable_join_custom_scan = on;
 
@@ -116,20 +115,20 @@ SET paradedb.enable_join_custom_scan = on;
 
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.d::text AS d FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
-  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
-ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
+WHERE s.title ||| 'dragon'
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.u === 'u1')
+ORDER BY pdb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
 
 SELECT s.id, s.d::text AS d FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
-  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
-ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
+WHERE s.title ||| 'dragon'
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.u === 'u1')
+ORDER BY pdb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.d::text AS d FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
-  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
-ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
+WHERE s.title ||| 'dragon'
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.u === 'u1')
+ORDER BY pdb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
@@ -139,18 +138,18 @@ SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 SET paradedb.enable_join_custom_scan = on;
 
@@ -161,18 +160,18 @@ SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 SET paradedb.enable_join_custom_scan = on;
 
@@ -183,18 +182,18 @@ SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 SET paradedb.enable_join_custom_scan = on;
 
@@ -203,7 +202,7 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 
 SELECT s.id, s.d::text FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
+WHERE s.title ||| 'dragon'
 ORDER BY s.rating DESC, s.id LIMIT 3;
 
 RESET paradedb.enable_join_custom_scan;

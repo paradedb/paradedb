@@ -24,7 +24,7 @@ WITH c AS MATERIALIZED (SELECT * FROM sequential_scan_cte_layout)
 SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ pdb.parse('body:alpha');
 
 WITH c AS MATERIALIZED (SELECT * FROM sequential_scan_cte_layout)
-SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ paradedb.term('extra', 'alpha');
+SELECT array_agg(id ORDER BY id) FROM c WHERE extra === 'alpha';
 
 SET LOCAL paradedb.enable_custom_scan = off;
 SET LOCAL enable_indexscan = off;
@@ -97,7 +97,7 @@ WITH c AS MATERIALIZED (
 SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ pdb.parse('alpha');
 
 WITH c AS MATERIALIZED (SELECT * FROM sequential_scan_cte_mixed)
-SELECT v.id, c @@@ pdb.parse('normalized_body:alpha') AS matches, c @@@ paradedb.all() AS all_match
+SELECT v.id, c @@@ pdb.parse('normalized_body:alpha') AS matches, c @@@ pdb.all()::pdb.const(0) AS all_match
 FROM (VALUES (1), (3), (4)) v(id) LEFT JOIN c USING (id) ORDER BY v.id;
 
 DROP INDEX sequential_scan_cte_mixed_idx;

@@ -36,12 +36,12 @@ USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.u
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.category');
+WHERE (metadata -> 'category') @@@ pdb.exists();
 
 -- Execute the query
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.category');
+WHERE (metadata -> 'category') @@@ pdb.exists();
 
 -- =========================================
 -- Test 2: COUNT with specific JSON value filter
@@ -51,12 +51,12 @@ WHERE id @@@ paradedb.exists('metadata.category');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WHERE (metadata -> 'category') === 'electronics';
 
 -- Execute the query
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WHERE (metadata -> 'category') === 'electronics';
 
 -- =========================================
 -- Test 3: COUNT with multiple JSON field filters
@@ -66,14 +66,14 @@ WHERE id @@@ paradedb.term('metadata.category', 'electronics');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.category') 
-  AND id @@@ paradedb.exists('metadata.brand');
+WHERE (metadata -> 'category') @@@ pdb.exists()
+  AND (metadata -> 'brand') @@@ pdb.exists();
 
 -- Execute the query
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.category') 
-  AND id @@@ paradedb.exists('metadata.brand');
+WHERE (metadata -> 'category') @@@ pdb.exists()
+  AND (metadata -> 'brand') @@@ pdb.exists();
 
 -- =========================================
 -- Test 4: SUM aggregate on JSON numeric fields
@@ -83,32 +83,32 @@ WHERE id @@@ paradedb.exists('metadata.category')
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
+WHERE (metadata -> 'price') @@@ pdb.exists();
 
 -- Execute the query
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
+WHERE (metadata -> 'price') @@@ pdb.exists();
 
 -- Test SUM with category filter
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WHERE (metadata -> 'category') === 'electronics';
 
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WHERE (metadata -> 'category') === 'electronics';
 
 -- Test SUM on data.stock field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('data.stock');
+WHERE (data -> 'stock') @@@ pdb.exists();
 
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('data.stock');
+WHERE (data -> 'stock') @@@ pdb.exists();
 
 -- =========================================
 -- Test 5: AVG aggregate on JSON numeric fields
@@ -118,32 +118,32 @@ WHERE id @@@ paradedb.exists('data.stock');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
+WHERE (metadata -> 'price') @@@ pdb.exists();
 
 -- Execute the query
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
+WHERE (metadata -> 'price') @@@ pdb.exists();
 
 -- Test AVG with brand filter
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
+WHERE (metadata -> 'brand') === 'Apple';
 
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
+WHERE (metadata -> 'brand') === 'Apple';
 
 -- Test AVG on stock levels
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'clothing');
+WHERE (metadata -> 'category') === 'clothing';
 
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'clothing');
+WHERE (metadata -> 'category') === 'clothing';
 
 -- =========================================
 -- Test 6: MIN/MAX aggregates on JSON fields
@@ -155,14 +155,14 @@ SELECT
     MIN((metadata->>'price')::numeric) as min_price,
     MAX((metadata->>'price')::numeric) as max_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
+WHERE (metadata -> 'price') @@@ pdb.exists();
 
 -- Execute the query
 SELECT 
     MIN((metadata->>'price')::numeric) as min_price,
     MAX((metadata->>'price')::numeric) as max_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
+WHERE (metadata -> 'price') @@@ pdb.exists();
 
 -- Test MIN/MAX on specific category
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -170,13 +170,13 @@ SELECT
     MIN((metadata->>'price')::numeric) as min_electronics_price,
     MAX((metadata->>'price')::numeric) as max_electronics_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WHERE (metadata -> 'category') === 'electronics';
 
 SELECT 
     MIN((metadata->>'price')::numeric) as min_electronics_price,
     MAX((metadata->>'price')::numeric) as max_electronics_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WHERE (metadata -> 'category') === 'electronics';
 
 -- Test MIN/MAX on text fields falls back to Postgres
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -184,13 +184,13 @@ SELECT
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.brand');
+WHERE (metadata -> 'brand') @@@ pdb.exists();
 
 SELECT 
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.brand');
+WHERE (metadata -> 'brand') @@@ pdb.exists();
 
 -- =========================================
 -- Test 7: Mixed numeric and text aggregate functions falls back to Postgres
@@ -207,7 +207,7 @@ SELECT
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
+WHERE (metadata -> 'price') @@@ pdb.exists();
 
 -- Execute the query
 SELECT 
@@ -219,7 +219,7 @@ SELECT
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
+WHERE (metadata -> 'price') @@@ pdb.exists();
 
 -- =========================================
 -- Test 8: COUNT with boolean queries on JSON
@@ -229,22 +229,14 @@ WHERE id @@@ paradedb.exists('metadata.price');
 EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.exists('metadata.category'),
-        paradedb.term('metadata.category', 'electronics')
-    ]
-);
+WHERE (metadata -> 'category') @@@ pdb.exists()
+  AND (metadata -> 'category') === 'electronics';
 
 -- Execute the query
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.exists('metadata.category'),
-        paradedb.term('metadata.category', 'electronics')
-    ]
-);
+WHERE (metadata -> 'category') @@@ pdb.exists()
+  AND (metadata -> 'category') === 'electronics';
 
 -- =========================================
 -- Test 9: Edge cases with JSON aggregates
@@ -254,21 +246,21 @@ WHERE id @@@ paradedb.boolean(
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
+WHERE (metadata -> 'nonexistent') === 'value';
 
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
+WHERE (metadata -> 'nonexistent') === 'value';
 
 -- Test COUNT with all() query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all()::pdb.const(0);
 
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all()::pdb.const(0);
 
 -- =========================================
 -- Test 10: Deep nested JSON aggregates
@@ -296,23 +288,23 @@ USING paradedb (id, (nested_data::pdb.unicode_words('columnar=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_deep_agg 
-WHERE id @@@ paradedb.exists('nested_data.level1.level2.level3.level4.value');
+WHERE (nested_data -> 'level1' -> 'level2' -> 'level3' -> 'level4' -> 'value') @@@ pdb.exists();
 
 
 SELECT COUNT(*) 
 FROM json_deep_agg 
-WHERE id @@@ paradedb.exists('nested_data.level1.level2.level3.level4.value');
+WHERE (nested_data -> 'level1' -> 'level2' -> 'level3' -> 'level4' -> 'value') @@@ pdb.exists();
 
 -- Test COUNT with deep filtering
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_deep_agg 
-WHERE id @@@ paradedb.term('nested_data.level1.level2.level3.level4.value', 'target1');
+WHERE (nested_data -> 'level1' -> 'level2' -> 'level3' -> 'level4' -> 'value') === 'target1';
 
 
 SELECT COUNT(*) 
 FROM json_deep_agg 
-WHERE id @@@ paradedb.term('nested_data.level1.level2.level3.level4.value', 'target1');
+WHERE (nested_data -> 'level1' -> 'level2' -> 'level3' -> 'level4' -> 'value') === 'target1';
 
 -- =========================================
 -- Test 11: Heterogeneous structures aggregates
@@ -346,36 +338,36 @@ USING paradedb (id, (doc::pdb.unicode_words('columnar=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'sensor');
+WHERE (doc -> 'type') === 'sensor';
 
 
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'sensor');
+WHERE (doc -> 'type') === 'sensor';
 
 -- Test COUNT on sensor data in specific location
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'sensor')
-  AND id @@@ paradedb.term('doc.device.location', 'warehouse');
+WHERE (doc -> 'type') === 'sensor'
+  AND (doc -> 'device' -> 'location') === 'warehouse';
 
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'sensor')
-  AND id @@@ paradedb.term('doc.device.location', 'warehouse');
+WHERE (doc -> 'type') === 'sensor'
+  AND (doc -> 'device' -> 'location') === 'warehouse';
 
 -- Test COUNT on credit transactions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'transaction')
-  AND id @@@ paradedb.term('doc.payment.method', 'credit');
+WHERE (doc -> 'type') === 'transaction'
+  AND (doc -> 'payment' -> 'method') === 'credit';
 
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'transaction')
-  AND id @@@ paradedb.term('doc.payment.method', 'credit');
+WHERE (doc -> 'type') === 'transaction'
+  AND (doc -> 'payment' -> 'method') === 'credit';
 
 -- =========================================
 -- Test 12: Simple boolean queries on JSON
@@ -385,21 +377,13 @@ WHERE id @@@ paradedb.term('doc.type', 'transaction')
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('doc.type', 'sensor'),
-        paradedb.term('doc.device.location', 'office')
-    ]
-);
+WHERE (doc -> 'type') === 'sensor'
+  AND (doc -> 'device' -> 'location') === 'office';
 
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('doc.type', 'sensor'),
-        paradedb.term('doc.device.location', 'office')
-    ]
-);
+WHERE (doc -> 'type') === 'sensor'
+  AND (doc -> 'device' -> 'location') === 'office';
 
 -- =========================================
 -- Test 13: Array field aggregates
@@ -426,22 +410,22 @@ USING paradedb (id, (data::pdb.unicode_words('columnar=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_array_agg 
-WHERE id @@@ paradedb.term('data.tags', 'urgent');
+WHERE (data -> 'tags') === 'urgent';
 
 SELECT COUNT(*) 
 FROM json_array_agg 
-WHERE id @@@ paradedb.term('data.tags', 'urgent');
+WHERE (data -> 'tags') === 'urgent';
 
 -- Test COUNT with high priority items
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_array_agg 
-WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
+WHERE (data -> 'metadata' -> 'priority') === 'high';
 
 
 SELECT COUNT(*) 
 FROM json_array_agg 
-WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
+WHERE (data -> 'metadata' -> 'priority') === 'high';
 
 -- Clean up
 DROP TABLE json_agg_test;

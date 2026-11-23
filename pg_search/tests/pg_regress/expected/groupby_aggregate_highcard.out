@@ -18,11 +18,11 @@ USING paradedb (id, rating);
 -- No LIMIT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY rating
 ORDER BY rating;
-                                                    QUERY PLAN                                                    
-------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -33,18 +33,18 @@ ORDER BY rating;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
            :   CooperativeExec
-           :     PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+           :     PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (11 rows)
 
 -- Limit + offset exceeds max_term_agg_buckets
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 6;
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Backend: DataFusion
@@ -55,18 +55,18 @@ LIMIT 5 OFFSET 6;
            : SortExec: TopK(fetch=11), expr=[rating@0 ASC NULLS LAST], preserve_partitioning=[false]
            :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
            :     CooperativeExec
-           :       PgSearchScan: table=products, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+           :       PgSearchScan: table=products, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (11 rows)
 
 -- Ordering on a non grouping column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY rating, id
 ORDER BY rating, id
 LIMIT 5 OFFSET 5;
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Backend: DataFusion
@@ -77,13 +77,13 @@ LIMIT 5 OFFSET 5;
            : SortExec: TopK(fetch=10), expr=[rating@1 ASC NULLS LAST, id@0 ASC NULLS LAST], preserve_partitioning=[false]
            :   AggregateExec: mode=Single, gby=[id@0 as id, rating@1 as rating], aggr=[count(1) as agg_0]
            :     CooperativeExec
-           :       PgSearchScan: table=products, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+           :       PgSearchScan: table=products, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (11 rows)
 
 -- This should be pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 5;
@@ -94,7 +94,7 @@ LIMIT 5 OFFSET 5;
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
          Output: rating, pdb.agg_fn('COUNT(*)'::text)
          Index: products_idx
-         Tantivy Query: {"with_index":{"query":"all"}}
+         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
            Applies to Aggregates: COUNT(*)
            Group By: rating
            Limit: 5
@@ -103,7 +103,7 @@ LIMIT 5 OFFSET 5;
 (11 rows)
 
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 5;
@@ -120,12 +120,12 @@ LIMIT 5 OFFSET 5;
 SET paradedb.max_term_agg_buckets TO 65000;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Backend: DataFusion
@@ -136,11 +136,11 @@ LIMIT 5;
            : SortExec: TopK(fetch=5), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
            :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
            :     CooperativeExec
-           :       PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+           :       PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (11 rows)
 
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
@@ -158,7 +158,7 @@ SET paradedb.max_term_agg_buckets TO 10;
 -- Limit 0
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY rating
 ORDER BY rating
 LIMIT 0;
@@ -169,7 +169,7 @@ LIMIT 0;
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
          Output: rating, pdb.agg_fn('COUNT(*)'::text)
          Index: products_idx
-         Tantivy Query: {"with_index":{"query":"all"}}
+         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
            Applies to Aggregates: COUNT(*)
            Group By: rating
            Limit: 0
@@ -177,7 +177,7 @@ LIMIT 0;
 (10 rows)
 
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY rating
 ORDER BY rating
 LIMIT 0;
@@ -189,7 +189,7 @@ LIMIT 0;
 SET paradedb.max_term_agg_buckets TO 65000;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY rating
 ORDER BY rating
 LIMIT 10000;
@@ -200,7 +200,7 @@ LIMIT 10000;
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
          Output: rating, pdb.agg_fn('COUNT(*)'::text)
          Index: products_idx
-         Tantivy Query: {"with_index":{"query":"all"}}
+         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
            Applies to Aggregates: COUNT(*)
            Group By: rating
            Limit: 10000
@@ -208,7 +208,7 @@ LIMIT 10000;
 (10 rows)
 
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY rating
 ORDER BY rating
 LIMIT 10000;

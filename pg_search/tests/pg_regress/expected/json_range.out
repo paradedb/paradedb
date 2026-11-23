@@ -1,5 +1,5 @@
 -- Range queries against JSON-column subpaths, exercising both supported syntaxes:
---   * New syntax:    paradedb.range('<json.path>', <native range type>)
+--   * V2 syntax:    json_path @@@ pdb.range(<native range type>)
 --   * Legacy syntax: raw JSONB '{"range": {"field": "<json.path>", ...}}'::jsonb
 -- Covers numeric subpaths and datetime subpaths (which require is_datetime in the
 -- legacy form) so future cleanups that drop is_datetime don't silently regress.
@@ -15,11 +15,11 @@ INSERT INTO json_range_test (metadata) VALUES
 CREATE INDEX json_range_test_idx ON json_range_test
 USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')));
 -- ============================================================================
--- Numeric subpath: new syntax (paradedb.range + int4range)
+-- Numeric subpath: V2 syntax (pdb.range + int4range)
 -- ============================================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM json_range_test
-WHERE id @@@ paradedb.range('metadata.attributes.score', int4range(4, NULL, '[)'))
+WHERE (metadata -> 'attributes' -> 'score') @@@ pdb.range(int4range(4, NULL, '[)'))
 ORDER BY id;
                                                                    QUERY PLAN                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------
@@ -35,7 +35,7 @@ ORDER BY id;
 (9 rows)
 
 SELECT id FROM json_range_test
-WHERE id @@@ paradedb.range('metadata.attributes.score', int4range(4, NULL, '[)'))
+WHERE (metadata -> 'attributes' -> 'score') @@@ pdb.range(int4range(4, NULL, '[)'))
 ORDER BY id;
  id 
 ----
@@ -85,11 +85,11 @@ ORDER BY id;
 (2 rows)
 
 -- ============================================================================
--- Datetime subpath: new syntax (paradedb.range + tstzrange)
+-- Datetime subpath: V2 syntax (pdb.range + tstzrange)
 -- ============================================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM json_range_test
-WHERE id @@@ paradedb.range('metadata.attributes.tstz', tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
+WHERE (metadata -> 'attributes' -> 'tstz') @@@ pdb.range(tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
 ORDER BY id;
                                                                                       QUERY PLAN                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -105,7 +105,7 @@ ORDER BY id;
 (9 rows)
 
 SELECT id FROM json_range_test
-WHERE id @@@ paradedb.range('metadata.attributes.tstz', tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
+WHERE (metadata -> 'attributes' -> 'tstz') @@@ pdb.range(tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
 ORDER BY id;
  id 
 ----

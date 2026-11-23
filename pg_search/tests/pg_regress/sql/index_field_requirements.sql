@@ -46,7 +46,7 @@ FROM field_requirements WHERE id @@@ pdb.all();
 -- A Top K window aggregate uses the other segment collection path.
 SELECT id, pdb.agg('{"terms":{"field":"metadata.color"}}') OVER ()
 FROM field_requirements WHERE description ||| 'shoes'
-ORDER BY paradedb.score(id) DESC LIMIT 1;
+ORDER BY pdb.score(id) DESC LIMIT 1;
 
 -- An unrelated collection failure must retain the underlying error.
 \set VERBOSITY terse
@@ -65,7 +65,7 @@ SELECT pdb.agg('{"terms":{"field":"metadata.color"}}')->'buckets'
 FROM field_requirements WHERE id @@@ pdb.all();
 SELECT id, pdb.agg('{"terms":{"field":"metadata.color"}}') OVER ()
 FROM field_requirements WHERE description ||| 'shoes'
-ORDER BY paradedb.score(id) DESC LIMIT 1;
+ORDER BY pdb.score(id) DESC LIMIT 1;
 
 DROP TABLE field_requirements;
 RESET max_parallel_workers_per_gather;

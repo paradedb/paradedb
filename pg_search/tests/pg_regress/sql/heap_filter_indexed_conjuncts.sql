@@ -19,7 +19,7 @@ INSERT INTO hfic_items (category, lat, lng)
 SELECT CASE WHEN g % 10 = 0 THEN 'a' ELSE 'b' END, g, g
 FROM generate_series(1, 1000) g;
 CREATE INDEX hfic_items_idx ON hfic_items
-USING bm25 (id, category) WITH (target_segment_count = 1);
+USING paradedb (id, category) WITH (target_segment_count = 1);
 
 CREATE TABLE hfic_orders (
     id serial PRIMARY KEY,
@@ -29,7 +29,7 @@ CREATE TABLE hfic_orders (
 INSERT INTO hfic_orders (item_id, note)
 SELECT g, 'order' FROM generate_series(1, 1000) g;
 CREATE INDEX hfic_orders_idx ON hfic_orders
-USING bm25 (id, item_id, note) WITH (target_segment_count = 1);
+USING paradedb (id, item_id, note) WITH (target_segment_count = 1);
 
 CREATE SEQUENCE hfic_calls1;
 CREATE SEQUENCE hfic_calls2;

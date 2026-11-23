@@ -33,14 +33,14 @@ SET paradedb.enable_custom_scan = on;
 -- (ids 1, 2, 4, 5, 7), then ProjectSet dropped ids 1, 5, 7.
 SELECT id, unnest(CASE WHEN id % 2 = 0 THEN ARRAY[1] ELSE '{}'::int[] END) AS u
 FROM items
-WHERE kind @@@ pdb.term('manga')
+WHERE kind === 'manga'
 ORDER BY id
 LIMIT 5;
 
 -- Same shape with NULL arrays instead of empty arrays.
 SELECT id, unnest(CASE WHEN id % 2 = 0 THEN ARRAY[1] ELSE NULL::int[] END) AS u
 FROM items
-WHERE kind @@@ pdb.term('manga')
+WHERE kind === 'manga'
 ORDER BY id
 LIMIT 5;
 
@@ -48,7 +48,7 @@ LIMIT 5;
 -- rows) still returns exactly LIMIT rows and still routes through the scan.
 SELECT id, unnest(ARRAY[1, 2]) AS u
 FROM items
-WHERE kind @@@ pdb.term('manga')
+WHERE kind === 'manga'
 ORDER BY id, u
 LIMIT 6;
 

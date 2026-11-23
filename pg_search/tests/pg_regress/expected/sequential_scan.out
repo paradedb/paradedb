@@ -335,7 +335,7 @@ SELECT id, color @@@ pdb.all() AS field_all,
        color @@@ pdb.all()::pdb.boost(2) AS boosted_all,
        color @@@ pdb.all()::pdb.const(1) AS constant_all,
        color @@@ pdb.empty() AS field_empty,
-       id @@@ paradedb.all() AS all_rows
+       id @@@ pdb.all()::pdb.const(0) AS all_rows
 FROM sequential_scan_nulls ORDER BY id;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose

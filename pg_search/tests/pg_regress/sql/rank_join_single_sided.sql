@@ -32,9 +32,9 @@ CREATE TABLE rj_comments (
     upvotes INT
 ) WITH (autovacuum_enabled = false);
 
-CREATE INDEX rj_users_bm25 ON rj_users USING bm25 (id, bio, reputation);
-CREATE INDEX rj_posts_bm25 ON rj_posts USING bm25 (id, user_id, title, views);
-CREATE INDEX rj_comments_bm25 ON rj_comments USING bm25 (id, post_id, body, upvotes);
+CREATE INDEX rj_users_bm25 ON rj_users USING paradedb (id, bio, reputation);
+CREATE INDEX rj_posts_bm25 ON rj_posts USING paradedb (id, user_id, title, views);
+CREATE INDEX rj_comments_bm25 ON rj_comments USING paradedb (id, post_id, body, upvotes);
 
 SET paradedb.global_mutable_segment_rows = 0;
 
@@ -270,7 +270,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
-ORDER BY 2.0 * paradedb.score(u.id) + 3.0 * paradedb.score(p.id) DESC
+ORDER BY 2.0 * pdb.score(u.id) + 3.0 * pdb.score(p.id) DESC
 LIMIT 5;
 
 -- 6b: Multiplicative score expression -> plans RankJoinExec
@@ -279,7 +279,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) * paradedb.score(p.id) DESC
+ORDER BY pdb.score(u.id) * pdb.score(p.id) DESC
 LIMIT 5;
 
 -- 6c: Gate 1 rejection (constant-score pdb.all() leg in two-sided score sum) -> HashJoinExec
@@ -288,7 +288,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC
 LIMIT 5;
 
 -- 6d: Gate 2 rejection (100x boost imbalance between scored legs) -> HashJoinExec
@@ -297,7 +297,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust'::pdb.boost(100) AND p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC
 LIMIT 5;
 
 -- 6d-multi: Gate 2 (`SCORE_BALANCE_THRESHOLD = 0.20`) with multi-branch OR on one side.
@@ -318,7 +318,7 @@ WHERE u.bio @@@ 'rust'
    OR p.title @@@ 'fast'
    OR p.title @@@ 'columnar'
    OR p.title @@@ 'query'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 -- 6 OR branches on `p` vs 1 on `u` -> RankJoinExec
@@ -333,7 +333,7 @@ WHERE u.bio @@@ 'rust'
    OR p.title @@@ 'columnar'
    OR p.title @@@ 'query'
    OR p.title @@@ 'extra'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 -- Same 6 OR branches on `p` with a 2x weight on `u` in ORDER BY -> RankJoinExec
@@ -348,7 +348,7 @@ WHERE u.bio @@@ 'rust'
    OR p.title @@@ 'columnar'
    OR p.title @@@ 'query'
    OR p.title @@@ 'extra'
-ORDER BY 2.0 * paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY 2.0 * pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 -- 6e: Single-sided score sort over cross-table OR -> rejected (HashJoinExec)
@@ -357,7 +357,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) DESC
+ORDER BY pdb.score(u.id) DESC
 LIMIT 5;
 
 -- 6f: Gate 3 unscored RA selectivity (< 0.08 uses HashJoinExec(fetch=K) over lazy_sort probe vs >= 0.08 uses RankJoinExec when rank_join_min_rows > 0)
@@ -385,14 +385,14 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id <= 1 AND p.title @@@ 'bm25'
-ORDER BY paradedb.score(p.id) DESC, p.id ASC
+ORDER BY pdb.score(p.id) DESC, p.id ASC
 LIMIT 5;
 
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id <= 1 AND p.title @@@ 'bm25'
-ORDER BY paradedb.score(p.id) DESC, p.id ASC
+ORDER BY pdb.score(p.id) DESC, p.id ASC
 LIMIT 5;
 
 -- Non-selective RA side (u.bio @@@ 'rust' matches 25/50 = 0.50 >= 0.08) -> RankJoinExec
@@ -418,7 +418,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 -- With a per-table TermSet filter (`p.user_id = ANY(...)`) pushed into `p`'s `base_query` -> plans RankJoinExec
@@ -428,7 +428,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.user_id = ANY(ARRAY[2, 4, 6])
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 SELECT u.id AS u_id, p.id AS p_id
@@ -436,7 +436,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.user_id = ANY(ARRAY[2, 4, 6])
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 -- With a per-table Range filter (`p.views >= 0`) pushed into `p`'s `base_query` -> plans RankJoinExec
@@ -446,7 +446,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.views >= 0
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 SELECT u.id AS u_id, p.id AS p_id
@@ -454,7 +454,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.views >= 0
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 -- Verify identical results with RankJoin disabled (HashJoinExec baseline)
@@ -465,7 +465,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.user_id = ANY(ARRAY[2, 4, 6])
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 SELECT u.id AS u_id, p.id AS p_id
@@ -473,7 +473,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.views >= 0
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 SET paradedb.enable_rank_join = on;
@@ -494,13 +494,13 @@ ANALYZE rj_users, rj_posts, rj_comments;
 
 SET max_parallel_maintenance_workers = 0;
 
-CREATE INDEX rj_users_bm25 ON rj_users USING bm25 (id, bio, reputation)
+CREATE INDEX rj_users_bm25 ON rj_users USING paradedb (id, bio, reputation)
 WITH (target_segment_count = 3, partition_by = 'id');
 
-CREATE INDEX rj_posts_bm25 ON rj_posts USING bm25 (id, user_id, title, views)
+CREATE INDEX rj_posts_bm25 ON rj_posts USING paradedb (id, user_id, title, views)
 WITH (target_segment_count = 3, partition_by = 'user_id,id');
 
-CREATE INDEX rj_comments_bm25 ON rj_comments USING bm25 (id, post_id, user_id, body, upvotes)
+CREATE INDEX rj_comments_bm25 ON rj_comments USING paradedb (id, post_id, user_id, body, upvotes)
 WITH (target_segment_count = 3, partition_by = 'user_id,post_id');
 
 SET paradedb.enable_range_partitioned_join = on;
@@ -535,14 +535,14 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 -- 7c: 3-way range co-partitioned join on shared key (user_id) -> DistributedExec with mode=Partitioned
@@ -596,7 +596,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
 SELECT u.id AS u_id, p.id AS p_id, c.id AS c_id, u.reputation

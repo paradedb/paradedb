@@ -41,14 +41,14 @@ SELECT
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()::pdb.const(0)
 GROUP BY transactions.as_of_date;
                                                 QUERY PLAN                                                
 ----------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.transactions
    Output: pdb.agg_fn('COUNT(*)'::text), as_of_date
    Index: transactions_search_index
-   Tantivy Query: {"with_index":{"query":"all"}}
+   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      Applies to Aggregates: COUNT(*)
      Group By: as_of_date
      Aggregate Definition: {"grouped":{"terms":{"field":"as_of_date","segment_size":65000,"size":65000}}}
@@ -58,7 +58,7 @@ SELECT
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()::pdb.const(0)
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date NULLS LAST;
  count_all | as_of_date 
@@ -84,15 +84,15 @@ WHERE transactions.organization_id = 'org1'
     AND transactions.live_mode = TRUE
     AND transactions.discarded_at IS NULL
     AND transactions.unledgered_amount != 0
-    AND transactions.id @@@ paradedb.all()
+    AND transactions.id @@@ pdb.all()::pdb.const(0)
     AND transactions.as_of_date BETWEEN '2025-12-25' AND '2026-02-01'
 GROUP BY transactions.as_of_date;
-                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.transactions
    Output: pdb.agg_fn('COUNT(*)'::text), as_of_date
    Index: transactions_search_index
-   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"discarded_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"term":{"field":"live_mode","value":true}},{"boolean":{"must":[{"exists":{"field":"unledgered_amount"}}],"must_not":[{"term":{"field":"unledgered_amount","value":"0"}}]}},{"with_index":{"query":"all"}},{"range":{"field":"as_of_date","lower_bound":{"included":{"$__pdb_date__":"2025-12-25T00:00:00Z"}},"upper_bound":null}},{"range":{"field":"as_of_date","lower_bound":null,"upper_bound":{"included":{"$__pdb_date__":"2026-02-01T00:00:00Z"}}}}]}},"always_filters":[{"heap_filter":"(organization_id = 'org1'::text)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"discarded_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"term":{"field":"live_mode","value":true}},{"boolean":{"must":[{"exists":{"field":"unledgered_amount"}}],"must_not":[{"term":{"field":"unledgered_amount","value":"0"}}]}},{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"as_of_date","lower_bound":{"included":{"$__pdb_date__":"2025-12-25T00:00:00Z"}},"upper_bound":null}},{"range":{"field":"as_of_date","lower_bound":null,"upper_bound":{"included":{"$__pdb_date__":"2026-02-01T00:00:00Z"}}}}]}},"always_filters":[{"heap_filter":"(organization_id = 'org1'::text)"}]}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: as_of_date
      Aggregate Definition: {"grouped":{"terms":{"field":"as_of_date","segment_size":65000,"size":65000}}}
@@ -106,7 +106,7 @@ WHERE transactions.organization_id = 'org1'
     AND transactions.live_mode = TRUE
     AND transactions.discarded_at IS NULL
     AND transactions.unledgered_amount != 0
-    AND transactions.id @@@ paradedb.all()
+    AND transactions.id @@@ pdb.all()::pdb.const(0)
     AND transactions.as_of_date BETWEEN '2025-12-25' AND '2026-02-01'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
@@ -125,15 +125,15 @@ SELECT
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()::pdb.const(0)
     AND transactions.as_of_date < '2025-12-29'
 GROUP BY transactions.as_of_date;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.transactions
    Output: pdb.agg_fn('COUNT(*)'::text), as_of_date
    Index: transactions_search_index
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"as_of_date","lower_bound":null,"upper_bound":{"excluded":{"$__pdb_date__":"2025-12-29T00:00:00Z"}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"as_of_date","lower_bound":null,"upper_bound":{"excluded":{"$__pdb_date__":"2025-12-29T00:00:00Z"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: as_of_date
      Aggregate Definition: {"grouped":{"terms":{"field":"as_of_date","segment_size":65000,"size":65000}}}
@@ -143,7 +143,7 @@ SELECT
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()::pdb.const(0)
     AND transactions.as_of_date < '2025-12-29'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
@@ -162,15 +162,15 @@ SELECT
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()::pdb.const(0)
     AND transactions.as_of_date > '2025-12-28'
 GROUP BY transactions.as_of_date;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.transactions
    Output: pdb.agg_fn('COUNT(*)'::text), as_of_date
    Index: transactions_search_index
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"as_of_date","lower_bound":{"excluded":{"$__pdb_date__":"2025-12-28T00:00:00Z"}},"upper_bound":null}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"as_of_date","lower_bound":{"excluded":{"$__pdb_date__":"2025-12-28T00:00:00Z"}},"upper_bound":null}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: as_of_date
      Aggregate Definition: {"grouped":{"terms":{"field":"as_of_date","segment_size":65000,"size":65000}}}
@@ -180,7 +180,7 @@ SELECT
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()::pdb.const(0)
     AND transactions.as_of_date > '2025-12-28'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
@@ -199,14 +199,14 @@ SELECT
     MIN(as_of_date) AS min_date,
     MAX(as_of_date) AS max_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()::pdb.const(0)
     AND transactions.live_mode = TRUE;
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.transactions
    Output: pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
    Index: transactions_search_index
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"live_mode","value":true}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"live_mode","value":true}}]}}
      Applies to Aggregates: MIN(as_of_date), MAX(as_of_date)
      Aggregate Definition: {"0":{"min":{"field":"as_of_date","missing":null}},"1":{"max":{"field":"as_of_date","missing":null}}}
 (6 rows)
@@ -215,7 +215,7 @@ SELECT
     MIN(as_of_date) AS min_date,
     MAX(as_of_date) AS max_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()::pdb.const(0)
     AND transactions.live_mode = TRUE;
   min_date  |  max_date  
 ------------+------------

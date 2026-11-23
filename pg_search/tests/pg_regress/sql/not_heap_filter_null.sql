@@ -7,7 +7,7 @@ INSERT INTO not_heap_null VALUES
     (2, 'hello false', false),
     (3, 'hello null', NULL),
     (4, 'other', false);
-CREATE INDEX not_heap_null_idx ON not_heap_null USING bm25 (id, body) WITH (key_field = 'id');
+CREATE INDEX not_heap_null_idx ON not_heap_null USING paradedb (id, body);
 
 SET paradedb.enable_filter_pushdown = on;
 
@@ -33,7 +33,7 @@ RESET paradedb.enable_custom_scan;
 
 -- Index flag as well: NOT must remain an index predicate with no heap filter.
 DROP INDEX not_heap_null_idx;
-CREATE INDEX not_heap_null_idx ON not_heap_null USING bm25 (id, body, flag);
+CREATE INDEX not_heap_null_idx ON not_heap_null USING paradedb (id, body, flag);
 SELECT line LIKE '%"query_string":"hello"%'
    AND line LIKE '%"field":"flag"%'
    AND line LIKE '%"value":false%'

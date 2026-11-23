@@ -23,7 +23,7 @@ FROM t
 WHERE t.col_b = '11111111-1111-1111-1111-111111111111'
   AND t.col_c = TRUE
   AND 1 = 1
-  AND (t.col_a @@@ paradedb.all())
+  AND (t.col_a @@@ pdb.all()::pdb.const(0))
   AND t.col_d >= '2025-07-01'
   AND t.col_d <= '2025-08-31'
   AND t.col_f IS NULL
@@ -49,7 +49,7 @@ FROM t
 WHERE t.col_b = '11111111-1111-1111-1111-111111111111'
   AND t.col_c = TRUE
   AND 1 = 1
-  AND (t.col_a @@@ paradedb.all())
+  AND (t.col_a @@@ pdb.all()::pdb.const(0))
   AND t.col_d >= '2025-07-01'
   AND t.col_d <= '2025-08-31'
   AND t.col_f IS NULL
@@ -69,7 +69,7 @@ WHERE t.col_b = '11111111-1111-1111-1111-111111111111'
 ORDER BY t.col_d DESC, t.col_e DESC, t.col_a DESC
 LIMIT 10;
 
--- No paradedb.all(), should be the same as above
+-- No pdb.all(), should be the same as above
 SELECT
   t.col_a, t.col_b, t.col_c, t.col_d, t.col_e, t.col_f
 FROM t

@@ -49,34 +49,34 @@ SET enable_mergejoin = off;
 EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
 SELECT c.body, d.filename, pdb.score(c.id) AS s
 FROM issue_5108_chunks c, issue_5108_docs d
-WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+WHERE d.id = c.doc_id AND c.body ||| 'healthcare'
 ORDER BY s DESC, c.id LIMIT 100;
 
 SELECT c.body, d.filename, pdb.score(c.id) AS s
 FROM issue_5108_chunks c, issue_5108_docs d
-WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+WHERE d.id = c.doc_id AND c.body ||| 'healthcare'
 ORDER BY s DESC, c.id LIMIT 100;
 
 EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
 SELECT pdb.snippet(c.body) AS snip, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
-WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+WHERE d.id = c.doc_id AND c.body ||| 'healthcare'
 ORDER BY snip DESC, c.id LIMIT 100;
 
 SELECT pdb.snippet(c.body) AS snip, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
-WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+WHERE d.id = c.doc_id AND c.body ||| 'healthcare'
 ORDER BY snip DESC, c.id LIMIT 100;
 
 EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
 SELECT pdb.snippet_positions(c.body) AS pos, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
-WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+WHERE d.id = c.doc_id AND c.body ||| 'healthcare'
 ORDER BY pos DESC, c.id LIMIT 100;
 
 SELECT pdb.snippet_positions(c.body) AS pos, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
-WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+WHERE d.id = c.doc_id AND c.body ||| 'healthcare'
 ORDER BY pos DESC, c.id LIMIT 100;
 
 -- Explicit JOIN ON via an inlined single-use CTE (the placeholder is planned in
@@ -85,7 +85,7 @@ EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
 WITH matched AS (
     SELECT id, body, doc_id, pdb.score(id) AS s
     FROM issue_5108_chunks
-    WHERE id @@@ paradedb.match('body', 'healthcare')
+    WHERE body ||| 'healthcare'
     ORDER BY s DESC, id LIMIT 100
 )
 SELECT m.body, d.filename, m.s
@@ -95,7 +95,7 @@ ORDER BY m.s DESC, m.id;
 WITH matched AS (
     SELECT id, body, doc_id, pdb.score(id) AS s
     FROM issue_5108_chunks
-    WHERE id @@@ paradedb.match('body', 'healthcare')
+    WHERE body ||| 'healthcare'
     ORDER BY s DESC, id LIMIT 100
 )
 SELECT m.body, d.filename, m.s
@@ -106,7 +106,7 @@ EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
 WITH matched AS (
     SELECT id, doc_id, pdb.snippet(body) AS snip
     FROM issue_5108_chunks
-    WHERE id @@@ paradedb.match('body', 'healthcare')
+    WHERE body ||| 'healthcare'
     ORDER BY snip DESC, id LIMIT 100
 )
 SELECT m.snip, d.filename
@@ -116,7 +116,7 @@ ORDER BY m.snip DESC, m.id;
 WITH matched AS (
     SELECT id, doc_id, pdb.snippet(body) AS snip
     FROM issue_5108_chunks
-    WHERE id @@@ paradedb.match('body', 'healthcare')
+    WHERE body ||| 'healthcare'
     ORDER BY snip DESC, id LIMIT 100
 )
 SELECT m.snip, d.filename

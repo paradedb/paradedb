@@ -21,7 +21,7 @@ SET LOCAL enable_bitmapscan = off;
 SELECT array_agg(id ORDER BY id) FROM required_fields WHERE body === 'alpha';
 SELECT array_agg(id ORDER BY id) FROM required_fields WHERE body ||| 'alpha';
 SELECT array_agg(id ORDER BY id) FROM required_fields
-WHERE id @@@ paradedb.parse('body:alpha');
+WHERE id @@@ pdb.parse('body:alpha');
 
 INSERT INTO required_fields VALUES (3, 'beta', 0), (4, NULL, 0);
 
@@ -31,7 +31,7 @@ SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.parse('up
 SELECT array_agg(id ORDER BY id) FROM required_fields
 WHERE body @@@ pdb.parse_with_field('alpha OR lower_body:beta');
 SELECT array_agg(id ORDER BY id) FROM required_fields
-WHERE id @@@ paradedb.parse('body:alpha OR lower_body:beta', lenient => true);
+WHERE id @@@ pdb.parse('body:alpha OR lower_body:beta', lenient => true);
 SELECT array_agg(id ORDER BY id) FROM required_fields
 WHERE id @@@ paradedb.term_set(ARRAY[
     paradedb.term('body', 'alpha'), paradedb.term('lower_body', 'beta')
@@ -44,9 +44,9 @@ WHERE id @@@ paradedb.boost(2.0, paradedb.boolean(
 
 -- The NULL guard still needs its field even when the query matches no documents.
 SELECT id, lower(body) @@@ pdb.empty() AS empty_match,
-       id @@@ paradedb.term('lower_body', 'alpha') AS term_match
+       lower(body)::pdb.alias('lower_body') === 'alpha' AS term_match
 FROM required_fields ORDER BY id;
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ paradedb.all();
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.all()::pdb.const(0);
 
 SELECT array_agg(id ORDER BY id) FROM required_fields
 WHERE id @@@ pdb.more_like_this(document => '{"body":"alpha"}', min_doc_frequency => 1, min_term_frequency => 1);
@@ -69,7 +69,7 @@ SAVEPOINT required_danger;
 SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.parse('danger:alpha');
 ROLLBACK TO required_danger;
 SELECT array_agg(id ORDER BY id) FROM required_fields
-WHERE id @@@ paradedb.parse('alpha', lenient => true);
+WHERE id @@@ pdb.parse('alpha', lenient => true);
 ROLLBACK TO required_danger;
 
 ROLLBACK;

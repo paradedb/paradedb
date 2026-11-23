@@ -62,7 +62,7 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
   7
 (2 rows)
 
-SELECT id FROM partial_index_fallback WHERE id @@@ paradedb.all() ORDER BY id;
+SELECT id FROM partial_index_fallback WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY id;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id 

@@ -335,7 +335,7 @@ CREATE TEMP TABLE q_cosine_oracle AS SELECT * FROM q_cosine;
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine '
-        'WHERE id @@@ paradedb.range(''id'', int4range(1, 51, ''[)'')) '
+        'WHERE id @@@ pdb.range(int4range(1, 51, ''[)'')) '
         'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
     ) AS value
 ), segment_info AS (
@@ -362,7 +362,7 @@ FROM segment_info;
 SELECT
     ARRAY(
         SELECT id FROM q_cosine
-        WHERE id @@@ paradedb.range('id', int4range(1, 51, '[)'))
+        WHERE id @@@ pdb.range(int4range(1, 51, '[)'))
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) = ARRAY(
@@ -379,7 +379,7 @@ SET paradedb.vector_cluster_max_probe = 10;
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine '
-        'WHERE id @@@ paradedb.range(''id'', int4range(1, 121, ''[)'')) '
+        'WHERE id @@@ pdb.range(int4range(1, 121, ''[)'')) '
         'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
     ) AS value
 ), segment_info AS (
@@ -403,7 +403,7 @@ FROM segment_info;
 SELECT
     ARRAY(
         SELECT id FROM q_cosine
-        WHERE id @@@ paradedb.range('id', int4range(1, 121, '[)'))
+        WHERE id @@@ pdb.range(int4range(1, 121, '[)'))
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) = ARRAY(

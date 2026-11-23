@@ -17,7 +17,7 @@ PREPARE search_desc(text, int) AS
 SELECT
   id,
   description,
-  paradedb.score(id) AS score
+  pdb.score(id) AS score
 FROM mock_items
 WHERE description ||| $1
 AND $2 = 0
@@ -52,7 +52,7 @@ PREPARE search_generic(text, int) AS
 SELECT
   id,
   description,
-  paradedb.score(id) AS score
+  pdb.score(id) AS score
 FROM mock_items
 WHERE description ||| $1
 AND $2 = 0
@@ -80,7 +80,7 @@ PREPARE search_simple(text) AS
 SELECT
   id,
   description,
-  paradedb.score(id) AS score
+  pdb.score(id) AS score
 FROM mock_items
 WHERE description ||| $1
 ORDER BY score DESC

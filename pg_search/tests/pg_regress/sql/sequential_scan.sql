@@ -178,7 +178,7 @@ SELECT id, color @@@ pdb.all() AS field_all,
        color @@@ pdb.all()::pdb.boost(2) AS boosted_all,
        color @@@ pdb.all()::pdb.const(1) AS constant_all,
        color @@@ pdb.empty() AS field_empty,
-       id @@@ paradedb.all() AS all_rows
+       id @@@ pdb.all()::pdb.const(0) AS all_rows
 FROM sequential_scan_nulls ORDER BY id;
 SELECT id, field_match, wrapped_match, missing, compound, wrapped_compound
 FROM sequential_scan_null_checks ORDER BY id;

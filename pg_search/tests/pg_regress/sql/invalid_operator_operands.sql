@@ -5,7 +5,7 @@ DROP TABLE IF EXISTS operand_items;
 
 CREATE TABLE operand_items (id int PRIMARY KEY, description text);
 INSERT INTO operand_items VALUES (1, 'leather sofa');
-CREATE INDEX operand_items_idx ON operand_items USING bm25 (id, description);
+CREATE INDEX operand_items_idx ON operand_items USING paradedb (id, description);
 
 -- The left side has to be a field of the index. An expression that the index does not have is
 -- an error, with a constant and with a value known only at run time.

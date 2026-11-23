@@ -89,7 +89,7 @@ impl GraceWindow {
     }
 
     /// The window in force right now.
-    fn current(&self) -> Duration {
+    pub(crate) fn current(&self) -> Duration {
         let Some(file) = self.file.as_ref() else {
             return self.baseline;
         };
@@ -155,11 +155,10 @@ fn message_looks_transient(msg: &str) -> bool {
 /// keys off the transport-vs-server distinction rather than string-matching each new
 /// libpq/driver phrasing (e.g. "error performing TLS handshake", which has no
 /// SQLSTATE and no `is_closed()` signal, so needle matching alone would miss it).
-fn is_transient_connection_error(e: &postgres::Error) -> bool {
+pub(crate) fn is_transient_connection_error(e: &postgres::Error) -> bool {
     match e.as_db_error() {
         Some(db) => dst::is_connection_lost_sqlstate(db.code().code()),
-        // Client-side/transport failure: no answer from the server, so it never got
-        // far enough to be a logical bug. Treat it as transient.
+        // The client did not receive a SQLSTATE. The operation's outcome can be unknown.
         None => true,
     }
 }
@@ -192,19 +191,6 @@ fn interruptible_sleep(alive: &AtomicBool, dur: Duration) {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct TransientProgress {
-    recovered: bool,
-}
-
-impl TransientProgress {
-    /// Mark that this retry attempt reached the database. If the attempt later
-    /// fails with another transient error, it starts a fresh grace window.
-    pub(crate) fn mark_recovered(&mut self) {
-        self.recovered = true;
-    }
-}
-
 /// Runs `op`, tolerating transient connectivity faults for as long as `grace` allows:
 /// while `op` keeps failing with a transient error (a dropped/refused socket, server
 /// restarting, etc.) it is retried with capped backoff. A real (non-transient) error is
@@ -212,26 +198,25 @@ impl TransientProgress {
 /// broken for the whole grace window continuously.
 ///
 /// The window is re-read on every failed attempt, and the clock restarts whenever it
-/// changes or `op` calls [`TransientProgress::mark_recovered`]. That reset is what lets
+/// changes. A completed operation ends the retry loop. The reset lets
 /// an external poke narrow the window mid-fault: it asks "can you reconnect within N
 /// seconds of now", not "were you already down N seconds ago".
 ///
-/// Reopening a dead connection is the caller's job inside `op`; re-running the whole
-/// `op` is what keeps this safe for transactional work — a lost transaction is replayed.
+/// The caller reopens dead connections. A lost response can leave the outcome of
+/// a write unknown, so another workload iteration can repeat work that committed.
 ///
 /// Returns `Ok(None)` if `alive` went false while we were waiting out a fault.
 pub(crate) fn tolerate_transient<T>(
     alive: &AtomicBool,
     grace: &GraceWindow,
-    mut op: impl FnMut(&mut TransientProgress) -> Result<T>,
+    mut op: impl FnMut() -> Result<T>,
 ) -> Result<Option<T>> {
     let mut backoff = INITIAL_RECONNECT_BACKOFF;
     let mut down_since: Option<Instant> = None;
     let mut last_grace: Option<Duration> = None;
     let mut rode_out_fault = false;
     loop {
-        let mut progress = TransientProgress::default();
-        match op(&mut progress) {
+        match op() {
             Ok(value) => {
                 dst::assert_reachable!("stressgres: completed a database operation");
                 if rode_out_fault {
@@ -267,7 +252,7 @@ pub(crate) fn tolerate_transient<T>(
                 // supervisor restoring the baseline, which happens deep in the healed quiet
                 // period with no active fault to observe it. That path is pinned by the
                 // `widening_the_window_also_restarts_the_clock` test instead.
-                if progress.recovered || last_grace.is_some_and(|last| last != grace) {
+                if last_grace.is_some_and(|last| last != grace) {
                     down_since = None;
                     backoff = INITIAL_RECONNECT_BACKOFF;
                 }
@@ -286,6 +271,9 @@ pub(crate) fn tolerate_transient<T>(
                 rode_out_fault = true;
                 eprintln!("stressgres: transient database fault, retrying: {e:#}");
                 interruptible_sleep(alive, backoff);
+                if !alive.load(Ordering::Relaxed) {
+                    return Ok(None);
+                }
                 backoff = (backoff * 2).min(MAX_RECONNECT_BACKOFF);
             }
         }
@@ -299,7 +287,7 @@ mod tests {
     use std::io;
 
     #[test]
-    fn message_matching_flags_connectivity_faults() {
+    fn string_errors_are_classified() {
         for msg in [
             "error connecting to server: Network is unreachable (os error 101)",
             "server closed the connection unexpectedly",
@@ -310,30 +298,23 @@ mod tests {
             // marks this as connectivity noise (server down/restarting mid-handshake).
             "error performing TLS handshake: unexpected EOF",
         ] {
-            assert!(message_looks_transient(msg), "should be transient: {msg}");
+            assert!(
+                is_transient_error(&anyhow!("{msg}")),
+                "should be transient: {msg}"
+            );
         }
-    }
 
-    #[test]
-    fn message_matching_ignores_real_errors() {
         for msg in [
             "ERROR: division by zero (SQLState: 22012)",
             "duplicate key value violates unique constraint (SQLState: 23505)",
             "ERROR: relation \"foo\" does not exist (SQLState: 42P01)",
             "Job assertion failed: expected 5 but got 3",
         ] {
-            assert!(!message_looks_transient(msg), "should be real: {msg}");
+            assert!(
+                !is_transient_error(&anyhow!("{msg}")),
+                "should be real: {msg}"
+            );
         }
-    }
-
-    #[test]
-    fn anyhow_string_errors_are_classified() {
-        assert!(is_transient_error(&anyhow!(
-            "error connecting to server: Network is unreachable (os error 101)"
-        )));
-        assert!(!is_transient_error(&anyhow!(
-            "Job assertion failed: expected 5 but got 3"
-        )));
     }
 
     #[test]
@@ -343,35 +324,12 @@ mod tests {
     }
 
     #[test]
-    fn recovery_marker_restarts_grace_window() {
-        let alive = AtomicBool::new(true);
-        let mut attempts = 0;
-
-        let grace = fixed(Duration::from_millis(250));
-        let result = tolerate_transient(&alive, &grace, |progress| {
-            attempts += 1;
-            match attempts {
-                1 => Err(anyhow!("connection closed")),
-                2 => {
-                    progress.mark_recovered();
-                    Err(anyhow!("connection closed"))
-                }
-                _ => Ok("ok"),
-            }
-        })
-        .unwrap();
-
-        assert_eq!(result, Some("ok"));
-        assert_eq!(attempts, 3);
-    }
-
-    #[test]
     fn zero_grace_fails_on_the_first_transient_error() {
         let alive = AtomicBool::new(true);
         let grace = fixed(Duration::ZERO);
         let mut attempts = 0;
 
-        let err = tolerate_transient(&alive, &grace, |_| {
+        let err = tolerate_transient(&alive, &grace, || {
             attempts += 1;
             Err::<(), _>(anyhow!("connection refused"))
         })
@@ -396,7 +354,7 @@ mod tests {
         let grace = fixed(LONG_GRACE);
         let mut attempts = 0;
 
-        let result = tolerate_transient(&alive, &grace, |_| {
+        let result = tolerate_transient(&alive, &grace, || {
             attempts += 1;
             if attempts < 4 {
                 Err(anyhow!("connection refused"))
@@ -416,7 +374,7 @@ mod tests {
         let alive = AtomicBool::new(false);
         let grace = fixed(Duration::ZERO);
 
-        let err = tolerate_transient(&alive, &grace, |_| {
+        let err = tolerate_transient(&alive, &grace, || {
             Err::<(), _>(anyhow!("connection refused"))
         })
         .unwrap_err();
@@ -430,7 +388,7 @@ mod tests {
     fn a_long_grace_gives_up_once_the_suite_is_shutting_down() {
         let alive = AtomicBool::new(false);
 
-        let result = tolerate_transient(&alive, &fixed(LONG_GRACE), |_| {
+        let result = tolerate_transient(&alive, &fixed(LONG_GRACE), || {
             Err::<(), _>(anyhow!("connection refused"))
         })
         .unwrap();
@@ -443,7 +401,7 @@ mod tests {
         let alive = AtomicBool::new(true);
         let grace = fixed(LONG_GRACE);
 
-        let err = tolerate_transient(&alive, &grace, |_| {
+        let err = tolerate_transient(&alive, &grace, || {
             Err::<(), _>(anyhow!(
                 "duplicate key value violates unique constraint (SQLState: 23505)"
             ))
@@ -496,7 +454,7 @@ mod tests {
         let alive = AtomicBool::new(true);
         let mut attempts = 0;
 
-        let err = tolerate_transient(&alive, &grace, |_| {
+        let err = tolerate_transient(&alive, &grace, || {
             attempts += 1;
             // Ride out an arbitrarily long fault, then get poked down to 200ms. The
             // backoff between attempts already exceeds 200ms, so had the poke not
@@ -533,7 +491,7 @@ mod tests {
         // still down. By then we have been down longer than the 200ms window it is
         // replacing, so only restarting the clock keeps us from failing on a window that
         // is no longer in force.
-        let result = tolerate_transient(&alive, &grace, |_| {
+        let result = tolerate_transient(&alive, &grace, || {
             attempts += 1;
             match attempts {
                 1 => Err(anyhow!("connection refused")),

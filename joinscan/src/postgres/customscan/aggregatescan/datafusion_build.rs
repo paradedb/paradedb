@@ -79,6 +79,7 @@ type SearchFilterResult = (JoinLevelExpr, Vec<*mut pg_sys::Expr>);
 
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::sync::Arc;
 
 /// An index field name resolved to one of the join sources.
 pub struct ResolvedSourceField {
@@ -208,9 +209,13 @@ fn validate_source_field_candidate(
 /// as numbers and fail the scan's schema at execution, so it is turned down
 /// here. Only the column metadata is read; no values are loaded.
 fn check_json_sub_field_is_text(index: &PgSearchRelation, field: &str) -> Result<(), String> {
-    let reader =
-        SearchIndexReader::open(index, SearchQueryInput::All, false, MvccSatisfies::Snapshot)
-            .map_err(|e| format!("could not open index to inspect field '{field}': {e}"))?;
+    let reader = SearchIndexReader::open(
+        index,
+        Arc::new(SearchQueryInput::All),
+        false,
+        MvccSatisfies::Snapshot,
+    )
+    .map_err(|e| format!("could not open index to inspect field '{field}': {e}"))?;
     for segment in reader.segment_readers() {
         let handles = segment
             .fast_fields()
@@ -643,7 +648,7 @@ unsafe fn build_scan_node(
         })?;
         optimize_quals_with_heap_expr(&mut qual);
         let query = SearchQueryInput::from(&qual);
-        candidate = candidate.with_query(query);
+        candidate = candidate.with_query(Arc::new(query));
         if state.uses_our_operator {
             candidate = candidate.with_search_predicate();
         }
@@ -1863,12 +1868,15 @@ impl FilterExpr {
                             return None;
                         }
                         let source = sources.iter().find(|s| s.heap_rti == rti)?;
-                        let name = source.get_attname(unsafe { (*var).varattno })?;
+                        let field_name = source
+                            .resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)
+                            .map(|r| r.field.name())
+                            .or_else(|| source.get_attname(attno).map(|n| n.into_inner()))?;
                         Some(Self::ColumnRef(FilterColumnRef {
                             plan_position: pp,
                             rti: source.heap_rti,
-                            attno: unsafe { (*var).varattno },
-                            field_name: name.into_inner(),
+                            attno,
+                            field_name,
                         }))
                     }
                     FilterExprBuildContext::Having {
@@ -2180,14 +2188,16 @@ pub unsafe fn populate_required_fields(
             }
         }
 
-        // Aggregate FILTER clauses - referenced by name, so resolve attno
-        // first via the tuple desc.
+        // Aggregate FILTER clauses - match by plan_position and register by
+        // stored attno so aliased fast fields are resolved through the index
+        // mapping rather than looked up by heap column name.
         for agg in &targetlist.aggregates {
             let Some(ref filter) = agg.filter else {
                 continue;
             };
             for FilterColumnRef {
                 plan_position,
+                attno,
                 field_name,
                 ..
             } in filter.collect_column_refs()
@@ -2195,11 +2205,9 @@ pub unsafe fn populate_required_fields(
                 if source.plan_position != plan_position {
                     continue;
                 }
-                if let Some(attno) = context.get_attno_by_name(&field_name) {
-                    require_fast_field(source, &context, attno, || {
-                        format!("FILTER column '{field_name}'")
-                    })?;
-                }
+                require_fast_field(source, &context, attno, || {
+                    format!("FILTER column '{field_name}' (attno={attno})")
+                })?;
             }
         }
 

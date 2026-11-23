@@ -28,9 +28,9 @@ use crate::postgres::customscan::opexpr::{
     UnwrapFromExpr, expr_matches_node, vars_equal_ignoring_varno,
 };
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::lookup_bm25_index;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{VarContext, find_json_path, find_var_relation};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{PgList, PgLogLevel, PgSqlErrorCode, function_name, pg_sys};
@@ -47,8 +47,8 @@ pub unsafe fn tantivy_field_name_from_node(
     if heaprelid == pg_sys::Oid::INVALID {
         return None;
     }
-    let (heaprel, indexrel) = rel_get_bm25_index(heaprelid).unwrap_or_else(|| {
-        panic!(
+    let (heaprel, indexrel) = lookup_bm25_index(heaprelid).unwrap_or_report(|| {
+        format!(
             "`{}` does not contain a `USING paradedb` index",
             PgSearchRelation::open(heaprelid).name()
         )

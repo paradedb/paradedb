@@ -9,7 +9,7 @@
     const consent = shared.create({
       gtmId: "GTM-KMGRG564",
       posthogKey: "phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj",
-      posthogHost: "https://us.i.posthog.com",
+      posthogHost: "https://g.paradedb.com",
       // Previews don't have the website's country endpoint.
       regionEndpoint: ["www.paradedb.com", "paradedb.com"].includes(
         location.hostname,
@@ -24,11 +24,12 @@
     banner.id = "paradedb-cookie-banner";
     banner.setAttribute("aria-label", "Cookie preferences");
     banner.innerHTML = `
-      <p>We use cookies for analytics and personalized ads. Declining limits
-      tracking to cookieless measurement.
+      <p>We use cookies to understand how you use our service, improve your experience,
+      and personalize our marketing and advertising. Declining limits tracking to
+      cookieless measurement.
       <a href="https://www.paradedb.com/legal/privacy">Privacy Policy</a></p>
       <div><button type="button" data-consent="false">Decline</button>
-      <button type="button" data-consent="true">Accept</button></div>`;
+      <button type="button" data-consent="all">Accept</button></div>`;
     const preferences = document.createElement("button");
     preferences.id = "paradedb-cookie-preferences";
     preferences.type = "button";
@@ -41,7 +42,8 @@
     }
     banner.querySelectorAll("button").forEach((button) => {
       button.addEventListener("click", () => {
-        consent.setConsent(button.dataset.consent === "true");
+        const granted = button.dataset.consent === "all";
+        consent.setConsent(granted, granted);
         showBanner(false, true);
       });
     });

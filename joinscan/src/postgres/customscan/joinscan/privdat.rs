@@ -116,7 +116,8 @@ pub struct PrivateData {
     /// pre-setrefs shape — the live post-setrefs custom_exprs on the executor's
     /// plan node is not translator-compatible.
     pub custom_exprs_string: Option<String>,
-    /// PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK` decision.
+    /// Plan-time MPP parallel safety decision (`sources_and_exprs_allow_parallel`:
+    /// `PlannerGlobal.parallelModeOK`, non-`TEMP` sources, and parallel-safe worker expressions).
     pub parallel_mode_ok: bool,
 }
 

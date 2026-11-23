@@ -1,5 +1,0 @@
----
-header: stability
----
-
-- Stopwords (`stopwords_language` and `stopwords`) are now removed before stemming and ASCII folding. Previously, a transformed stopword could be indexed, such as Spanish `para` stemmed to `par`. Existing indexes that combine stopwords with stemming or ASCII folding remain usable, but searches can miss matches or return extra matches because older rows were indexed with the previous filter order. Run `REINDEX` on affected indexes to make results consistent across existing rows and new writes.

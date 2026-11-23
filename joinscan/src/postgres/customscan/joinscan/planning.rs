@@ -58,6 +58,7 @@ use crate::postgres::utils::{missing_partial_index_predicate, strip_wrappers};
 use crate::postgres::var::strip_identity_wrappers;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
+use std::sync::Arc;
 
 use pgrx::{PgList, pg_sys};
 
@@ -195,7 +196,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
                 true,
             )?;
             optimize_quals_with_heap_expr(&mut qual);
-            let query = SearchQueryInput::from(&qual);
+            let query = Arc::new(SearchQueryInput::from(&qual));
             side_info = side_info.with_query(query);
             if state.uses_our_operator {
                 side_info = side_info.with_search_predicate();
@@ -2572,12 +2573,12 @@ unsafe extern "C-unwind" fn expr_deps_walker(
 ///
 /// Plain Vars, score functions, and indexed expressions are mapped to their respective
 /// ResolvedExpr variants. A general expression (or constant) declines on an aggregate or an
-/// unabsorbable window function. It runs inside the scan when every Var it reads is a fast field
-/// (score and absorbed window function arguments excluded), its result type is Arrow-convertible,
-/// and it contains no parameters or untranslatable score subtrees (evaluated against any absorbed
-/// `window_deps` via [`PredicateTranslator::can_translate_with_windows`]); otherwise, volatile
-/// functions and parameters included, Postgres computes it over the scan's rows when
-/// `enable_pg_project_fallback` is set.
+/// unabsorbable window function. It runs inside the scan when it is parallel-safe, every Var it
+/// reads is a fast field (score and absorbed window function arguments excluded), its result type
+/// is Arrow-convertible, and it contains no parameters or untranslatable score subtrees (evaluated
+/// against any absorbed `window_deps` via [`PredicateTranslator::can_translate_with_windows`]);
+/// otherwise, volatile or non-parallel-safe functions and parameters included, Postgres computes
+/// it over the scan's rows when `enable_pg_project_fallback` is set.
 pub(crate) unsafe fn resolve_target_entry_expr(
     expr: *mut pg_sys::Node,
     root: *mut pg_sys::PlannerInfo,
@@ -2838,6 +2839,18 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                 tables_str
             );
         });
+    }
+
+    // Keep non-parallel-safe projections (such as PARALLEL RESTRICTED functions) on the leader via
+    // Postgres projection when allowed, matching how Gather evaluates non-parallel-safe target
+    // expressions on the leader instead of pushing them to workers. When Postgres projection is
+    // unavailable (e.g. DISTINCT or embedded absorbed window functions), fall through to
+    // `ResolvedExpr::Expression`, which `plan_custom_path` keeps serial via `worker_exprs`.
+    if !pg_sys::is_parallel_safe(root, expr)
+        && let Some(plan) = plan_for_pg_project_fallback
+        && can_pg_project(expr, plan).is_ok()
+    {
+        return Ok(ResolvedExpr::PgProjected);
     }
 
     Ok(ResolvedExpr::Expression {

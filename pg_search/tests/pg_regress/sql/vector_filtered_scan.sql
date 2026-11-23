@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_clustering_threshold = 64;
-SET paradedb.vector_cluster_max_probe = 4;
+SET paradedb.vector_cluster_max_probe = 26;
 SET paradedb.vector_stats = on;
 
 -- Integer coordinates in [-50, 50]: every squared L2 distance is an exact float, so the
@@ -117,6 +117,8 @@ SELECT
         LIMIT 5
     ) AS located_matches_exhaustive;
 
+SET paradedb.vector_cluster_max_probe = 4;
+
 -- A dense filter (196 of 200) matches more documents than the probe budget buys: it routes.
 SELECT * FROM filtered_scan_path(
     'SELECT id FROM filtered_scan_items '
@@ -139,6 +141,7 @@ SELECT * FROM filtered_scan_plan(
     'ORDER BY vec <-> filtered_scan_vector(768, 7), id LIMIT 5'
 );
 
+SET paradedb.vector_cluster_max_probe = 26;
 SET plan_cache_mode = force_generic_plan;
 PREPARE filtered_scan_runtime(integer) AS
 SELECT ARRAY(

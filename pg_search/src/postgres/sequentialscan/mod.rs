@@ -47,6 +47,7 @@ use pgrx::{
     fcinfo::pg_get_nullable_datum, function_name, pg_extern, pg_func_extra, pg_sys,
 };
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 struct QueryCacheEntry {
     matches: KeySet,
@@ -204,7 +205,7 @@ pub fn search_with_query_input_ctid_or_row(
             any_leaf_partition_index(parent)
                 .unwrap_or_else(|| report_missing_partition_index(None, parent.oid()))
         });
-        unsafe { build_row_matcher(fcinfo, index_relation, query) }
+        unsafe { build_row_matcher(fcinfo, index_relation, Arc::new(query)) }
     });
 
     unsafe { matcher.matches(row) }
@@ -296,7 +297,7 @@ fn search_with_query_input_impl(
         let index_relation = resolve_index(&search_query_input, tableoid, |_| {
             report_missing_row_identity()
         });
-        build_query_cache_entry(fcinfo, ctid, index_relation, search_query_input)
+        build_query_cache_entry(fcinfo, ctid, index_relation, Arc::new(search_query_input))
     });
 
     // Reaching this function at all means the search-operator predicate is being applied as a
@@ -343,7 +344,7 @@ fn build_query_cache_entry(
     fcinfo: pg_sys::FunctionCallInfo,
     ctid: Option<Ctid>,
     index_relation: PgSearchRelation,
-    search_query_input: SearchQueryInput,
+    search_query_input: Arc<SearchQueryInput>,
 ) -> QueryCacheEntry {
     let is_partial =
         unsafe { !pg_sys::RelationGetIndexPredicate(index_relation.as_ptr()).is_null() };
@@ -413,7 +414,7 @@ fn build_query_cache_entry(
     let missing_values = if let Some(null_guard) = null_guard {
         // Collect rows where the field is absent (the complement of `exists`). Membership in
         // this set means SQL NULL for negation semantics.
-        let complement_query = SearchQueryInput::WithIndex {
+        let complement_query = Arc::new(SearchQueryInput::WithIndex {
             oid: index_relation.oid(),
             query: Box::new(SearchQueryInput::Boolean {
                 must: vec![SearchQueryInput::All],
@@ -421,7 +422,7 @@ fn build_query_cache_entry(
                 must_not: vec![null_guard],
                 minimum_should_match: None,
             }),
-        };
+        });
 
         let complement_reader = SearchIndexReader::open(
             &index_relation,
@@ -472,7 +473,7 @@ fn resolve_index(
 unsafe fn build_row_matcher(
     fcinfo: pg_sys::FunctionCallInfo,
     index_relation: PgSearchRelation,
-    query: SearchQueryInput,
+    query: Arc<SearchQueryInput>,
 ) -> RowMatcher {
     unsafe {
         count_index_scan(&index_relation);

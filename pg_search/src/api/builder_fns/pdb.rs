@@ -180,6 +180,7 @@ mod pdb {
             lenient,
             conjunction_mode,
             fuzzy_data: None,
+            synonyms: None,
         }
     }
 

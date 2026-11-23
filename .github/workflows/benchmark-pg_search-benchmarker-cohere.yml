@@ -78,7 +78,7 @@ jobs:
     env:
       COHERE_SIZE: ${{ matrix.size }}
       RESULTS_DATASET: cohere-${{ matrix.size }}-8cpu-32gb
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'fb13b9ad8a98f0f21efaf277e6c7e05edca4cec3' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '376d023d1f42d31f7f54ef98ea023c5a8d21771f' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
       # The router-quality section runs on the daily main run, with the
@@ -433,6 +433,9 @@ jobs:
           set -euo pipefail
           printf 'Database resources: 8 CPUs on cores 0-7, 32 GiB RAM, seven parallel maintenance workers, four query workers, and eight global parallel workers. k6 runs on cores 64-67.\n\n' > benchmark-artifacts/context.md
           cat benchmark-artifacts/operating_points.md >> benchmark-artifacts/context.md
+          if [ -f benchmark-artifacts/plan-modes.md ]; then
+            cat benchmark-artifacts/plan-modes.md >> benchmark-artifacts/context.md
+          fi
           if [ "$ROUTER_QUALITY" = true ]; then
             cat benchmark-artifacts/router/router_quality.md >> benchmark-artifacts/context.md
           fi
@@ -481,11 +484,11 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       COHERE_SIZE: 10m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'fb13b9ad8a98f0f21efaf277e6c7e05edca4cec3' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '376d023d1f42d31f7f54ef98ea023c5a8d21771f' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
       BENCHMARK_ENGINE: ${{ matrix.engine }}
-      PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
+      PG_VECTORSEARCH_REF: 93567fd1a10096a28f11a247151fe5acae8ee2d9
       VECTORCHORD_REF: f9b5e234c44cee69b266b8431f92b7deed4e99d3
       VECTORCHORD_PREFILTER: ${{ matrix.prefilter }}
       RESULTS_DATASET: cohere-10m-${{ matrix.engine }}${{ matrix.engine == 'vectorchord' && matrix.prefilter == 'on' && '-prefilter' || '' }}-8cpu-32gb
@@ -553,7 +556,7 @@ jobs:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           owner: paradedb
-          repositories: ${{ matrix.engine == 'pg_vectorsearch' && 'pdbench,pg_vectorsearch' || 'pdbench' }}
+          repositories: pdbench
           permission-contents: read
 
       - name: Checkout pdbench
@@ -582,7 +585,6 @@ jobs:
         uses: ./.github/actions/setup-pg-vectorsearch
         with:
           ref: ${{ env.PG_VECTORSEARCH_REF }}
-          github_token: ${{ steps.pdbench_token.outputs.token }}
 
       - name: Set Up VectorChord
         if: matrix.engine == 'vectorchord'

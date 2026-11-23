@@ -333,15 +333,15 @@ LIMIT 5;
          DataFusion Physical Plan: 
            : ┌───── DistributedExec
            : │ SortPreservingMergeExec: [title@0 ASC NULLS LAST], fetch=5
-           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 3 ── tasks=2, partitions=3
+           :   ┌───── Stage 3 ── tasks=2, partitions=4
            :   │ SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[true]
            :   │   AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
-           :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   │     [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 2 ── tasks=2, partitions=6
-           :     │ RepartitionExec: partitioning=Hash([title@0], 6), input_partitions=1
+           :     ┌───── Stage 2 ── tasks=2, partitions=8
+           :     │ RepartitionExec: partitioning=Hash([title@0], 8), input_partitions=1
            :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
            :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[title@0, size_bytes@2]
            :     │       CoalescePartitionsExec
@@ -390,28 +390,28 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f,
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
      : │ CoalescePartitionsExec
-     : │   [Stage 4] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : │   [Stage 4] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 4 ── tasks=2, partitions=3
+     :   ┌───── Stage 4 ── tasks=2, partitions=4
      :   │ AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[]
-     :   │   [Stage 3] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │   [Stage 3] => NetworkShuffleExec: output_partitions=4, input_tasks=2
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 3 ── tasks=2, partitions=6
-     :     │ RepartitionExec: partitioning=Hash([title@0], 6), input_partitions=3
+     :     ┌───── Stage 3 ── tasks=2, partitions=8
+     :     │ RepartitionExec: partitioning=Hash([title@0], 8), input_partitions=4
      :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[]
      :     │     TantivyDecodeExec: decode=[title]
      :     │       HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@1, file_id@0)], projection=[title@0]
-     :     │         [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
-     :     │         [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :     │         [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=2
+     :     │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
      :     └──────────────────────────────────────────────────
-     :       ┌───── Stage 1 ── tasks=2, partitions=6
-     :       │ RepartitionExec: partitioning=Hash([id@1], 6), input_partitions=1
+     :       ┌───── Stage 1 ── tasks=2, partitions=8
+     :       │ RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
      :       │   DistributedLeafExec:
      :       │     t0: PgSearchScan: table=f, segments=2, fetch=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       │     t1: PgSearchScan: table=f, segments=2, fetch=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       └──────────────────────────────────────────────────
-     :       ┌───── Stage 2 ── tasks=2, partitions=6
-     :       │ RepartitionExec: partitioning=Hash([file_id@0], 6), input_partitions=1
+     :       ┌───── Stage 2 ── tasks=2, partitions=8
+     :       │ RepartitionExec: partitioning=Hash([file_id@0], 8), input_partitions=1
      :       │   DistributedLeafExec:
      :       │     t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
      :       │     t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
@@ -459,15 +459,15 @@ WHERE f.content ||| 'Section';
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
      : │ CoalescePartitionsExec
-     : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : │   [Stage 3] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 3 ── tasks=2, partitions=3
+     :   ┌───── Stage 3 ── tasks=2, partitions=4
      :   │ ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0]
      :   │   AggregateExec: mode=FinalPartitioned, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
-     :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   │     [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 2 ── tasks=2, partitions=6
-     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 6), input_partitions=1
+     :     ┌───── Stage 2 ── tasks=2, partitions=8
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 8), input_partitions=1
      :     │   AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (title@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
      :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1]
      :     │       CoalescePartitionsExec
@@ -516,15 +516,15 @@ LIMIT 5;
                DataFusion Physical Plan: 
                  : ┌───── DistributedExec
                  : │ CoalescePartitionsExec
-                 : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+                 : │   [Stage 3] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
                  : └──────────────────────────────────────────────────
-                 :   ┌───── Stage 3 ── tasks=2, partitions=3
+                 :   ┌───── Stage 3 ── tasks=2, partitions=4
                  :   │ ProjectionExec: expr=[title@0 as title, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __pdb_m0@3 as __pdb_m0]
                  :   │   AggregateExec: mode=FinalPartitioned, gby=[title@0 as title, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0]
-                 :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+                 :   │     [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
                  :   └──────────────────────────────────────────────────
-                 :     ┌───── Stage 2 ── tasks=2, partitions=6
-                 :     │ RepartitionExec: partitioning=Hash([title@0, __pdb_k0@1, __grouping_id@2], 6), input_partitions=1
+                 :     ┌───── Stage 2 ── tasks=2, partitions=8
+                 :     │ RepartitionExec: partitioning=Hash([title@0, __pdb_k0@1, __grouping_id@2], 8), input_partitions=1
                  :     │   AggregateExec: mode=Partial, gby=[(title@0 as title, NULL as __pdb_k0), (title@0 as title, title@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
                  :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@0)], projection=[title@0]
                  :     │       CoalescePartitionsExec
@@ -620,6 +620,310 @@ WHERE f.content ||| 'Section';
 
 DROP FUNCTION mpp_agg_explain_analyze_lines(text);
 RESET paradedb.mpp_min_rows;
+-- =====================================================================
+-- Pass 4: DataFusion AggregateScan with parallel BaseScan InitPlan (#7593)
+--
+-- An uncorrelated ARRAY(SELECT ...) subquery inside pdb.term_set becomes an
+-- InitPlan containing Gather -> Parallel Custom Scan (ParadeDB Base Scan).
+-- Evaluating that InitPlan from a DataFusion AggregateScan must not fail
+-- with an unset es_query_dsa when InitializeParallelDSM runs.
+-- =====================================================================
+-- Single-table SELECT DISTINCT (exact #7593 shape).
+SET max_parallel_workers_per_gather TO 1;
+SET debug_parallel_query TO on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT id
+FROM mpp_files
+WHERE id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+ORDER BY id;
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id
+   Sort Key: id
+   InitPlan 1
+     ->  Gather
+           Output: mpp_files.id
+           Workers Planned: 1
+           ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mpp_files
+                 Output: mpp_files.id
+                 Table: mpp_files
+                 Index: mpp_files_idx
+                 Worker Selection: Cost model
+                 Exec Method: ColumnarExecState
+                 Columnar: id
+                 Scores: false
+                 Tantivy Query: {"with_index":{"query":{"term_set":{"field":"id","terms":[1,2]}}}}
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: id
+         Backend: DataFusion
+         Indexes: mpp_files_idx (mpp_files)
+         Group By: id
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ CoalescePartitionsExec
+           : │   [Stage 2] => NetworkCoalesceExec: output_partitions=4, input_tasks=2
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 2 ── tasks=2, partitions=2
+           :   │ AggregateExec: mode=FinalPartitioned, gby=[id@0 as id], aggr=[]
+           :   │   [Stage 1] => NetworkShuffleExec: output_partitions=2, input_tasks=2
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 1 ── tasks=2, partitions=4
+           :     │ RepartitionExec: partitioning=Hash([id@0], 4), input_partitions=1
+           :     │   AggregateExec: mode=Partial, gby=[id@0 as id], aggr=[]
+           :     │     DistributedLeafExec:
+           :     │       t0: PgSearchScan: table=mpp_files, segments=2, visibility=eager, query={"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('mpp_files_idx'::regclass, paradedb.to_search_query_input('id'::paradedb.fieldname, pdb.term_set($2)))"}}}
+           :     │       t1: PgSearchScan: table=mpp_files, segments=2, visibility=eager, query={"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('mpp_files_idx'::regclass, paradedb.to_search_query_input('id'::paradedb.fieldname, pdb.term_set($2)))"}}}
+           :     └──────────────────────────────────────────────────
+(37 rows)
+
+SELECT DISTINCT id
+FROM mpp_files
+WHERE id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- Control: same query without AggregateScan.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT id
+FROM mpp_files
+WHERE id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Multi-table MPP GROUP BY with a parallel BaseScan InitPlan.
+SET max_parallel_workers_per_gather TO 3;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+                                                                                                                                    QUERY PLAN                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: title, (count(*)), (sum(size_bytes))
+   Sort Key: title
+   InitPlan 1
+     ->  Gather
+           Output: mpp_files.id
+           Workers Planned: 1
+           ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mpp_files
+                 Output: mpp_files.id
+                 Table: mpp_files
+                 Index: mpp_files_idx
+                 Worker Selection: Cost model
+                 Exec Method: ColumnarExecState
+                 Columnar: id
+                 Scores: false
+                 Tantivy Query: {"with_index":{"query":{"term_set":{"field":"id","terms":[1,2]}}}}
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: title, (count(*)), (sum(size_bytes))
+         Backend: DataFusion
+         Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+         Group By: title
+         Aggregates: COUNT(*), SUM(size_bytes)
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ CoalescePartitionsExec
+           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 3 ── tasks=2, partitions=4
+           :   │ AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+           :   │   [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 2 ── tasks=2, partitions=8
+           :     │ RepartitionExec: partitioning=Hash([title@0], 8), input_partitions=1
+           :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+           :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[title@0, size_bytes@2]
+           :     │       CoalescePartitionsExec
+           :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+           :     │       DistributedLeafExec:
+           :     │         t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+           :     │         t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+           :     └──────────────────────────────────────────────────
+           :       ┌───── Stage 1 ── tasks=2, partitions=4
+           :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+           :       │   DistributedLeafExec:
+           :       │     t0: PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query={"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('mpp_files_idx'::regclass, paradedb.to_search_query_input('id'::paradedb.fieldname, pdb.term_set($2)))"}}}
+           :       │     t1: PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query={"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('mpp_files_idx'::regclass, paradedb.to_search_query_input('id'::paradedb.fieldname, pdb.term_set($2)))"}}}
+           :       └──────────────────────────────────────────────────
+(47 rows)
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+ title  | count |  sum  
+--------+-------+-------
+ file-1 |     5 | 10040
+ file-2 |     5 |  9509
+(2 rows)
+
+-- Serial DataFusion baseline for the join aggregate with InitPlan:
+-- also guards against nested PgTokioRuntime::block_on when the InitPlan
+-- runs a ColumnarExecState BaseScan locally.
+SET max_parallel_workers_per_gather TO 0;
+EXPLAIN (COSTS OFF)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: title
+   InitPlan 1
+     ->  Custom Scan (ParadeDB Base Scan) on mpp_files
+           Table: mpp_files
+           Index: mpp_files_idx
+           Exec Method: ColumnarExecState
+           Columnar: id
+           Scores: false
+           Tantivy Query: {"with_index":{"query":{"term_set":{"field":"id","terms":[1,2]}}}}
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+         Group By: title
+         Aggregates: COUNT(*), SUM(size_bytes)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[title@0, size_bytes@2]
+           :     CooperativeExec
+           :       PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query={"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('mpp_files_idx'::regclass, paradedb.to_search_query_input('id'::paradedb.fieldname, pdb.term_set($1)))"}}}
+           :     CooperativeExec
+           :       PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(22 rows)
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+ title  | count |  sum  
+--------+-------+-------
+ file-1 |     5 | 10040
+ file-2 |     5 |  9509
+(2 rows)
+
+-- Control: same join aggregate without AggregateScan.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+ title  | count |  sum  
+--------+-------+-------
+ file-1 |     5 | 10040
+ file-2 |     5 |  9509
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Parallel BaseScan InitPlan inside an aggregate FILTER clause (verifies
+-- FilterExpr::SearchTag stays matched with the pre-solved tagged scan query).
+SET max_parallel_workers_per_gather TO 3;
+SELECT f.title,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE f.id @@@ pdb.term_set(ARRAY(
+           SELECT id
+           FROM mpp_files
+           WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+       ))) AS in_subset
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY[1, 2, 3])
+GROUP BY f.title
+ORDER BY f.title;
+ title  | total | in_subset 
+--------+-------+-----------
+ file-1 |     5 |         5
+ file-2 |     5 |         5
+ file-3 |     5 |         0
+(3 rows)
+
+-- Correlated LATERAL rescan of a DataFusion AggregateScan with an InitPlan
+-- predicate (verifies pristine base queries are re-solved per outer row).
+SELECT v.k, r.id
+FROM (VALUES (1), (2)) AS v(k)
+CROSS JOIN LATERAL (
+    SELECT DISTINCT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY(
+        SELECT id
+        FROM mpp_files
+        WHERE id @@@ pdb.term(v.k)
+    ))
+) r
+ORDER BY v.k, r.id;
+ k | id 
+---+----
+ 1 |  1
+ 2 |  2
+(2 rows)
+
+-- Heap-filter function running a parallel-planned RegularExecState BaseScan
+-- under block_on's HeldInterrupts: exercises BaseScan's es_query_dsa == NULL
+-- private-memory fallback in initialize_dsm_custom_scan.
+CREATE FUNCTION nested_scan(i int) RETURNS bool LANGUAGE plpgsql STABLE
+SET max_parallel_workers_per_gather = 1
+AS $$ BEGIN PERFORM content FROM mpp_files WHERE content ||| 'Section'; RETURN true; END $$;
+SET max_parallel_workers_per_gather TO 0;
+SELECT DISTINCT title
+FROM mpp_files
+WHERE content ||| 'Section' AND nested_scan(id) AND id <= 2
+ORDER BY title;
+ title  
+--------
+ file-1
+ file-2
+(2 rows)
+
+DROP FUNCTION nested_scan(int);
+RESET debug_parallel_query;
+SET max_parallel_workers_per_gather TO 3;
 -- =====================================================================
 -- Cleanup
 -- =====================================================================

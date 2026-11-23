@@ -23,6 +23,7 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 use std::cmp::Ordering;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldInfo {
@@ -118,19 +119,19 @@ pub struct TaggedQuery {
     /// The global predicate index in `join_level_predicates`.
     pub predicate_idx: GlobalPredicateIndex,
     /// The Tantivy search query for this tag.
-    pub query: Box<SearchQueryInput>,
+    pub query: Arc<SearchQueryInput>,
 }
 
 /// Execution mode for a scan, encapsulating its search query.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ScanMode {
     /// Standard scan executing its own query (`SA` and `RA` both filter and score by `query`).
-    Standard { query: Box<SearchQueryInput> },
+    Standard { query: Arc<SearchQueryInput> },
     /// Scan participating in predicate tagging (e.g. in a disjunctive `HashJoinExec`).
     /// Filters by `base_query` and emits boolean `__{alias}_tag_{i}` columns for `local_queries`.
     Tagged {
         /// Base query (e.g. non-search restrictions like `w.year >= 2024`, or `All`).
-        base_query: Box<SearchQueryInput>,
+        base_query: Arc<SearchQueryInput>,
         /// The single-table search predicates lifted from this scan, if any.
         local_queries: Vec<TaggedQuery>,
     },
@@ -141,29 +142,27 @@ pub enum ScanMode {
     Disjunctive {
         /// Constant-score filter answered by the index (e.g. a row-level security policy on an
         /// indexed column), or `All`.
-        base_query: Box<SearchQueryInput>,
+        base_query: Arc<SearchQueryInput>,
         /// Local disjunct search queries from the cross-table `OR`.
-        disjunct_queries: Vec<SearchQueryInput>,
+        disjunct_queries: Vec<Arc<SearchQueryInput>>,
     },
 }
 
 impl ScanMode {
     /// Creates a standard scan mode with the given query.
-    pub fn standard(query: SearchQueryInput) -> Self {
-        Self::Standard {
-            query: Box::new(query),
-        }
+    pub fn standard(query: Arc<SearchQueryInput>) -> Self {
+        Self::Standard { query }
     }
 
     /// Creates a standard scan mode matching all documents.
     pub fn all() -> Self {
-        Self::standard(SearchQueryInput::All)
+        Self::standard(Arc::new(SearchQueryInput::All))
     }
 
     /// Creates a tagged scan mode with a base query and tagged search queries.
-    pub fn tagged(base_query: SearchQueryInput, local_queries: Vec<TaggedQuery>) -> Self {
+    pub fn tagged(base_query: Arc<SearchQueryInput>, local_queries: Vec<TaggedQuery>) -> Self {
         Self::Tagged {
-            base_query: Box::new(base_query),
+            base_query,
             local_queries,
         }
     }
@@ -171,39 +170,39 @@ impl ScanMode {
     /// Creates a tagless disjunctive scan mode for `RankJoinExec` with a base filter and local
     /// disjuncts.
     pub fn disjunctive(
-        base_query: SearchQueryInput,
-        disjunct_queries: Vec<SearchQueryInput>,
+        base_query: Arc<SearchQueryInput>,
+        disjunct_queries: Vec<Arc<SearchQueryInput>>,
     ) -> Self {
         Self::Disjunctive {
-            base_query: Box::new(base_query),
+            base_query,
             disjunct_queries,
         }
     }
 
     /// Returns a new `ScanMode` with the base or standard query replaced.
-    pub fn with_base_query(self, base_query: SearchQueryInput) -> Self {
+    pub fn with_base_query(self, base_query: Arc<SearchQueryInput>) -> Self {
         match self {
-            Self::Standard { .. } => Self::Standard {
-                query: Box::new(base_query),
-            },
+            Self::Standard { .. } => Self::Standard { query: base_query },
             Self::Tagged { local_queries, .. } => Self::Tagged {
-                base_query: Box::new(base_query),
+                base_query,
                 local_queries,
             },
             Self::Disjunctive {
                 disjunct_queries, ..
             } => Self::Disjunctive {
-                base_query: Box::new(base_query),
+                base_query,
                 disjunct_queries,
             },
         }
     }
 
     /// The base or primary search query for this scan mode.
-    pub fn query(&self) -> &SearchQueryInput {
+    pub fn query(&self) -> Arc<SearchQueryInput> {
         match self {
-            Self::Standard { query } => query,
-            Self::Tagged { base_query, .. } | Self::Disjunctive { base_query, .. } => base_query,
+            Self::Standard { query } => query.clone(),
+            Self::Tagged { base_query, .. } | Self::Disjunctive { base_query, .. } => {
+                base_query.clone()
+            }
         }
     }
 
@@ -221,7 +220,7 @@ impl ScanMode {
             Self::Disjunctive {
                 base_query,
                 disjunct_queries,
-            } => (base_query, Box::new(disjunct_queries.iter())),
+            } => (base_query, Box::new(disjunct_queries.iter().map(|q| &**q))),
         };
         std::iter::once(&**first).chain(rest)
     }
@@ -229,20 +228,27 @@ impl ScanMode {
     /// Mutable counterpart of [`Self::queries`].
     pub fn queries_mut(&mut self) -> impl Iterator<Item = &mut SearchQueryInput> {
         let (first, rest): (_, Box<dyn Iterator<Item = &mut SearchQueryInput> + '_>) = match self {
-            Self::Standard { query } => (query, Box::new(std::iter::empty())),
+            Self::Standard { query } => (Arc::make_mut(query), Box::new(std::iter::empty())),
             Self::Tagged {
                 base_query,
                 local_queries,
             } => (
-                base_query,
-                Box::new(local_queries.iter_mut().map(|tq| &mut *tq.query)),
+                Arc::make_mut(base_query),
+                Box::new(
+                    local_queries
+                        .iter_mut()
+                        .map(|tq| Arc::make_mut(&mut tq.query)),
+                ),
             ),
             Self::Disjunctive {
                 base_query,
                 disjunct_queries,
-            } => (base_query, Box::new(disjunct_queries.iter_mut())),
+            } => (
+                Arc::make_mut(base_query),
+                Box::new(disjunct_queries.iter_mut().map(Arc::make_mut)),
+            ),
         };
-        std::iter::once(&mut **first).chain(rest)
+        std::iter::once(first).chain(rest)
     }
 
     /// Whether any query in this scan mode requires a tokenizer.
@@ -258,27 +264,6 @@ impl ScanMode {
     /// Whether any query in this scan mode contains parameterized heap filters.
     pub fn has_parameters(&self) -> bool {
         self.queries().any(|q| q.has_parameters())
-    }
-
-    /// Initialize runtime `PostgresExpression` nodes in this scan mode against `planstate`.
-    pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        for q in self.queries_mut() {
-            q.init_postgres_expressions(planstate);
-        }
-    }
-
-    /// Solve all runtime `PostgresExpression` and parameterized heap filters in this scan mode.
-    /// Resets `ecxt_per_tuple_memory` once up front, then solves each query with the no-reset
-    /// variant (rule 2 in `solve_expr.rs`).
-    pub fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        assert!(
-            !expr_context.is_null(),
-            "expr_context was never initialized"
-        );
-        unsafe { pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory) };
-        for q in self.queries_mut() {
-            q.solve_postgres_expressions_no_reset(expr_context);
-        }
     }
 }
 
@@ -312,7 +297,9 @@ pub struct ScanInfo {
     /// True when `estimate` is the index's total document count rather than a match count.
     /// The estimator substitutes the total when the query carries a Postgres expression or a
     /// heap filter it cannot evaluate at plan time; consumers that need a match count (the MPP
-    /// size gate) discount it by `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan.
+    /// size gate) discount it by `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan, and
+    /// `JoinSource::reestimate_solved_rows` replaces `estimate` and clears this flag once runtime
+    /// `Param`/`SubPlan` expressions have been solved.
     pub estimate_from_total_docs: bool,
     /// The number of segments in the index.
     pub segment_count: usize,
@@ -321,6 +308,10 @@ pub struct ScanInfo {
     pub mvcc_visibility: MvccVisibility,
     /// Vector distance `ORDER BY` pushed down to this scan, if any.
     pub vector_order_by: Option<crate::api::OrderByInfo>,
+    /// Per-table `parallel_workers` reloption (`ALTER TABLE ... SET (parallel_workers = N)`),
+    /// or `None` when unset (`-1`).
+    #[serde(default)]
+    pub rel_parallel_workers: Option<u32>,
 }
 
 impl ScanInfo {
@@ -345,6 +336,7 @@ impl ScanInfo {
             segment_count: 0,
             mvcc_visibility: MvccVisibility::default(),
             vector_order_by: None,
+            rel_parallel_workers: None,
         }
     }
 

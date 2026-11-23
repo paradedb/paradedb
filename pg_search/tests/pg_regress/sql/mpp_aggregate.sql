@@ -283,6 +283,160 @@ DROP FUNCTION mpp_agg_explain_analyze_lines(text);
 RESET paradedb.mpp_min_rows;
 
 -- =====================================================================
+-- Pass 4: DataFusion AggregateScan with parallel BaseScan InitPlan (#7593)
+--
+-- An uncorrelated ARRAY(SELECT ...) subquery inside pdb.term_set becomes an
+-- InitPlan containing Gather -> Parallel Custom Scan (ParadeDB Base Scan).
+-- Evaluating that InitPlan from a DataFusion AggregateScan must not fail
+-- with an unset es_query_dsa when InitializeParallelDSM runs.
+-- =====================================================================
+
+-- Single-table SELECT DISTINCT (exact #7593 shape).
+SET max_parallel_workers_per_gather TO 1;
+SET debug_parallel_query TO on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT id
+FROM mpp_files
+WHERE id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+ORDER BY id;
+
+SELECT DISTINCT id
+FROM mpp_files
+WHERE id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+ORDER BY id;
+
+-- Control: same query without AggregateScan.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT id
+FROM mpp_files
+WHERE id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+ORDER BY id;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Multi-table MPP GROUP BY with a parallel BaseScan InitPlan.
+SET max_parallel_workers_per_gather TO 3;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+
+-- Serial DataFusion baseline for the join aggregate with InitPlan:
+-- also guards against nested PgTokioRuntime::block_on when the InitPlan
+-- runs a ColumnarExecState BaseScan locally.
+SET max_parallel_workers_per_gather TO 0;
+
+EXPLAIN (COSTS OFF)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+
+-- Control: same join aggregate without AggregateScan.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY(
+    SELECT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+))
+GROUP BY f.title
+ORDER BY f.title;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Parallel BaseScan InitPlan inside an aggregate FILTER clause (verifies
+-- FilterExpr::SearchTag stays matched with the pre-solved tagged scan query).
+SET max_parallel_workers_per_gather TO 3;
+SELECT f.title,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE f.id @@@ pdb.term_set(ARRAY(
+           SELECT id
+           FROM mpp_files
+           WHERE id @@@ pdb.term_set(ARRAY[1, 2])
+       ))) AS in_subset
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.id @@@ pdb.term_set(ARRAY[1, 2, 3])
+GROUP BY f.title
+ORDER BY f.title;
+
+-- Correlated LATERAL rescan of a DataFusion AggregateScan with an InitPlan
+-- predicate (verifies pristine base queries are re-solved per outer row).
+SELECT v.k, r.id
+FROM (VALUES (1), (2)) AS v(k)
+CROSS JOIN LATERAL (
+    SELECT DISTINCT id
+    FROM mpp_files
+    WHERE id @@@ pdb.term_set(ARRAY(
+        SELECT id
+        FROM mpp_files
+        WHERE id @@@ pdb.term(v.k)
+    ))
+) r
+ORDER BY v.k, r.id;
+
+-- Heap-filter function running a parallel-planned RegularExecState BaseScan
+-- under block_on's HeldInterrupts: exercises BaseScan's es_query_dsa == NULL
+-- private-memory fallback in initialize_dsm_custom_scan.
+CREATE FUNCTION nested_scan(i int) RETURNS bool LANGUAGE plpgsql STABLE
+SET max_parallel_workers_per_gather = 1
+AS $$ BEGIN PERFORM content FROM mpp_files WHERE content ||| 'Section'; RETURN true; END $$;
+
+SET max_parallel_workers_per_gather TO 0;
+SELECT DISTINCT title
+FROM mpp_files
+WHERE content ||| 'Section' AND nested_scan(id) AND id <= 2
+ORDER BY title;
+DROP FUNCTION nested_scan(int);
+
+RESET debug_parallel_query;
+SET max_parallel_workers_per_gather TO 3;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 

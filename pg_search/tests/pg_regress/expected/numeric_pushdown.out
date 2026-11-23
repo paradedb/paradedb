@@ -38,12 +38,11 @@ CREATE INDEX numeric64_idx ON numeric64_test USING paradedb (
 -- Test 1.1: Equality on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND price = 100.50
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -54,14 +53,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"price","value":"100.5"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"price","value":"100.5"}}]}}
 (11 rows)
 
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND price = 100.50
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price  | quantity |   rate   
 ----+--------+----------+----------
   1 | 100.50 |       10 | 1.234567
@@ -70,12 +68,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 1.2: Range on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND price > 200.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -86,14 +83,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"excluded":"200"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"price","lower_bound":{"excluded":"200"},"upper_bound":null}}]}}
 (11 rows)
 
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND price > 200.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |   price    | quantity |     rate      
 ----+------------+----------+---------------
   2 |     200.75 |       20 |      2.345678
@@ -107,12 +103,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 1.3: BETWEEN on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND price BETWEEN 100.00 AND 500.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                             QUERY PLAN                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -123,14 +118,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":"500"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"price","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":"500"}}}]}}
 (11 rows)
 
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND price BETWEEN 100.00 AND 500.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price  | quantity |   rate   
 ----+--------+----------+----------
   1 | 100.50 |       10 | 1.234567
@@ -143,12 +137,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 1.4: Equality on NUMERIC(5,0) (integer-like)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND quantity = 30
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -159,14 +152,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"quantity","value":"30"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"quantity","value":"30"}}]}}
 (11 rows)
 
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND quantity = 30
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price  | quantity |   rate   
 ----+--------+----------+----------
   3 | 300.00 |       30 | 3.456789
@@ -175,12 +167,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 1.5: Range on NUMERIC(18,6) (high precision)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND rate >= 2.0 AND rate <= 5.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                               QUERY PLAN                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                          QUERY PLAN                                                                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -191,14 +182,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"rate","lower_bound":{"included":"2"},"upper_bound":null}},{"range":{"field":"rate","lower_bound":null,"upper_bound":{"included":"5"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"rate","lower_bound":{"included":"2"},"upper_bound":null}},{"range":{"field":"rate","lower_bound":null,"upper_bound":{"included":"5"}}}]}}
 (11 rows)
 
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND rate >= 2.0 AND rate <= 5.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price  | quantity |   rate   
 ----+--------+----------+----------
   2 | 200.75 |       20 | 2.345678
@@ -209,12 +199,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 1.6: Less than on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND price < 150.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -225,14 +214,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"150"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"150"}}}]}}
 (11 rows)
 
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND price < 150.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price  | quantity |   rate   
 ----+--------+----------+----------
   1 | 100.50 |       10 | 1.234567
@@ -244,12 +232,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 1.7: Boundary value (smallest positive)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND price = 0.01
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                       QUERY PLAN                                                       
-------------------------------------------------------------------------------------------------------------------------
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -260,14 +247,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"price","value":"0.01"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"price","value":"0.01"}}]}}
 (11 rows)
 
 SELECT * FROM numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND price = 0.01
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price | quantity |   rate   
 ----+-------+----------+----------
   8 |  0.01 |        1 | 0.000001
@@ -297,12 +283,11 @@ CREATE INDEX numeric_bytes_idx ON numeric_bytes_test USING paradedb (
 -- Test 2.1: Equality on unlimited NUMERIC
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND big_value = 1.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
@@ -313,14 +298,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"big_value","value":"1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"big_value","value":"1"}}]}}
 (11 rows)
 
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND big_value = 1.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | big_value | huge_precision 
 ----+-----------+----------------
   4 |       1.0 |   1.0000000000
@@ -329,12 +313,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 2.2: Range on unlimited NUMERIC
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND big_value > 100.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
@@ -345,14 +328,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":{"excluded":"100"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"big_value","lower_bound":{"excluded":"100"},"upper_bound":null}}]}}
 (11 rows)
 
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND big_value > 100.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |         big_value          |         huge_precision          
 ----+----------------------------+---------------------------------
   1 | 12345678901234567890.12345 | 12345678901234567890.1234567890
@@ -363,12 +345,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 2.3: Equality on high-precision NUMERIC(30,10)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND huge_precision = 1.0000000000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                          QUERY PLAN                                                          
-------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
@@ -379,14 +360,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"huge_precision","value":"1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"huge_precision","value":"1"}}]}}
 (11 rows)
 
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND huge_precision = 1.0000000000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | big_value | huge_precision 
 ----+-----------+----------------
   4 |       1.0 |   1.0000000000
@@ -395,12 +375,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 2.4: Range on high-precision NUMERIC(30,10)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND huge_precision >= 0.0 AND huge_precision <= 200.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                     QUERY PLAN                                                                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
@@ -411,14 +390,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"huge_precision","lower_bound":{"included":"0"},"upper_bound":null}},{"range":{"field":"huge_precision","lower_bound":null,"upper_bound":{"included":"200"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"huge_precision","lower_bound":{"included":"0"},"upper_bound":null}},{"range":{"field":"huge_precision","lower_bound":null,"upper_bound":{"included":"200"}}}]}}
 (11 rows)
 
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND huge_precision >= 0.0 AND huge_precision <= 200.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |       big_value        | huge_precision 
 ----+------------------------+----------------
   3 | 0.00000000000000000001 |   0.0000000001
@@ -429,12 +407,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 2.5: Negative values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND big_value < 0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                           QUERY PLAN                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
@@ -445,14 +422,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":null,"upper_bound":{"excluded":"0"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"big_value","lower_bound":null,"upper_bound":{"excluded":"0"}}}]}}
 (11 rows)
 
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND big_value < 0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |          big_value          |          huge_precision          
 ----+-----------------------------+----------------------------------
   6 | -12345678901234567890.12345 | -12345678901234567890.1234567890
@@ -479,12 +455,11 @@ CREATE INDEX numeric_mixed_idx ON numeric_mixed_test USING paradedb (
 -- Test 3.1: Query on small NUMERIC (Numeric64)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND small_numeric = 100.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                          QUERY PLAN                                                           
--------------------------------------------------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, small_numeric, large_numeric, unlimited_numeric
    Sort Key: numeric_mixed_test.id
@@ -495,14 +470,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"small_numeric","value":"100"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"small_numeric","value":"100"}}]}}
 (11 rows)
 
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND small_numeric = 100.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | small_numeric |       large_numeric        |     unlimited_numeric      
 ----+---------------+----------------------------+----------------------------
   1 |        100.00 | 12345678901234567890.12345 | 999999999999999999999.9999
@@ -511,12 +485,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 3.2: Query on large NUMERIC (NumericBytes)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                      QUERY PLAN                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, small_numeric, large_numeric, unlimited_numeric
    Sort Key: numeric_mixed_test.id
@@ -527,14 +500,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"large_numeric","lower_bound":{"excluded":"50000000000000000000"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"large_numeric","lower_bound":{"excluded":"50000000000000000000"},"upper_bound":null}}]}}
 (11 rows)
 
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | small_numeric |       large_numeric        |     unlimited_numeric      
 ----+---------------+----------------------------+----------------------------
   2 |        200.50 | 98765432109876543210.54321 | 888888888888888888888.8888
@@ -543,13 +515,12 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 3.3: Combined query on both column types
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND small_numeric > 50.00
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                                  QUERY PLAN                                                                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                             QUERY PLAN                                                                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, small_numeric, large_numeric, unlimited_numeric
    Sort Key: numeric_mixed_test.id
@@ -560,15 +531,14 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"small_numeric","lower_bound":{"excluded":"50"},"upper_bound":null}},{"range":{"field":"large_numeric","lower_bound":{"excluded":"50000000000000000000"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"small_numeric","lower_bound":{"excluded":"50"},"upper_bound":null}},{"range":{"field":"large_numeric","lower_bound":{"excluded":"50000000000000000000"},"upper_bound":null}}]}}
 (11 rows)
 
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND small_numeric > 50.00
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | small_numeric |       large_numeric        |     unlimited_numeric      
 ----+---------------+----------------------------+----------------------------
   2 |        200.50 | 98765432109876543210.54321 | 888888888888888888888.8888
@@ -594,12 +564,11 @@ CREATE INDEX numeric_edge_idx ON numeric_edge_test USING paradedb (
 -- Test 4.1: Zero value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_edge_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 0.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                    QUERY PLAN                                                     
--------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: numeric_edge_test.id
@@ -611,14 +580,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"0"}}]}}
 (12 rows)
 
 SELECT * FROM numeric_edge_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 0.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val  
 ----+------
   1 | 0.00
@@ -627,12 +595,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 4.2: Maximum positive value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_edge_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 99999999.99
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                         QUERY PLAN                                                          
------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: numeric_edge_test.id
@@ -644,14 +611,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"99999999.99"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"99999999.99"}}]}}
 (12 rows)
 
 SELECT * FROM numeric_edge_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 99999999.99
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |     val     
 ----+-------------
   4 | 99999999.99
@@ -660,12 +626,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 4.3: Negative value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_edge_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = -99999999.99
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                          QUERY PLAN                                                          
-------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: numeric_edge_test.id
@@ -677,14 +642,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"-99999999.99"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"-99999999.99"}}]}}
 (12 rows)
 
 SELECT * FROM numeric_edge_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = -99999999.99
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |     val      
 ----+--------------
   5 | -99999999.99
@@ -693,12 +657,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test 4.4: Range across zero
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_edge_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val >= -0.01 AND val <= 0.01
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                 QUERY PLAN                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                             QUERY PLAN                                                                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: numeric_edge_test.id
@@ -710,14 +673,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-0.01"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"0.01"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"included":"-0.01"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"0.01"}}}]}}
 (12 rows)
 
 SELECT * FROM numeric_edge_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val >= -0.01 AND val <= 0.01
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  val  
 ----+-------
   1 |  0.00
@@ -751,12 +713,11 @@ CREATE INDEX numeric_precision_idx ON numeric_precision_test USING paradedb (
 -- If f64 conversion loses precision, this might return wrong results
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND big_int = 123456789012345678
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                               QUERY PLAN                                                               
-----------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_int
    Sort Key: numeric_precision_test.id
@@ -768,14 +729,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: big_int, id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"big_int","value":"123456789012345678"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"big_int","value":"123456789012345678"}}]}}
 (12 rows)
 
 SELECT * FROM numeric_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND big_int = 123456789012345678
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      big_int       
 ----+--------------------
   1 | 123456789012345678
@@ -793,12 +753,11 @@ WHERE big_int = 123456789012345678;
 -- This should find exactly 2 rows (the first two values)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND big_int >= 123456789012345678 AND big_int <= 123456789012345679
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                                   QUERY PLAN                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_int
    Sort Key: numeric_precision_test.id
@@ -810,14 +769,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: big_int, id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_int","lower_bound":{"included":"123456789012345678"},"upper_bound":null}},{"range":{"field":"big_int","lower_bound":null,"upper_bound":{"included":"123456789012345679"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"big_int","lower_bound":{"included":"123456789012345678"},"upper_bound":null}},{"range":{"field":"big_int","lower_bound":null,"upper_bound":{"included":"123456789012345679"}}}]}}
 (12 rows)
 
 SELECT * FROM numeric_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND big_int >= 123456789012345678 AND big_int <= 123456789012345679
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      big_int       
 ----+--------------------
   1 | 123456789012345678
@@ -849,12 +807,11 @@ CREATE INDEX numeric_bytes_precision_idx ON numeric_bytes_precision_test USING p
 -- This should find exactly 1 row
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND precise_value = 12345678901234567890.123456789012345678901234567890
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, precise_value
    Sort Key: numeric_bytes_precision_test.id
@@ -866,14 +823,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, precise_value
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"precise_value","value":"12345678901234567890.12345678901234567890123456789"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"precise_value","value":"12345678901234567890.12345678901234567890123456789"}}]}}
 (12 rows)
 
 SELECT * FROM numeric_bytes_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND precise_value = 12345678901234567890.123456789012345678901234567890
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |                   precise_value                    
 ----+----------------------------------------------------
   1 | 12345678901234567890.12345678901234567890123456789
@@ -911,9 +867,8 @@ CREATE INDEX int8range_precision_idx ON int8range_precision_test USING paradedb 
 -- If we used f64 conversion, this would fail because 9007199254740993 rounds to 9007199254740992 in f64
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM int8range_precision_test
-WHERE id @@@ paradedb.range_term('val', 9007199254740993::int8)
+WHERE val @@@ pdb.range_term(9007199254740993::int8)
 ORDER BY id;
-WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
                                                QUERY PLAN                                                
 ---------------------------------------------------------------------------------------------------------
  Sort
@@ -930,9 +885,8 @@ WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
 (11 rows)
 
 SELECT * FROM int8range_precision_test
-WHERE id @@@ paradedb.range_term('val', 9007199254740993::int8)
+WHERE val @@@ pdb.range_term(9007199254740993::int8)
 ORDER BY id;
-WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
  id |                 val                 
 ----+-------------------------------------
   1 | [9007199254740992,9007199254740994)
@@ -970,9 +924,8 @@ CREATE INDEX numrange_precision_idx ON numrange_precision_test USING paradedb (
 -- With hex-encoded sortable bytes, BM25 preserves full precision and matches PostgreSQL.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numrange_precision_test
-WHERE id @@@ paradedb.range_term('val', 9007199254740995::numeric)
+WHERE val @@@ pdb.range_term(9007199254740995::numeric)
 ORDER BY id;
-WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
                                                 QUERY PLAN                                                 
 -----------------------------------------------------------------------------------------------------------
  Sort
@@ -989,9 +942,8 @@ WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
 (11 rows)
 
 SELECT * FROM numrange_precision_test
-WHERE id @@@ paradedb.range_term('val', 9007199254740995::numeric)
+WHERE val @@@ pdb.range_term(9007199254740995::numeric)
 ORDER BY id;
-WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
  id |                 val                 
 ----+-------------------------------------
   2 | [9007199254740994,9007199254740996)
@@ -1028,9 +980,8 @@ CREATE INDEX numeric_array_idx ON numeric_array_test USING paradedb (
 -- Query for array containing value 2.5
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_array_test
-WHERE id @@@ paradedb.term('vals', 2.5::numeric)
+WHERE vals @@@ pdb.term(2.5::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                        QUERY PLAN                                        
 -----------------------------------------------------------------------------------------
  Sort
@@ -1047,9 +998,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 (11 rows)
 
 SELECT * FROM numeric_array_test
-WHERE id @@@ paradedb.term('vals', 2.5::numeric)
+WHERE vals @@@ pdb.term(2.5::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |     vals      
 ----+---------------
   1 | {1.5,2.5,3.5}
@@ -1057,9 +1007,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 -- Query for array containing integer value 20
 SELECT * FROM numeric_array_test
-WHERE id @@@ paradedb.term('vals', 20::numeric)
+WHERE vals @@@ pdb.term(20::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |    vals    
 ----+------------
   2 | {10,20,30}
@@ -1080,9 +1029,8 @@ CREATE INDEX numeric_array_precision_idx ON numeric_array_precision_test USING p
 );
 -- Query small_precision array
 SELECT * FROM numeric_array_precision_test
-WHERE id @@@ paradedb.term('small_precision', 4.56::numeric)
+WHERE small_precision @@@ pdb.term(4.56::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id | small_precision |         large_precision          
 ----+-----------------+----------------------------------
   1 | {1.23,4.56}     | {12345678901234567890.123456789}
@@ -1111,9 +1059,8 @@ CREATE INDEX large_decimal_idx ON large_decimal_test USING paradedb (
 -- Query for exact match - should find only row 1
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM large_decimal_test
-WHERE id @@@ paradedb.term('val', 1.123456789012345678901234567890123456789::numeric)
+WHERE val @@@ pdb.term(1.123456789012345678901234567890123456789::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                           QUERY PLAN                                                          
 ------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1131,9 +1078,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 (12 rows)
 
 SELECT * FROM large_decimal_test
-WHERE id @@@ paradedb.term('val', 1.123456789012345678901234567890123456789::numeric)
+WHERE val @@@ pdb.term(1.123456789012345678901234567890123456789::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |                    val                    
 ----+-------------------------------------------
   1 | 1.123456789012345678901234567890123456789
@@ -1150,9 +1096,8 @@ ORDER BY id;
 
 -- Query for the large integer+decimal value
 SELECT * FROM large_decimal_test
-WHERE id @@@ paradedb.term('val', 12345678901234567890.12345678901234567890::numeric)
+WHERE val @@@ pdb.term(12345678901234567890.12345678901234567890::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |                   val                    
 ----+------------------------------------------
   4 | 12345678901234567890.1234567890123456789
@@ -1160,9 +1105,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 -- Query for very small value
 SELECT * FROM large_decimal_test
-WHERE id @@@ paradedb.term('val', 0.000000000000000000000000000000000000001::numeric)
+WHERE val @@@ pdb.term(0.000000000000000000000000000000000000001::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |                    val                    
 ----+-------------------------------------------
   5 | 0.000000000000000000000000000000000000001
@@ -1186,12 +1130,8 @@ CREATE INDEX large_decimal_range_idx ON large_decimal_range_test USING paradedb 
 -- Range query should find rows 2, 3, 4 (exclusive bounds)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM large_decimal_range_test
-WHERE id @@@ paradedb.range(
-    'val',
-    '[1.000000000000000000000000000000000000002, 1.000000000000000000000000000000000000005)'::numrange
-)
+WHERE val @@@ pdb.range('[1.000000000000000000000000000000000000002, 1.000000000000000000000000000000000000005)'::numrange)
 ORDER BY id;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                                                                                        QUERY PLAN                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1209,12 +1149,8 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 (12 rows)
 
 SELECT * FROM large_decimal_range_test
-WHERE id @@@ paradedb.range(
-    'val',
-    '[1.000000000000000000000000000000000000002, 1.000000000000000000000000000000000000005)'::numrange
-)
+WHERE val @@@ pdb.range('[1.000000000000000000000000000000000000002, 1.000000000000000000000000000000000000005)'::numrange)
 ORDER BY id;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  id |                    val                    
 ----+-------------------------------------------
   2 | 1.000000000000000000000000000000000000002
@@ -1249,9 +1185,8 @@ CREATE INDEX numrange_large_decimal_idx ON numrange_large_decimal_test USING par
 );
 -- Query for value in row 2's range
 SELECT * FROM numrange_large_decimal_test
-WHERE id @@@ paradedb.range_term('val', 1.1111111111111111111111111111125::numeric)
+WHERE val @@@ pdb.range_term(1.1111111111111111111111111111125::numeric)
 ORDER BY id;
-WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
  id |                                 val                                 
 ----+---------------------------------------------------------------------
   2 | [1.111111111111111111111111111112,1.111111111111111111111111111113)
@@ -1282,9 +1217,8 @@ CREATE INDEX numeric64_max_idx ON numeric64_max_precision_test USING paradedb (
 );
 -- Query for exact match
 SELECT * FROM numeric64_max_precision_test
-WHERE id @@@ paradedb.term('val', 123456789.123456789::numeric)
+WHERE val @@@ pdb.term(123456789.123456789::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |         val         
 ----+---------------------
   1 | 123456789.123456789
@@ -1301,12 +1235,8 @@ ORDER BY id;
 
 -- Range query on Numeric64 field
 SELECT * FROM numeric64_max_precision_test
-WHERE id @@@ paradedb.range(
-    'val',
-    '[123456789.123456788, 123456789.123456790]'::numrange
-)
+WHERE val @@@ pdb.range('[123456789.123456788, 123456789.123456790]'::numrange)
 ORDER BY id;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  id |         val         
 ----+---------------------
   1 | 123456789.123456789
@@ -1334,9 +1264,8 @@ CREATE INDEX numeric64_decimal_compare_idx ON numeric64_decimal_compare_test USI
 -- Exact decimal match
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_decimal_compare_test
-WHERE id @@@ paradedb.term('val', 12.35::numeric)
+WHERE val @@@ pdb.term(12.35::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                         QUERY PLAN                                        
 ------------------------------------------------------------------------------------------
  Sort
@@ -1354,9 +1283,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 (12 rows)
 
 SELECT * FROM numeric64_decimal_compare_test
-WHERE id @@@ paradedb.term('val', 12.35::numeric)
+WHERE val @@@ pdb.term(12.35::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |  val  
 ----+-------
   2 | 12.35
@@ -1373,9 +1301,8 @@ ORDER BY id;
 
 -- Range with decimal bounds
 SELECT * FROM numeric64_decimal_compare_test
-WHERE id @@@ paradedb.range('val', '[12.34, 12.36]'::numrange)
+WHERE val @@@ pdb.range('[12.34, 12.36]'::numrange)
 ORDER BY id;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  id |  val  
 ----+-------
   1 | 12.34
@@ -1397,9 +1324,8 @@ ORDER BY id;
 -- Test that 12.3 does NOT match 12.30 vs 1.23
 -- 12.30 scaled = 1230, 1.23 scaled = 123 (different!)
 SELECT * FROM numeric64_decimal_compare_test
-WHERE id @@@ paradedb.term('val', 1.23::numeric)
+WHERE val @@@ pdb.term(1.23::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id | val  
 ----+------
   5 | 1.23
@@ -1429,12 +1355,11 @@ CREATE INDEX numeric_large_precision_idx ON numeric_large_precision_test USING p
 -- Exact match on large precision
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_large_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 1.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                    QUERY PLAN                                                     
--------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: numeric_large_precision_test.id
@@ -1446,14 +1371,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"1"}}]}}
 (12 rows)
 
 SELECT * FROM numeric_large_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 1.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |         val          
 ----+----------------------
   6 | 1.000000000000000000
@@ -1462,12 +1386,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Range query on large precision
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_large_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 0 AND val < 2
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                         QUERY PLAN                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: numeric_large_precision_test.id
@@ -1479,14 +1402,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"2"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"2"}}}]}}
 (12 rows)
 
 SELECT * FROM numeric_large_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 0 AND val < 2
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |         val          
 ----+----------------------
   5 | 0.000000000000000001
@@ -1507,10 +1429,9 @@ ORDER BY id;
 
 -- Test negative range
 SELECT * FROM numeric_large_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val < 0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |                  val                   
 ----+----------------------------------------
   4 | -123456789012345678.123456789012345678
@@ -1534,12 +1455,11 @@ CREATE INDEX numeric_very_large_idx ON numeric_very_large_test USING paradedb (
 -- Query on very large precision
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_very_large_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 42.1234567890
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                          QUERY PLAN                                                          
-------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: numeric_very_large_test.id
@@ -1551,14 +1471,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"42.123456789"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"42.123456789"}}]}}
 (12 rows)
 
 SELECT * FROM numeric_very_large_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 42.1234567890
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      val      
 ----+---------------
   5 | 42.1234567890
@@ -1566,10 +1485,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 -- Range query spanning positive and negative
 SELECT * FROM numeric_very_large_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val >= -100 AND val <= 100
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      val      
 ----+---------------
   4 |  0.0000000001
@@ -1597,12 +1515,11 @@ CREATE INDEX numeric_unbounded_idx ON numeric_unbounded_test USING paradedb (
 -- Query exact match on unbounded
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_unbounded_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 1
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                    QUERY PLAN                                                     
--------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: numeric_unbounded_test.id
@@ -1614,14 +1531,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"1"}}]}}
 (12 rows)
 
 SELECT * FROM numeric_unbounded_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 1
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val 
 ----+-----
   5 |   1
@@ -1630,12 +1546,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Range query on unbounded
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_unbounded_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val >= -2 AND val <= 5
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                              QUERY PLAN                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                          QUERY PLAN                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: numeric_unbounded_test.id
@@ -1647,14 +1562,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-2"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"5"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"included":"-2"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"5"}}}]}}
 (12 rows)
 
 SELECT * FROM numeric_unbounded_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val >= -2 AND val <= 5
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |                         val                          
 ----+------------------------------------------------------
   2 | 0.00000000000000000000000000000000000000000000000001
@@ -1679,10 +1593,9 @@ ORDER BY id;
 
 -- Test pi approximation range
 SELECT * FROM numeric_unbounded_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 3.14 AND val < 3.15
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |                         val                         
 ----+-----------------------------------------------------
   8 | 3.1415926535897932384626433832795028841971693993751
@@ -1706,12 +1619,11 @@ CREATE INDEX numeric_high_scale_idx ON numeric_high_scale_test USING paradedb (
 -- Query on high-scale numeric
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_high_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 0 AND val < 3
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                         QUERY PLAN                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: numeric_high_scale_test.id
@@ -1723,14 +1635,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"3"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"3"}}}]}}
 (12 rows)
 
 SELECT * FROM numeric_high_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 0 AND val < 3
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |                  val                  
 ----+---------------------------------------
   1 | 1.12345678901234567890123456789012345
@@ -1769,13 +1680,12 @@ CREATE INDEX numeric_unbounded_agg_idx ON numeric_unbounded_agg_test USING parad
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, SUM(amount) as total
 FROM numeric_unbounded_agg_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY category;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column numeric_unbounded_agg_test.category is not columnar indexed (table: numeric_unbounded_agg_test)
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: category, sum(amount)
    Group Key: numeric_unbounded_agg_test.category
@@ -1790,15 +1700,14 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column numeric_unbounde
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
+               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (15 rows)
 
 SELECT category, SUM(amount) as total
 FROM numeric_unbounded_agg_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY category;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column numeric_unbounded_agg_test.category is not columnar indexed (table: numeric_unbounded_agg_test)
  category |               total                
 ----------+------------------------------------
@@ -1836,12 +1745,11 @@ CREATE INDEX numeric_mixed_precision_idx ON numeric_mixed_precision_test USING p
 -- Query on bounded high-precision
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND bounded_high = 100.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                          QUERY PLAN                                                          
-------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, bounded_high, unbounded
    Sort Key: numeric_mixed_precision_test.id
@@ -1852,14 +1760,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"bounded_high","value":"100"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"bounded_high","value":"100"}}]}}
 (11 rows)
 
 SELECT * FROM numeric_mixed_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND bounded_high = 100.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |    bounded_high     | unbounded 
 ----+---------------------+-----------
   3 | 100.000000000000000 |     100.0
@@ -1868,12 +1775,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Query on unbounded
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND unbounded = 100.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, bounded_high, unbounded
    Sort Key: numeric_mixed_precision_test.id
@@ -1884,14 +1790,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"unbounded","value":"100"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"unbounded","value":"100"}}]}}
 (11 rows)
 
 SELECT * FROM numeric_mixed_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND unbounded = 100.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |    bounded_high     | unbounded 
 ----+---------------------+-----------
   3 | 100.000000000000000 |     100.0
@@ -1899,10 +1804,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 -- Combined query
 SELECT * FROM numeric_mixed_precision_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND bounded_high > 0 AND unbounded > 0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |          bounded_high           |               unbounded               
 ----+---------------------------------+---------------------------------------
   1 | 123456789012345.123456789012345 | 999999999999999999999999999999.999999
@@ -1965,12 +1869,11 @@ CREATE INDEX float8_idx ON float8_test USING paradedb (
 -- Equality query on F64 field
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM float8_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND value = 100.5
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                      QUERY PLAN                                                       
------------------------------------------------------------------------------------------------------------------------
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, value
    Sort Key: float8_test.id
@@ -1982,14 +1885,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, value
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":100.5}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"value","value":100.5}}]}}
 (12 rows)
 
 SELECT * FROM float8_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND value = 100.5
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
   1 | 100.5
@@ -1998,12 +1900,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Range query on F64 field
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM float8_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND value > 200.0 AND value < 500.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                             QUERY PLAN                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, value
    Sort Key: float8_test.id
@@ -2015,14 +1916,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, value
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"excluded":200.0},"upper_bound":null}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"excluded":500.0}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"value","lower_bound":{"excluded":200.0},"upper_bound":null}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"excluded":500.0}}}]}}
 (12 rows)
 
 SELECT * FROM float8_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND value > 200.0 AND value < 500.0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value  
 ----+--------
   2 | 200.75
@@ -2055,12 +1955,11 @@ CREATE INDEX sci_notation_idx ON sci_notation_test USING paradedb (
 -- Query with scientific notation comparison
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM sci_notation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 1e6
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                           QUERY PLAN                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: sci_notation_test.id
@@ -2072,14 +1971,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"1000000"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"excluded":"1000000"},"upper_bound":null}}]}}
 (12 rows)
 
 SELECT * FROM sci_notation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 1e6
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      val       
 ----+----------------
   1 | 12300000000.00
@@ -2088,12 +1986,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Query for exact match (scientific notation input)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM sci_notation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 2.5e3
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                      QUERY PLAN                                                      
-----------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: sci_notation_test.id
@@ -2105,14 +2002,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"2500"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"2500"}}]}}
 (12 rows)
 
 SELECT * FROM sci_notation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 2.5e3
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |   val   
 ----+---------
   5 | 2500.00
@@ -2139,12 +2035,11 @@ CREATE INDEX small_decimal_idx ON small_decimal_test USING paradedb (
 -- Exact match on very small value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM small_decimal_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 0.0000000000000001
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                             QUERY PLAN                                                             
-------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: small_decimal_test.id
@@ -2156,14 +2051,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0.0000000000000001"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"0.0000000000000001"}}]}}
 (12 rows)
 
 SELECT * FROM small_decimal_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 0.0000000000000001
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        val         
 ----+--------------------
   1 | 0.0000000000000001
@@ -2172,12 +2066,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Range query on very small values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM small_decimal_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 0.0000000000000001 AND val < 0.0000000000000100
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                              QUERY PLAN                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                         QUERY PLAN                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: small_decimal_test.id
@@ -2189,14 +2082,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0.0000000000000001"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.00000000000001"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"excluded":"0.0000000000000001"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.00000000000001"}}}]}}
 (12 rows)
 
 SELECT * FROM small_decimal_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 0.0000000000000001 AND val < 0.0000000000000100
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        val         
 ----+--------------------
   2 | 0.0000000000000002
@@ -2224,12 +2116,11 @@ CREATE INDEX max_scale_idx ON max_scale_test USING paradedb (
 -- Exact match
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM max_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 0.123456789012345678
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: max_scale_test.id
@@ -2241,14 +2132,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0.123456789012345678"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"0.123456789012345678"}}]}}
 (12 rows)
 
 SELECT * FROM max_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 0.123456789012345678
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |         val          
 ----+----------------------
   2 | 0.123456789012345678
@@ -2257,12 +2147,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Range query on max scale values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM max_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 0.0 AND val < 0.5
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                               QUERY PLAN                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                          QUERY PLAN                                                                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: max_scale_test.id
@@ -2274,14 +2163,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.5"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.5"}}}]}}
 (12 rows)
 
 SELECT * FROM max_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 0.0 AND val < 0.5
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |         val          
 ----+----------------------
   1 | 0.000000000000000001
@@ -2292,8 +2180,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM max_scale_test
-WHERE id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.all()::pdb.const(0);
                                                                                                          QUERY PLAN                                                                                                          
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -2304,13 +2191,12 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[numeric64_sum(max_scale_test_0.val, 18) as agg_0, numeric64_avg(max_scale_test_0.val, 18) as agg_1, min(max_scale_test_0.val) as agg_2, max(max_scale_test_0.val) as agg_3]
      :   CooperativeExec
-     :     PgSearchScan: table=max_scale_test, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :     PgSearchScan: table=max_scale_test, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (9 rows)
 
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM max_scale_test
-WHERE id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.all()::pdb.const(0);
          sum          |          avg           |          min          |         max          
 ----------------------+------------------------+-----------------------+----------------------
  0.623456789012345678 | 0.12469135780246913560 | -0.500000000000000000 | 0.999999999999999999
@@ -2342,12 +2228,11 @@ CREATE INDEX negative_scale_idx ON negative_scale_test USING paradedb (
 -- Exact match
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM negative_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 12000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                      QUERY PLAN                                                       
------------------------------------------------------------------------------------------------------------------------
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: negative_scale_test.id
@@ -2359,14 +2244,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"12000"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"12000"}}]}}
 (12 rows)
 
 SELECT * FROM negative_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 12000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  val  
 ----+-------
   1 | 12000
@@ -2375,12 +2259,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Range query
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM negative_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 10000 AND val < 20000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                             QUERY PLAN                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: negative_scale_test.id
@@ -2392,14 +2275,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"10000"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"20000"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"excluded":"10000"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"20000"}}}]}}
 (12 rows)
 
 SELECT * FROM negative_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 10000 AND val < 20000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  val  
 ----+-------
   1 | 12000
@@ -2409,10 +2291,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 -- Negative value query
 SELECT * FROM negative_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = -12000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  val   
 ----+--------
   5 | -12000
@@ -2422,8 +2303,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM negative_scale_test
-WHERE id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.all()::pdb.const(0);
                                                                                                                    QUERY PLAN                                                                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -2434,13 +2314,12 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[numeric64_sum(negative_scale_test_0.val, -3) as agg_0, numeric64_avg(negative_scale_test_0.val, -3) as agg_1, min(negative_scale_test_0.val) as agg_2, max(negative_scale_test_0.val) as agg_3]
      :   CooperativeExec
-     :     PgSearchScan: table=negative_scale_test, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :     PgSearchScan: table=negative_scale_test, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (9 rows)
 
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM negative_scale_test
-WHERE id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.all()::pdb.const(0);
   sum   |        avg         |  min   |  max  
 --------+--------------------+--------+-------
  132000 | 22000.000000000000 | -12000 | 99000
@@ -2448,9 +2327,8 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 -- Verify all rows
 SELECT * FROM negative_scale_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  val   
 ----+--------
   1 |  12000
@@ -2497,10 +2375,9 @@ CREATE INDEX nan_numeric64_idx ON nan_numeric64_test USING paradedb (
 );
 -- Query for NaN in Numeric64 storage
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 'NaN'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val 
 ----+-----
   3 | NaN
@@ -2508,9 +2385,8 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 -- Verify all rows
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  val   
 ----+--------
   1 | 100.00
@@ -2524,12 +2400,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val > 200 should include NaN (since NaN > all real numbers)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 200.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: nan_numeric64_test.id
@@ -2541,14 +2416,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null}}]}}
 (12 rows)
 
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 200.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  val   
 ----+--------
   3 |    NaN
@@ -2558,12 +2432,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val < 200 should NOT include NaN
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val < 200.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: nan_numeric64_test.id
@@ -2575,14 +2448,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"}}}]}}
 (12 rows)
 
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val < 200.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  val   
 ----+--------
   1 | 100.00
@@ -2591,12 +2463,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val >= 300 should include NaN (since NaN > 300)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val >= 300.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: nan_numeric64_test.id
@@ -2608,14 +2479,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null}}]}}
 (12 rows)
 
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val >= 300.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  val   
 ----+--------
   3 |    NaN
@@ -2625,12 +2495,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val <= 300 should NOT include NaN
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val <= 300.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: nan_numeric64_test.id
@@ -2642,14 +2511,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
 (12 rows)
 
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val <= 300.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  val   
 ----+--------
   1 | 100.00
@@ -2660,12 +2528,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val BETWEEN should NOT include NaN (NaN is outside any finite range)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val BETWEEN 100.00 AND 300.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                           QUERY PLAN                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: nan_numeric64_test.id
@@ -2677,14 +2544,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
 (12 rows)
 
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val BETWEEN 100.00 AND 300.00
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  val   
 ----+--------
   1 | 100.00
@@ -2713,10 +2579,9 @@ CREATE INDEX nan_numeric_bytes_idx ON nan_numeric_bytes_test USING paradedb (
 );
 -- Query for NaN in NumericBytes storage
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 'NaN'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val 
 ----+-----
   3 | NaN
@@ -2724,9 +2589,8 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 -- Verify all rows
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      val       
 ----+----------------
   1 | 100.0000000000
@@ -2741,12 +2605,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val > 200 should include NaN (CORRECT - NaN is greater than all real numbers)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 200.0000000000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: nan_numeric_bytes_test.id
@@ -2758,14 +2621,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null}}]}}
 (12 rows)
 
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 200.0000000000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      val       
 ----+----------------
   3 |            NaN
@@ -2775,12 +2637,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val < 200 should NOT include NaN (CORRECT)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val < 200.0000000000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: nan_numeric_bytes_test.id
@@ -2792,14 +2653,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"}}}]}}
 (12 rows)
 
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val < 200.0000000000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      val       
 ----+----------------
   1 | 100.0000000000
@@ -2808,12 +2668,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val BETWEEN should NOT include NaN (CORRECT - NaN is outside finite ranges)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val BETWEEN 100.0000000000 AND 300.0000000000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                           QUERY PLAN                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: nan_numeric_bytes_test.id
@@ -2825,14 +2684,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
 (12 rows)
 
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val BETWEEN 100.0000000000 AND 300.0000000000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      val       
 ----+----------------
   1 | 100.0000000000
@@ -2866,12 +2724,11 @@ CREATE INDEX special_values_idx ON special_values_test USING paradedb (
 -- Query for regular value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 100
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                     QUERY PLAN                                                      
----------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: special_values_test.id
@@ -2883,14 +2740,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"100"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"100"}}]}}
 (12 rows)
 
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 100
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val 
 ----+-----
   1 | 100
@@ -2899,12 +2755,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Query for NaN
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 'NaN'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                     QUERY PLAN                                                      
----------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: special_values_test.id
@@ -2916,14 +2771,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"NaN"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"NaN"}}]}}
 (12 rows)
 
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 'NaN'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val 
 ----+-----
   3 | NaN
@@ -2932,12 +2786,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Query for Infinity
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 'Infinity'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                        QUERY PLAN                                                        
---------------------------------------------------------------------------------------------------------------------------
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: special_values_test.id
@@ -2949,14 +2802,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"Infinity"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"Infinity"}}]}}
 (12 rows)
 
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 'Infinity'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |   val    
 ----+----------
   4 | Infinity
@@ -2965,12 +2817,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Query for -Infinity
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = '-Infinity'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: special_values_test.id
@@ -2982,14 +2833,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"-Infinity"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val","value":"-Infinity"}}]}}
 (12 rows)
 
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = '-Infinity'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |    val    
 ----+-----------
   5 | -Infinity
@@ -2999,12 +2849,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Per PostgreSQL: NaN is greater than all non-NaN values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 50 AND val < 250
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                           QUERY PLAN                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: special_values_test.id
@@ -3016,14 +2865,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"50"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"250"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"excluded":"50"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"250"}}}]}}
 (12 rows)
 
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 50 AND val < 250
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val 
 ----+-----
   1 | 100
@@ -3034,12 +2882,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- NaN should also appear (PostgreSQL: NaN > all non-NaN)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 250
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: special_values_test.id
@@ -3051,14 +2898,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"250"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"excluded":"250"},"upper_bound":null}}]}}
 (12 rows)
 
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val > 250
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |   val    
 ----+----------
   3 |      NaN
@@ -3069,12 +2915,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Less than query - -Infinity should be less than finite values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val < -50
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: special_values_test.id
@@ -3086,14 +2931,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"-50"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"-50"}}}]}}
 (12 rows)
 
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val < -50
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |    val    
 ----+-----------
   5 | -Infinity
@@ -3102,10 +2946,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 -- Query for zero
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = 0
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val 
 ----+-----
   8 |   0
@@ -3113,10 +2956,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 -- Query for negative value
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val = -100
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val  
 ----+------
   7 | -100
@@ -3124,9 +2966,8 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 -- Verify all rows can be retrieved
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |    val    
 ----+-----------
   1 |       100
@@ -3146,12 +2987,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val >= 300 should include NaN and Infinity (NaN > Infinity > 300)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val >= 300
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: special_values_test.id
@@ -3163,14 +3003,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null}}]}}
 (12 rows)
 
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val >= 300
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |   val    
 ----+----------
   3 |      NaN
@@ -3181,12 +3020,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val <= 200 should NOT include NaN or Infinity
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val <= 200
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: special_values_test.id
@@ -3198,14 +3036,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"200"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"200"}}}]}}
 (12 rows)
 
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val <= 200
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |    val    
 ----+-----------
   1 |       100
@@ -3218,12 +3055,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val >= -Infinity should include everything (all values >= -Infinity)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val >= '-Infinity'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: special_values_test.id
@@ -3235,14 +3071,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-Infinity"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":{"included":"-Infinity"},"upper_bound":null}}]}}
 (12 rows)
 
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val >= '-Infinity'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |    val    
 ----+-----------
   1 |       100
@@ -3258,12 +3093,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: val <= Infinity should include everything EXCEPT NaN (NaN > Infinity)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val <= 'Infinity'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: special_values_test.id
@@ -3275,14 +3109,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, val
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"Infinity"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"Infinity"}}}]}}
 (12 rows)
 
 SELECT * FROM special_values_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val <= 'Infinity'::numeric
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |    val    
 ----+-----------
   1 |       100
@@ -3330,12 +3163,11 @@ CREATE INDEX numeric_prec_only_idx ON numeric_precision_only_test USING paradedb
 -- Test: Exact match on NUMERIC(5) - should use Numeric64 storage with scale=0
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_precision_only_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val_small = 100
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val_small, val_large
    Sort Key: numeric_precision_only_test.id
@@ -3346,14 +3178,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val_small","value":"100"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"val_small","value":"100"}}]}}
 (11 rows)
 
 SELECT * FROM numeric_precision_only_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val_small = 100
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val_small |   val_large   
 ----+-----------+---------------
   1 |       100 | 1000000000000
@@ -3363,12 +3194,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Test: Range query on NUMERIC(15) - also Numeric64 with scale=0
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_precision_only_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val_large > 100000000000 AND val_large < 1500000000000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                               QUERY PLAN                                                                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                           QUERY PLAN                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val_small, val_large
    Sort Key: numeric_precision_only_test.id
@@ -3379,14 +3209,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val_large","lower_bound":{"excluded":"100000000000"},"upper_bound":null}},{"range":{"field":"val_large","lower_bound":null,"upper_bound":{"excluded":"1500000000000"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"val_large","lower_bound":{"excluded":"100000000000"},"upper_bound":null}},{"range":{"field":"val_large","lower_bound":null,"upper_bound":{"excluded":"1500000000000"}}}]}}
 (11 rows)
 
 SELECT * FROM numeric_precision_only_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND val_large > 100000000000 AND val_large < 1500000000000
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val_small |   val_large   
 ----+-----------+---------------
   1 |       100 | 1000000000000
@@ -3397,8 +3226,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
 FROM numeric_precision_only_test
-WHERE id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.all()::pdb.const(0);
                                                                                                                                               QUERY PLAN                                                                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -3409,13 +3237,12 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[numeric64_sum(numeric_precision_only_test_0.val_small, 0) as agg_0, numeric64_avg(numeric_precision_only_test_0.val_small, 0) as agg_1, min(numeric_precision_only_test_0.val_small) as agg_2, max(numeric_precision_only_test_0.val_small) as agg_3]
      :   CooperativeExec
-     :     PgSearchScan: table=numeric_precision_only_test, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :     PgSearchScan: table=numeric_precision_only_test, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (9 rows)
 
 SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
 FROM numeric_precision_only_test
-WHERE id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.all()::pdb.const(0);
   sum  |          avg          | min  |  max  
 -------+-----------------------+------+-------
  12368 | 1766.8571428571428571 | -500 | 12345
@@ -3423,8 +3250,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 SELECT SUM(val_large), AVG(val_large), MIN(val_large), MAX(val_large)
 FROM numeric_precision_only_test
-WHERE id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.all()::pdb.const(0);
        sum       |         avg         |      min      |       max       
 -----------------+---------------------+---------------+-----------------
  126956789024690 | 18136684146384.2857 | -500000000000 | 123456789012345
@@ -3432,9 +3258,8 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 -- Verify all rows
 SELECT * FROM numeric_precision_only_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | val_small |    val_large    
 ----+-----------+-----------------
   1 |       100 |   1000000000000
@@ -3466,20 +3291,18 @@ CREATE INDEX numeric_scale_zero_idx ON numeric_explicit_scale_zero USING paraded
 );
 -- Both columns should produce identical results
 SELECT * FROM numeric_explicit_scale_zero
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND implicit_scale = 12345
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | implicit_scale | explicit_scale 
 ----+----------------+----------------
   1 |          12345 |          12345
 (1 row)
 
 SELECT * FROM numeric_explicit_scale_zero
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND explicit_scale = 12345
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | implicit_scale | explicit_scale 
 ----+----------------+----------------
   1 |          12345 |          12345
@@ -3488,8 +3311,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Aggregates should also be identical
 SELECT SUM(implicit_scale), SUM(explicit_scale)
 FROM numeric_explicit_scale_zero
-WHERE id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.all()::pdb.const(0);
   sum  |  sum  
 -------+-------
  69124 | 69124
@@ -3516,9 +3338,8 @@ CREATE INDEX empty_range_idx ON empty_range_test USING paradedb (
 -- Empty numrange should match nothing (not even rows with value 0)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM empty_range_test
-WHERE id @@@ paradedb.range('val', 'empty'::numrange)
+WHERE val @@@ pdb.range('empty'::numrange)
 ORDER BY id;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                 QUERY PLAN                                 
 ---------------------------------------------------------------------------
  Sort
@@ -3536,18 +3357,16 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 (12 rows)
 
 SELECT * FROM empty_range_test
-WHERE id @@@ paradedb.range('val', 'empty'::numrange)
+WHERE val @@@ pdb.range('empty'::numrange)
 ORDER BY id;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  id | val 
 ----+-----
 (0 rows)
 
 -- Verify that a real range containing 0 DOES match rows with 0
 SELECT * FROM empty_range_test
-WHERE id @@@ paradedb.range('val', '[-1, 1]'::numrange)
+WHERE val @@@ pdb.range('[-1, 1]'::numrange)
 ORDER BY id;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  id | val  
 ----+------
   1 | 0.00
@@ -3585,37 +3404,33 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category, price,
        SUM(price) OVER () as total_price
 FROM window_agg_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 SELECT id, category, price,
        SUM(price) OVER () as total_price
 FROM window_agg_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 -- Window aggregate AVG on Numeric64 field in Top K query
 SELECT id, category, price,
        AVG(price) OVER () as avg_price
 FROM window_agg_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 -- Window aggregate MIN/MAX on Numeric64 field in Top K query
 SELECT id, category, price,
        MIN(price) OVER () as min_price,
        MAX(price) OVER () as max_price
 FROM window_agg_numeric64_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 DROP TABLE window_agg_numeric64_test;
 -- ----------------------------------------------------------------------------
@@ -3639,10 +3454,9 @@ CREATE INDEX window_agg_numericbytes_idx ON window_agg_numericbytes_test USING p
 SELECT id, category, amount,
         SUM(amount) OVER () as total
 FROM window_agg_numericbytes_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Aggregate on NUMERIC field 'amount' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 DROP TABLE window_agg_numericbytes_test;
 -- ----------------------------------------------------------------------------
@@ -3665,9 +3479,8 @@ CREATE INDEX window_agg_highprec_idx ON window_agg_highprec_test USING paradedb 
 SELECT id, category, value,
         AVG(value) OVER () as avg_val
 FROM window_agg_highprec_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Aggregate on NUMERIC field 'value' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 DROP TABLE window_agg_highprec_test;

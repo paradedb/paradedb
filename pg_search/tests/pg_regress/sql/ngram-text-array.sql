@@ -23,21 +23,21 @@ USING paradedb (id, (all_titles::pdb.icu('columnar=true')), (all_titles::pdb.ngr
 -- Test 1: Single-word ngram match with conjunction_mode
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon', conjunction_mode => true)
+WHERE all_titles::pdb.alias('all_titles_ngram') &&& 'Dragon'
 ORDER BY id;
 
 SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon', conjunction_mode => true)
+WHERE all_titles::pdb.alias('all_titles_ngram') &&& 'Dragon'
 ORDER BY id;
 
 -- Test 2: Multi-word ngram match with conjunction_mode (13 Must clauses)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon Hatchling', conjunction_mode => true)
+WHERE all_titles::pdb.alias('all_titles_ngram') &&& 'Dragon Hatchling'
 ORDER BY id;
 
 SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon Hatchling', conjunction_mode => true)
+WHERE all_titles::pdb.alias('all_titles_ngram') &&& 'Dragon Hatchling'
 ORDER BY id;
 
 -- Test 3: disjunction_max combining boosted ICU match with ngram conjunction
@@ -64,21 +64,21 @@ ORDER BY id;
 -- Test 4: Short query (fewer than min_gram characters — no tokens)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.match('all_titles_ngram', 'SQL', conjunction_mode => true)
+WHERE all_titles::pdb.alias('all_titles_ngram') &&& 'SQL'
 ORDER BY id;
 
 SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.match('all_titles_ngram', 'SQL', conjunction_mode => true)
+WHERE all_titles::pdb.alias('all_titles_ngram') &&& 'SQL'
 ORDER BY id;
 
 -- Test 5: Exact min_gram length query (single ngram token)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.match('all_titles_ngram', 'Fire', conjunction_mode => true)
+WHERE all_titles::pdb.alias('all_titles_ngram') &&& 'Fire'
 ORDER BY id;
 
 SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.match('all_titles_ngram', 'Fire', conjunction_mode => true)
+WHERE all_titles::pdb.alias('all_titles_ngram') &&& 'Fire'
 ORDER BY id;
 
 -- Test 6: JSON-based disjunction_max via ::jsonb path
@@ -94,11 +94,11 @@ ORDER BY id;
 -- Test 7: Ngram match without conjunction_mode (disjunction baseline)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon')
+WHERE all_titles::pdb.alias('all_titles_ngram') ||| 'Dragon'
 ORDER BY id;
 
 SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon')
+WHERE all_titles::pdb.alias('all_titles_ngram') ||| 'Dragon'
 ORDER BY id;
 
 DROP TABLE books;

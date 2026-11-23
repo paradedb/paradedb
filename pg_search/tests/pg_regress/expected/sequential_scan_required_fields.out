@@ -28,7 +28,7 @@ SELECT array_agg(id ORDER BY id) FROM required_fields WHERE body ||| 'alpha';
 (1 row)
 
 SELECT array_agg(id ORDER BY id) FROM required_fields
-WHERE id @@@ paradedb.parse('body:alpha');
+WHERE id @@@ pdb.parse('body:alpha');
  array_agg 
 -----------
  {1,2}
@@ -56,7 +56,7 @@ WHERE body @@@ pdb.parse_with_field('alpha OR lower_body:beta');
 (1 row)
 
 SELECT array_agg(id ORDER BY id) FROM required_fields
-WHERE id @@@ paradedb.parse('body:alpha OR lower_body:beta', lenient => true);
+WHERE id @@@ pdb.parse('body:alpha OR lower_body:beta', lenient => true);
  array_agg 
 -----------
  {1,2,3}
@@ -83,7 +83,7 @@ WHERE id @@@ paradedb.boost(2.0, paradedb.boolean(
 
 -- The NULL guard still needs its field even when the query matches no documents.
 SELECT id, lower(body) @@@ pdb.empty() AS empty_match,
-       id @@@ paradedb.term('lower_body', 'alpha') AS term_match
+       lower(body)::pdb.alias('lower_body') === 'alpha' AS term_match
 FROM required_fields ORDER BY id;
  id | empty_match | term_match 
 ----+-------------+------------
@@ -93,7 +93,7 @@ FROM required_fields ORDER BY id;
   4 |             | 
 (4 rows)
 
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ paradedb.all();
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.all()::pdb.const(0);
  array_agg 
 -----------
  {1,2,3,4}
@@ -164,7 +164,7 @@ SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.parse('da
 ERROR:  division by zero
 ROLLBACK TO required_danger;
 SELECT array_agg(id ORDER BY id) FROM required_fields
-WHERE id @@@ paradedb.parse('alpha', lenient => true);
+WHERE id @@@ pdb.parse('alpha', lenient => true);
 ERROR:  division by zero
 ROLLBACK TO required_danger;
 ROLLBACK;

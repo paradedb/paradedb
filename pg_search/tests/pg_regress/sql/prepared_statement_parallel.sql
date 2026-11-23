@@ -55,8 +55,8 @@ PREPARE test_parallel_join(text, timestamptz, timestamptz) AS
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
-  AND c.dwf_doid @@@ paradedb.match('author', 'brian griffin')
+WHERE dt.full_text @@@ $1
+  AND c.author ||| 'brian griffin'
   AND c.created_at::date >= $2::date
   AND c.created_at::date <= $3::date;
 
@@ -85,8 +85,8 @@ PREPARE test_parallel_join_generic(text, timestamptz, timestamptz) AS
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
-  AND c.dwf_doid @@@ paradedb.match('author', 'brian griffin')
+WHERE dt.full_text @@@ $1
+  AND c.author ||| 'brian griffin'
   AND c.created_at::date >= $2::date
   AND c.created_at::date <= $3::date;
 
@@ -105,7 +105,7 @@ RESET plan_cache_mode;
 PREPARE test_simple_parallel(text) AS
 SELECT COUNT(*)
 FROM document_text
-WHERE dwf_doid @@@ paradedb.parse_with_field('full_text', $1);
+WHERE full_text @@@ $1;
 
 -- Execute multiple times
 EXECUTE test_simple_parallel('ea');

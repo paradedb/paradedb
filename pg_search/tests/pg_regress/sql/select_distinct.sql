@@ -676,12 +676,12 @@ ANALYZE dist_cast;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT n::text
 FROM dist_cast
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY 1;
 
 SELECT DISTINCT n::text
 FROM dist_cast
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY 1;
 
 -- Correctness: must match native PG
@@ -689,7 +689,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT DISTINCT n::text
 FROM dist_cast
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY 1;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -723,12 +723,12 @@ ANALYZE dist_json;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT meta->'tags'
 FROM dist_json
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY 1;
 
 SELECT DISTINCT meta->'tags'
 FROM dist_json
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY 1;
 
 -- Correctness: must match native PG
@@ -736,7 +736,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT DISTINCT meta->'tags'
 FROM dist_json
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY 1;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -778,12 +778,12 @@ ANALYZE dist_ci;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT value
 FROM dist_ci
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all()::pdb.const(0);
 
 SELECT COUNT(*) FROM (
     SELECT DISTINCT value
     FROM dist_ci
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
 ) t;
 
 -- Correctness: must match native PG
@@ -792,7 +792,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*) FROM (
     SELECT DISTINCT value
     FROM dist_ci
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
 ) t;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -823,14 +823,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT c.value
 FROM dist_ci c
 JOIN dist_ci_join j ON c.join_id = j.id
-WHERE c.id @@@ paradedb.all()
+WHERE c.id @@@ pdb.all()::pdb.const(0)
 LIMIT 10;
 
 SELECT COUNT(*) FROM (
     SELECT DISTINCT c.value
     FROM dist_ci c
     JOIN dist_ci_join j ON c.join_id = j.id
-    WHERE c.id @@@ paradedb.all()
+    WHERE c.id @@@ pdb.all()::pdb.const(0)
     LIMIT 10
 ) t;
 
@@ -842,7 +842,7 @@ SELECT COUNT(*) FROM (
     SELECT DISTINCT c.value
     FROM dist_ci c
     JOIN dist_ci_join j ON c.join_id = j.id
-    WHERE c.id @@@ paradedb.all()
+    WHERE c.id @@@ pdb.all()::pdb.const(0)
     LIMIT 10
 ) t;
 
@@ -939,43 +939,43 @@ USING paradedb (id, ia, (ta::pdb.literal), da, dates);
 
 \pset null '<NULL>'
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY id;
 
-SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
-SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ia;
-SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ta;
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY id;
+SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY ia;
+SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY ta;
 
 -- Exceed the bucket cap, and also check a functionally dependent array output.
 SET paradedb.max_term_agg_buckets TO 2;
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia ORDER BY ia;
 
-SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
-SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ta ORDER BY ta;
-SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY id ORDER BY id;
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia ORDER BY ia;
+SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ta ORDER BY ta;
+SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY id ORDER BY id;
 
 -- Array expressions must also fall back, including scalar subscripts and
 -- binary-compatible domain casts. Date slices must not reach Arrow projection.
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia[1:2] ORDER BY 1;
 
-SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
-SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1] ORDER BY 1;
-SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY da::int[] ORDER BY 1;
-SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY dates[1:2] ORDER BY 1;
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia[1:2] ORDER BY 1;
+SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia[1] ORDER BY 1;
+SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY da::int[] ORDER BY 1;
+SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY dates[1:2] ORDER BY 1;
 
 -- Compare with PostgreSQL aggregation.
 SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
-SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ia;
-SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ta;
-SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
-SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ta ORDER BY ta;
-SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY id ORDER BY id;
-SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
-SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1] ORDER BY 1;
-SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY da::int[] ORDER BY 1;
-SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY dates[1:2] ORDER BY 1;
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY id;
+SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY ia;
+SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY ta;
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia ORDER BY ia;
+SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ta ORDER BY ta;
+SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY id ORDER BY id;
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia[1:2] ORDER BY 1;
+SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia[1] ORDER BY 1;
+SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY da::int[] ORDER BY 1;
+SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY dates[1:2] ORDER BY 1;
 SET paradedb.enable_aggregate_custom_scan TO on;
 RESET paradedb.max_term_agg_buckets;
 \pset null ''

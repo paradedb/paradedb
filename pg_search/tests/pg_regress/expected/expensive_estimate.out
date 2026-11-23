@@ -22,14 +22,9 @@ ANALYZE mock_items;
 -- ============================================================================
 -- Fuzzy term query
 -- ============================================================================
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 1::integer
-);
-WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description === 'sheos'::pdb.fuzzy(1, f, t);
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: mock_items
@@ -37,15 +32,10 @@ WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"sheos","distance":1,"transposition_cost_one":null,"prefix":null}}}}
+   Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"sheos","distance":1,"transposition_cost_one":true,"prefix":false}}}}
 (8 rows)
 
-SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 1::integer
-) ORDER BY id;
-WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
+SELECT id, description, rating, category FROM mock_items WHERE description === 'sheos'::pdb.fuzzy(1, f, t) ORDER BY id;
  id |     description     | rating | category 
 ----+---------------------+--------+----------
   3 | Sleek running shoes |      5 | Footwear
@@ -54,14 +44,9 @@ WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
 (3 rows)
 
 -- Fuzzy term with higher distance
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 2::integer
-);
-WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description === 'sheos'::pdb.fuzzy(2, f, t);
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: mock_items
@@ -69,15 +54,10 @@ WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"sheos","distance":2,"transposition_cost_one":null,"prefix":null}}}}
+   Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"sheos","distance":2,"transposition_cost_one":true,"prefix":false}}}}
 (8 rows)
 
-SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 2::integer
-) ORDER BY id;
-WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
+SELECT id, description, rating, category FROM mock_items WHERE description === 'sheos'::pdb.fuzzy(2, f, t) ORDER BY id;
  id |     description     | rating | category 
 ----+---------------------+--------+----------
   3 | Sleek running shoes |      5 | Footwear
@@ -88,11 +68,7 @@ WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
 -- ============================================================================
 -- Regex query
 -- ============================================================================
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.regex(
-    field => 'description',
-    pattern => 'sh.*es'
-);
-WARNING:  paradedb.regex() uses the deprecated ParadeDB V1 API
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ pdb.regex('sh.*es');
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
@@ -105,11 +81,7 @@ WARNING:  paradedb.regex() uses the deprecated ParadeDB V1 API
    Tantivy Query: {"with_index":{"query":{"regex":{"field":"description","pattern":"sh.*es"}}}}
 (8 rows)
 
-SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.regex(
-    field => 'description',
-    pattern => 'sh.*es'
-) ORDER BY id;
-WARNING:  paradedb.regex() uses the deprecated ParadeDB V1 API
+SELECT id, description, rating, category FROM mock_items WHERE description @@@ pdb.regex('sh.*es') ORDER BY id;
  id |     description     | rating | category 
 ----+---------------------+--------+----------
   3 | Sleek running shoes |      5 | Footwear
@@ -120,11 +92,7 @@ WARNING:  paradedb.regex() uses the deprecated ParadeDB V1 API
 -- ============================================================================
 -- Range query on numeric field
 -- ============================================================================
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ paradedb.range(
-    field => 'rating',
-    range => int4range(3, 5)
-);
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE rating @@@ pdb.range(range => int4range(3, 5));
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
@@ -137,11 +105,7 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
    Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":3},"upper_bound":{"excluded":5}}}}}
 (8 rows)
 
-SELECT id, description, rating, category FROM mock_items WHERE id @@@ paradedb.range(
-    field => 'rating',
-    range => int4range(3, 5)
-) ORDER BY id;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
+SELECT id, description, rating, category FROM mock_items WHERE rating @@@ pdb.range(range => int4range(3, 5)) ORDER BY id;
  id |        description        | rating |  category   
 ----+---------------------------+--------+-------------
   1 | Ergonomic metal keyboard  |      4 | Electronics
@@ -174,11 +138,7 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 -- ============================================================================
 -- Range query on date field
 -- ============================================================================
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ paradedb.range(
-    field => 'created_at',
-    range => tsrange('2023-04-01', '2023-06-01')
-);
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE created_at @@@ pdb.range(range => tsrange('2023-04-01', '2023-06-01'));
                                                                                                      QUERY PLAN                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
@@ -191,11 +151,7 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
    Tantivy Query: {"with_index":{"query":{"range":{"field":"created_at","lower_bound":{"included":{"$__pdb_date__":"2023-04-01T00:00:00Z"}},"upper_bound":{"excluded":{"$__pdb_date__":"2023-06-01T00:00:00Z"}}}}}}
 (8 rows)
 
-SELECT id, description, rating, category FROM mock_items WHERE id @@@ paradedb.range(
-    field => 'created_at',
-    range => tsrange('2023-04-01', '2023-06-01')
-) ORDER BY id;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
+SELECT id, description, rating, category FROM mock_items WHERE created_at @@@ pdb.range(range => tsrange('2023-04-01', '2023-06-01')) ORDER BY id;
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   1 | Ergonomic metal keyboard    |      4 | Electronics
@@ -244,17 +200,10 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 -- ============================================================================
 -- Boolean query mixing cheap and expensive sub-queries
 -- ============================================================================
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.fuzzy_term(field => 'description', value => 'runing', distance => 1::integer)
-    ]
-);
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'
+  AND description === 'runing'::pdb.fuzzy(1, f, t);
+                                                                                                                          QUERY PLAN                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: mock_items
@@ -262,18 +211,11 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes"}},{"fuzzy_term":{"field":"description","value":"runing","distance":1,"transposition_cost_one":null,"prefix":null}}]}}}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"shoes"}}}},{"with_index":{"query":{"fuzzy_term":{"field":"description","value":"runing","distance":1,"transposition_cost_one":true,"prefix":false}}}}]}}
 (8 rows)
 
-SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.fuzzy_term(field => 'description', value => 'runing', distance => 1::integer)
-    ]
-) ORDER BY id;
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+SELECT id, description, rating, category FROM mock_items WHERE description === 'shoes'
+  AND description === 'runing'::pdb.fuzzy(1, f, t) ORDER BY id;
  id |     description     | rating | category 
 ----+---------------------+--------+----------
   3 | Sleek running shoes |      5 | Footwear
@@ -287,8 +229,7 @@ INSERT INTO expensive_estimate_titles
 SELECT g, md5(g::text), CASE WHEN g % 2 = 0 THEN 'en' ELSE 'ja' END FROM generate_series(1, 10000) g;
 INSERT INTO expensive_estimate_titles VALUES (10001, 'naruto', 'ja'), (10002, 'narutoo', 'ja'), (10003, 'naruta', 'ja');
 CREATE INDEX expensive_estimate_titles_idx ON expensive_estimate_titles
-    USING bm25 (id, (title::pdb.literal_normalized), lang);
-WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+    USING paradedb (id, (title::pdb.literal_normalized), lang);
 ANALYZE expensive_estimate_titles;
 CREATE FUNCTION expensive_estimate_plan_rows(q text) RETURNS text LANGUAGE plpgsql AS $$
 DECLARE plan json;

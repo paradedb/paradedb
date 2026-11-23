@@ -990,12 +990,11 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ paradedb.all())
+  (products.id @@@ pdb.all()::pdb.const(0))
   AND (products.name ILIKE ANY (array['%Socks%']))
   AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 1978) OR products.id < 1978 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 1978))
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
  id 
 ----
@@ -1006,12 +1005,11 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ paradedb.all())
+  (products.id @@@ pdb.all()::pdb.const(0))
   AND (products.name ILIKE ANY (array['%Socks%']))
   AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 7) OR products.id < 7 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 7))
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
  id 
 ----
@@ -1023,12 +1021,11 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ paradedb.all())
+  (products.id @@@ pdb.all()::pdb.const(0))
   AND (products.name ILIKE ANY (array['%Nike%', '%Adidas%']))
   AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 8) OR products.id < 8 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 8))
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
  id 
 ----
@@ -1042,12 +1039,11 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ paradedb.all())
+  (products.id @@@ pdb.all()::pdb.const(0))
   AND (products.name ILIKE ANY (array['%Apple%', '%Samsung%']))
   AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 8) OR products.id < 8 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 8))
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
  id 
 ----
@@ -1062,12 +1058,11 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ paradedb.all())
+  (products.id @@@ pdb.all()::pdb.const(0))
   AND (products.name ILIKE ANY (array['%Apple%', '%Samsung%']))
   AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 99999) OR products.id < 5)
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
  id 
 ----
@@ -1081,12 +1076,11 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ paradedb.all())
+  (products.id @@@ pdb.all()::pdb.const(0))
   AND (products.category_id = (SELECT category_id FROM products WHERE products.id = 8))
   AND (products.description NOT LIKE (SELECT description FROM products WHERE products.id = 88888))
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
  id 
 ----

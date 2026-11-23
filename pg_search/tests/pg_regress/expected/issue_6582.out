@@ -30,35 +30,32 @@ FROM generate_series(1, 2000) AS g;
 INSERT INTO issue_6582_terms (term_id, chunk_id)
 SELECT 1 + g % 2, g FROM generate_series(21, 2000, 21) AS g;
 CREATE INDEX issue_6582_chunks_idx ON issue_6582_chunks
-USING bm25 (id, name, kind, body);
-WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+USING paradedb (id, name, kind, body);
 ANALYZE issue_6582_chunks;
 ANALYZE issue_6582_terms;
 -- 1) The reported shape: a hashed `SubPlan` in the `ORDER BY` of a scan with a
 --    score and a snippet.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name, kind,
-       paradedb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
-       round(paradedb.score(id)::numeric, 6) AS score
+       pdb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
+       round(pdb.score(id)::numeric, 6) AS score
 FROM issue_6582_chunks
 WHERE body @@@ 'fred'
 ORDER BY (id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = ANY(ARRAY[1]))) DESC,
          (name = 'fn_84') DESC,
          (kind = 'file') ASC,
-         paradedb.score(id) DESC,
+         pdb.score(id) DESC,
          id
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
-                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, (paradedb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer)), (round((paradedb.score(issue_6582_chunks.id))::numeric, 6)), ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))), ((issue_6582_chunks.name = 'fn_84'::text)), ((issue_6582_chunks.kind = 'file'::text)), (paradedb.score(issue_6582_chunks.id))
+   Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, (pdb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer)), (round((pdb.score(issue_6582_chunks.id))::numeric, 6)), ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))), ((issue_6582_chunks.name = 'fn_84'::text)), ((issue_6582_chunks.kind = 'file'::text)), (pdb.score(issue_6582_chunks.id))
    ->  Sort
-         Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, (paradedb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer)), (round((paradedb.score(issue_6582_chunks.id))::numeric, 6)), ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))), ((issue_6582_chunks.name = 'fn_84'::text)), ((issue_6582_chunks.kind = 'file'::text)), (paradedb.score(issue_6582_chunks.id))
-         Sort Key: ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))) DESC, ((issue_6582_chunks.name = 'fn_84'::text)) DESC, ((issue_6582_chunks.kind = 'file'::text)), (paradedb.score(issue_6582_chunks.id)) DESC, issue_6582_chunks.id
+         Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, (pdb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer)), (round((pdb.score(issue_6582_chunks.id))::numeric, 6)), ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))), ((issue_6582_chunks.name = 'fn_84'::text)), ((issue_6582_chunks.kind = 'file'::text)), (pdb.score(issue_6582_chunks.id))
+         Sort Key: ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))) DESC, ((issue_6582_chunks.name = 'fn_84'::text)) DESC, ((issue_6582_chunks.kind = 'file'::text)), (pdb.score(issue_6582_chunks.id)) DESC, issue_6582_chunks.id
          ->  Custom Scan (ParadeDB Base Scan) on public.issue_6582_chunks
-               Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, paradedb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer), round((paradedb.score(issue_6582_chunks.id))::numeric, 6), (ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1)), (issue_6582_chunks.name = 'fn_84'::text), (issue_6582_chunks.kind = 'file'::text), paradedb.score(issue_6582_chunks.id)
+               Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, pdb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer), round((pdb.score(issue_6582_chunks.id))::numeric, 6), (ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1)), (issue_6582_chunks.name = 'fn_84'::text), (issue_6582_chunks.kind = 'file'::text), pdb.score(issue_6582_chunks.id)
                Table: issue_6582_chunks
                Index: issue_6582_chunks_idx
                Worker Selection: Cost model
@@ -72,18 +69,16 @@ WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
 (17 rows)
 
 SELECT id, name, kind,
-       paradedb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
-       round(paradedb.score(id)::numeric, 6) AS score
+       pdb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
+       round(pdb.score(id)::numeric, 6) AS score
 FROM issue_6582_chunks
 WHERE body @@@ 'fred'
 ORDER BY (id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = ANY(ARRAY[1]))) DESC,
          (name = 'fn_84') DESC,
          (kind = 'file') ASC,
-         paradedb.score(id) DESC,
+         pdb.score(id) DESC,
          id
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
   id  |  name   |   kind   |            snip            |  score   
 ------+---------+----------+----------------------------+----------
    84 | fn_84   | function | fred swing number 84       | 0.000196
@@ -105,15 +100,13 @@ END;
 $$ LANGUAGE plpgsql;
 SELECT issue_6582_subplan_loops($$
     SELECT id,
-           paradedb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
-           paradedb.score(id) AS score
+           pdb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
+           pdb.score(id) AS score
     FROM issue_6582_chunks
     WHERE body @@@ 'fred'
     ORDER BY (id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = ANY(ARRAY[1]))) DESC,
              score DESC
 $$) AS subplan_loops;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
  subplan_loops 
 ---------------
  1
@@ -124,18 +117,17 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*), sum(n), count(*) FILTER (WHERE score > 0) AS scored
 FROM (
     SELECT (SELECT count(*) FROM issue_6582_terms t WHERE t.chunk_id = c.id) AS n,
-           paradedb.score(c.id) AS score
+           pdb.score(c.id) AS score
     FROM issue_6582_chunks c
     WHERE c.body @@@ 'swing'
     OFFSET 0
 ) s;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   Output: count(*), sum(((SubPlan 1))), count(*) FILTER (WHERE ((paradedb.score(c.id)) > '0'::double precision))
+   Output: count(*), sum(((SubPlan 1))), count(*) FILTER (WHERE ((pdb.score(c.id)) > '0'::double precision))
    ->  Custom Scan (ParadeDB Base Scan) on public.issue_6582_chunks c
-         Output: (SubPlan 1), paradedb.score(c.id)
+         Output: (SubPlan 1), pdb.score(c.id)
          Table: issue_6582_chunks
          Index: issue_6582_chunks_idx
          Worker Selection: Cost model
@@ -153,12 +145,11 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 SELECT count(*), sum(n), count(*) FILTER (WHERE score > 0) AS scored
 FROM (
     SELECT (SELECT count(*) FROM issue_6582_terms t WHERE t.chunk_id = c.id) AS n,
-           paradedb.score(c.id) AS score
+           pdb.score(c.id) AS score
     FROM issue_6582_chunks c
     WHERE c.body @@@ 'swing'
     OFFSET 0
 ) s;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  count | sum | scored 
 -------+-----+--------
   2000 |  95 |   2000
@@ -166,21 +157,20 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 
 -- 3) The score is an input of the `SubPlan`.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, paradedb.score(id) > ALL (SELECT term_id::real / 4 FROM issue_6582_terms) AS above
+SELECT id, pdb.score(id) > ALL (SELECT term_id::real / 4 FROM issue_6582_terms) AS above
 FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY above DESC, id
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                         QUERY PLAN                                                                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: issue_6582_chunks.id, ((ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan 1).col1)))
+   Output: issue_6582_chunks.id, ((ALL (pdb.score(issue_6582_chunks.id) > (SubPlan 1).col1)))
    ->  Sort
-         Output: issue_6582_chunks.id, ((ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan 1).col1)))
-         Sort Key: ((ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan 1).col1))) DESC, issue_6582_chunks.id
+         Output: issue_6582_chunks.id, ((ALL (pdb.score(issue_6582_chunks.id) > (SubPlan 1).col1)))
+         Sort Key: ((ALL (pdb.score(issue_6582_chunks.id) > (SubPlan 1).col1))) DESC, issue_6582_chunks.id
          ->  Custom Scan (ParadeDB Base Scan) on public.issue_6582_chunks
-               Output: issue_6582_chunks.id, (ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan 1).col1))
+               Output: issue_6582_chunks.id, (ALL (pdb.score(issue_6582_chunks.id) > (SubPlan 1).col1))
                Table: issue_6582_chunks
                Index: issue_6582_chunks_idx
                Worker Selection: Cost model
@@ -194,12 +184,11 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                              Output: ((issue_6582_terms.term_id)::real / '4'::double precision)
 (18 rows)
 
-SELECT id, paradedb.score(id) > ALL (SELECT term_id::real / 4 FROM issue_6582_terms) AS above
+SELECT id, pdb.score(id) > ALL (SELECT term_id::real / 4 FROM issue_6582_terms) AS above
 FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY above DESC, id
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id | above 
 ----+-------
   1 | t
@@ -211,19 +200,18 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 
 -- 4) A Top K scan.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, paradedb.score(id) AS score,
+SELECT id, pdb.score(id) AS score,
        id IN (SELECT chunk_id - 4 FROM issue_6582_terms WHERE term_id = 2) AS tagged
 FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY score DESC, id
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                      QUERY PLAN                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: issue_6582_chunks.id, (paradedb.score(issue_6582_chunks.id)), ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1)))
+   Output: issue_6582_chunks.id, (pdb.score(issue_6582_chunks.id)), ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1)))
    ->  Custom Scan (ParadeDB Base Scan) on public.issue_6582_chunks
-         Output: issue_6582_chunks.id, paradedb.score(issue_6582_chunks.id), (ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))
+         Output: issue_6582_chunks.id, pdb.score(issue_6582_chunks.id), (ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))
          Table: issue_6582_chunks
          Index: issue_6582_chunks_idx
          Worker Selection: Cost model
@@ -238,13 +226,12 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                  Filter: (issue_6582_terms.term_id = 2)
 (16 rows)
 
-SELECT id, paradedb.score(id) AS score,
+SELECT id, pdb.score(id) AS score,
        id IN (SELECT chunk_id - 4 FROM issue_6582_terms WHERE term_id = 2) AS tagged
 FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY score DESC, id
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |   score   | tagged 
 ----+-----------+--------
  17 | 1.0003437 | t
@@ -259,7 +246,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT k, x.*
 FROM generate_series(1, 2) AS k,
      LATERAL (
-         SELECT c.id, paradedb.score(c.id) AS score
+         SELECT c.id, pdb.score(c.id) AS score
          FROM issue_6582_chunks c
          WHERE c.body @@@ 'fred' AND c.id <= 100
          ORDER BY (c.id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = k)) DESC,
@@ -268,24 +255,23 @@ FROM generate_series(1, 2) AS k,
          LIMIT 3
      ) x
 ORDER BY k, x.id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                QUERY PLAN                                                                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: k.k, c.id, (paradedb.score(c.id))
+   Output: k.k, c.id, (pdb.score(c.id))
    Sort Key: k.k, c.id
    ->  Nested Loop
-         Output: k.k, c.id, (paradedb.score(c.id))
+         Output: k.k, c.id, (pdb.score(c.id))
          ->  Function Scan on pg_catalog.generate_series k
                Output: k.k
                Function Call: generate_series(1, 2)
          ->  Limit
-               Output: c.id, (paradedb.score(c.id)), ((ANY (c.id = (hashed SubPlan 1).col1)))
+               Output: c.id, (pdb.score(c.id)), ((ANY (c.id = (hashed SubPlan 1).col1)))
                ->  Sort
-                     Output: c.id, (paradedb.score(c.id)), ((ANY (c.id = (hashed SubPlan 1).col1)))
-                     Sort Key: ((ANY (c.id = (hashed SubPlan 1).col1))) DESC, (paradedb.score(c.id)) DESC, c.id
+                     Output: c.id, (pdb.score(c.id)), ((ANY (c.id = (hashed SubPlan 1).col1)))
+                     Sort Key: ((ANY (c.id = (hashed SubPlan 1).col1))) DESC, (pdb.score(c.id)) DESC, c.id
                      ->  Custom Scan (ParadeDB Base Scan) on public.issue_6582_chunks c
-                           Output: c.id, paradedb.score(c.id), (ANY (c.id = (hashed SubPlan 1).col1))
+                           Output: c.id, pdb.score(c.id), (ANY (c.id = (hashed SubPlan 1).col1))
                            Table: issue_6582_chunks
                            Index: issue_6582_chunks_idx
                            Worker Selection: Cost model
@@ -301,7 +287,7 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 SELECT k, x.*
 FROM generate_series(1, 2) AS k,
      LATERAL (
-         SELECT c.id, paradedb.score(c.id) AS score
+         SELECT c.id, pdb.score(c.id) AS score
          FROM issue_6582_chunks c
          WHERE c.body @@@ 'fred' AND c.id <= 100
          ORDER BY (c.id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = k)) DESC,
@@ -310,7 +296,6 @@ FROM generate_series(1, 2) AS k,
          LIMIT 3
      ) x
 ORDER BY k, x.id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  k | id |   score   
 ---+----+-----------
  1 | 17 | 1.0003437
@@ -374,8 +359,7 @@ INSERT INTO issue_6582_logs (description, category)
 SELECT 'error ' || g, 'c' || (g % 500)
 FROM generate_series(1, 1200) AS g;
 CREATE INDEX issue_6582_logs_idx ON issue_6582_logs
-USING bm25 (id, description, (category::pdb.literal));
-WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+USING paradedb (id, description, (category::pdb.literal));
 ANALYZE issue_6582_logs;
 SET paradedb.enable_aggregate_custom_scan = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

@@ -27,9 +27,7 @@ CREATE INDEX bigint_test_idx ON bigint_test USING paradedb (id, (value::pdb.ngra
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for BIGINT key'
 Query with ORDER BY score DESC for BIGINT key
-SELECT id, pdb.score(id) FROM bigint_test WHERE bigint_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY pdb.score(id) DESC;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+SELECT id, pdb.score(id) FROM bigint_test WHERE value === 'blue' ORDER BY pdb.score(id) DESC;
  id |   score    
 ----+------------
   3 | 0.61846066
@@ -43,9 +41,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- Test no stable sort
 \echo 'Query without score sorting for BIGINT key'
 Query without score sorting for BIGINT key
-SELECT id, pdb.score(id) FROM bigint_test WHERE bigint_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+SELECT id, pdb.score(id) FROM bigint_test WHERE value === 'blue' ORDER BY id;
  id |   score    
 ----+------------
   1 | 0.53654534
@@ -96,9 +92,7 @@ CREATE INDEX uuid_test_idx ON uuid_test USING paradedb (id, (value::pdb.ngram(4,
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for UUID key'
 Query with ORDER BY score DESC for UUID key
-SELECT CAST(id AS TEXT), pdb.score(id) FROM uuid_test WHERE uuid_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY pdb.score(id) DESC;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+SELECT CAST(id AS TEXT), pdb.score(id) FROM uuid_test WHERE value === 'blue' ORDER BY pdb.score(id) DESC;
                   id                  |   score    
 --------------------------------------+------------
  b5faacc0-9eba-441a-81f8-820b46a3b57e | 0.61846066
@@ -112,9 +106,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- Test no stable sort
 \echo 'Query without score sorting for UUID key'
 Query without score sorting for UUID key
-SELECT CAST(id AS TEXT), pdb.score(id) FROM uuid_test WHERE uuid_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+SELECT CAST(id AS TEXT), pdb.score(id) FROM uuid_test WHERE value === 'blue' ORDER BY id;
                   id                  |   score    
 --------------------------------------+------------
  38bf27a0-1aa8-42cd-9cb0-993025e0b8d0 | 0.57459813
@@ -165,9 +157,7 @@ CREATE INDEX timestamp_test_idx ON timestamp_test USING paradedb (id, (value::pd
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for TIMESTAMPTZ key'
 Query with ORDER BY score DESC for TIMESTAMPTZ key
-SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE timestamp_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY pdb.score(id) DESC;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE value === 'blue' ORDER BY pdb.score(id) DESC;
               id              |   score    
 ------------------------------+------------
  Fri May 05 10:11:12 2023 PDT | 0.61846066
@@ -181,9 +171,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- Test no stable sort
 \echo 'Query without score sorting for TIMESTAMPTZ key'
 Query without score sorting for TIMESTAMPTZ key
-SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE timestamp_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE value === 'blue' ORDER BY id;
               id              |   score    
 ------------------------------+------------
  Fri May 05 10:11:12 2023 PDT | 0.61846066

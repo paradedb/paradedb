@@ -18,9 +18,8 @@ SET force_parallel_mode = on;
 ERROR:  unrecognized configuration parameter "force_parallel_mode"
 -- trigger InitPlan array parameter in parallel worker
 SELECT COUNT(*) FROM issue_4598_repro
-WHERE mock_text @@@ paradedb.all()
+WHERE mock_text @@@ pdb.all()::pdb.const(0)
 AND mock_hash = ANY(ARRAY(SELECT mock_hash FROM issue_4598_repro LIMIT 5));
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
@@ -29,10 +28,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- trigger prepared statement PARAM_EXTERN in parallel worker
 PREPARE issue_4598_prep(text) AS
 SELECT COUNT(*) FROM issue_4598_repro
-WHERE mock_text @@@ paradedb.all()
+WHERE mock_text @@@ pdb.all()::pdb.const(0)
 AND mock_hash = $1;
 EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      0
@@ -41,11 +39,10 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- trigger prepared statement PARAM_EXTERN parallel worker SIGSEGV
 PREPARE issue_4598_prep(text) AS
 SELECT COUNT(*) FROM issue_4598_repro
-WHERE text_searchable @@@ paradedb.all()
+WHERE text_searchable @@@ pdb.all()::pdb.const(0)
 AND doc_id_hash = $1;
 ERROR:  column "text_searchable" does not exist at character 78
 EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      0

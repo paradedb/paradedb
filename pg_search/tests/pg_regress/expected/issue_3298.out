@@ -18,27 +18,23 @@ INSERT INTO allowed_categories (category) VALUES
     ('Electronics'),
     ('Clothing');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
+SELECT COUNT(*) FROM mock_items WHERE category === ARRAY(SELECT category FROM allowed_categories LIMIT 5);
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: search_idx
-   Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.term_set($1))"}}}
+   Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.term_set('category'::paradedb.fieldname, $1))"}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
    InitPlan 1
      ->  Limit
-           Output: (paradedb.term('category'::paradedb.fieldname, allowed_categories.category))
+           Output: allowed_categories.category
            ->  Seq Scan on public.allowed_categories
-                 Output: paradedb.term('category'::paradedb.fieldname, allowed_categories.category)
+                 Output: allowed_categories.category
 (11 rows)
 
-SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
+SELECT COUNT(*) FROM mock_items WHERE category === ARRAY(SELECT category FROM allowed_categories LIMIT 5);
  count 
 -------
      5
@@ -47,38 +43,34 @@ WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT
   COUNT(*) AS total,
-  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2))),
-  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
+  COUNT(*) FILTER (WHERE category === ARRAY(SELECT category FROM allowed_categories LIMIT 2)),
+  COUNT(*) FILTER (WHERE category === ARRAY(SELECT category FROM allowed_categories LIMIT 2 OFFSET 2))
 FROM mock_items;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
    Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: search_idx
    Tantivy Query: "all"
      Applies to Aggregates: COUNT(*), COUNT(*), COUNT(*)
-     Aggregate Definition: {"0":{"filter":"*"},"1":{"aggs":{"0":{"filter":"*"}},"filter":{"query":{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.term_set($1))"}}},"type":"FilterQuery"}},"2":{"aggs":{"0":{"filter":"*"}},"filter":{"query":{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.term_set($2))"}}},"type":"FilterQuery"}}}
+     Aggregate Definition: {"0":{"filter":"*"},"1":{"aggs":{"0":{"filter":"*"}},"filter":{"query":{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.term_set('category'::paradedb.fieldname, $1))"}}},"type":"FilterQuery"}},"2":{"aggs":{"0":{"filter":"*"}},"filter":{"query":{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.term_set('category'::paradedb.fieldname, $2))"}}},"type":"FilterQuery"}}}
    InitPlan 1
      ->  Limit
-           Output: (paradedb.term('category'::paradedb.fieldname, allowed_categories.category))
+           Output: allowed_categories.category
            ->  Seq Scan on public.allowed_categories
-                 Output: paradedb.term('category'::paradedb.fieldname, allowed_categories.category)
+                 Output: allowed_categories.category
    InitPlan 2
      ->  Limit
-           Output: (paradedb.term('category'::paradedb.fieldname, allowed_categories_1.category))
+           Output: allowed_categories_1.category
            ->  Seq Scan on public.allowed_categories allowed_categories_1
-                 Output: paradedb.term('category'::paradedb.fieldname, allowed_categories_1.category)
+                 Output: allowed_categories_1.category
 (16 rows)
 
 SELECT
   COUNT(*) AS total,
-  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2))),
-  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
+  COUNT(*) FILTER (WHERE category === ARRAY(SELECT category FROM allowed_categories LIMIT 2)),
+  COUNT(*) FILTER (WHERE category === ARRAY(SELECT category FROM allowed_categories LIMIT 2 OFFSET 2))
 FROM mock_items;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  total | count | count 
 -------+-------+-------
     41 |     5 |     0
@@ -86,9 +78,7 @@ WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
 
 -- Make sure the results are correct
 SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
+SELECT COUNT(*) FROM mock_items WHERE category === ARRAY(SELECT category FROM allowed_categories LIMIT 5);
  count 
 -------
      5
@@ -96,11 +86,9 @@ WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
 
 SELECT
   COUNT(*) AS total,
-  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2))),
-  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
+  COUNT(*) FILTER (WHERE category === ARRAY(SELECT category FROM allowed_categories LIMIT 2)),
+  COUNT(*) FILTER (WHERE category === ARRAY(SELECT category FROM allowed_categories LIMIT 2 OFFSET 2))
 FROM mock_items;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  total | count | count 

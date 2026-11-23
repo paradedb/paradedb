@@ -32,23 +32,23 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all()::pdb.const(0);
 
 SELECT COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all()::pdb.const(0);
 
 \echo 'Test 2: GROUP BY -> one row for each group'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 ORDER BY account_id;
 
 SELECT account_id, COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 ORDER BY account_id;
 
@@ -56,13 +56,13 @@ ORDER BY account_id;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, SUM(price ORDER BY kind), MIN(price ORDER BY kind), MAX(price ORDER BY upper(kind))
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 ORDER BY account_id;
 
 SELECT account_id, SUM(price ORDER BY kind), MIN(price ORDER BY kind), MAX(price ORDER BY upper(kind))
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 ORDER BY account_id;
 
@@ -70,13 +70,13 @@ ORDER BY account_id;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT kind, COUNT(id ORDER BY kind, account_id)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY kind
 ORDER BY kind;
 
 SELECT kind, COUNT(id ORDER BY kind, account_id)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY kind
 ORDER BY kind;
 
@@ -84,20 +84,20 @@ ORDER BY kind;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, COUNT(DISTINCT kind)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 ORDER BY account_id;
 
 SELECT account_id, COUNT(DISTINCT kind)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 ORDER BY account_id;
 
 \echo 'Test 6: pdb.agg() -> one row'
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all()::pdb.const(0);
 
 \echo 'Test 7: DataFusion backend, sort key with a nondeterministic collation -> declined'
 -- The NUMERIC aggregate routes the query to DataFusion, which sorts by the
@@ -105,59 +105,59 @@ WHERE id @@@ paradedb.all();
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id <= 12 AND id @@@ paradedb.all()
+WHERE id <= 12 AND id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 ORDER BY account_id;
 
 SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id <= 12 AND id @@@ paradedb.all()
+WHERE id <= 12 AND id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 ORDER BY account_id;
 
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all()::pdb.const(0);
 
 SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all()::pdb.const(0);
 
 \echo 'Same results from PostgreSQL'
 SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all()::pdb.const(0);
 
 SELECT account_id, COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 ORDER BY account_id;
 
 SELECT account_id, SUM(price ORDER BY kind), MIN(price ORDER BY kind), MAX(price ORDER BY upper(kind))
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 ORDER BY account_id;
 
 SELECT kind, COUNT(id ORDER BY kind, account_id)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY kind
 ORDER BY kind;
 
 SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id <= 12 AND id @@@ paradedb.all()
+WHERE id <= 12 AND id @@@ pdb.all()::pdb.const(0)
 GROUP BY account_id
 ORDER BY account_id;
 
 SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all()::pdb.const(0);
 
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE ordered_agg_items;

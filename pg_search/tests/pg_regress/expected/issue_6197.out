@@ -26,9 +26,8 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
@@ -43,9 +42,8 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  count | min | max 
 -------+-----+-----
      3 | 991 | 999
@@ -54,8 +52,7 @@ WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('custom.score:>990');
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.parse('custom.score:>990');
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
@@ -68,8 +65,7 @@ WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
 
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('custom.score:>990');
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.parse('custom.score:>990');
  count 
 -------
      3
@@ -81,9 +77,8 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -102,9 +97,8 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  count | min | max 
 -------+-----+-----
      3 | 991 | 999
@@ -133,9 +127,8 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('score:>990')
+    WHERE id @@@ pdb.parse('score:>990')
 ) q;
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
@@ -150,9 +143,8 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('score:>990')
+    WHERE id @@@ pdb.parse('score:>990')
 ) q;
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  count | min | max 
 -------+-----+-----
      3 | 991 | 999
@@ -161,8 +153,7 @@ WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('score:>990');
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.parse('score:>990');
                                                         QUERY PLAN                                                        
 --------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
@@ -175,8 +166,7 @@ WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
 
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('score:>990');
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.parse('score:>990');
  count 
 -------
      3

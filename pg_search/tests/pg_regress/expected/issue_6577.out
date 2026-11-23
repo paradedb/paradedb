@@ -33,8 +33,7 @@ SELECT g,
        TIMETZ '00:00:00+00' + g * INTERVAL '1 minute'
 FROM generate_series(1, 500) g;
 CREATE INDEX i6577_s_idx ON i6577_s
-    USING bm25 (id, title, rating, d, ts, tstz, t, ttz);
-WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+    USING paradedb (id, title, rating, d, ts, tstz, t, ttz);
 CREATE TABLE i6577_e
 (
     id   INT PRIMARY KEY,
@@ -43,10 +42,7 @@ CREATE TABLE i6577_e
 );
 INSERT INTO i6577_e SELECT g, 'u1', g * 2 FROM generate_series(1, 100) g;
 CREATE INDEX i6577_e_idx ON i6577_e
-    USING bm25 (id, u, s_id)
-    WITH (text_fields = '{"u": {"fast": true, "tokenizer": {"type": "keyword"}}}');
-WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
-WARNING:  text_fields uses the deprecated ParadeDB V1 API
+    USING paradedb (id, (u::pdb.literal), s_id);
 ANALYZE i6577_s;
 ANALYZE i6577_e;
 SET paradedb.enable_join_custom_scan = on;
@@ -55,12 +51,10 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -74,14 +68,12 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id  |     d      
 -----+------------
  198 | 07-17-2000
@@ -94,12 +86,10 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- =============================================================================
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -113,14 +103,12 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id  |     d      
 -----+------------
  198 | 07-17-2000
@@ -130,10 +118,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id  |     d      
 -----+------------
  198 | 07-17-2000
@@ -147,12 +133,10 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 EXPLAIN (COSTS OFF)
 SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -166,14 +150,12 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id  |     d      
 -----+------------
  198 | 2000-07-17
@@ -183,10 +165,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id  |     d      
 -----+------------
  198 | 2000-07-17
@@ -200,14 +180,11 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.d::text AS d FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
-  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
-ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE s.title ||| 'dragon'
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.u === 'u1')
+ORDER BY pdb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s ANTI e
    Join Cond: e.s_id = s.id
@@ -221,16 +198,13 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.d::text AS d FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
-  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
-ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE s.title ||| 'dragon'
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.u === 'u1')
+ORDER BY pdb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
  id  |     d      
 -----+------------
   99 | 04-09-2000
@@ -240,12 +214,9 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.d::text AS d FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
-  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
-ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE s.title ||| 'dragon'
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.u === 'u1')
+ORDER BY pdb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
  id  |     d      
 -----+------------
   99 | 04-09-2000
@@ -260,12 +231,10 @@ SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -279,15 +248,13 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id  |            ts            |      ts_fmt      
 -----+--------------------------+------------------
  198 | Mon Jul 17 15:52:56 2000 | 2000-07-17 15:52
@@ -298,10 +265,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id  |            ts            |      ts_fmt      
 -----+--------------------------+------------------
  198 | Mon Jul 17 15:52:56 2000 | 2000-07-17 15:52
@@ -316,12 +281,10 @@ SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -335,15 +298,13 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id  |             tstz             |       tstz_fmt       
 -----+------------------------------+----------------------
  198 | Mon Jul 17 15:52:56 2000 UTC | 2000-07-17 15:52 UTC
@@ -354,10 +315,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id  |             tstz             |       tstz_fmt       
 -----+------------------------------+----------------------
  198 | Mon Jul 17 15:52:56 2000 UTC | 2000-07-17 15:52 UTC
@@ -372,12 +331,10 @@ SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -391,15 +348,13 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id  |    t     |     ttz     
 -----+----------+-------------
  198 | 03:18:00 | 03:18:00+00
@@ -410,10 +365,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id  |    t     |     ttz     
 -----+----------+-------------
  198 | 03:18:00 | 03:18:00+00
@@ -426,9 +379,8 @@ SET paradedb.enable_join_custom_scan = on;
 -- Control: d::text on a single table (base scan, PostgreSQL projects)
 -- =============================================================================
 SELECT s.id, s.d::text FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
+WHERE s.title ||| 'dragon'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
  id  |     d      
 -----+------------
   99 | 04-09-2000

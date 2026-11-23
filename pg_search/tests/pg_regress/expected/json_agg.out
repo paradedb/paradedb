@@ -35,10 +35,9 @@ SELECT
     metadata_json->>'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->>'value'
 ORDER BY count DESC, value;
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                        QUERY PLAN                                                        
 -------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -56,10 +55,9 @@ SELECT
     metadata_json->>'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->>'value'
 ORDER BY count DESC, value;
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  value  | count 
 --------+-------
  apple  |     3
@@ -80,10 +78,9 @@ SELECT
     metadata_json->'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->'value'
 ORDER BY count DESC;
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -100,10 +97,9 @@ SELECT
     metadata_json->'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->'value'
 ORDER BY count DESC;
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   value   | count 
 ----------+-------
  "apple"  |     3
@@ -125,10 +121,9 @@ SELECT
     MIN((metadata_json->>'count')::INT) AS min_count,
     MAX((metadata_json->>'count')::INT) AS max_count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->>'value'
 ORDER BY value;
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  value  | count | min_count | max_count 
 --------+-------+-----------+-----------
  apple  |     3 |         2 |         5

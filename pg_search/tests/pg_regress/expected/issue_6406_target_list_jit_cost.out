@@ -13,8 +13,7 @@ INSERT INTO issue_6406 (id, title, content)
 SELECT g, 'title-' || g, 'alpha bravo charlie ' || g
 FROM generate_series(1, 200) g;
 CREATE INDEX issue_6406_idx ON issue_6406
-USING paradedb (id, title, content) WITH (key_field = 'id');
-WARNING:  key_field uses the deprecated ParadeDB V1 API
+USING paradedb (id, title, content);
 ANALYZE issue_6406;
 CREATE OR REPLACE FUNCTION issue_6406_total_cost(query TEXT) RETURNS FLOAT8
 LANGUAGE plpgsql AS $$

@@ -1,6 +1,6 @@
 -- TermSet queries against JSON-column datetime subpaths, exercising both
 -- supported syntaxes:
---   * New API:    paradedb.term_set(terms => ARRAY[paradedb.term(...), ...])
+--   * V2 API:     json_path @@@ pdb.term_set(ARRAY[...])
 --   * Legacy API: raw JSONB '{"term_set": {"terms": [{"field": ..., "value": ..., "is_datetime": true}, ...]}}'::jsonb
 -- This locks in the OwnedValue::Date round-trip through CBOR for term_set
 -- (which the existing term_set regression tests don't cover because they use
@@ -17,19 +17,17 @@ INSERT INTO json_term_set_test (metadata) VALUES
 CREATE INDEX json_term_set_test_idx ON json_term_set_test
 USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')));
 -- ============================================================================
--- Datetime subpath: new API (paradedb.term_set + paradedb.term)
+-- Datetime subpath: typed V2 term set
 -- ============================================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM json_term_set_test
-WHERE id @@@ paradedb.term_set(terms => ARRAY[
-    paradedb.term('metadata.attributes.tstz', '2023-05-01T09:12:34Z'::timestamptz),
-    paradedb.term('metadata.attributes.tstz', '2023-05-01T10:12:34Z'::timestamptz)
+WHERE (metadata -> 'attributes' -> 'tstz') @@@ pdb.term_set(ARRAY[
+    '2023-05-01T09:12:34Z'::timestamptz,
+    '2023-05-01T10:12:34Z'::timestamptz
 ])
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_term_set_test
@@ -38,17 +36,15 @@ WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term_set":{"termset":{"metadata.attributes.tstz":[{"$__pdb_date__":"2023-05-01T09:12:34Z"},{"$__pdb_date__":"2023-05-01T10:12:34Z"}]}}}}}
+         Tantivy Query: {"with_index":{"query":{"term_set":{"field":"metadata.attributes.tstz","terms":[{"$__pdb_date__":"2023-05-01T09:12:34Z"},{"$__pdb_date__":"2023-05-01T10:12:34Z"}]}}}}
 (9 rows)
 
 SELECT id FROM json_term_set_test
-WHERE id @@@ paradedb.term_set(terms => ARRAY[
-    paradedb.term('metadata.attributes.tstz', '2023-05-01T09:12:34Z'::timestamptz),
-    paradedb.term('metadata.attributes.tstz', '2023-05-01T10:12:34Z'::timestamptz)
+WHERE (metadata -> 'attributes' -> 'tstz') @@@ pdb.term_set(ARRAY[
+    '2023-05-01T09:12:34Z'::timestamptz,
+    '2023-05-01T10:12:34Z'::timestamptz
 ])
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  id 
 ----
   2

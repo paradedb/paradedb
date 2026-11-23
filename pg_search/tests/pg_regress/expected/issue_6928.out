@@ -17,9 +17,9 @@ SELECT i, 'search document ' || i
 FROM generate_series(1, 100) AS i;
 CREATE INDEX issue_6928_docs_idx ON issue_6928_docs USING paradedb (id, body);
 -- The lookup stays empty, so the scalar subquery evaluates to NULL while the
--- query runs. A literal `(SELECT NULL::paradedb.searchqueryinput)` would instead
+-- query runs. A literal `(SELECT NULL::pdb.query)` would instead
 -- be folded to a NULL Const and rejected earlier by qual inspection.
-CREATE TABLE issue_6928_lookup (q paradedb.searchqueryinput);
+CREATE TABLE issue_6928_lookup (q pdb.query);
 -- Control: the index matches every row.
 SELECT count(*) FROM issue_6928_docs WHERE body @@@ 'document';
  count 
@@ -40,8 +40,8 @@ WHERE body @@@ (SELECT q FROM issue_6928_lookup);
 EXPLAIN (COSTS OFF)
 SELECT count(*) FROM issue_6928_docs
 WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup));
-                                                                                 QUERY PLAN                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    InitPlan 1
      ->  Seq Scan on issue_6928_lookup
@@ -50,7 +50,7 @@ WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup));
          Index: issue_6928_docs_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('issue_6928_docs_idx'::regclass, $1)"}}}]}}
+         Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('issue_6928_docs_idx'::regclass, paradedb.to_search_query_input('body'::paradedb.fieldname, $1))"}}}]}}
 (9 rows)
 
 SELECT count(*) FROM issue_6928_docs
@@ -115,26 +115,24 @@ WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup)) OR body @@@ 'document';
 -- A NULL parameter reaches the same `Null` query, through the planner's estimate
 -- fold for a generic plan.
 SET plan_cache_mode = force_generic_plan;
-PREPARE issue_6928_positive(paradedb.searchqueryinput) AS
+PREPARE issue_6928_positive(pdb.query) AS
 SELECT count(*) FROM issue_6928_docs WHERE body @@@ $1;
 EXECUTE issue_6928_positive(NULL);
-WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
  count 
 -------
      0
 (1 row)
 
-EXECUTE issue_6928_positive(paradedb.all());
+EXECUTE issue_6928_positive(pdb.all());
  count 
 -------
    100
 (1 row)
 
 DEALLOCATE issue_6928_positive;
-PREPARE issue_6928_negated(paradedb.searchqueryinput) AS
+PREPARE issue_6928_negated(pdb.query) AS
 SELECT count(*) FROM issue_6928_docs WHERE NOT (body @@@ $1);
 EXECUTE issue_6928_negated(NULL);
-WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
  count 
 -------
      0

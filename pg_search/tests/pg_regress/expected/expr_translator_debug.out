@@ -43,12 +43,11 @@ EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id FROM et_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM et_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND e.pattern || '_x' = i.name
 )
-AND i.id @@@ paradedb.all()
+AND i.id @@@ pdb.all()::pdb.const(0)
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 DEBUG:  PredicateTranslator: unsupported const type [Const] type=text
 DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", types=(text, text) | (e.pattern || '_x'::text)
 DEBUG:  PredicateTranslator: unsupported const type [Const] type=text
@@ -65,10 +64,10 @@ DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", t
      :     VisibilityFilterExec: tables=[i]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(name@1, CAST(pdb_eval_expr_opexpr_ab8e5591(e_1.pattern) AS Utf8View)@1)]
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_opexpr_ab8e5591(pattern@0) AS Utf8View) as CAST(pdb_eval_expr_opexpr_ab8e5591(e_1.pattern) AS Utf8View)]
      :           CooperativeExec
-     :             PgSearchScan: table=e, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :             PgSearchScan: table=e, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (14 rows)
 
 -- =====================================================================
@@ -80,12 +79,11 @@ EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id FROM et_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM et_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND md5(e.pattern) = i.name
 )
-AND i.id @@@ paradedb.all()
+AND i.id @@@ pdb.all()::pdb.const(0)
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, arity=1 | md5(e.pattern)
 DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, arity=1 | {FUNCEXPR :funcid 2311 :funcresulttype 25 :funcretset false :funcvariadic false :funcformat 0 :funccollid 100 :inputcollid 100 :args ({VAR :varno 2 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 2 :location -1}) :location -1}
                                                                                         QUERY PLAN                                                                                         
@@ -100,10 +98,10 @@ DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, a
      :     VisibilityFilterExec: tables=[i]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(name@1, CAST(pdb_eval_expr_funcexpr_685b54ea(e_1.pattern) AS Utf8View)@1)]
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_funcexpr_685b54ea(pattern@0) AS Utf8View) as CAST(pdb_eval_expr_funcexpr_685b54ea(e_1.pattern) AS Utf8View)]
      :           CooperativeExec
-     :             PgSearchScan: table=e, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :             PgSearchScan: table=e, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (14 rows)
 
 -- =====================================================================
@@ -120,12 +118,11 @@ EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id FROM et_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM et_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND CAST(i.value AS text) = e.pattern
 )
-AND i.id @@@ paradedb.all()
+AND i.id @@@ pdb.all()::pdb.const(0)
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=integer, target=text | (i.value)::text
 DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=integer, target=text | {COERCEVIAIO :arg {VAR :varno 1 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1} :resulttype 25 :resultcollid 100 :coerceformat 1 :location -1}
                                                                                                  QUERY PLAN                                                                                                  
@@ -141,9 +138,9 @@ DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=i
      :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(CAST(pdb_eval_expr_coerceviaio_66583d6c(i_0.value) AS Utf8View)@2, pattern@0)], projection=[ctid_0@0, value@1]
      :         ProjectionExec: expr=[ctid_0@0 as ctid_0, value@1 as value, CAST(pdb_eval_expr_coerceviaio_66583d6c(value@1) AS Utf8View) as CAST(pdb_eval_expr_coerceviaio_66583d6c(i_0.value) AS Utf8View)]
      :           CooperativeExec
-     :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":"all"}}
+     :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=e, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=e, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (14 rows)
 
 -- Cleanup

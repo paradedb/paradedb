@@ -8,7 +8,7 @@ DROP TABLE IF EXISTS normal_large_limit CASCADE;
 CREATE TABLE normal_large_limit (id TEXT PRIMARY KEY, body TEXT);
 INSERT INTO normal_large_limit
 SELECT 'k' || g, 'hello world ' || (g % 7) FROM generate_series(1, 20000) g;
-CREATE INDEX normal_large_limit_idx ON normal_large_limit USING bm25 (id, body);
+CREATE INDEX normal_large_limit_idx ON normal_large_limit USING paradedb (id, body);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id) FROM normal_large_limit

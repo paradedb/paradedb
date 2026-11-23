@@ -29,11 +29,10 @@ USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.u
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
-WHERE id @@@ paradedb.exists('metadata.category')
+WHERE (metadata -> 'category') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY 1
 LIMIT 5;
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                   QUERY PLAN                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -50,11 +49,10 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
-WHERE id @@@ paradedb.exists('metadata.category')
+WHERE (metadata -> 'category') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY 1
 LIMIT 5;
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   category   | count 
 -------------+-------
  clothing    |     4
@@ -65,11 +63,10 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
-WHERE id @@@ paradedb.exists('metadata.category')
+WHERE (metadata -> 'category') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -89,11 +86,10 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
-WHERE id @@@ paradedb.exists('metadata.category')
+WHERE (metadata -> 'category') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   category   | count 
 -------------+-------
  electronics |     3

@@ -22,14 +22,13 @@ INSERT INTO fn_wrapped_agg_logs (description, category) VALUES
     ('error in network', 'network'),
     ('info message', 'app');
 -- Test 1: Basic pdb.agg() with window function (should work)
--- Use paradedb.all() to force custom scan
+-- Use pdb.all() to force custom scan
 -- Only select indexed fields
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () 
 FROM fn_wrapped_agg_logs
-WHERE description @@@ paradedb.all()
+WHERE description @@@ pdb.all()::pdb.const(0)
 ORDER BY log_id DESC LIMIT 3;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                      QUERY PLAN                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -44,14 +43,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
             TopK Order By: log_id desc
             TopK Limit: 3
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":"all"}}
+         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"description"}},"score":0.0}}}}
 (13 rows)
 
 SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () 
 FROM fn_wrapped_agg_logs
-WHERE description @@@ paradedb.all()
+WHERE description @@@ pdb.all()::pdb.const(0)
 ORDER BY log_id DESC LIMIT 3;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  log_id |   description    | category |                                                                                     agg                                                                                      
 --------+------------------+----------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
       5 | info message     | app      | {"buckets": [{"key": "app", "doc_count": 3}, {"key": "db", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -63,9 +61,8 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT log_id, description, category, jsonb_pretty(pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()) 
 FROM fn_wrapped_agg_logs
-WHERE description @@@ paradedb.all()
+WHERE description @@@ pdb.all()::pdb.const(0)
 ORDER BY log_id DESC LIMIT 3;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                             QUERY PLAN                                                                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -80,14 +77,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
             TopK Order By: log_id desc
             TopK Limit: 3
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":"all"}}
+         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"description"}},"score":0.0}}}}
 (13 rows)
 
 SELECT log_id, description, category, jsonb_pretty(pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()) 
 FROM fn_wrapped_agg_logs
-WHERE description @@@ paradedb.all()
+WHERE description @@@ pdb.all()::pdb.const(0)
 ORDER BY log_id DESC LIMIT 3;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  log_id |   description    | category |             jsonb_pretty             
 --------+------------------+----------+--------------------------------------
       5 | info message     | app      | {                                   +
@@ -151,11 +147,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 WITH agg AS (
     SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as agg_result
     FROM fn_wrapped_agg_logs
-    WHERE description @@@ paradedb.all()
+    WHERE description @@@ pdb.all()::pdb.const(0)
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT * FROM agg;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                        QUERY PLAN                                                                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  CTE Scan on agg
@@ -173,17 +168,16 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                     TopK Order By: log_id desc
                     TopK Limit: 3
                  Full Index Scan: true
-                 Tantivy Query: {"with_index":{"query":"all"}}
+                 Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"description"}},"score":0.0}}}}
 (16 rows)
 
 WITH agg AS (
     SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as agg_result
     FROM fn_wrapped_agg_logs
-    WHERE description @@@ paradedb.all()
+    WHERE description @@@ pdb.all()::pdb.const(0)
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT * FROM agg;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  log_id |   description    | category |                                                                                  agg_result                                                                                  
 --------+------------------+----------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
       5 | info message     | app      | {"buckets": [{"key": "app", "doc_count": 3}, {"key": "db", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -196,11 +190,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 WITH agg AS (
     SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as agg_result
     FROM fn_wrapped_agg_logs
-    WHERE description @@@ paradedb.all()
+    WHERE description @@@ pdb.all()::pdb.const(0)
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                        QUERY PLAN                                                                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  CTE Scan on agg
@@ -218,17 +211,16 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                     TopK Order By: log_id desc
                     TopK Limit: 3
                  Full Index Scan: true
-                 Tantivy Query: {"with_index":{"query":"all"}}
+                 Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"description"}},"score":0.0}}}}
 (16 rows)
 
 WITH agg AS (
     SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as agg_result
     FROM fn_wrapped_agg_logs
-    WHERE description @@@ paradedb.all()
+    WHERE description @@@ pdb.all()::pdb.const(0)
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  log_id |   description    | category |             jsonb_pretty             
 --------+------------------+----------+--------------------------------------
       5 | info message     | app      | {                                   +

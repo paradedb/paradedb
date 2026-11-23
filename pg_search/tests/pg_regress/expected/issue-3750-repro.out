@@ -138,22 +138,20 @@ RESET paradedb.enable_custom_scan;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*) as count
 FROM places 
-WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ pdb.all()::pdb.const(0);
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.places
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: places_parade_idx
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(country_code = 'us'::text)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}]}},"always_filters":[{"heap_filter":"(country_code = 'us'::text)"}]}}]}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) as count
 FROM places 
-WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ pdb.all()::pdb.const(0);
  count 
 -------
  40000
@@ -165,8 +163,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- ============================================================
 SELECT 
     (SELECT COUNT(*) FROM places WHERE name &&& 'assist wireless' AND country_code = 'us') as custom_scan_count,
-    (SELECT COUNT(*) FROM places WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all()) as workaround_count;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+    (SELECT COUNT(*) FROM places WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ pdb.all()::pdb.const(0)) as workaround_count;
  custom_scan_count | workaround_count 
 -------------------+------------------
              40000 |            40000

@@ -52,21 +52,21 @@ FROM memory_units WHERE bank_id = 'bank1' AND fact_type = 'observation';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
 
 -- Serial: private iterators, so a re-claim simply opens a fresh one.
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
 
 -- Parity with the bitmap off.
 SET paradedb.enable_bitmap_intersection TO off;
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
 SET paradedb.enable_bitmap_intersection TO on;
 
 -- The issue's own shape: the scan sits on the inner side of a nested loop and is
@@ -85,8 +85,8 @@ FROM drivers d
 CROSS JOIN LATERAL (
     SELECT id FROM memory_units mu
     WHERE mu.bank_id = d.bank_id AND mu.fact_type = d.fact_type
-      AND mu.id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-    ORDER BY paradedb.score(mu.id) DESC, mu.id LIMIT 3
+      AND mu.body ||| 'alpha'
+    ORDER BY pdb.score(mu.id) DESC, mu.id LIMIT 3
 ) m
 ORDER BY d.n, m.id;
 SELECT d.n, m.id
@@ -94,8 +94,8 @@ FROM drivers d
 CROSS JOIN LATERAL (
     SELECT id FROM memory_units mu
     WHERE mu.bank_id = d.bank_id AND mu.fact_type = d.fact_type
-      AND mu.id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-    ORDER BY paradedb.score(mu.id) DESC, mu.id LIMIT 3
+      AND mu.body ||| 'alpha'
+    ORDER BY pdb.score(mu.id) DESC, mu.id LIMIT 3
 ) m
 ORDER BY d.n, m.id;
 RESET enable_memoize;
@@ -117,12 +117,12 @@ SET debug_parallel_query TO on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
 
 -- Unordered TopK with a window aggregate runs a second, standalone search over
 -- the participant's own segments after the TopK one, and the participants merge
@@ -132,12 +132,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
 FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+  AND body ||| 'alpha'
 LIMIT 10;
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
 FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+  AND body ||| 'alpha'
 LIMIT 10;
 RESET debug_parallel_query;
 RESET paradedb.min_rows_per_worker;
@@ -151,7 +151,7 @@ SET max_parallel_workers_per_gather TO 0;
 SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
 FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+  AND body ||| 'alpha'
 LIMIT 10;
 
 -- With no chunk growth the pass count is bounded only by the candidates. Thin the
@@ -171,13 +171,13 @@ SET debug_parallel_query TO on;
 SET paradedb.topk_retry_scale_factor TO 1;
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
 SET paradedb.enable_bitmap_intersection TO off;
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
 SET paradedb.enable_bitmap_intersection TO on;
 RESET paradedb.topk_retry_scale_factor;
 RESET debug_parallel_query;

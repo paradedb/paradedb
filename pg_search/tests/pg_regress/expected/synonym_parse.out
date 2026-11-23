@@ -26,8 +26,7 @@ INSERT INTO parse_products VALUES
     (14, 'oak table', 'sofa', '{"seat": "sofa"}'),
     (15, 'pine table', 'couch', '{"seat": "couch"}');
 CREATE INDEX parse_products_idx ON parse_products
-    USING bm25 (id, description, category, metadata);
-WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+    USING paradedb (id, description, category, metadata);
 -- The rules table needs no index. The subquery reads the rules, and the parsed query expands
 -- with them when the query runs.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -138,8 +137,7 @@ INSERT INTO parse_notes VALUES
     (2, 'couch of leather'),
     (3, 'couch leather');
 CREATE INDEX parse_notes_idx ON parse_notes
-    USING bm25 (id, (note::pdb.simple('stopwords_language=English')));
-WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+    USING paradedb (id, (note::pdb.simple('stopwords_language=English')));
 SELECT id FROM parse_notes
 WHERE note @@@ (SELECT pdb.expand('"sofa of leather"', rule) FROM parse_synonyms) ORDER BY id;
 WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "parse_synonyms" has no synonym index for these rules with the tokenizer of field `note`. To disable this warning: SET paradedb.planner_warnings = 'off'
@@ -325,8 +323,7 @@ DEALLOCATE parse_sofa;
 CREATE TABLE parse_stems (id int PRIMARY KEY, title text);
 INSERT INTO parse_stems VALUES (1, 'running shoes'), (2, 'sneakers');
 CREATE INDEX parse_stems_idx ON parse_stems
-    USING bm25 (id, (title::pdb.simple('stemmer=english'))) WITH (search_tokenizer = 'simple');
-WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+    USING paradedb (id, (title::pdb.simple('stemmer=english'))) WITH (search_tokenizer = 'simple');
 CREATE INDEX parse_synonyms_stem_idx ON parse_synonyms
     USING paradedb ((rule::pdb.simple('stemmer=english')));
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -358,8 +355,7 @@ DROP TABLE parse_stems;
 -- An alternative of several tokens is a phrase, so the field has to keep positions.
 CREATE TABLE parse_grams (id int PRIMARY KEY, title text);
 INSERT INTO parse_grams VALUES (1, 'sofa');
-CREATE INDEX parse_grams_idx ON parse_grams USING bm25 (id, (title::pdb.ngram(3, 3)));
-WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+CREATE INDEX parse_grams_idx ON parse_grams USING paradedb (id, (title::pdb.ngram(3, 3)));
 SELECT id FROM parse_grams
 WHERE title @@@ (SELECT pdb.expand('sofa', rule) FROM parse_synonyms);
 ERROR:  the synonym `cou ouc uch` of `sof ofa` is a phrase, and field `title` is not indexed with positions

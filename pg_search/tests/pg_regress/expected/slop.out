@@ -148,8 +148,7 @@ SELECT * FROM content_segment_text  WHERE content ### '项目计划';
  doc1_002 | user_1000  |        2 | text       |    1000 |    1000 |   1000 |  10001 | 项目计划.docx |     5001 | 1672502400000 | 1672502400000 | 2023 | 202301 | 20230101 | docx | 20480 |       100 | {100}      | document |       1 |     1672502400000 | office    | 这是项目计划文档的第二部分内容...
 (2 rows)
 
-SELECT * FROM content_segment_text WHERE id @@@ paradedb.phrase('content', ARRAY['项目', '计划']);
-WARNING:  paradedb.phrase() uses the deprecated ParadeDB V1 API
+SELECT * FROM content_segment_text WHERE content @@@ pdb.phrase(ARRAY['项目', '计划']);
     id    | routing_id | chunk_id | chunk_type | user_id | creator | sharer | fileid |   filename    | group_id |     ctime     |     mtime     |  y   |   ym   |   ymd    | ext  | fsize | parent_id | parent_ids |  ftype   | version | index_update_time | ext_group |              content              
 ----------+------------+----------+------------+---------+---------+--------+--------+---------------+----------+---------------+---------------+------+--------+----------+------+-------+-----------+------------+----------+---------+-------------------+-----------+-----------------------------------
  doc1_001 | user_1000  |        1 | text       |    1000 |    1000 |   1000 |  10001 | 项目计划.docx |     5001 | 1672502400000 | 1672502400000 | 2023 | 202301 | 20230101 | docx | 20480 |       100 | {100}      | document |       1 |     1672502400000 | office    | 这是项目计划文档的第一部分内容...

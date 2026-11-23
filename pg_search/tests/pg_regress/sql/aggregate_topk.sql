@@ -19,14 +19,14 @@ CREATE INDEX idx_mock_items ON mock_items
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, COUNT(*)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
 
 SELECT category, COUNT(*)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
@@ -39,14 +39,14 @@ LIMIT 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, SUM(rating)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
 
 SELECT category, SUM(rating)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
@@ -57,14 +57,14 @@ LIMIT 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, COUNT(*)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) ASC
 LIMIT 2;
 
 SELECT category, COUNT(*)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) ASC
 LIMIT 2;
@@ -74,7 +74,7 @@ LIMIT 2;
 -- ================================================================
 SELECT category, COUNT(*)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 2 OFFSET 1;
@@ -85,14 +85,14 @@ LIMIT 2 OFFSET 1;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT category, COUNT(*), SUM(rating)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) DESC;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT category, COUNT(*), SUM(rating)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) DESC;
 
@@ -103,14 +103,14 @@ ORDER BY COUNT(*) DESC;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, COUNT(*), SUM(rating), MIN(rating), MAX(rating)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
 
 SELECT category, COUNT(*), SUM(rating), MIN(rating), MAX(rating)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
@@ -121,14 +121,14 @@ LIMIT 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, COUNT(*)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
 
 SELECT category, COUNT(*)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
@@ -138,7 +138,7 @@ LIMIT 1;
 -- ================================================================
 SELECT category, COUNT(*)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 100;
@@ -152,7 +152,7 @@ LIMIT 100;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT category, COUNT(*)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
@@ -160,7 +160,7 @@ LIMIT 3;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT category, COUNT(*)
 FROM mock_items
-WHERE mock_items @@@ paradedb.all()
+WHERE mock_items @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
@@ -191,7 +191,7 @@ INSERT INTO agg_null_test (category, score) VALUES
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT category, SUM(score) AS s
 FROM agg_null_test
-WHERE agg_null_test @@@ paradedb.all()
+WHERE agg_null_test @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY category;
 
@@ -199,7 +199,7 @@ ORDER BY category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT category, SUM(score) AS s
 FROM agg_null_test
-WHERE agg_null_test @@@ paradedb.all()
+WHERE agg_null_test @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY category;
 
@@ -207,14 +207,14 @@ ORDER BY category;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT category, MIN(score), MAX(score)
 FROM agg_null_test
-WHERE agg_null_test @@@ paradedb.all()
+WHERE agg_null_test @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY category;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT category, MIN(score), MAX(score)
 FROM agg_null_test
-WHERE agg_null_test @@@ paradedb.all()
+WHERE agg_null_test @@@ pdb.all()::pdb.const(0)
 GROUP BY category
 ORDER BY category;
 

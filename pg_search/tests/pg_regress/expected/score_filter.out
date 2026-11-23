@@ -20,19 +20,18 @@ CREATE INDEX score_items_idx ON score_items USING paradedb (id, description);
 -- TEST 1: Score filter >= 0 (matches everything)
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) >= 0
+  AND pdb.score(id) >= 0
 ORDER BY id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                 QUERY PLAN                                                                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: id, description, (paradedb.score(id))
+   Output: id, description, (pdb.score(id))
    Sort Key: score_items.id
    ->  Custom Scan (ParadeDB Base Scan) on public.score_items
-         Output: id, description, paradedb.score(id)
+         Output: id, description, pdb.score(id)
          Table: score_items
          Index: score_items_idx
          Worker Selection: Cost model
@@ -41,12 +40,11 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
          Tantivy Query: {"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"PostgreSQL","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
 (11 rows)
 
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) >= 0
+  AND pdb.score(id) >= 0
 ORDER BY id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |      description      |   score   
 ----+-----------------------+-----------
   1 | PostgreSQL is amazing | 1.0226655
@@ -57,19 +55,18 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 -- =============================================================================
 -- We expect one row to match 'PostgreSQL' with a positive score
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) > 0.1
+  AND pdb.score(id) > 0.1
 ORDER BY id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                         QUERY PLAN                                                                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: id, description, (paradedb.score(id))
+   Output: id, description, (pdb.score(id))
    Sort Key: score_items.id
    ->  Custom Scan (ParadeDB Base Scan) on public.score_items
-         Output: id, description, paradedb.score(id)
+         Output: id, description, pdb.score(id)
          Table: score_items
          Index: score_items_idx
          Worker Selection: Cost model
@@ -78,12 +75,11 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
          Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":0.10000000149011612},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"PostgreSQL","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
 (11 rows)
 
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) > 0.1
+  AND pdb.score(id) > 0.1
 ORDER BY id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |      description      |   score   
 ----+-----------------------+-----------
   1 | PostgreSQL is amazing | 1.0226655
@@ -93,19 +89,18 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 -- TEST 3: Score filter that excludes matches
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) > 10.0
+  AND pdb.score(id) > 10.0
 ORDER BY id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                 QUERY PLAN                                                                                                                                                 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: id, description, (paradedb.score(id))
+   Output: id, description, (pdb.score(id))
    Sort Key: score_items.id
    ->  Custom Scan (ParadeDB Base Scan) on public.score_items
-         Output: id, description, paradedb.score(id)
+         Output: id, description, pdb.score(id)
          Table: score_items
          Index: score_items_idx
          Worker Selection: Cost model
@@ -114,12 +109,11 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
          Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":10.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"PostgreSQL","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
 (11 rows)
 
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) > 10.0
+  AND pdb.score(id) > 10.0
 ORDER BY id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id | description | score 
 ----+-------------+-------
 (0 rows)
@@ -128,20 +122,19 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 -- TEST 4: Multiple score filters
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) >= 0
-  AND paradedb.score(id) < 100
+  AND pdb.score(id) >= 0
+  AND pdb.score(id) < 100
 ORDER BY id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: id, description, (paradedb.score(id))
+   Output: id, description, (pdb.score(id))
    Sort Key: score_items.id
    ->  Custom Scan (ParadeDB Base Scan) on public.score_items
-         Output: id, description, paradedb.score(id)
+         Output: id, description, pdb.score(id)
          Table: score_items
          Index: score_items_idx
          Worker Selection: Cost model
@@ -150,13 +143,12 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
          Tantivy Query: {"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":{"score_filter":{"bounds":[["Unbounded",{"Excluded":100.0}]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"PostgreSQL","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}}}
 (11 rows)
 
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) >= 0
-  AND paradedb.score(id) < 100
+  AND pdb.score(id) >= 0
+  AND pdb.score(id) < 100
 ORDER BY id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |      description      |   score   
 ----+-----------------------+-----------
   1 | PostgreSQL is amazing | 1.0226655
@@ -168,18 +160,17 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 -- This test verifies that if there are no other query inputs, the ScoreFilter
 -- correctly defaults to SearchQueryInput::All.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
-WHERE paradedb.score(id) >= 0
+WHERE pdb.score(id) >= 0
 ORDER BY id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                             QUERY PLAN                                             
 ---------------------------------------------------------------------------------------------------
  Sort
-   Output: id, description, (paradedb.score(id))
+   Output: id, description, (pdb.score(id))
    Sort Key: score_items.id
    ->  Custom Scan (ParadeDB Base Scan) on public.score_items
-         Output: id, description, paradedb.score(id)
+         Output: id, description, pdb.score(id)
          Table: score_items
          Index: score_items_idx
          Worker Selection: Cost model
@@ -189,11 +180,10 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
          Tantivy Query: {"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":"all"}}
 (12 rows)
 
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
-WHERE paradedb.score(id) >= 0
+WHERE pdb.score(id) >= 0
 ORDER BY id;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |         description         | score 
 ----+-----------------------------+-------
   1 | PostgreSQL is amazing       |     0

@@ -39,13 +39,13 @@ SET parallel_tuple_cost = 0;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "data", "size": 50000}}'::jsonb) OVER ()
 FROM large_agg_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id
 LIMIT 1;
 
 SELECT pdb.agg('{"terms": {"field": "data", "size": 50000}}'::jsonb) OVER ()
 FROM large_agg_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id
 LIMIT 1;
 
@@ -79,18 +79,18 @@ DELETE FROM delete_agg_test WHERE id > 1;
 -- Test as aggregate function
 -- Should return 1
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
-SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
+SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ pdb.all()::pdb.const(0);
 
 -- Should return {"value": 1.0}
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
-SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ pdb.all()::pdb.const(0);
 
 -- Should return count: 1
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
-SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ pdb.all()::pdb.const(0);
 
 
 -- Test as window function
@@ -100,7 +100,7 @@ SELECT
     COUNT(*) OVER (),
     pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
 FROM delete_agg_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id
 LIMIT 1;
 
@@ -108,7 +108,7 @@ SELECT
     COUNT(*) OVER (),
     pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
 FROM delete_agg_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id
 LIMIT 1;
 
@@ -133,19 +133,19 @@ ANALYZE mvcc_agg_test;
 
 -- Test solve_mvcc=false in standard aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all();
-SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ pdb.all()::pdb.const(0);
 
 -- Test solve_mvcc=false with GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
-SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
+SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY category ORDER BY category;
+SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY category ORDER BY category;
 
 -- Test conflicting MVCC settings (should error)
 SELECT
     pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false),
     pdb.agg('{"value_count": {"field": "category"}}'::jsonb, true)
-FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+FROM mvcc_agg_test WHERE id @@@ pdb.all()::pdb.const(0);
 
 DROP TABLE mvcc_agg_test;
 

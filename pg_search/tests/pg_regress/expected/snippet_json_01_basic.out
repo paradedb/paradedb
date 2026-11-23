@@ -33,8 +33,7 @@ SELECT id,
        pdb.snippet(metadata_jsonb->'details'->'author'->>'description'),
        pdb.snippet_positions(metadata_jsonb->'details'->'author'->>'description')
 FROM snippet_test
-WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.parse('metadata_jsonb.details.author.description:test');
  id |       snippet        | snippet_positions 
 ----+----------------------+-------------------
   1 | A <b>test</b> author | {{2,6}}
@@ -44,8 +43,7 @@ SELECT id,
        pdb.snippet(metadata_jsonb#>'{details,author,description}'),
        pdb.snippet_positions(metadata_jsonb#>'{details,author,description}')
 FROM snippet_test
-WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.parse('metadata_jsonb.details.author.description:test');
  id |       snippet        | snippet_positions 
 ----+----------------------+-------------------
   1 | A <b>test</b> author | {{2,6}}
@@ -55,8 +53,7 @@ SELECT id,
        pdb.snippet(metadata_jsonb#>>'{details,author,description}'),
        pdb.snippet_positions(metadata_jsonb#>>'{details,author,description}')
 FROM snippet_test
-WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.parse('metadata_jsonb.details.author.description:test');
  id |       snippet        | snippet_positions 
 ----+----------------------+-------------------
   1 | A <b>test</b> author | {{2,6}}
@@ -66,8 +63,7 @@ SELECT id,
        pdb.snippet(metadata_json->'tags'),
        pdb.snippet_positions(metadata_json->'tags')
 FROM snippet_test
-WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.parse('metadata_json.tags:snippet');
  id |       snippet       | snippet_positions 
 ----+---------------------+-------------------
   1 | test <b>snippet</b> | {{5,12}}
@@ -77,8 +73,7 @@ SELECT id,
        pdb.snippet(metadata_json#>'{tags}'),
        pdb.snippet_positions(metadata_json#>'{tags}')
 FROM snippet_test
-WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.parse('metadata_json.tags:snippet');
  id |       snippet       | snippet_positions 
 ----+---------------------+-------------------
   1 | test <b>snippet</b> | {{5,12}}
@@ -88,8 +83,7 @@ SELECT id,
        pdb.snippet(metadata_json#>>'{tags}'),
        pdb.snippet_positions(metadata_json#>>'{tags}')
 FROM snippet_test
-WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.parse('metadata_json.tags:snippet');
  id |       snippet       | snippet_positions 
 ----+---------------------+-------------------
   1 | test <b>snippet</b> | {{5,12}}

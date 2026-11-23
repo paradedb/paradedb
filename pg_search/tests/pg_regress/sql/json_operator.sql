@@ -79,22 +79,22 @@ ORDER BY id LIMIT 5;
 
 -- without keyword, we can't push down to term set
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
-WHERE metadata->>'color' IN ('white', 'black') AND id @@@ paradedb.all()
+WHERE metadata->>'color' IN ('white', 'black') AND id @@@ pdb.all()::pdb.const(0)
 ORDER BY id LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
-WHERE metadata->>'color' IN ('white', 'black') AND id @@@ paradedb.all()
+WHERE metadata->>'color' IN ('white', 'black') AND id @@@ pdb.all()::pdb.const(0)
 ORDER BY id LIMIT 5;
 
 -- should be pushed down
 SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items
-WHERE (metadata->>'price')::int IN (80, 100, 120) AND id @@@ paradedb.all()
+WHERE (metadata->>'price')::int IN (80, 100, 120) AND id @@@ pdb.all()::pdb.const(0)
 ORDER BY id LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items
-WHERE (metadata->>'price')::int IN (80, 100, 120) AND id @@@ paradedb.all()
+WHERE (metadata->>'price')::int IN (80, 100, 120) AND id @@@ pdb.all()::pdb.const(0)
 ORDER BY id LIMIT 5;
 
 -- CASE 2: fast, keyword tokenizer
@@ -104,7 +104,7 @@ CREATE INDEX search_idx ON mock_items USING paradedb (id, description, category,
 -- with keyword, should be pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
-WHERE metadata->>'color' IN ('white', 'black') AND id @@@ paradedb.all()
+WHERE metadata->>'color' IN ('white', 'black') AND id @@@ pdb.all()::pdb.const(0)
 ORDER BY id LIMIT 5;
 
 DROP TABLE mock_items;

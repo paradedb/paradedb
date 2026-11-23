@@ -36,13 +36,13 @@ SET debug_parallel_query TO on;
 EXPLAIN (COSTS OFF)
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
+    WHERE bank_id = 'bank1' AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
 FROM drv d ORDER BY d.n;
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
+    WHERE bank_id = 'bank1' AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
 FROM drv d ORDER BY d.n;
 
 -- The bitmap follows an initPlan of the outer row, so each round rebuilds it
@@ -50,13 +50,13 @@ FROM drv d ORDER BY d.n;
 EXPLAIN (COSTS OFF)
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE bank_id = (SELECT 'bank' || d.n) AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE bank_id = (SELECT 'bank' || d.n) AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
 
 -- The workers of each round read the round's parameters (#6790): one in a heap
@@ -68,25 +68,25 @@ SET paradedb.enable_bitmap_intersection TO off;
 EXPLAIN (COSTS OFF)
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE bank_id = (SELECT 'bank' || d.n) AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE bank_id = (SELECT 'bank' || d.n) AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
 SET paradedb.enable_bitmap_intersection TO on;
 EXPLAIN (COSTS OFF)
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE id @@@ paradedb.term('body', (SELECT (d.n * 4 + 1)::text))
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE body === (SELECT (d.n * 4 + 1)::text)
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE id @@@ paradedb.term('body', (SELECT (d.n * 4 + 1)::text))
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE body === (SELECT (d.n * 4 + 1)::text)
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
 RESET parallel_leader_participation;
 
@@ -95,13 +95,13 @@ EXPLAIN (COSTS OFF)
 SELECT d.n, (SELECT count(*) FROM (
     SELECT id FROM (
         SELECT id FROM clean_units
-        WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha') OFFSET 0) x
+        WHERE bank_id = 'bank1' AND body ||| 'alpha' OFFSET 0) x
     LIMIT 3) s WHERE d.n > 0) AS rows
 FROM drv d ORDER BY d.n;
 SELECT d.n, (SELECT count(*) FROM (
     SELECT id FROM (
         SELECT id FROM clean_units
-        WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha') OFFSET 0) x
+        WHERE bank_id = 'bank1' AND body ||| 'alpha' OFFSET 0) x
     LIMIT 3) s WHERE d.n > 0) AS rows
 FROM drv d ORDER BY d.n;
 
@@ -109,23 +109,23 @@ FROM drv d ORDER BY d.n;
 SET max_parallel_workers_per_gather TO 0;
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
+    WHERE bank_id = 'bank1' AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
 FROM drv d ORDER BY d.n;
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE bank_id = (SELECT 'bank' || d.n) AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE id @@@ paradedb.term('body', (SELECT (d.n * 4 + 1)::text))
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE body === (SELECT (d.n * 4 + 1)::text)
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
 SELECT d.n, (SELECT count(*) FROM (
     SELECT id FROM (
         SELECT id FROM clean_units
-        WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha') OFFSET 0) x
+        WHERE bank_id = 'bank1' AND body ||| 'alpha' OFFSET 0) x
     LIMIT 3) s WHERE d.n > 0) AS rows
 FROM drv d ORDER BY d.n;
 

@@ -95,7 +95,7 @@ RESET paradedb.vector_max_scan_levels;
 WITH plan AS (
     SELECT replication_explain(
         'SELECT id FROM replication_on '
-        'WHERE id @@@ paradedb.range(''id'', int4range(1, 11, ''[)'')) '
+        'WHERE id @@@ pdb.range(int4range(1, 11, ''[)'')) '
         'ORDER BY emb <=> replication_fixture_vector(768, 0), id LIMIT 10'
     ) AS value
 ), segment_info AS (
@@ -106,7 +106,6 @@ SELECT
     (jsonb_path_query_first(value, '$.**.access_path') #>> '{}') = 'Located' AS located,
     (jsonb_path_query_first(value, '$.**.replication_dropped') #>> '{}')::bigint = 0 AS nothing_dropped
 FROM segment_info;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  located | nothing_dropped 
 ---------+-----------------
  t       | t
@@ -114,14 +113,13 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 
 SELECT (SELECT array_agg(id ORDER BY id) FROM (
             SELECT id FROM replication_on
-            WHERE id @@@ paradedb.range('id', int4range(1, 11, '[)'))
+            WHERE id @@@ pdb.range(int4range(1, 11, '[)'))
             ORDER BY emb <=> replication_fixture_vector(768, 0), id LIMIT 10) s)
      = (SELECT array_agg(id ORDER BY id) FROM (
             SELECT id FROM replication_off
-            WHERE id @@@ paradedb.range('id', int4range(1, 11, '[)'))
+            WHERE id @@@ pdb.range(int4range(1, 11, '[)'))
             ORDER BY emb <=> replication_fixture_vector(768, 0), id LIMIT 10) s)
         AS located_same_ids;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  located_same_ids 
 ------------------
  t

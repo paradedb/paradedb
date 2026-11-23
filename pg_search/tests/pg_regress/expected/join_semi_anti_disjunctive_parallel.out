@@ -87,15 +87,14 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id
    Relation Tree: i ANTI e
@@ -123,8 +122,8 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :     ┌───── Stage 1 ── tasks=2, partitions=8
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=4, output_partitions=4
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
-     :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
+     :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+     :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :     └──────────────────────────────────────────────────
 (30 rows)
 
@@ -133,26 +132,24 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 SET paradedb.enable_join_custom_scan = off;
 CREATE TEMP TABLE jsd_par_r1_off AS
 SELECT i.id
 FROM jsd_par_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 SET paradedb.enable_join_custom_scan = on;
 -- Row counts must match.
 SELECT
@@ -210,7 +207,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name
@@ -220,9 +217,8 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id
    Relation Tree: i SEMI e
@@ -250,8 +246,8 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :     ┌───── Stage 1 ── tasks=2, partitions=8
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=4, output_partitions=4
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
-     :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":"all"}}
+     :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+     :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :     └──────────────────────────────────────────────────
 (30 rows)
 
@@ -260,7 +256,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name
@@ -270,14 +266,13 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 SET paradedb.enable_join_custom_scan = off;
 CREATE TEMP TABLE jsd_par_r2_off AS
 SELECT i.id
 FROM jsd_par_items i
 WHERE EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name
@@ -287,7 +282,6 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 SET paradedb.enable_join_custom_scan = on;
 SELECT
     (SELECT count(*) FROM jsd_par_r2_on)  AS joinscan_rows,

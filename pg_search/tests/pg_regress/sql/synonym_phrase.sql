@@ -21,7 +21,7 @@ INSERT INTO phrase_products VALUES
     (8, 'blue sneakers'),
     (9, 'couch'),
     (10, 'sofa cot');
-CREATE INDEX phrase_products_idx ON phrase_products USING bm25 (id, description);
+CREATE INDEX phrase_products_idx ON phrase_products USING paradedb (id, description);
 
 -- The rules table needs no index. The subquery reads the rules, and the phrase expands with them.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

@@ -24,7 +24,7 @@ INSERT INTO products VALUES
     (7, 'television stand'),
     (8, 'sofa and couch set'),
     (9, 'velvet settee');
-CREATE INDEX products_idx ON products USING bm25 (id, description);
+CREATE INDEX products_idx ON products USING paradedb (id, description);
 
 -- The rules table needs no index. The subquery reads the rules, and the match expands with them.
 -- A planner warning says why no index is read.
@@ -103,7 +103,7 @@ RESET paradedb.synonyms_max_rules_per_key;
 -- The rules are compiled with the tokenizer of the field, so a stemmed field expands a stemmed word.
 CREATE TABLE en_products (id int PRIMARY KEY, description text);
 INSERT INTO en_products VALUES (1, 'two couches'), (2, 'a sofa'), (3, 'a divan');
-CREATE INDEX en_products_idx ON en_products USING bm25 (
+CREATE INDEX en_products_idx ON en_products USING paradedb (
     id, (description::pdb.simple('stemmer=english'))
 );
 SELECT id FROM en_products
@@ -151,7 +151,7 @@ CREATE TABLE cased_products (id int PRIMARY KEY, description text, label text);
 INSERT INTO cased_products VALUES
     (1, 'red couch', 'Red Couch'),
     (2, 'leather sofa', 'Leather Sofa');
-CREATE INDEX cased_products_idx ON cased_products USING bm25 (
+CREATE INDEX cased_products_idx ON cased_products USING paradedb (
     id,
     (description::pdb.unicode_words('lowercase=true')),
     (label::pdb.unicode_words('lowercase=false'))
@@ -173,7 +173,7 @@ CREATE TABLE parted_products (id int PRIMARY KEY, description text) PARTITION BY
 CREATE TABLE parted_products_low PARTITION OF parted_products FOR VALUES FROM (0) TO (5);
 CREATE TABLE parted_products_high PARTITION OF parted_products FOR VALUES FROM (5) TO (100);
 INSERT INTO parted_products SELECT id, description FROM products;
-CREATE INDEX parted_products_idx ON parted_products USING bm25 (id, description);
+CREATE INDEX parted_products_idx ON parted_products USING paradedb (id, description);
 SELECT id FROM parted_products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
 DROP TABLE parted_products;

@@ -106,7 +106,7 @@ FROM repro_5525_parent AS "Parent"
 JOIN repro_5525_child  AS "Child"
   ON "Parent"."child_id" = "Child"."id"
 WHERE "Parent"."owner" = 'user-1'
-  AND "Child"."id" @@@ paradedb.term('state', 'active'::text)
+  AND "Child"."state" === 'active'::text
 ORDER BY "Parent"."updated_at" DESC
 LIMIT 12;
 
@@ -115,7 +115,7 @@ FROM repro_5525_parent AS "Parent"
 JOIN repro_5525_child  AS "Child"
   ON "Parent"."child_id" = "Child"."id"
 WHERE "Parent"."owner" = 'user-1'
-  AND "Child"."id" @@@ paradedb.term('state', 'active'::text)
+  AND "Child"."state" === 'active'::text
 ORDER BY "Parent"."updated_at" DESC
 LIMIT 12;
 
@@ -126,7 +126,7 @@ FROM repro_5525_parent AS "Parent"
 JOIN repro_5525_child  AS "Child"
   ON "Parent"."child_id" = "Child"."id"
 WHERE "Parent"."owner" = 'user-1'
-  AND "Child"."id" @@@ paradedb.term('state', 'active'::text)
+  AND "Child"."state" === 'active'::text
 ORDER BY "Parent"."updated_at" DESC
 LIMIT 12;
 SET paradedb.enable_join_custom_scan TO on;
@@ -137,7 +137,7 @@ FROM repro_5525_parent AS parent
 JOIN repro_5525_child  AS child
   ON parent.child_id = child.id
 WHERE parent.owner = 'user-1'
-  AND child.id @@@ paradedb.term('state', 'active'::text)
+  AND child."state" === 'active'::text
 ORDER BY parent.updated_at DESC
 LIMIT 12;
 
@@ -160,7 +160,7 @@ FROM repro_5525_parent AS "P.A"
 JOIN repro_5525_child  AS "C.A"
   ON "P.A"."child_id" = "C.A"."id"
 WHERE "P.A"."owner" = 'user-1'
-  AND "C.A"."id" @@@ paradedb.term('state', 'active'::text)
+  AND "C.A"."state" === 'active'::text
 ORDER BY "P.A"."updated_at" DESC
 LIMIT 12;
 
@@ -187,7 +187,7 @@ FROM repro_5525_parent AS "123"
 JOIN repro_5525_child  AS "456"
   ON "123"."child_id" = "456"."id"
 WHERE "123"."owner" = 'user-1'
-  AND "456"."id" @@@ paradedb.term('state', 'active'::text)
+  AND "456"."state" === 'active'::text
 ORDER BY "123"."updated_at" DESC
 LIMIT 12;
 

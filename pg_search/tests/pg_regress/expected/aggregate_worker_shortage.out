@@ -15,7 +15,7 @@ DECLARE
     plan jsonb;
 BEGIN
     EXECUTE 'EXPLAIN (FORMAT JSON) SELECT count(*) FROM aggregate_worker_shortage
-             WHERE body @@@ paradedb.all()
+             WHERE body @@@ pdb.all()::pdb.const(0)
                AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5))'
     INTO plan;
     ASSERT jsonb_path_exists(plan, '$.**."Workers Planned" ? (@ > 0)');
@@ -23,47 +23,41 @@ BEGIN
     ASSERT plan::text LIKE '%InitPlan%';
 END
 $$;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 SELECT count(*) FROM aggregate_worker_shortage
-WHERE body @@@ paradedb.all()
+WHERE body @@@ pdb.all()::pdb.const(0)
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
 (1 row)
 
 SELECT count(*) FROM aggregate_worker_shortage
-WHERE body @@@ paradedb.all()
+WHERE body @@@ pdb.all()::pdb.const(0)
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
 (1 row)
 
 SELECT count(*) FROM aggregate_worker_shortage
-WHERE body @@@ paradedb.all()
+WHERE body @@@ pdb.all()::pdb.const(0)
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
 (1 row)
 
 SELECT count(*) FROM aggregate_worker_shortage
-WHERE body @@@ paradedb.all()
+WHERE body @@@ pdb.all()::pdb.const(0)
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
 (1 row)
 
 SELECT count(*) FROM aggregate_worker_shortage
-WHERE body @@@ paradedb.all()
+WHERE body @@@ pdb.all()::pdb.const(0)
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5

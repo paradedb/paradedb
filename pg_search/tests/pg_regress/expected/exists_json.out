@@ -11,8 +11,7 @@ INSERT INTO exists_json (description, data) VALUES ('Engineer', '{"last_name": "
 INSERT INTO exists_json (description, data) VALUES ('CEO', NULL);
 INSERT INTO exists_json (description, data) VALUES ('CTO', '{"first_name": "Jim", "last_name": "Johnson"}');
 CREATE INDEX idx_exists_json_data ON exists_json USING paradedb (id, description, (data::pdb.unicode_words('columnar=true')));
-SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.first_name');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+SELECT * FROM exists_json WHERE (data -> 'first_name') @@@ pdb.exists();
  id |    description    |                     data                      
 ----+-------------------+-----------------------------------------------
   1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}
@@ -20,8 +19,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   5 | CTO               | {"last_name": "Johnson", "first_name": "Jim"}
 (3 rows)
 
-SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.last_name') OR description ||| 'CEO';
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+SELECT * FROM exists_json WHERE (data -> 'last_name') @@@ pdb.exists() OR description ||| 'CEO';
  id |    description    |                     data                      
 ----+-------------------+-----------------------------------------------
   1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}
@@ -30,8 +28,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   5 | CTO               | {"last_name": "Johnson", "first_name": "Jim"}
 (4 rows)
 
-SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+SELECT * FROM exists_json WHERE data @@@ pdb.exists();
  id |    description    |                     data                      
 ----+-------------------+-----------------------------------------------
   1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}

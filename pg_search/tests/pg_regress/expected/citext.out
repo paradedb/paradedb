@@ -531,11 +531,14 @@ SELECT id, content FROM citext_topk WHERE content === 'QUICK' ORDER BY id;  -- e
 ----+---------
 (0 rows)
 
--- paradedb.term() with 'QUICK': raw term lookup — 0 rows since tokens are stored lowercased
+-- pdb.term() with 'QUICK': raw term lookup — 0 rows since tokens are stored lowercased
 SELECT id, content FROM citext_topk
-WHERE content ||| paradedb.term('content', 'QUICK')
+WHERE content @@@ pdb.term('QUICK')
 ORDER BY id;
-ERROR:  operator does not exist: citext ||| paradedb.searchqueryinput at character 51
+ id | content 
+----+---------
+(0 rows)
+
 -- ### (phrase): case-insensitive phrase matching
 SELECT id, content FROM citext_topk WHERE content ### 'quick brown' ORDER BY id;
  id |     content     

@@ -17,7 +17,7 @@ SELECT g, 'title-' || g, 'alpha bravo charlie ' || g
 FROM generate_series(1, 200) g;
 
 CREATE INDEX issue_6406_idx ON issue_6406
-USING paradedb (id, title, content) WITH (key_field = 'id');
+USING paradedb (id, title, content);
 
 ANALYZE issue_6406;
 

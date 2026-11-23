@@ -72,12 +72,11 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.t
 -- Score on the nullable side: NULL for null-extended rows
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+SELECT a.id, pdb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
                                                                                                                       QUERY PLAN                                                                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Output: a.id, (paradedb.score(b.id))
+   Output: a.id, (pdb.score(b.id))
    Relation Tree: a LEFT b
    Join Cond: a.dim_id = b.id
    Limit: 8
@@ -93,8 +92,7 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
      :           PgSearchScan: table=a, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"txt","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
-SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+SELECT a.id, pdb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
  id | score 
 ----+-------
   1 |     0
@@ -329,7 +327,7 @@ LIMIT 8;
 
 -- =============================================================================
 -- Baselines with JoinScan off: results must match the sections above.
--- paradedb.score() on the nullable side has no non-JoinScan fallback, so it
+-- pdb.score() on the nullable side has no non-JoinScan fallback, so it
 -- has no baseline here.
 -- =============================================================================
 SET paradedb.enable_join_custom_scan = off;

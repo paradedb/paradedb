@@ -56,25 +56,25 @@ USING paradedb (dwf_doid, author);
 -- Running this repeatedly with pauses is the best way to repro the issue
 -- At some point, Postgres decides that all the results are visible/don't need to be heap checked
 -- which is what leads us down the code path where null values get returned in the target list
-SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
+SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
 SELECT pg_sleep(0.5);
 
-SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
+SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
 SELECT pg_sleep(0.5);
 
-SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
+SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
 SELECT pg_sleep(0.5);
 
-SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
+SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
 SELECT pg_sleep(0.5);
 
-SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
+SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
 SELECT pg_sleep(0.5);
 
-SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
+SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
 SELECT pg_sleep(0.5);
 
-SELECT dwf_doid, 2 + 2 FROM testcore WHERE author @@@ pdb.term('brian');
-SELECT dwf_doid, NULL FROM testcore WHERE author @@@ pdb.term('brian');
+SELECT dwf_doid, 2 + 2 FROM testcore WHERE author === 'brian';
+SELECT dwf_doid, NULL FROM testcore WHERE author === 'brian';
 
 DROP TABLE testcore;

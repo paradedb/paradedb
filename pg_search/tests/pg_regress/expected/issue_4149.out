@@ -37,20 +37,19 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT
   t.file_id,
   t.file_title,
-  paradedb.score(t.row_id) AS score
+  pdb.score(t.row_id) AS score
 FROM documents t
 WHERE
   t.doc_parents ||| 'PARENT_GROUP'
   AND (t.file_title ||| 'Title' OR t.doc_title ||| 'Title')
 ORDER BY score DESC
 LIMIT 10;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                           
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: file_id, file_title, (paradedb.score(row_id))
+   Output: file_id, file_title, (pdb.score(row_id))
    ->  Custom Scan (ParadeDB Base Scan) on public.documents t
-         Output: file_id, file_title, paradedb.score(row_id)
+         Output: file_id, file_title, pdb.score(row_id)
          Table: documents
          Index: documents_bm25
          Worker Selection: Cost model
@@ -64,14 +63,13 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 SELECT
   t.file_id,
   t.file_title,
-  paradedb.score(t.row_id) AS score
+  pdb.score(t.row_id) AS score
 FROM documents t
 WHERE
   t.doc_parents ||| 'PARENT_GROUP'
   AND (t.file_title ||| 'Title' OR t.doc_title ||| 'Title')
 ORDER BY score DESC
 LIMIT 10;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  file_id |  file_title   |   score   
 ---------+---------------+-----------
        2 | File Title 2  | 0.6682782

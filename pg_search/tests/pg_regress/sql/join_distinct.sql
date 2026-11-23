@@ -175,24 +175,24 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 -- TEST 4: DISTINCT with score column
 -- =============================================================================
--- paradedb.score() in a DISTINCT query. Score values may differ across rows
+-- pdb.score() in a DISTINCT query. Score values may differ across rows
 -- in the same "output group", so DISTINCT on (name, score) may or may not
 -- collapse rows depending on score precision.
 
 EXPLAIN
 (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT DISTINCT p.name, paradedb.score(p.id) AS score
+SELECT DISTINCT p.name, pdb.score(p.id) AS score
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'wireless'
-ORDER BY paradedb.score(p.id) DESC, p.name
+ORDER BY pdb.score(p.id) DESC, p.name
     LIMIT 10;
 
-SELECT DISTINCT p.name, paradedb.score(p.id) AS score
+SELECT DISTINCT p.name, pdb.score(p.id) AS score
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'wireless'
-ORDER BY paradedb.score(p.id) DESC, p.name
+ORDER BY pdb.score(p.id) DESC, p.name
     LIMIT 10;
 
 -- =============================================================================
@@ -417,7 +417,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT
     p.id,
     p.name,
-    paradedb.score(p.id) as score
+    pdb.score(p.id) as score
 FROM dist_products p
 JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE
@@ -434,7 +434,7 @@ LIMIT 10;
 SELECT DISTINCT
     p.id,
     p.name,
-    paradedb.score(p.id) as score
+    pdb.score(p.id) as score
 FROM dist_products p
 JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE
@@ -542,11 +542,11 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT p.id, p.name
 FROM persons p
 JOIN jobs j ON j.person_id = p.id
-WHERE j.id @@@ paradedb.parse('title:developer')
+WHERE j.id @@@ pdb.parse('title:developer')
   AND p.id NOT IN (
     SELECT j2.person_id
     FROM jobs j2
-    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+    WHERE j2.id @@@ pdb.parse('title:recruiter')
   )
 ORDER BY p.id
 LIMIT 50;
@@ -554,11 +554,11 @@ LIMIT 50;
 SELECT DISTINCT p.id, p.name
 FROM persons p
 JOIN jobs j ON j.person_id = p.id
-WHERE j.id @@@ paradedb.parse('title:developer')
+WHERE j.id @@@ pdb.parse('title:developer')
   AND p.id NOT IN (
     SELECT j2.person_id
     FROM jobs j2
-    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+    WHERE j2.id @@@ pdb.parse('title:recruiter')
   )
 ORDER BY p.id
 LIMIT 50;
@@ -569,11 +569,11 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT p.id, p.name
 FROM persons p
 JOIN jobs j ON j.person_id = p.id
-WHERE j.id @@@ paradedb.parse('title:developer')
+WHERE j.id @@@ pdb.parse('title:developer')
   AND p.id NOT IN (
     SELECT j2.person_id
     FROM jobs j2
-    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+    WHERE j2.id @@@ pdb.parse('title:recruiter')
   )
 ORDER BY p.id
 LIMIT 50;
@@ -581,11 +581,11 @@ LIMIT 50;
 SELECT DISTINCT p.id, p.name
 FROM persons p
 JOIN jobs j ON j.person_id = p.id
-WHERE j.id @@@ paradedb.parse('title:developer')
+WHERE j.id @@@ pdb.parse('title:developer')
   AND p.id NOT IN (
     SELECT j2.person_id
     FROM jobs j2
-    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+    WHERE j2.id @@@ pdb.parse('title:recruiter')
   )
 ORDER BY p.id
 LIMIT 50;
@@ -617,14 +617,14 @@ SELECT DISTINCT profile_id
 FROM profiles_positions pp
 WHERE deleted_at IS NULL
   AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
-  AND id @@@ paradedb.parse('title:developer')
+  AND id @@@ pdb.parse('title:developer')
   AND NOT EXISTS (
     SELECT 1
     FROM profiles_positions pp2
     WHERE pp2.deleted_at IS NULL
       AND pp2.group_id = pp.group_id
       AND pp2.profile_id = pp.profile_id
-      AND pp2.id @@@ paradedb.parse('title:recruiter')
+      AND pp2.id @@@ pdb.parse('title:recruiter')
   )
 ORDER BY profile_id
 LIMIT 50;
@@ -633,14 +633,14 @@ SELECT DISTINCT profile_id
 FROM profiles_positions pp
 WHERE deleted_at IS NULL
   AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
-  AND id @@@ paradedb.parse('title:developer')
+  AND id @@@ pdb.parse('title:developer')
   AND NOT EXISTS (
     SELECT 1
     FROM profiles_positions pp2
     WHERE pp2.deleted_at IS NULL
       AND pp2.group_id = pp.group_id
       AND pp2.profile_id = pp.profile_id
-      AND pp2.id @@@ paradedb.parse('title:recruiter')
+      AND pp2.id @@@ pdb.parse('title:recruiter')
   )
 ORDER BY profile_id
 LIMIT 50;
@@ -652,14 +652,14 @@ SELECT DISTINCT profile_id
 FROM profiles_positions pp
 WHERE deleted_at IS NULL
   AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
-  AND id @@@ paradedb.parse('title:developer')
+  AND id @@@ pdb.parse('title:developer')
   AND NOT EXISTS (
     SELECT 1
     FROM profiles_positions pp2
     WHERE pp2.deleted_at IS NULL
       AND pp2.group_id = pp.group_id
       AND pp2.profile_id = pp.profile_id
-      AND pp2.id @@@ paradedb.parse('title:recruiter')
+      AND pp2.id @@@ pdb.parse('title:recruiter')
   )
 ORDER BY profile_id
 LIMIT 50;
@@ -668,14 +668,14 @@ SELECT DISTINCT profile_id
 FROM profiles_positions pp
 WHERE deleted_at IS NULL
   AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
-  AND id @@@ paradedb.parse('title:developer')
+  AND id @@@ pdb.parse('title:developer')
   AND NOT EXISTS (
     SELECT 1
     FROM profiles_positions pp2
     WHERE pp2.deleted_at IS NULL
       AND pp2.group_id = pp.group_id
       AND pp2.profile_id = pp.profile_id
-      AND pp2.id @@@ paradedb.parse('title:recruiter')
+      AND pp2.id @@@ pdb.parse('title:recruiter')
   )
 ORDER BY profile_id
 LIMIT 50;

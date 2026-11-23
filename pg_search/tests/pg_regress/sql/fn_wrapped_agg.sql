@@ -27,29 +27,29 @@ INSERT INTO fn_wrapped_agg_logs (description, category) VALUES
     ('info message', 'app');
 
 -- Test 1: Basic pdb.agg() with window function (should work)
--- Use paradedb.all() to force custom scan
+-- Use pdb.all() to force custom scan
 -- Only select indexed fields
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () 
 FROM fn_wrapped_agg_logs
-WHERE description @@@ paradedb.all()
+WHERE description @@@ pdb.all()::pdb.const(0)
 ORDER BY log_id DESC LIMIT 3;
 
 SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () 
 FROM fn_wrapped_agg_logs
-WHERE description @@@ paradedb.all()
+WHERE description @@@ pdb.all()::pdb.const(0)
 ORDER BY log_id DESC LIMIT 3;
 
 -- Test 2: pdb.agg() wrapped in jsonb_pretty
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT log_id, description, category, jsonb_pretty(pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()) 
 FROM fn_wrapped_agg_logs
-WHERE description @@@ paradedb.all()
+WHERE description @@@ pdb.all()::pdb.const(0)
 ORDER BY log_id DESC LIMIT 3;
 
 SELECT log_id, description, category, jsonb_pretty(pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()) 
 FROM fn_wrapped_agg_logs
-WHERE description @@@ paradedb.all()
+WHERE description @@@ pdb.all()::pdb.const(0)
 ORDER BY log_id DESC LIMIT 3;
 
 -- Test 3: pdb.agg() in CTE
@@ -57,7 +57,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 WITH agg AS (
     SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as agg_result
     FROM fn_wrapped_agg_logs
-    WHERE description @@@ paradedb.all()
+    WHERE description @@@ pdb.all()::pdb.const(0)
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT * FROM agg;
@@ -65,7 +65,7 @@ SELECT * FROM agg;
 WITH agg AS (
     SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as agg_result
     FROM fn_wrapped_agg_logs
-    WHERE description @@@ paradedb.all()
+    WHERE description @@@ pdb.all()::pdb.const(0)
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT * FROM agg;
@@ -75,7 +75,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 WITH agg AS (
     SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as agg_result
     FROM fn_wrapped_agg_logs
-    WHERE description @@@ paradedb.all()
+    WHERE description @@@ pdb.all()::pdb.const(0)
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;
@@ -83,7 +83,7 @@ SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;
 WITH agg AS (
     SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as agg_result
     FROM fn_wrapped_agg_logs
-    WHERE description @@@ paradedb.all()
+    WHERE description @@@ pdb.all()::pdb.const(0)
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;

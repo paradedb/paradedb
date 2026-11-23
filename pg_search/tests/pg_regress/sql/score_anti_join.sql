@@ -42,7 +42,7 @@ SET enable_mergejoin = off;
 EXPLAIN (COSTS OFF)
 SELECT id
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND NOT EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -55,7 +55,7 @@ LIMIT 5;
 -- IDs 1-500 have entries for user1, so NOT EXISTS should return IDs >= 501
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND NOT EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -70,7 +70,7 @@ LIMIT 5;
 EXPLAIN (COSTS OFF)
 SELECT id
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -81,7 +81,7 @@ LIMIT 5;
 
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id

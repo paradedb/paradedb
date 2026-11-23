@@ -29,10 +29,9 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 -- =========================================
 SELECT text_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY text_col
 ORDER BY text_col ASC;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   text_col  | count 
 ------------+-------
  apple      |     1
@@ -48,10 +47,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT text_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY text_col
 ORDER BY text_col ASC NULLS FIRST;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   text_col  | count 
 ------------+-------
             |     2
@@ -67,10 +65,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT text_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY text_col
 ORDER BY text_col DESC;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   text_col  | count 
 ------------+-------
             |     2
@@ -86,10 +83,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT text_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY text_col
 ORDER BY text_col DESC NULLS LAST;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   text_col  | count 
 ------------+-------
  elderberry |     1
@@ -105,10 +101,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT int_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY int_col
 ORDER BY int_col ASC;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  int_col | count 
 ---------+-------
       10 |     1
@@ -124,10 +119,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT int_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY int_col
 ORDER BY int_col ASC NULLS FIRST;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  int_col | count 
 ---------+-------
          |     2
@@ -143,10 +137,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT int_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY int_col
 ORDER BY int_col DESC;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  int_col | count 
 ---------+-------
          |     2
@@ -162,10 +155,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT int_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY int_col
 ORDER BY int_col DESC NULLS LAST;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  int_col | count 
 ---------+-------
       60 |     1
@@ -181,10 +173,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT float_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY float_col
 ORDER BY float_col ASC;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  float_col | count 
 -----------+-------
        1.5 |     1
@@ -200,10 +191,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT float_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY float_col
 ORDER BY float_col ASC NULLS FIRST;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  float_col | count 
 -----------+-------
            |     2
@@ -219,10 +209,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT float_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY float_col
 ORDER BY float_col DESC;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  float_col | count 
 -----------+-------
            |     2
@@ -238,10 +227,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT float_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY float_col
 ORDER BY float_col DESC NULLS LAST;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  float_col | count 
 -----------+-------
        6.5 |     1
@@ -257,10 +245,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT json_col->>'category' AS category, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY json_col->>'category'
 ORDER BY category ASC;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | count 
 ----------+-------
  berry    |     1
@@ -274,10 +261,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT json_col->>'category' AS category, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY json_col->>'category'
 ORDER BY category ASC NULLS FIRST;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | count 
 ----------+-------
           |     2
@@ -291,10 +277,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT json_col->>'category' AS category, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY json_col->>'category'
 ORDER BY category DESC;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | count 
 ----------+-------
           |     2
@@ -308,10 +293,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- =========================================
 SELECT json_col->>'category' AS category, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 GROUP BY json_col->>'category'
 ORDER BY category DESC NULLS LAST;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | count 
 ----------+-------
  veggie   |     1

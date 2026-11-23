@@ -29,8 +29,7 @@ USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.u
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.category');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') @@@ pdb.exists();
                                      QUERY PLAN                                     
 ------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -44,8 +43,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 -- Execute the query
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.category');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') @@@ pdb.exists();
  count 
 -------
      8
@@ -58,8 +56,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') === 'electronics';
                                                QUERY PLAN                                               
 --------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -73,8 +70,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- Execute the query
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') === 'electronics';
  count 
 -------
      3
@@ -87,9 +83,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.category') 
-  AND id @@@ paradedb.exists('metadata.brand');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') @@@ pdb.exists()
+  AND (metadata -> 'brand') @@@ pdb.exists();
                                                                                 QUERY PLAN                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -103,9 +98,8 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 -- Execute the query
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.category') 
-  AND id @@@ paradedb.exists('metadata.brand');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') @@@ pdb.exists()
+  AND (metadata -> 'brand') @@@ pdb.exists();
  count 
 -------
      8
@@ -118,8 +112,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'price') @@@ pdb.exists();
                                                 QUERY PLAN                                                 
 -----------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -133,8 +126,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 -- Execute the query
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'price') @@@ pdb.exists();
  total_price 
 -------------
         3862
@@ -144,8 +136,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') === 'electronics';
                                                 QUERY PLAN                                                 
 -----------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -158,8 +149,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') === 'electronics';
  electronics_total 
 -------------------
               3097
@@ -169,8 +159,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('data.stock');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (data -> 'stock') @@@ pdb.exists();
                                               QUERY PLAN                                               
 -------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -183,8 +172,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('data.stock');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (data -> 'stock') @@@ pdb.exists();
  total_stock 
 -------------
          125
@@ -197,8 +185,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'price') @@@ pdb.exists();
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -212,8 +199,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 -- Execute the query
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'price') @@@ pdb.exists();
  avg_price 
 -----------
     482.75
@@ -223,8 +209,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'brand') === 'Apple';
                                           QUERY PLAN                                           
 -----------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -237,8 +222,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'brand') === 'Apple';
  apple_avg_price 
 -----------------
                 
@@ -248,8 +232,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'clothing');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') === 'clothing';
                                              QUERY PLAN                                              
 -----------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -262,8 +245,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'clothing');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') === 'clothing';
  avg_stock 
 -----------
         25
@@ -278,8 +260,7 @@ SELECT
     MIN((metadata->>'price')::numeric) as min_price,
     MAX((metadata->>'price')::numeric) as max_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'price') @@@ pdb.exists();
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -295,8 +276,7 @@ SELECT
     MIN((metadata->>'price')::numeric) as min_price,
     MAX((metadata->>'price')::numeric) as max_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'price') @@@ pdb.exists();
  min_price | max_price 
 -----------+-----------
         79 |      1299
@@ -308,8 +288,7 @@ SELECT
     MIN((metadata->>'price')::numeric) as min_electronics_price,
     MAX((metadata->>'price')::numeric) as max_electronics_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') === 'electronics';
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -324,8 +303,7 @@ SELECT
     MIN((metadata->>'price')::numeric) as min_electronics_price,
     MAX((metadata->>'price')::numeric) as max_electronics_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') === 'electronics';
  min_electronics_price | max_electronics_price 
 -----------------------+-----------------------
                    799 |                  1299
@@ -337,8 +315,7 @@ SELECT
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.brand');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'brand') @@@ pdb.exists();
 WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
                                       QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
@@ -358,8 +335,7 @@ SELECT
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.brand');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'brand') @@@ pdb.exists();
 WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  first_brand | last_brand 
 -------------+------------
@@ -380,8 +356,7 @@ SELECT
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'price') @@@ pdb.exists();
 WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
                                                                                                                                     QUERY PLAN                                                                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -407,8 +382,7 @@ SELECT
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'price') @@@ pdb.exists();
 WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  item_count | total_value |      avg_price       | min_price | max_price | first_brand | last_brand 
 ------------+-------------+----------------------+-----------+-----------+-------------+------------
@@ -422,67 +396,53 @@ WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disab
 EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.exists('metadata.category'),
-        paradedb.term('metadata.category', 'electronics')
-    ]
-);
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                      +
-   {                                                                                                                                                                                                    +
-     "Plan": {                                                                                                                                                                                          +
-       "Node Type": "Custom Scan",                                                                                                                                                                      +
-       "Custom Plan Provider": "ParadeDB Aggregate Scan",                                                                                                                                               +
-       "Parallel Aware": false,                                                                                                                                                                         +
-       "Async Capable": false,                                                                                                                                                                          +
-       "Relation Name": "json_agg_test",                                                                                                                                                                +
-       "Alias": "json_agg_test",                                                                                                                                                                        +
-       "Actual Rows": 1.00,                                                                                                                                                                             +
-       "Actual Loops": 1,                                                                                                                                                                               +
-       "Disabled": false,                                                                                                                                                                               +
-       "Index": "idx_json_agg",                                                                                                                                                                         +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"exists\":{\"field\":\"metadata.category\"}},{\"term\":{\"field\":\"metadata.category\",\"value\":\"electronics\"}}]}}}}",+
-       "  Applies to Aggregates": "COUNT(*)",                                                                                                                                                           +
-       "  Aggregate Definition": "{\"0\":{\"filter\":\"*\"}}",                                                                                                                                          +
-       "Segments": {                                                                                                                                                                                    +
-         "Included": 1,                                                                                                                                                                                 +
-         "Pruned": 0                                                                                                                                                                                    +
-       },                                                                                                                                                                                               +
-       "Visibility": {                                                                                                                                                                                  +
-         "Segments Skipped": 0,                                                                                                                                                                         +
-         "Segments Checked": 1,                                                                                                                                                                         +
-         "Blocks Total": 1,                                                                                                                                                                             +
-         "Blocks Requiring Checks": 1                                                                                                                                                                   +
-       },                                                                                                                                                                                               +
-       "Parallelism": {                                                                                                                                                                                 +
-         "Workers Requested": 0,                                                                                                                                                                        +
-         "Workers Launched": 0,                                                                                                                                                                         +
-         "Worker Selection": "Per-segment"                                                                                                                                                              +
-       }                                                                                                                                                                                                +
-     },                                                                                                                                                                                                 +
-     "Triggers": [                                                                                                                                                                                      +
-     ]                                                                                                                                                                                                  +
-   }                                                                                                                                                                                                    +
+WHERE (metadata -> 'category') @@@ pdb.exists()
+  AND (metadata -> 'category') === 'electronics';
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                   +
+   {                                                                                                                                                                                                                                 +
+     "Plan": {                                                                                                                                                                                                                       +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                   +
+       "Custom Plan Provider": "ParadeDB Aggregate Scan",                                                                                                                                                                            +
+       "Parallel Aware": false,                                                                                                                                                                                                      +
+       "Async Capable": false,                                                                                                                                                                                                       +
+       "Relation Name": "json_agg_test",                                                                                                                                                                                             +
+       "Alias": "json_agg_test",                                                                                                                                                                                                     +
+       "Actual Rows": 1.00,                                                                                                                                                                                                          +
+       "Actual Loops": 1,                                                                                                                                                                                                            +
+       "Disabled": false,                                                                                                                                                                                                            +
+       "Index": "idx_json_agg",                                                                                                                                                                                                      +
+       "Tantivy Query": "{\"boolean\":{\"must\":[{\"with_index\":{\"query\":{\"exists\":{\"field\":\"metadata.category\"}}}},{\"with_index\":{\"query\":{\"term\":{\"field\":\"metadata.category\",\"value\":\"electronics\"}}}}]}}",+
+       "  Applies to Aggregates": "COUNT(*)",                                                                                                                                                                                        +
+       "  Aggregate Definition": "{\"0\":{\"filter\":\"*\"}}",                                                                                                                                                                       +
+       "Segments": {                                                                                                                                                                                                                 +
+         "Included": 1,                                                                                                                                                                                                              +
+         "Pruned": 0                                                                                                                                                                                                                 +
+       },                                                                                                                                                                                                                            +
+       "Visibility": {                                                                                                                                                                                                               +
+         "Segments Skipped": 0,                                                                                                                                                                                                      +
+         "Segments Checked": 1,                                                                                                                                                                                                      +
+         "Blocks Total": 1,                                                                                                                                                                                                          +
+         "Blocks Requiring Checks": 1                                                                                                                                                                                                +
+       },                                                                                                                                                                                                                            +
+       "Parallelism": {                                                                                                                                                                                                              +
+         "Workers Requested": 0,                                                                                                                                                                                                     +
+         "Workers Launched": 0,                                                                                                                                                                                                      +
+         "Worker Selection": "Per-segment"                                                                                                                                                                                           +
+       }                                                                                                                                                                                                                             +
+     },                                                                                                                                                                                                                              +
+     "Triggers": [                                                                                                                                                                                                                   +
+     ]                                                                                                                                                                                                                               +
+   }                                                                                                                                                                                                                                 +
  ]
 (1 row)
 
 -- Execute the query
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.exists('metadata.category'),
-        paradedb.term('metadata.category', 'electronics')
-    ]
-);
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'category') @@@ pdb.exists()
+  AND (metadata -> 'category') === 'electronics';
  count 
 -------
      3
@@ -495,8 +455,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'nonexistent') === 'value';
                                              QUERY PLAN                                              
 -----------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -509,8 +468,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (metadata -> 'nonexistent') === 'value';
  count 
 -------
      0
@@ -520,22 +478,20 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                          QUERY PLAN                           
----------------------------------------------------------------
+WHERE id @@@ pdb.all()::pdb.const(0);
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_agg
-   Tantivy Query: {"with_index":{"query":"all"}}
+   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE id @@@ pdb.all()::pdb.const(0);
  count 
 -------
      8
@@ -563,8 +519,7 @@ USING paradedb (id, (nested_data::pdb.unicode_words('columnar=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_deep_agg 
-WHERE id @@@ paradedb.exists('nested_data.level1.level2.level3.level4.value');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (nested_data -> 'level1' -> 'level2' -> 'level3' -> 'level4' -> 'value') @@@ pdb.exists();
                                                    QUERY PLAN                                                   
 ----------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_deep_agg
@@ -577,8 +532,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 
 SELECT COUNT(*) 
 FROM json_deep_agg 
-WHERE id @@@ paradedb.exists('nested_data.level1.level2.level3.level4.value');
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WHERE (nested_data -> 'level1' -> 'level2' -> 'level3' -> 'level4' -> 'value') @@@ pdb.exists();
  count 
 -------
      3
@@ -588,8 +542,7 @@ WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_deep_agg 
-WHERE id @@@ paradedb.term('nested_data.level1.level2.level3.level4.value', 'target1');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (nested_data -> 'level1' -> 'level2' -> 'level3' -> 'level4' -> 'value') === 'target1';
                                                            QUERY PLAN                                                           
 --------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_deep_agg
@@ -602,8 +555,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SELECT COUNT(*) 
 FROM json_deep_agg 
-WHERE id @@@ paradedb.term('nested_data.level1.level2.level3.level4.value', 'target1');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (nested_data -> 'level1' -> 'level2' -> 'level3' -> 'level4' -> 'value') === 'target1';
  count 
 -------
      2
@@ -637,8 +589,7 @@ USING paradedb (id, (doc::pdb.unicode_words('columnar=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'sensor');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (doc -> 'type') === 'sensor';
                                         QUERY PLAN                                        
 ------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
@@ -651,8 +602,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'sensor');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (doc -> 'type') === 'sensor';
  count 
 -------
      2
@@ -662,9 +612,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'sensor')
-  AND id @@@ paradedb.term('doc.device.location', 'warehouse');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (doc -> 'type') === 'sensor'
+  AND (doc -> 'device' -> 'location') === 'warehouse';
                                                                                               QUERY PLAN                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
@@ -677,9 +626,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'sensor')
-  AND id @@@ paradedb.term('doc.device.location', 'warehouse');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (doc -> 'type') === 'sensor'
+  AND (doc -> 'device' -> 'location') === 'warehouse';
  count 
 -------
      1
@@ -689,9 +637,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'transaction')
-  AND id @@@ paradedb.term('doc.payment.method', 'credit');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (doc -> 'type') === 'transaction'
+  AND (doc -> 'payment' -> 'method') === 'credit';
                                                                                                QUERY PLAN                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
@@ -704,9 +651,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.term('doc.type', 'transaction')
-  AND id @@@ paradedb.term('doc.payment.method', 'credit');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (doc -> 'type') === 'transaction'
+  AND (doc -> 'payment' -> 'method') === 'credit';
  count 
 -------
      1
@@ -719,34 +665,22 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('doc.type', 'sensor'),
-        paradedb.term('doc.device.location', 'office')
-    ]
-);
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (doc -> 'type') === 'sensor'
+  AND (doc -> 'device' -> 'location') === 'office';
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_mixed_agg
-   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"doc.type","value":"sensor"}},{"term":{"field":"doc.device.location","value":"office"}}]}}}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"doc.type","value":"sensor"}}}},{"with_index":{"query":{"term":{"field":"doc.device.location","value":"office"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
 FROM json_mixed_agg 
-WHERE id @@@ paradedb.boolean(
-    must := ARRAY[
-        paradedb.term('doc.type', 'sensor'),
-        paradedb.term('doc.device.location', 'office')
-    ]
-);
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (doc -> 'type') === 'sensor'
+  AND (doc -> 'device' -> 'location') === 'office';
  count 
 -------
      1
@@ -773,8 +707,7 @@ USING paradedb (id, (data::pdb.unicode_words('columnar=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_array_agg 
-WHERE id @@@ paradedb.term('data.tags', 'urgent');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (data -> 'tags') === 'urgent';
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_array_agg
@@ -787,8 +720,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SELECT COUNT(*) 
 FROM json_array_agg 
-WHERE id @@@ paradedb.term('data.tags', 'urgent');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (data -> 'tags') === 'urgent';
  count 
 -------
      2
@@ -798,8 +730,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_array_agg 
-WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (data -> 'metadata' -> 'priority') === 'high';
                                               QUERY PLAN                                              
 ------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_array_agg
@@ -812,8 +743,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 
 SELECT COUNT(*) 
 FROM json_array_agg 
-WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE (data -> 'metadata' -> 'priority') === 'high';
  count 
 -------
      2

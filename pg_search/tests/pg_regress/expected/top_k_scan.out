@@ -104,18 +104,13 @@ FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
   AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
-  AND (id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
-       tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)))
-  AND (NOT id @@@ paradedb.exists('removed_at'))
-  AND (id @@@ paradedb.all())
+  AND (notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true'))
+  AND (NOT removed_at @@@ pdb.exists())
+  AND (id @@@ pdb.all()::pdb.const(0))
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
-                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -124,28 +119,24 @@ WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
          Scores: false
             TopK Order By: time_period desc
             TopK Limit: 25
-         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"term_set":{"field":"source_id","terms":["source-1","source-2","source-3"]}}]}}}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"term_set":{"field":"source_id","terms":["source-1","source-2","source-3"]}}]}}}},{"with_index":{"query":{"match_array":{"field":"notes","tokens":["che","hec","eck"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
--- Test 3: Same query without paradedb.all() operator
-\echo 'Test 3: Without paradedb.all() operator'
-Test 3: Without paradedb.all() operator
+-- Test 3: Same query without pdb.all() operator
+\echo 'Test 3: Without pdb.all() operator'
+Test 3: Without pdb.all() operator
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, tenant_id, source_id, notes, is_active, time_period
 FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
   AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
-  AND (id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
-       tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)))
-  AND (NOT id @@@ paradedb.exists('removed_at'))
+  AND (notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true'))
+  AND (NOT removed_at @@@ pdb.exists())
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
-                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -154,21 +145,20 @@ WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
          Scores: false
             TopK Order By: time_period desc
             TopK Limit: 25
-         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"term_set":{"field":"source_id","terms":["source-1","source-2","source-3"]}}]}}}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"term_set":{"field":"source_id","terms":["source-1","source-2","source-3"]}}]}}}},{"with_index":{"query":{"match_array":{"field":"notes","tokens":["che","hec","eck"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
--- Test 4: Testing the impact of paradedb.all() alone
-\echo 'Test 4: Testing paradedb.all() by itself'
-Test 4: Testing paradedb.all() by itself
+-- Test 4: Testing the impact of pdb.all() alone
+\echo 'Test 4: Testing pdb.all() by itself'
+Test 4: Testing pdb.all() by itself
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, notes
 FROM records
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY id
 LIMIT 25;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                      QUERY PLAN                       
--------------------------------------------------------
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -178,19 +168,18 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
             TopK Order By: id asc
             TopK Limit: 25
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":"all"}}
+         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (10 rows)
 
--- Test 5: Testing NOT with paradedb.exists
-\echo 'Test 5: Testing NOT with paradedb.exists'
-Test 5: Testing NOT with paradedb.exists
+-- Test 5: Testing NOT with pdb.exists
+\echo 'Test 5: Testing NOT with pdb.exists'
+Test 5: Testing NOT with pdb.exists
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, notes
 FROM records
-WHERE NOT id @@@ paradedb.exists('removed_at')
+WHERE NOT removed_at @@@ pdb.exists()
 ORDER BY id
 LIMIT 25;
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                          QUERY PLAN                                                          
 -----------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -234,12 +223,11 @@ SELECT id, tenant_id, notes
 FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
-  AND id @@@ paradedb.match('notes', 'check')
+  AND notes ||| 'check'
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-                                                                                                                                                      QUERY PLAN                                                                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                       QUERY PLAN                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -248,22 +236,19 @@ WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
          Scores: false
             TopK Order By: time_period desc
             TopK Limit: 25
-         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
 -- Test 8: Testing with each complex component isolated
-\echo 'Test 8: Component isolation - paradedb.match'
-Test 8: Component isolation - paradedb.match
+\echo 'Test 8: Component isolation - pdb.match'
+Test 8: Component isolation - pdb.match
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, notes
 FROM records
-WHERE id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
-       tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false))
+WHERE notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true')
 LIMIT 25;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
-                                                                                                                                          QUERY PLAN                                                                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -271,7 +256,7 @@ WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
          Exec Method: TopKScanExecState
          Scores: false
             TopK Limit: 25
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+         Tantivy Query: {"with_index":{"query":{"match_array":{"field":"notes","tokens":["che","hec","eck"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (8 rows)
 
 -- Test 9: Query with all columns
@@ -290,18 +275,13 @@ FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
   AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
-  AND (id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
-       tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)))
-  AND (NOT id @@@ paradedb.exists('removed_at'))
-  AND (id @@@ paradedb.all())
+  AND (notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true'))
+  AND (NOT removed_at @@@ pdb.exists())
+  AND (id @@@ pdb.all()::pdb.const(0))
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
-                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -310,7 +290,7 @@ WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
          Scores: false
             TopK Order By: time_period desc
             TopK Limit: 25
-         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"term_set":{"field":"source_id","terms":["source-1","source-2","source-3"]}}]}}}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"term_set":{"field":"source_id","terms":["source-1","source-2","source-3"]}}]}}}},{"with_index":{"query":{"match_array":{"field":"notes","tokens":["che","hec","eck"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
 -- Test 10: Fast-field only solution - selecting only indexed fast fields
@@ -321,12 +301,11 @@ SELECT id, flow_type, state, tags, process_method
 FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
-  AND (id @@@ paradedb.match('notes', 'check'))
+  AND (notes ||| 'check')
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-                                                                                                                                                      QUERY PLAN                                                                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                       QUERY PLAN                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -335,7 +314,7 @@ WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
          Scores: false
             TopK Order By: time_period desc
             TopK Limit: 25
-         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
 -- Test 11: ORDER BY on column containing NULL.
@@ -344,13 +323,12 @@ Test 11: ORDER BY on column containing NULL.
 EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
 SELECT state, id
 FROM records
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
   AND state IS NULL
 ORDER BY state, id
 LIMIT 10000;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                     QUERY PLAN                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=2500.00 loops=1)
    ->  Custom Scan (ParadeDB Base Scan) on records (actual rows=2500.00 loops=1)
          Table: records
@@ -364,7 +342,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
             TopK Order By: state asc, id asc
             TopK Limit: 10000
             Queries: 1
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"state"}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"state"}}]}}]}}
 (14 rows)
 
 -- Test 12: 4-column ORDER BY uses Top K (issue #3148)
@@ -373,12 +351,11 @@ Test 12: 4-column ORDER BY uses Top K
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code
 FROM records
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY state, flow_type, currency_code, id
     LIMIT 25;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -388,7 +365,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
             TopK Order By: state asc, flow_type asc, currency_code asc, id asc
             TopK Limit: 25
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":"all"}}
+         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (10 rows)
 
 -- Test 13: 5-column ORDER BY uses Top K (issue #3148)
@@ -397,12 +374,11 @@ Test 13: 5-column ORDER BY uses Top K
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code, tenant_id
 FROM records
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY state, flow_type, currency_code, tenant_id, id
     LIMIT 25;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -412,7 +388,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
             TopK Order By: state asc, flow_type asc, currency_code asc, tenant_id asc, id asc
             TopK Limit: 25
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":"all"}}
+         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (10 rows)
 
 -- Test 14: 6-column ORDER BY exceeds MAX_TOPK_FEATURES, falls back to NormalScan
@@ -421,13 +397,12 @@ Test 14: 6-column ORDER BY falls back to NormalScan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code, tenant_id, source_id
 FROM records
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 ORDER BY state, flow_type, currency_code, tenant_id, source_id, id
     LIMIT 25;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY has 6 columns but Top K supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: records)
-                                 QUERY PLAN                                  
------------------------------------------------------------------------------
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: state, flow_type, currency_code, tenant_id, source_id, id
@@ -437,7 +412,7 @@ WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead).
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
+               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (10 rows)
 
 -- Cleanup

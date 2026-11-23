@@ -45,37 +45,22 @@ SELECT * FROM ascii WHERE description ||| 'angstrom' ORDER BY id;
   6 | Ångström smörgåsbord blåbär gröt
 (1 row)
 
-SELECT * FROM paradedb.tokenize(
-  paradedb.tokenizer('default', ascii_folding => true),
-  'café'
-);
-WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
- token | position 
--------+----------
- cafe  |        0
+SELECT 'café'::pdb.simple('ascii_folding=true')::text[] AS tokens;
+ tokens 
+--------
+ {cafe}
 (1 row)
 
-SELECT * FROM paradedb.tokenize(
-  paradedb.tokenizer('default', ascii_folding => false),
-  'café'
-);
-WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
- token | position 
--------+----------
- café  |        0
+SELECT 'café'::pdb.simple('ascii_folding=false')::text[] AS tokens;
+ tokens 
+--------
+ {café}
 (1 row)
 
-SELECT * FROM paradedb.tokenize(
-  paradedb.tokenizer('default'),
-  'café'
-);
-WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
- token | position 
--------+----------
- café  |        0
+SELECT 'café'::pdb.simple::text[] AS tokens;
+ tokens 
+--------
+ {café}
 (1 row)
 
 DROP TABLE ascii;

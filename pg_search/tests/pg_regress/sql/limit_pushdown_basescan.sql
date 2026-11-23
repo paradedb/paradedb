@@ -98,7 +98,7 @@ SELECT count(*) FROM (
            OR category_id IN (
                SELECT id FROM lp_categories
                WHERE name = 'rare_category'))
-    ORDER BY paradedb.score(id) DESC
+    ORDER BY pdb.score(id) DESC
     LIMIT 50
 ) sub;
 
@@ -110,7 +110,7 @@ WHERE description ||| 'searchable'
        OR category_id IN (
            SELECT id FROM lp_categories
            WHERE name = 'rare_category'))
-ORDER BY paradedb.score(id) DESC
+ORDER BY pdb.score(id) DESC
 LIMIT 50;
 
 -- ============================================================
@@ -146,7 +146,7 @@ WHERE description ||| 'searchable'
   AND (category_id IS NULL
        OR category_id IN (
            SELECT id FROM lp_categories WHERE name = 'rare_category'))
-ORDER BY paradedb.score(id) DESC
+ORDER BY pdb.score(id) DESC
 LIMIT $1;
 
 CREATE TEMP TABLE lp_q_result AS EXECUTE lp_q(100);
@@ -243,7 +243,7 @@ SELECT 'anti_is_null' AS shape, count(*) AS cnt FROM (
         SELECT s FROM lp_active_statuses WHERE s = i.status LIMIT 1
     ) lat ON true
     WHERE i.description ||| 'searchable' AND c.id IS NULL
-    ORDER BY paradedb.score(i.id) DESC
+    ORDER BY pdb.score(i.id) DESC
     LIMIT 50
 ) sub
 UNION ALL
@@ -257,7 +257,7 @@ SELECT 'anti_not_exists' AS shape, count(*) AS cnt FROM (
       AND NOT EXISTS (
           SELECT 1 FROM lp_categories c WHERE c.id = 2 AND i.category_id = 999
       )
-    ORDER BY paradedb.score(i.id) DESC
+    ORDER BY pdb.score(i.id) DESC
     LIMIT 50
 ) sub
 UNION ALL
@@ -269,7 +269,7 @@ SELECT 'inner_join' AS shape, count(*) AS cnt FROM (
         SELECT s FROM lp_active_statuses WHERE s = i.status LIMIT 1
     ) lat ON true
     WHERE i.description ||| 'searchable'
-    ORDER BY paradedb.score(i.id) DESC
+    ORDER BY pdb.score(i.id) DESC
     LIMIT 50
 ) sub
 UNION ALL
@@ -293,7 +293,7 @@ WHERE i.description ||| 'searchable'
   AND NOT EXISTS (
       SELECT 1 FROM lp_categories c WHERE c.id = 2 AND i.category_id = 999
   )
-ORDER BY paradedb.score(i.id) DESC
+ORDER BY pdb.score(i.id) DESC
 LIMIT 50;
 
 -- ============================================================
@@ -328,14 +328,14 @@ SET ROLE lp_restricted_user;
 SELECT count(*) FROM (
     SELECT id FROM lp_items
     WHERE description ||| 'searchable'
-    ORDER BY paradedb.score(id) DESC
+    ORDER BY pdb.score(id) DESC
     LIMIT 100
 ) sub;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM lp_items
 WHERE description ||| 'searchable'
-ORDER BY paradedb.score(id) DESC
+ORDER BY pdb.score(id) DESC
 LIMIT 100;
 
 RESET ROLE;

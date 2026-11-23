@@ -49,15 +49,14 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: i ANTI e
    Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name))
@@ -69,7 +68,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :     VisibilityFilterExec: tables=[i]
      :       NestedLoopJoinExec: join_type=RightAnti, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
      :         CooperativeExec
-     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (14 rows)
@@ -78,13 +77,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -107,15 +105,14 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: i SEMI e
    Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name))
@@ -127,7 +124,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :     VisibilityFilterExec: tables=[i]
      :       NestedLoopJoinExec: join_type=RightSemi, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
      :         CooperativeExec
-     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (14 rows)
@@ -136,13 +133,12 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
   10
@@ -165,7 +161,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name
@@ -175,9 +171,8 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: i ANTI e
    Join Filter: ((e.pattern = i.name) OR (e.pattern = i.alt_name) OR (e.pattern = i.category))
@@ -189,7 +184,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :     VisibilityFilterExec: tables=[i]
      :       NestedLoopJoinExec: join_type=RightAnti, filter=pattern@3 = name@0 OR pattern@3 = alt_name@1 OR pattern@3 = category@2, projection=[ctid_0@0, id@4]
      :         CooperativeExec
-     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (14 rows)
@@ -198,7 +193,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name
@@ -208,7 +203,6 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -233,13 +227,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -267,15 +260,14 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR length(e.pattern) > 100)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: i ANTI e
    Join Filter: ((e.pattern = i.name) OR (length(e.pattern) > 100))
@@ -289,7 +281,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :         NestedLoopJoinExec: join_type=RightAnti, filter=pattern@1 = name@0 OR join_proj_push_down_1@2, projection=[ctid_0@0, name@1, id@2]
      :           ProjectionExec: expr=[pattern@0 as pattern, character_length(pattern@0) > 100 as join_proj_push_down_1]
      :             CooperativeExec
-     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :           CooperativeExec
      :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (16 rows)
@@ -298,13 +290,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR length(e.pattern) > 100)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -325,15 +316,14 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND e.id <> i.id
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: i ANTI e
    Join Filter: (e.id <> i.id)
@@ -345,7 +335,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :     VisibilityFilterExec: tables=[i]
      :       NestedLoopJoinExec: join_type=RightAnti, filter=id@1 != id@0
      :         CooperativeExec
-     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (14 rows)
@@ -354,13 +344,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND e.id <> i.id
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -370,13 +359,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND e.id <> i.id
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -392,15 +380,14 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.id > i.id OR e.pattern = i.name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: i ANTI e
    Join Filter: ((e.id > i.id) OR (e.pattern = i.name))
@@ -412,7 +399,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :     VisibilityFilterExec: tables=[i]
      :       NestedLoopJoinExec: join_type=RightAnti, filter=id@2 > id@0 OR pattern@3 = name@1, projection=[ctid_0@0, id@1]
      :         CooperativeExec
-     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (14 rows)
@@ -421,13 +408,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.id > i.id OR e.pattern = i.name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -447,13 +433,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.id > i.id OR e.pattern = i.name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -480,15 +465,14 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.id = 42::bigint)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: i SEMI e
    Join Filter: ((e.pattern = i.name) OR (e.id = '42'::bigint))
@@ -502,7 +486,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :         NestedLoopJoinExec: join_type=RightSemi, filter=pattern@1 = name@0 OR join_proj_push_down_1@2, projection=[ctid_0@0, name@1, id@2]
      :           ProjectionExec: expr=[pattern@0 as pattern, id@1 as id, id@1 = 42 as join_proj_push_down_1]
      :             CooperativeExec
-     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :           CooperativeExec
      :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (16 rows)
@@ -511,13 +495,12 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.id = 42::bigint)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -537,13 +520,12 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.id = 42::bigint)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -569,7 +551,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (
           (e.pattern = i.name AND e.id > i.id)
           OR e.pattern = i.alt_name
@@ -578,9 +560,8 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: i ANTI e
    Join Filter: (((e.pattern = i.name) AND (e.id > i.id)) OR (e.pattern = i.alt_name))
@@ -592,7 +573,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :     VisibilityFilterExec: tables=[i]
      :       NestedLoopJoinExec: join_type=RightAnti, filter=pattern@3 = name@0 AND id@4 > id@1 OR pattern@3 = alt_name@2, projection=[ctid_0@0, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (14 rows)
@@ -601,7 +582,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (
           (e.pattern = i.name AND e.id > i.id)
           OR e.pattern = i.alt_name
@@ -610,7 +591,6 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -630,7 +610,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (
           (e.pattern = i.name AND e.id > i.id)
           OR e.pattern = i.alt_name
@@ -639,7 +619,6 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -667,13 +646,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND e.pattern = i.name
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                   QUERY PLAN                                                                                  
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -687,7 +665,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :     VisibilityFilterExec: tables=[i]
      :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(pattern@0, name@1)], projection=[ctid_0@0, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (14 rows)
@@ -696,13 +674,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND e.pattern = i.name
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -722,13 +699,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND e.pattern = i.name
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -756,13 +732,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'other'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  499
@@ -782,13 +757,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'other'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  499
@@ -843,15 +817,14 @@ SELECT i.id
 FROM items_vc i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions_vc e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: i ANTI e
    Join Filter: (((e.pattern)::text = (i.name)::text) OR ((e.pattern)::text = (i.alt_name)::text))
@@ -863,7 +836,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :     VisibilityFilterExec: tables=[i]
      :       NestedLoopJoinExec: join_type=RightAnti, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
      :         CooperativeExec
-     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (14 rows)
@@ -872,13 +845,12 @@ SELECT i.id
 FROM items_vc i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions_vc e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  200
@@ -898,13 +870,12 @@ SELECT i.id
 FROM items_vc i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions_vc e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  200
@@ -932,13 +903,12 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND upper(e.pattern) = upper(i.name)
 )
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -953,7 +923,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(pdb_eval_expr_funcexpr_44945b63(e_1.pattern)@1, pdb_eval_expr_funcexpr_53eb87a5(i_0.name)@3)], projection=[ctid_0@0, id@2]
      :         ProjectionExec: expr=[pattern@0 as pattern, pdb_eval_expr_funcexpr_44945b63(pattern@0) as pdb_eval_expr_funcexpr_44945b63(e_1.pattern)]
      :           CooperativeExec
-     :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, pdb_eval_expr_funcexpr_53eb87a5(name@1) as pdb_eval_expr_funcexpr_53eb87a5(i_0.name)]
      :           CooperativeExec
      :             PgSearchScan: table=i, segments=1, dynamic_filters=2, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
@@ -963,13 +933,12 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND upper(e.pattern) = upper(i.name)
 )
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
  10
@@ -984,13 +953,12 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND upper(e.pattern) = upper(i.name)
 )
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
  10
@@ -1010,13 +978,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND COALESCE(e.pattern, '') = i.name
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1031,7 +998,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END@1, name@1)], projection=[ctid_0@0, id@2]
      :         ProjectionExec: expr=[pattern@0 as pattern, CASE WHEN pattern@0 IS NOT NULL THEN pattern@0 ELSE  END as CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END]
      :           CooperativeExec
-     :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (15 rows)
@@ -1040,13 +1007,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND COALESCE(e.pattern, '') = i.name
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1061,13 +1027,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND COALESCE(e.pattern, '') = i.name
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1088,15 +1053,14 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern IS NULL)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: i ANTI e
    Join Filter: ((e.pattern = i.name) OR (e.pattern IS NULL))
@@ -1110,7 +1074,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :         NestedLoopJoinExec: join_type=RightAnti, filter=pattern@1 = name@0 OR join_proj_push_down_1@2, projection=[ctid_0@0, name@1, id@2]
      :           ProjectionExec: expr=[pattern@0 as pattern, pattern@0 IS NULL as join_proj_push_down_1]
      :             CooperativeExec
-     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :           CooperativeExec
      :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (16 rows)
@@ -1119,13 +1083,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern IS NULL)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1140,13 +1103,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.pattern = i.name OR e.pattern IS NULL)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1166,13 +1128,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1187,7 +1148,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END@1, name@1)], projection=[ctid_0@0, id@2]
      :         ProjectionExec: expr=[pattern@0 as pattern, CASE WHEN pattern@0 IS NOT NULL THEN pattern@0 ELSE  END as CASE WHEN e_1.pattern IS NOT NULL THEN e_1.pattern ELSE Utf8View("") END]
      :           CooperativeExec
-     :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (15 rows)
@@ -1196,13 +1157,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1217,13 +1177,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1245,15 +1204,14 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.id * 2) > i.id
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: i ANTI e
    Join Filter: ((e.id * 2) > i.id)
@@ -1266,7 +1224,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :       NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@1 > id@0, projection=[ctid_0@0, id@1]
      :         ProjectionExec: expr=[id@0 as id, pdb_int_mul(id@0, 2) as join_proj_push_down_1]
      :           CooperativeExec
-     :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (15 rows)
@@ -1275,13 +1233,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.id * 2) > i.id
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1296,13 +1253,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (e.id * 2) > i.id
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1324,13 +1280,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                QUERY PLAN                                                                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1346,7 +1301,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :         NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@1 = name@0 OR join_proj_push_down_2@2, projection=[ctid_0@0, name@1, id@2]
      :           ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_funcexpr_44945b63(pattern@0) AS Utf8View) as join_proj_push_down_1, pdb_eval_expr_funcexpr_685b54ea(pattern@0) = never-matches as join_proj_push_down_2]
      :             CooperativeExec
-     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :           CooperativeExec
      :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
 (16 rows)
@@ -1355,13 +1310,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1376,13 +1330,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1410,13 +1363,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                               QUERY PLAN                                                                              
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1432,7 +1384,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :         NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@2 > join_proj_push_down_2@3 OR id@1 != id@0, projection=[ctid_0@0, name@1, id@2]
      :           ProjectionExec: expr=[pattern@0 as pattern, id@1 as id, character_length(pattern@0) as join_proj_push_down_1]
      :             CooperativeExec
-     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :           ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, character_length(name@1) as join_proj_push_down_2]
      :             CooperativeExec
      :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
@@ -1442,13 +1394,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -1458,13 +1409,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -1485,13 +1435,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                 QUERY PLAN                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1507,7 +1456,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :         NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@1 > join_proj_push_down_3@3 OR join_proj_push_down_2@2 = name@0, projection=[ctid_0@0, name@1, id@2]
      :           ProjectionExec: expr=[pattern@0 as pattern, character_length(pattern@0) as join_proj_push_down_1, CAST(pdb_eval_expr_funcexpr_44945b63(pattern@0) AS Utf8View) as join_proj_push_down_2]
      :             CooperativeExec
-     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :           ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, character_length(name@1) as join_proj_push_down_3]
      :             CooperativeExec
      :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
@@ -1517,13 +1466,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1538,13 +1486,12 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1568,14 +1515,13 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND md5(e.pattern) = md5(i.name)
       AND to_hex(e.id) <> to_hex(i.id)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                        QUERY PLAN                                                                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1590,7 +1536,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(pdb_eval_expr_funcexpr_685b54ea(e_1.pattern)@2, pdb_eval_expr_funcexpr_887b5ea5(i_0.name)@3)], filter=pdb_eval_expr_funcexpr_7e60c530(id@1) != pdb_eval_expr_funcexpr_64208395(id@0), projection=[ctid_0@0, id@2]
      :         ProjectionExec: expr=[pattern@0 as pattern, id@1 as id, pdb_eval_expr_funcexpr_685b54ea(pattern@0) as pdb_eval_expr_funcexpr_685b54ea(e_1.pattern)]
      :           CooperativeExec
-     :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :         ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, pdb_eval_expr_funcexpr_887b5ea5(name@1) as pdb_eval_expr_funcexpr_887b5ea5(i_0.name)]
      :           CooperativeExec
      :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
@@ -1600,14 +1546,13 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND md5(e.pattern) = md5(i.name)
       AND to_hex(e.id) <> to_hex(i.id)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1622,14 +1567,13 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()::pdb.const(0)
       AND md5(e.pattern) = md5(i.name)
       AND to_hex(e.id) <> to_hex(i.id)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1712,14 +1656,13 @@ SELECT i.id, i.name
 FROM coll_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM coll_patterns p
-    WHERE p.id @@@ paradedb.all()
+    WHERE p.id @@@ pdb.all()::pdb.const(0)
       AND (p.id = i.pattern_id
            OR upper(p.pattern COLLATE "C") = upper(i.name COLLATE "C"))
 )
-AND i.id @@@ paradedb.all()
+AND i.id @@@ pdb.all()::pdb.const(0)
 ORDER BY i.id
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1735,24 +1678,23 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      :         NestedLoopJoinExec: join_type=RightAnti, filter=id@1 = pattern_id@0 OR join_proj_push_down_1@2 = join_proj_push_down_2@3, projection=[ctid_0@0, pattern_id@1, name@2, id@3]
      :           ProjectionExec: expr=[id@0 as id, pattern@1 as pattern, pdb_eval_expr_funcexpr_52e8edc5(pattern@1) as join_proj_push_down_1]
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :               PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
      :           ProjectionExec: expr=[ctid_0@0 as ctid_0, pattern_id@1 as pattern_id, name@2 as name, id@3 as id, pdb_eval_expr_funcexpr_4b32ca6c(name@2) as join_proj_push_down_2]
      :             CooperativeExec
-     :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":"all"}}
+     :               PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
 (17 rows)
 
 SELECT i.id, i.name
 FROM coll_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM coll_patterns p
-    WHERE p.id @@@ paradedb.all()
+    WHERE p.id @@@ pdb.all()::pdb.const(0)
       AND (p.id = i.pattern_id
            OR upper(p.pattern COLLATE "C") = upper(i.name COLLATE "C"))
 )
-AND i.id @@@ paradedb.all()
+AND i.id @@@ pdb.all()::pdb.const(0)
 ORDER BY i.id
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  name   
 ----+---------
   4 | Delta
@@ -1768,14 +1710,13 @@ SELECT i.id, i.name
 FROM coll_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM coll_patterns p
-    WHERE p.id @@@ paradedb.all()
+    WHERE p.id @@@ pdb.all()::pdb.const(0)
       AND (p.id = i.pattern_id
            OR p.pattern = i.name)
 )
-AND i.id @@@ paradedb.all()
+AND i.id @@@ pdb.all()::pdb.const(0)
 ORDER BY i.id
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  name   
 ----+---------
   1 | Alpha
@@ -1794,14 +1735,13 @@ SELECT i.id, i.name
 FROM coll_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM coll_patterns p
-    WHERE p.id @@@ paradedb.all()
+    WHERE p.id @@@ pdb.all()::pdb.const(0)
       AND (p.id = i.pattern_id
            OR upper(p.pattern COLLATE "C") = upper(i.name COLLATE "C"))
 )
-AND i.id @@@ paradedb.all()
+AND i.id @@@ pdb.all()::pdb.const(0)
 ORDER BY i.id
 LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  name   
 ----+---------
   4 | Delta

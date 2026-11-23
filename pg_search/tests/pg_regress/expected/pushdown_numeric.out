@@ -26,12 +26,11 @@ CREATE INDEX numeric_pushdown_idx ON numeric_pushdown USING paradedb (
 );
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND numeric_col = 1
 ORDER BY id LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
@@ -40,14 +39,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Scores: false
             TopK Order By: id asc
             TopK Limit: 10
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"numeric_col","value":"1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"numeric_col","value":"1"}}]}}
 (9 rows)
 
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND numeric_col = 1
 ORDER BY id LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | text_col | numeric_col | float_col | int_col 
 ----+----------+-------------+-----------+---------
   1 | Bob      |           1 |         1 |       1
@@ -64,12 +62,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND numeric_col > 1
 ORDER BY id LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
@@ -78,14 +75,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Scores: false
             TopK Order By: id asc
             TopK Limit: 10
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"numeric_col","lower_bound":{"excluded":"1"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"numeric_col","lower_bound":{"excluded":"1"},"upper_bound":null}}]}}
 (9 rows)
 
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND numeric_col > 1
 ORDER BY id LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | text_col | numeric_col | float_col | int_col 
 ----+----------+-------------+-----------+---------
   2 | Charlie  |           2 |         2 |       2
@@ -102,12 +98,11 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND numeric_col::int > 1
 ORDER BY id LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
@@ -117,14 +112,13 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
             TopK Order By: id asc
             TopK Limit: 10
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"((numeric_col)::integer > 1)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}]}},"always_filters":[{"heap_filter":"((numeric_col)::integer > 1)"}]}}]}}
 (10 rows)
 
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()::pdb.const(0)
 AND numeric_col::int > 1
 ORDER BY id LIMIT 10;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | text_col | numeric_col | float_col | int_col 
 ----+----------+-------------+-----------+---------
   2 | Charlie  |           2 |         2 |       2

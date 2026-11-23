@@ -35,7 +35,7 @@ SELECT
     metadata_json->>'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->>'value'
 ORDER BY count DESC, value;
 
@@ -44,7 +44,7 @@ SELECT
     metadata_json->>'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->>'value'
 ORDER BY count DESC, value;
 
@@ -55,7 +55,7 @@ SELECT
     metadata_json->'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->'value'
 ORDER BY count DESC;
 
@@ -63,7 +63,7 @@ SELECT
     metadata_json->'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->'value'
 ORDER BY count DESC;
 
@@ -75,7 +75,7 @@ SELECT
     MIN((metadata_json->>'count')::INT) AS min_count,
     MAX((metadata_json->>'count')::INT) AS max_count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->>'value'
 ORDER BY value;
 

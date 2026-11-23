@@ -18,7 +18,7 @@ PREPARE search_desc(text, int) AS
 SELECT
   id,
   description,
-  paradedb.score(id) AS score
+  pdb.score(id) AS score
 FROM mock_items
 WHERE description ||| $1
 AND $2 = 0
@@ -27,7 +27,6 @@ LIMIT 5;
 -- Show plan for first execution (custom plan)
 EXPLAIN (COSTS OFF)
 EXECUTE search_desc('keyboard', 0);
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                  QUERY PLAN                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -43,7 +42,6 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 
 -- Execute with custom plan (first 5 times by default)
 EXECUTE search_desc('keyboard', 0);
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -51,7 +49,6 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 (2 rows)
 
 EXECUTE search_desc('keyboard', 0);
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -59,7 +56,6 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 (2 rows)
 
 EXECUTE search_desc('keyboard', 0);
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -67,7 +63,6 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 (2 rows)
 
 EXECUTE search_desc('keyboard', 0);
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -75,7 +70,6 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 (2 rows)
 
 EXECUTE search_desc('keyboard', 0);
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -116,7 +110,7 @@ PREPARE search_generic(text, int) AS
 SELECT
   id,
   description,
-  paradedb.score(id) AS score
+  pdb.score(id) AS score
 FROM mock_items
 WHERE description ||| $1
 AND $2 = 0
@@ -125,7 +119,6 @@ LIMIT 5;
 -- Show plan with forced generic plan (should still use Custom Scan)
 EXPLAIN (COSTS OFF)
 EXECUTE search_generic('keyboard', 0);
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                 QUERY PLAN                                                                                                                                                 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -167,7 +160,7 @@ PREPARE search_simple(text) AS
 SELECT
   id,
   description,
-  paradedb.score(id) AS score
+  pdb.score(id) AS score
 FROM mock_items
 WHERE description ||| $1
 ORDER BY score DESC
@@ -176,7 +169,6 @@ SET plan_cache_mode = force_generic_plan;
 -- Show plan for simple query with generic plan
 EXPLAIN (COSTS OFF)
 EXECUTE search_simple('keyboard');
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                        QUERY PLAN                                                                                       
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

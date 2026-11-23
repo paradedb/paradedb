@@ -150,9 +150,7 @@ INSERT INTO jsonb_exists_shapes VALUES
   (8, 'nested dot', '{"a":{"b":1}}'),
   (9, 'null value', '{"foo":null}'),
   (10, 'array of objects', '[{"foo":1}]');
-CREATE INDEX jsonb_exists_shapes_idx ON jsonb_exists_shapes USING paradedb (id, body, data)
-  WITH (json_fields = '{"data": {"fast": true}}');
-WARNING:  json_fields uses the deprecated ParadeDB V1 API
+CREATE INDEX jsonb_exists_shapes_idx ON jsonb_exists_shapes USING paradedb (id, body, (data::pdb.unicode_words('columnar=true')));
 SET paradedb.planner_warnings = 'off';
 EXPLAIN (COSTS OFF) SELECT id FROM jsonb_exists_shapes WHERE data ? 'foo' AND id @@@ pdb.all();
                                                                                                  QUERY PLAN                                                                                                 

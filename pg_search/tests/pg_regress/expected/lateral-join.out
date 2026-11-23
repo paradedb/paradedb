@@ -116,9 +116,8 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                   QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -155,9 +154,8 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |              title               | comment_id |     comment_content      
 ----+----------------------------------+------------+--------------------------
   4 | Database Security Best Practices |         93 | Comment 93 about article
@@ -183,12 +181,11 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+ORDER BY pdb.score(a.id) DESC;
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: (paradedb.score(a.id)) DESC
+   Sort Key: (pdb.score(a.id)) DESC
    ->  Nested Loop Left Join
          ->  Custom Scan (ParadeDB Base Scan) on articles a
                Table: articles
@@ -207,7 +204,7 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 SELECT 
     a.id,
     a.title,
-    paradedb.score(a.id) as score,
+    pdb.score(a.id) as score,
     latest_comment.comment_id
 FROM articles a
 LEFT JOIN LATERAL (
@@ -218,8 +215,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+ORDER BY pdb.score(a.id) DESC;
  id |            title             |   score   | comment_id 
 ----+------------------------------+-----------+------------
  11 | Computer Vision Applications | 2.2999182 |        100
@@ -242,15 +238,14 @@ LEFT JOIN LATERAL (
 ) c ON true
 WHERE a.content ||| 'database'
   AND c.comment_count > 5
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
                                                                                                      QUERY PLAN                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
-         Sort Key: (paradedb.score(a.id)) DESC
+         Sort Key: (pdb.score(a.id)) DESC
          ->  Nested Loop
                ->  Custom Scan (ParadeDB Base Scan) on articles a
                      Table: articles
@@ -268,7 +263,7 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
 SELECT 
     a.id,
     a.title,
-    paradedb.score(a.id) as score,
+    pdb.score(a.id) as score,
     c.comment_count
 FROM articles a
 LEFT JOIN LATERAL (
@@ -278,9 +273,8 @@ LEFT JOIN LATERAL (
 ) c ON true
 WHERE a.content ||| 'database'
   AND c.comment_count > 5
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
  id |              title               |   score   | comment_count 
 ----+----------------------------------+-----------+---------------
@@ -301,15 +295,14 @@ SELECT
 FROM articles a
 LEFT JOIN authors au ON a.author_id = au.id
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, au)
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
-         Sort Key: (paradedb.score(a.id)) DESC
+         Sort Key: (pdb.score(a.id)) DESC
          ->  Nested Loop Left Join
                Join Filter: (a.author_id = au.id)
                ->  Custom Scan (ParadeDB Base Scan) on articles a
@@ -325,14 +318,13 @@ WARNING:  JoinScan not used: join conditions must reference columnar indexed fie
 SELECT 
     a.id,
     a.title,
-    paradedb.score(a.id) as score,
+    pdb.score(a.id) as score,
     au.name as author_name
 FROM articles a
 LEFT JOIN authors au ON a.author_id = au.id
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, au)
  id |            title             |   score   | author_name 
 ----+------------------------------+-----------+-------------
@@ -360,9 +352,8 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
 ) stats ON true
 WHERE a.content ||| 'machine learning'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 10;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: field 'rating' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -396,9 +387,8 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
 ) stats ON true
 WHERE a.content ||| 'machine learning'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 10;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: field 'rating' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
  id |          title          | total_comments | avg_rating 
 ----+-------------------------+----------------+------------
@@ -485,9 +475,8 @@ LEFT JOIN LATERAL (
     WHERE t.article_id = a.id
 ) tag_list ON true
 WHERE a.content ||| 'database security'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                          QUERY PLAN                                                                                                          
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -527,9 +516,8 @@ LEFT JOIN LATERAL (
     WHERE t.article_id = a.id
 ) tag_list ON true
 WHERE a.content ||| 'database security'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |              title               | comment_count |               tags                
 ----+----------------------------------+---------------+-----------------------------------
   4 | Database Security Best Practices |             7 | security, database, technology
@@ -555,9 +543,8 @@ LEFT JOIN LATERAL (
 ) recent_activity ON true
 WHERE a.content ||| 'machine learning'
   AND a.author_id IN (1, 2)
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -581,7 +568,7 @@ SELECT
     a.id,
     a.title,
     ROUND(a.score_value::numeric, 2) as score_value,
-    paradedb.score(a.id) as score,
+    pdb.score(a.id) as score,
     recent_activity.last_comment
 FROM articles a
 LEFT JOIN LATERAL (
@@ -591,9 +578,8 @@ LEFT JOIN LATERAL (
 ) recent_activity ON true
 WHERE a.content ||| 'machine learning'
   AND a.author_id IN (1, 2)
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
  id |          title          | score_value |   score   |       last_comment       
 ----+-------------------------+-------------+-----------+--------------------------
@@ -621,9 +607,8 @@ LEFT JOIN LATERAL (
     HAVING COUNT(*) > 0
 ) comment_info ON true
 WHERE a.content ||| 'encryption'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -659,9 +644,8 @@ LEFT JOIN LATERAL (
     HAVING COUNT(*) > 0
 ) comment_info ON true
 WHERE a.content ||| 'encryption'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
  id |          title          | has_comments | comment_count 
 ----+-------------------------+--------------+---------------
@@ -677,7 +661,7 @@ EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
     a.title,
-    paradedb.score(a.id) as relevance_score,
+    pdb.score(a.id) as relevance_score,
     stats.comment_count
 FROM articles a
 LEFT JOIN LATERAL (
@@ -686,9 +670,8 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
 ) stats ON true
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -710,7 +693,7 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 SELECT 
     a.id,
     a.title,
-    paradedb.score(a.id) as relevance_score,
+    pdb.score(a.id) as relevance_score,
     stats.comment_count
 FROM articles a
 LEFT JOIN LATERAL (
@@ -719,9 +702,8 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
 ) stats ON true
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |            title             | relevance_score | comment_count 
 ----+------------------------------+-----------------+---------------
  11 | Computer Vision Applications |       2.2999182 |             7
@@ -753,9 +735,8 @@ LEFT JOIN (
     ) comment_stats ON true
 ) ON a.author_id = au.id
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: relation 'comment_stats' not found in join sources (tables: a, au)
                                                                                                   QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -801,9 +782,8 @@ LEFT JOIN (
     ) comment_stats ON true
 ) ON a.author_id = au.id
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: relation 'comment_stats' not found in join sources (tables: a, au)
  id |              title               | author_name | comment_count 
 ----+----------------------------------+-------------+---------------
@@ -844,9 +824,8 @@ LEFT JOIN LATERAL (
     ) comment_stats ON true
 ) complex ON a.author_id = complex.id
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: relation 'article_stats' not found in join sources (tables: a, au)
                                                                                                   QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -898,9 +877,8 @@ LEFT JOIN LATERAL (
     ) comment_stats ON true
 ) complex ON a.author_id = complex.id
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: relation 'article_stats' not found in join sources (tables: a, au)
  id |              title               | author_name | total_activity 
 ----+----------------------------------+-------------+----------------
@@ -910,14 +888,14 @@ WARNING:  JoinScan not used: relation 'article_stats' not found in join sources 
 (3 rows)
 
 -- =============================================================================
--- TEST 13: LEFT JOIN LATERAL with paradedb.snippet function
+-- TEST 13: LEFT JOIN LATERAL with pdb.snippet
 -- =============================================================================
 -- Demonstrates Top K optimization with snippet generation for matched content
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
     a.title,
-    paradedb.snippet(a.content, '<b>', '</b>') as content_snippet,
+    pdb.snippet(a.content, '<b>', '</b>') as content_snippet,
     latest_comment.comment_content
 FROM articles a
 LEFT JOIN LATERAL (
@@ -929,10 +907,8 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
                                                                                                   QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -956,7 +932,7 @@ WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
 SELECT 
     a.id,
     a.title,
-    paradedb.snippet(a.content, '<b>', '</b>') as content_snippet,
+    pdb.snippet(a.content, '<b>', '</b>') as content_snippet,
     latest_comment.comment_content
 FROM articles a
 LEFT JOIN LATERAL (
@@ -968,10 +944,8 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
  id |              title               |                            content_snippet                             |     comment_content      
 ----+----------------------------------+------------------------------------------------------------------------+--------------------------
   4 | Database Security Best Practices | How to secure your <b>database</b> systems effectively                 | Comment 93 about article

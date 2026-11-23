@@ -343,11 +343,7 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 -- Test 5.3: Range query on numeric field (CRITICAL: Tests range estimates)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE id @@@ paradedb.range(
-    field => 'rating',
-    range => int4range(4, 5)
-);
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
+WHERE rating @@@ pdb.range(range => int4range(4, 5));
                                                                                QUERY PLAN                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -383,14 +379,9 @@ WARNING:  paradedb.regex() uses the deprecated ParadeDB V1 API
 -- Test 5.5: Fuzzy query (CRITICAL: Tests typo-tolerance estimates)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 1::integer
-);
-WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description === 'sheos'::pdb.fuzzy(1, f, t);
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -398,14 +389,13 @@ WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"sheos","distance":1,"transposition_cost_one":null,"prefix":null},"estimated_docs":3}},"estimated_docs":3}
+   Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"sheos","distance":1,"transposition_cost_one":true,"prefix":false},"estimated_docs":3}},"estimated_docs":3}
 (8 rows)
 
 -- Test 5.6: Empty query (matches nothing)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.empty();
-WARNING:  paradedb.empty() uses the deprecated ParadeDB V1 API
+WHERE description @@@ pdb.empty();
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -415,7 +405,7 @@ WARNING:  paradedb.empty() uses the deprecated ParadeDB V1 API
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":"empty"},"estimated_docs":0}
+   Tantivy Query: {"with_index":{"query":{"empty":{"field":"description"},"estimated_docs":0}},"estimated_docs":0}
 (8 rows)
 
 -- Test 5.7: Boost query (wraps another query with score boost)
@@ -510,8 +500,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- Test 5.11: Parse query (query string syntax)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.parse('description:shoes AND description:running');
-WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WHERE description @@@ pdb.parse('description:shoes AND description:running');
                                                                                           QUERY PLAN                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -604,13 +593,9 @@ WHERE id @@@ pdb.more_like_this(1);
 -- Test 5.16: Match query with explicit tokenizer
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.match(
-    field => 'description',
-    value => 'running shoes'
-);
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'running shoes';
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -618,7 +603,7 @@ WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null},"estimated_docs":4}},"estimated_docs":4}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":4}},"estimated_docs":4}
 (8 rows)
 
 -- Test 5.17: Match conjunction (all terms must match)
@@ -664,7 +649,7 @@ WARNING:  paradedb.match_disjunction() uses the deprecated ParadeDB V1 API
 -- Test 5.19: Proximity query (word distance matching)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ pdb.proximity('running', 2, 'shoes');
+WHERE description @@@ ('running' ## 2 ## 'shoes');
                                                                                              QUERY PLAN                                                                                              
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -680,7 +665,7 @@ WHERE description @@@ pdb.proximity('running', 2, 'shoes');
 -- Test 5.20: Proximity in order (words must appear in specific order)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ pdb.proximity_in_order('running', 3, 'shoes');
+WHERE description @@@ ('running' ##> 3 ##> 'shoes');
                                                                                              QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -696,11 +681,7 @@ WHERE description @@@ pdb.proximity_in_order('running', 3, 'shoes');
 -- Test 5.21: Range query on date field
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE id @@@ paradedb.range(
-    field => 'created_at',
-    range => tsrange('2023-01-01', '2023-12-31')
-);
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
+WHERE created_at @@@ pdb.range(range => tsrange('2023-01-01', '2023-12-31'));
                                                                                                                          QUERY PLAN                                                                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -1014,10 +995,9 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 (8 rows)
 
 -- Test 8.2: Match all query (very broad)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ paradedb.all();
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ pdb.all()::pdb.const(0);
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -1026,7 +1006,7 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
    Exec Method: NormalScanExecState
    Scores: false
    Full Index Scan: true
-   Tantivy Query: {"with_index":{"query":"all"},"estimated_docs":41}
+   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"description"},"estimated_docs":41},"score":0.0},"estimated_docs":41}},"estimated_docs":41}
 (9 rows)
 
 -- Test 8.3: Many AND clauses (wide tree)
@@ -1267,11 +1247,7 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- Test 10.4: Range query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE rating @@@ paradedb.range(
-    field => 'rating',
-    range => int4range(4, 5)
-);
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
+WHERE rating @@@ pdb.range(range => int4range(4, 5));
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  [                                                                                                                                                                                                   +
@@ -1300,34 +1276,29 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 -- Test 10.5: Fuzzy query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ paradedb.fuzzy_term(
-    field => 'description',
-    value => 'sheos',
-    distance => 1::integer
-);
-WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
-                                                                                                           QUERY PLAN                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                              +
-   {                                                                                                                                                                                                                            +
-     "Plan": {                                                                                                                                                                                                                  +
-       "Node Type": "Custom Scan",                                                                                                                                                                                              +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                            +
-       "Parallel Aware": false,                                                                                                                                                                                                 +
-       "Async Capable": false,                                                                                                                                                                                                  +
-       "Relation Name": "estimate_items",                                                                                                                                                                                       +
-       "Schema": "recursive_test",                                                                                                                                                                                              +
-       "Alias": "estimate_items",                                                                                                                                                                                               +
-       "Disabled": false,                                                                                                                                                                                                       +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                               +
-       "Table": "estimate_items",                                                                                                                                                                                               +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                                      +
-       "Worker Selection": "Cost model",                                                                                                                                                                                        +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                                    +
-       "Scores": false,                                                                                                                                                                                                         +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"fuzzy_term\":{\"field\":\"description\",\"value\":\"sheos\",\"distance\":1,\"transposition_cost_one\":null,\"prefix\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
-     }                                                                                                                                                                                                                          +
-   }                                                                                                                                                                                                                            +
+WHERE description === 'sheos'::pdb.fuzzy(1, f, t);
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                               +
+   {                                                                                                                                                                                                                             +
+     "Plan": {                                                                                                                                                                                                                   +
+       "Node Type": "Custom Scan",                                                                                                                                                                                               +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                             +
+       "Parallel Aware": false,                                                                                                                                                                                                  +
+       "Async Capable": false,                                                                                                                                                                                                   +
+       "Relation Name": "estimate_items",                                                                                                                                                                                        +
+       "Schema": "recursive_test",                                                                                                                                                                                               +
+       "Alias": "estimate_items",                                                                                                                                                                                                +
+       "Disabled": false,                                                                                                                                                                                                        +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                +
+       "Table": "estimate_items",                                                                                                                                                                                                +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                       +
+       "Worker Selection": "Cost model",                                                                                                                                                                                         +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                     +
+       "Scores": false,                                                                                                                                                                                                          +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"fuzzy_term\":{\"field\":\"description\",\"value\":\"sheos\",\"distance\":1,\"transposition_cost_one\":true,\"prefix\":false},\"estimated_docs\":3}},\"estimated_docs\":3}"+
+     }                                                                                                                                                                                                                           +
+   }                                                                                                                                                                                                                             +
  ]
 (1 row)
 

@@ -26,19 +26,10 @@ SELECT * FROM ascii WHERE description ||| 'cafe' ORDER BY id;
 SELECT * FROM ascii WHERE description ||| 'Ångström' ORDER BY id;
 SELECT * FROM ascii WHERE description ||| 'angstrom' ORDER BY id;
 
-SELECT * FROM paradedb.tokenize(
-  paradedb.tokenizer('default', ascii_folding => true),
-  'café'
-);
+SELECT 'café'::pdb.simple('ascii_folding=true')::text[] AS tokens;
 
-SELECT * FROM paradedb.tokenize(
-  paradedb.tokenizer('default', ascii_folding => false),
-  'café'
-);
+SELECT 'café'::pdb.simple('ascii_folding=false')::text[] AS tokens;
 
-SELECT * FROM paradedb.tokenize(
-  paradedb.tokenizer('default'),
-  'café'
-);
+SELECT 'café'::pdb.simple::text[] AS tokens;
 
 DROP TABLE ascii;

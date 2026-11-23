@@ -9,9 +9,9 @@ CREATE TABLE jo_authors (id INT PRIMARY KEY, name TEXT, bio TEXT);
 CREATE TABLE jo_books (id INT PRIMARY KEY, author_id INT, title TEXT);
 CREATE TABLE jo_reviews (id INT PRIMARY KEY, book_id INT, body TEXT, rating INT);
 
-CREATE INDEX jo_authors_idx ON jo_authors USING bm25 (id, (name::pdb.literal), bio);
-CREATE INDEX jo_books_idx ON jo_books USING bm25 (id, author_id, title);
-CREATE INDEX jo_reviews_idx ON jo_reviews USING bm25 (id, book_id, body, rating);
+CREATE INDEX jo_authors_idx ON jo_authors USING paradedb (id, (name::pdb.literal), bio);
+CREATE INDEX jo_books_idx ON jo_books USING paradedb (id, author_id, title);
+CREATE INDEX jo_reviews_idx ON jo_reviews USING paradedb (id, book_id, body, rating);
 
 -- One segment per table, so the plans are stable.
 SET paradedb.global_mutable_segment_rows = 0;

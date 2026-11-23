@@ -378,7 +378,7 @@ CREATE TEMP TABLE q_cosine_oracle AS SELECT * FROM q_cosine;
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine '
-        'WHERE id @@@ paradedb.range(''id'', int4range(1, 51, ''[)'')) '
+        'WHERE id @@@ pdb.range(int4range(1, 51, ''[)'')) '
         'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
     ) AS value
 ), segment_info AS (
@@ -401,7 +401,6 @@ SELECT
             + (jsonb_path_query_first(value, '$.**.located_matches') #>> '{}')::bigint
         AS located_visits_accounted
 FROM segment_info;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  access_path | located_matches | located_prunes_nothing | located_rows_every_located_cluster | located_scores_every_match | located_visits_accounted 
 -------------+-----------------+------------------------+------------------------------------+----------------------------+--------------------------
  Located     |              50 | t                      | t                                  | t                          | t
@@ -410,7 +409,7 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 SELECT
     ARRAY(
         SELECT id FROM q_cosine
-        WHERE id @@@ paradedb.range('id', int4range(1, 51, '[)'))
+        WHERE id @@@ pdb.range(int4range(1, 51, '[)'))
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) = ARRAY(
@@ -419,7 +418,6 @@ SELECT
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) AS located_matches_exhaustive;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  located_matches_exhaustive 
 ----------------------------
  t
@@ -432,7 +430,7 @@ SET paradedb.vector_cluster_max_probe = 10;
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine '
-        'WHERE id @@@ paradedb.range(''id'', int4range(1, 121, ''[)'')) '
+        'WHERE id @@@ pdb.range(int4range(1, 121, ''[)'')) '
         'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
     ) AS value
 ), segment_info AS (
@@ -452,7 +450,6 @@ SELECT
             + (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint
         AS filtered_visits_accounted
 FROM segment_info;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  access_path | filtered_scores_only_eligible | filtered_prunes_at_admission | filtered_visits_accounted 
 -------------+-------------------------------+------------------------------+---------------------------
  Routed      | t                             | t                            | t
@@ -461,7 +458,7 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 SELECT
     ARRAY(
         SELECT id FROM q_cosine
-        WHERE id @@@ paradedb.range('id', int4range(1, 121, '[)'))
+        WHERE id @@@ pdb.range(int4range(1, 121, '[)'))
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) = ARRAY(
@@ -470,7 +467,6 @@ SELECT
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) AS routed_matches_exhaustive;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  routed_matches_exhaustive 
 ---------------------------
  t

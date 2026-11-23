@@ -363,18 +363,17 @@ LIMIT 10;
 -- Order by score from the nested relation (Products).
 -- Products is in the child join (p join c).
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.name, paradedb.score(p.id)
+SELECT p.name, pdb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE p.description ||| 'wireless'
-ORDER BY paradedb.score(p.id) DESC
+ORDER BY pdb.score(p.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                             QUERY PLAN                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Output: p.name, (paradedb.score(p.id))
+   Output: p.name, (pdb.score(p.id))
    Relation Tree: (p INNER s) INNER c
    Join Cond: p.category_id = c.id, p.supplier_id = s.id
    Limit: 5
@@ -393,14 +392,13 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
      :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
-SELECT p.name, paradedb.score(p.id)
+SELECT p.name, pdb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE p.description ||| 'wireless'
-ORDER BY paradedb.score(p.id) DESC
+ORDER BY pdb.score(p.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
       name      |   score   
 ----------------+-----------
  Wireless Mouse | 1.0935268
@@ -409,18 +407,17 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 
 -- Order by score from the top outer relation (Suppliers).
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT s.name, paradedb.score(s.id)
+SELECT s.name, pdb.score(s.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info ||| 'wireless'
-ORDER BY paradedb.score(s.id) DESC
+ORDER BY pdb.score(s.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                              QUERY PLAN                                                                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Output: s.name, (paradedb.score(s.id))
+   Output: s.name, (pdb.score(s.id))
    Relation Tree: (p INNER s) INNER c
    Join Cond: p.category_id = c.id, p.supplier_id = s.id
    Limit: 5
@@ -439,14 +436,13 @@ WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
      :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
-SELECT s.name, paradedb.score(s.id)
+SELECT s.name, pdb.score(s.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info ||| 'wireless'
-ORDER BY paradedb.score(s.id) DESC
+ORDER BY pdb.score(s.id) DESC
 LIMIT 5;
-WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
    name   |   score   
 ----------+-----------
  TechCorp | 0.9808292

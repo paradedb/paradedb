@@ -38,9 +38,8 @@ CREATE INDEX amounts_idx ON amounts USING paradedb (
 -- TopN ascending: the numeric(18,0) column is the reference ordering.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('direction', 'debit')
+WHERE discarded_at IS NULL AND direction === 'debit'
 ORDER BY amt_78 ASC LIMIT 8;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                            QUERY PLAN                                           
 ------------------------------------------------------------------------------------------------
  Limit
@@ -58,9 +57,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 (12 rows)
 
 SELECT amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('direction', 'debit')
+WHERE discarded_at IS NULL AND direction === 'debit'
 ORDER BY amt_78 ASC LIMIT 8;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
          amt_78         
 ------------------------
  -100000000000000000000
@@ -74,9 +72,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 (8 rows)
 
 SELECT amt_18 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('direction', 'debit')
+WHERE discarded_at IS NULL AND direction === 'debit'
 ORDER BY amt_18 ASC LIMIT 8;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
        amt_18        
 ---------------------
  -999999999999999999
@@ -92,9 +89,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- TopN descending over negatives only.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('direction', 'debit')
+WHERE discarded_at IS NULL AND direction === 'debit'
 ORDER BY amt_78 DESC LIMIT 8;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                            QUERY PLAN                                           
 ------------------------------------------------------------------------------------------------
  Limit
@@ -112,9 +108,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 (12 rows)
 
 SELECT amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('direction', 'debit')
+WHERE discarded_at IS NULL AND direction === 'debit'
 ORDER BY amt_78 DESC LIMIT 8;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  amt_78 
 --------
      -1
@@ -130,9 +125,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- Unlimited-precision NUMERIC takes the same storage path.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT amt_any FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('direction', 'debit')
+WHERE discarded_at IS NULL AND direction === 'debit'
 ORDER BY amt_any ASC LIMIT 8;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                            QUERY PLAN                                           
 ------------------------------------------------------------------------------------------------
  Limit
@@ -150,9 +144,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 (12 rows)
 
 SELECT amt_any FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('direction', 'debit')
+WHERE discarded_at IS NULL AND direction === 'debit'
 ORDER BY amt_any ASC LIMIT 8;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
         amt_any         
 ------------------------
  -100000000000000000000
@@ -168,9 +161,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- Fractional negatives with a 20-digit integer part in the mix.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT amt_scaled FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('direction', 'debit')
+WHERE discarded_at IS NULL AND direction === 'debit'
 ORDER BY amt_scaled ASC LIMIT 4;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                            QUERY PLAN                                           
 ------------------------------------------------------------------------------------------------
  Limit
@@ -188,9 +180,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 (12 rows)
 
 SELECT amt_scaled FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('direction', 'debit')
+WHERE discarded_at IS NULL AND direction === 'debit'
 ORDER BY amt_scaled ASC LIMIT 4;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
            amt_scaled            
 ---------------------------------
  -1000000000000000000.0000000001
@@ -202,9 +193,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- Shared-prefix fractions: -0.51 < -0.50001 < -0.5 < -0.4999.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT amt_scaled FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.range('amt_scaled', numrange(-1, -0.4))
+WHERE discarded_at IS NULL AND amt_scaled @@@ pdb.range(numrange(-1, -0.4))
 ORDER BY amt_scaled ASC;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                                                      QUERY PLAN                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -222,9 +212,8 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 (12 rows)
 
 SELECT amt_scaled FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.range('amt_scaled', numrange(-1, -0.4))
+WHERE discarded_at IS NULL AND amt_scaled @@@ pdb.range(numrange(-1, -0.4))
 ORDER BY amt_scaled ASC;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
   amt_scaled   
 ---------------
  -0.5100000000
@@ -235,9 +224,8 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 
 -- Whole-table ordering across the sign boundary.
 SELECT amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.all()
+WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0)
 ORDER BY amt_78 ASC LIMIT 4;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          amt_78         
 ------------------------
  -100000000000000000000
@@ -247,9 +235,8 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 (4 rows)
 
 SELECT amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.all()
+WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0)
 ORDER BY amt_78 DESC LIMIT 4;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  amt_78 
 --------
      51
@@ -261,10 +248,9 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Range pushdown must not return rows outside the requested range.
 SELECT count(*) FROM (
     SELECT amt_78 FROM amounts
-    WHERE discarded_at IS NULL AND id @@@ paradedb.range('amt_78', numrange(-20500, -20300))
+    WHERE discarded_at IS NULL AND amt_78 @@@ pdb.range(numrange(-20500, -20300))
 ) s
 WHERE NOT (amt_78 >= -20500 AND amt_78 < -20300);
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: amounts)
  count 
 -------
@@ -272,16 +258,14 @@ WARNING:  Aggregate Scan not used: query does not imply the partial index predic
 (1 row)
 
 SELECT count(*) FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.range('amt_78', numrange(-20500, -20300));
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
+WHERE discarded_at IS NULL AND amt_78 @@@ pdb.range(numrange(-20500, -20300));
  count 
 -------
    200
 (1 row)
 
 SELECT count(*) FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.range('amt_18', numrange(-20500, -20300));
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
+WHERE discarded_at IS NULL AND amt_18 @@@ pdb.range(numrange(-20500, -20300));
  count 
 -------
    200
@@ -289,9 +273,8 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 
 -- Range with a shared-prefix boundary: (-50000, -49990] must exclude -50000 and include -49990.
 SELECT amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.range('amt_78', numrange(-50000, -49990, '(]'))
+WHERE discarded_at IS NULL AND amt_78 @@@ pdb.range(numrange(-50000, -49990, '(]'))
 ORDER BY amt_78;
-WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  amt_78 
 --------
  -49999
@@ -309,29 +292,26 @@ WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
 -- Heap-filter pushdown on the fast field.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*) FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.all() AND amt_78 > -20500 AND amt_78 < -20300;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_78 > -20500 AND amt_78 < -20300;
+                                                                                                                                              QUERY PLAN                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.amounts
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: amounts_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"amt_78","lower_bound":{"excluded":"-20500"},"upper_bound":null}},{"range":{"field":"amt_78","lower_bound":null,"upper_bound":{"excluded":"-20300"}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"amt_78","lower_bound":{"excluded":"-20500"},"upper_bound":null}},{"range":{"field":"amt_78","lower_bound":null,"upper_bound":{"excluded":"-20300"}}}]}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT count(*) FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.all() AND amt_78 > -20500 AND amt_78 < -20300;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_78 > -20500 AND amt_78 < -20300;
  count 
 -------
    199
 (1 row)
 
 SELECT count(*) FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.all() AND amt_18 > -20500 AND amt_18 < -20300;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_18 > -20500 AND amt_18 < -20300;
  count 
 -------
    199
@@ -340,9 +320,8 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 -- Equality on values with shared digit prefixes.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('amt_78', -49990::numeric)
+WHERE discarded_at IS NULL AND amt_78 @@@ pdb.term(-49990::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                           QUERY PLAN                                          
 ----------------------------------------------------------------------------------------------
  Sort
@@ -360,27 +339,24 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 (12 rows)
 
 SELECT id, amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('amt_78', -49990::numeric)
+WHERE discarded_at IS NULL AND amt_78 @@@ pdb.term(-49990::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
   id   | amt_78 
 -------+--------
  49990 | -49990
 (1 row)
 
 SELECT id, amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('amt_78', -100001::numeric)
+WHERE discarded_at IS NULL AND amt_78 @@@ pdb.term(-100001::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
   id   | amt_78  
 -------+---------
  50007 | -100001
 (1 row)
 
 SELECT id, amt_scaled FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('amt_scaled', -0.5::numeric)
+WHERE discarded_at IS NULL AND amt_scaled @@@ pdb.term(-0.5::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
   id   |  amt_scaled   
 -------+---------------
  50003 | -0.5000000000
@@ -389,11 +365,10 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 -- IN (...) is pushed down as a term set and has to use the same term conversion.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.all() AND amt_78 IN (-49999, -49990, 5)
+WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_78 IN (-49999, -49990, 5)
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, amt_78
    Sort Key: amounts.id
@@ -405,13 +380,12 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: amt_78, id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"termset":{"amt_78":["-49999","-49990","5"]}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term_set":{"termset":{"amt_78":["-49999","-49990","5"]}}}]}}
 (12 rows)
 
 SELECT id, amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.all() AND amt_78 IN (-49999, -49990, 5)
+WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_78 IN (-49999, -49990, 5)
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   id   | amt_78 
 -------+--------
  49990 | -49990
@@ -420,9 +394,8 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 (3 rows)
 
 SELECT id, amt_scaled FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.all() AND amt_scaled IN (-0.5, -0.50001)
+WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_scaled IN (-0.5, -0.50001)
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   id   |  amt_scaled   
 -------+---------------
  50003 | -0.5000000000
@@ -437,9 +410,8 @@ ERROR:  Failed to parse numeric 'not-a-number': InvalidFormat("Invalid character
 INSERT INTO amounts (direction, amt_18, amt_78, amt_any, amt_scaled)
 VALUES ('debit', -49995, -49995, -49995, -0.49995);
 SELECT amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('direction', 'debit')
+WHERE discarded_at IS NULL AND direction === 'debit'
 ORDER BY amt_78 ASC LIMIT 8;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
          amt_78         
 ------------------------
  -100000000000000000000
@@ -453,9 +425,8 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 (8 rows)
 
 SELECT id, amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ paradedb.term('amt_78', -49995::numeric)
+WHERE discarded_at IS NULL AND amt_78 @@@ pdb.term(-49995::numeric)
 ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
   id   | amt_78 
 -------+--------
  49995 | -49995
@@ -472,11 +443,10 @@ INSERT INTO prices (price) VALUES (1.23), (4.56), (1.00), (4.00), (-1.23);
 CREATE INDEX prices_idx ON prices USING paradedb (id, price);
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM prices
-WHERE id @@@ paradedb.all() AND price IN (1.23, 4.56, -1.23)
+WHERE id @@@ pdb.all()::pdb.const(0) AND price IN (1.23, 4.56, -1.23)
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
-                                                               QUERY PLAN                                                                
------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price
    Sort Key: prices.id
@@ -488,13 +458,12 @@ WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          Exec Method: ColumnarExecState
          Columnar: id, price
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"termset":{"price":["1.23","4.56","-1.23"]}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term_set":{"termset":{"price":["1.23","4.56","-1.23"]}}}]}}
 (12 rows)
 
 SELECT id, price FROM prices
-WHERE id @@@ paradedb.all() AND price IN (1.23, 4.56, -1.23)
+WHERE id @@@ pdb.all()::pdb.const(0) AND price IN (1.23, 4.56, -1.23)
 ORDER BY id;
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   1 |  1.23
@@ -517,9 +486,8 @@ INSERT INTO spans (span) VALUES
 CREATE INDEX spans_idx ON spans USING paradedb (id, span);
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, span FROM spans
-WHERE id @@@ paradedb.range_term('span', -49995::numeric)
+WHERE span @@@ pdb.range_term(-49995::numeric)
 ORDER BY id;
-WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
                                             QUERY PLAN                                            
 --------------------------------------------------------------------------------------------------
  Sort
@@ -536,9 +504,8 @@ WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
 (11 rows)
 
 SELECT id, span FROM spans
-WHERE id @@@ paradedb.range_term('span', -49995::numeric)
+WHERE span @@@ pdb.range_term(-49995::numeric)
 ORDER BY id;
-WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
  id |      span       
 ----+-----------------
   1 | [-50000,-49990)
@@ -555,9 +522,8 @@ ORDER BY id;
 (2 rows)
 
 SELECT id, span FROM spans
-WHERE id @@@ paradedb.range_term('span', -49990::numeric)
+WHERE span @@@ pdb.range_term(-49990::numeric)
 ORDER BY id;
-WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
  id | span 
 ----+------
 (0 rows)
@@ -570,9 +536,8 @@ ORDER BY id;
 (0 rows)
 
 SELECT id, span FROM spans
-WHERE id @@@ paradedb.range_term('span', -0.5::numeric)
+WHERE span @@@ pdb.range_term(-0.5::numeric)
 ORDER BY id;
-WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
  id |    span    
 ----+------------
   5 | [-0.5,0.5]
@@ -587,9 +552,8 @@ ORDER BY id;
 (1 row)
 
 SELECT id, span FROM spans
-WHERE id @@@ paradedb.range_term('span', numrange(-49992, -49991), 'Intersects')
+WHERE span @@@ pdb.range_term(numrange(-49992, -49991), 'Intersects')
 ORDER BY id;
-WARNING:  paradedb.range_term() uses the deprecated ParadeDB V1 API
  id |      span       
 ----+-----------------
   1 | [-50000,-49990)

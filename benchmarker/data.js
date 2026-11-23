@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795359433068,
+  "lastUpdate": 1795436326125,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -39351,6 +39351,104 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14752244098-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Tony Nguyen",
+            "username": "tuannx",
+            "email": "tuannx87@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b859805314f8286e0b319031a627a128e2401cd",
+          "message": "fix: resolve aggregate FILTER vars through fast-field mapping (#7621)\n\nFixes #7517.\n\n### Root Cause\nIn `joinscan/src/postgres/customscan/aggregatescan/datafusion_build.rs`:\n1. `FilterExpr::from_pg_node` resolved `T_Var` in `FILTER` clauses with\n`source.get_attname(varattno)` instead of resolving the heap attribute\nthrough the index's fast-field mapping\n(`source.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)`).\nWhen an index alias matched another SQL column's name (e.g. `maker`\naliased as `category`, `category` aliased as `brand`),\n`FilterExpr::to_datafusion` read the wrong indexed field; when an\naliased column had no colliding name, DataFusion failed with a schema\nerror (`No field named ...`).\n2. `populate_required_fields` ignored the `attno` already stored on\n`FilterColumnRef` and looked up `context.get_attno_by_name(&field_name)`\ninstead, so an aliased fast field referenced only in `FILTER` would not\nbe registered.\n\n### Changes\n- Resolve `FILTER` `T_Var` nodes through\n`source.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)` and\nstore `resolved.field.name()` in `FilterColumnRef`.\n- Register `FILTER` columns in `populate_required_fields` directly via\ntheir stored `attno`.\n- Add `pg_regress` test `aggregate_join_filter_alias` covering:\n1. `pdb.agg()` + `FILTER` with an alias colliding with another heap\ncolumn name (`{\"value\": 0.0}` before -> `{\"value\": 2.0}` after, matching\nnative Postgres and `WHERE` parity).\n2. Standard `count(*) FILTER (...)` referencing aliased-only columns\n(`Schema error: No field named p_0.maker` before -> `2 | 1` after).\n3. `GROUP BY` + `FILTER` on aliased columns (`acme | 0` before -> `acme\n| 2` after).\n\n### Testing\nVerified on PostgreSQL 18.7 (macOS arm64):\n- `cargo pgrx regress pg18 aggregate_join_filter_alias\naggregate_join_alias aggregate_join aggregate_join_numeric_filter\naggregate_join_edge_cases aggregate_join_fallback groupby-agg-filter\npdb_agg_datafusion pdb_agg_composite window_agg_normal_scan` (17/17\npassed, including `setup` and expanded `aggregate_join_*` suites).\n- `cargo fmt --all -- --check`\n- `cargo clippy -p joinscan --no-default-features --features pg18 -- -D\nwarnings`",
+          "timestamp": "2026-11-22T17:12:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b859805314f8286e0b319031a627a128e2401cd"
+        },
+        "date": 1795436324901,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.291,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 10.783,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.555,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.006,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 5.964,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 7.74,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 8.204,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.75,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 1.769,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 8.308,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.407,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.885,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.109,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.979,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14814019067-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [
@@ -46092,6 +46190,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14752244098-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Tony Nguyen",
+            "username": "tuannx",
+            "email": "tuannx87@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b859805314f8286e0b319031a627a128e2401cd",
+          "message": "fix: resolve aggregate FILTER vars through fast-field mapping (#7621)\n\nFixes #7517.\n\n### Root Cause\nIn `joinscan/src/postgres/customscan/aggregatescan/datafusion_build.rs`:\n1. `FilterExpr::from_pg_node` resolved `T_Var` in `FILTER` clauses with\n`source.get_attname(varattno)` instead of resolving the heap attribute\nthrough the index's fast-field mapping\n(`source.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)`).\nWhen an index alias matched another SQL column's name (e.g. `maker`\naliased as `category`, `category` aliased as `brand`),\n`FilterExpr::to_datafusion` read the wrong indexed field; when an\naliased column had no colliding name, DataFusion failed with a schema\nerror (`No field named ...`).\n2. `populate_required_fields` ignored the `attno` already stored on\n`FilterColumnRef` and looked up `context.get_attno_by_name(&field_name)`\ninstead, so an aliased fast field referenced only in `FILTER` would not\nbe registered.\n\n### Changes\n- Resolve `FILTER` `T_Var` nodes through\n`source.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)` and\nstore `resolved.field.name()` in `FilterColumnRef`.\n- Register `FILTER` columns in `populate_required_fields` directly via\ntheir stored `attno`.\n- Add `pg_regress` test `aggregate_join_filter_alias` covering:\n1. `pdb.agg()` + `FILTER` with an alias colliding with another heap\ncolumn name (`{\"value\": 0.0}` before -> `{\"value\": 2.0}` after, matching\nnative Postgres and `WHERE` parity).\n2. Standard `count(*) FILTER (...)` referencing aliased-only columns\n(`Schema error: No field named p_0.maker` before -> `2 | 1` after).\n3. `GROUP BY` + `FILTER` on aliased columns (`acme | 0` before -> `acme\n| 2` after).\n\n### Testing\nVerified on PostgreSQL 18.7 (macOS arm64):\n- `cargo pgrx regress pg18 aggregate_join_filter_alias\naggregate_join_alias aggregate_join aggregate_join_numeric_filter\naggregate_join_edge_cases aggregate_join_fallback groupby-agg-filter\npdb_agg_datafusion pdb_agg_composite window_agg_normal_scan` (17/17\npassed, including `setup` and expanded `aggregate_join_*` suites).\n- `cargo fmt --all -- --check`\n- `cargo clippy -p joinscan --no-default-features --features pg18 -- -D\nwarnings`",
+          "timestamp": "2026-11-22T17:12:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b859805314f8286e0b319031a627a128e2401cd"
+        },
+        "date": 1795436326106,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 539.92,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 500.56,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 126.36,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 341.04,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 371.4,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14814019067-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

@@ -216,8 +216,7 @@ pub fn clear_planner_warnings() {
 pub enum ExplainMode {
     /// Not inside an `EXPLAIN` command.
     None,
-    /// Inside `EXPLAIN` without `ANALYZE`. Report planner and V1 API diagnostics as
-    /// warnings so users can inspect the plan even in error mode.
+    /// Plan-only `EXPLAIN` emits warnings even in error mode.
     PlanOnly,
     /// Inside `EXPLAIN ANALYZE`, which executes the query and therefore enforces
     /// `paradedb.planner_warnings = 'error'` on scan fallbacks, while still enabling

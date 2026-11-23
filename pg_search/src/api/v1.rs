@@ -248,7 +248,7 @@ unsafe extern "C-unwind" fn walk_query(node: *mut pg_sys::Node, context: *mut c_
                 && calls.is_legacy_query_type((*query).consttype)
                 && is_search_with_query_input_exec_procoid(function.funcid)
             {
-                // Deparsed sequential scan filters carry the planner's query as a literal.
+                // Skip the planner's query literal when replaying a scan filter.
                 pg_sys::check_stack_depth();
                 return args
                     .iter_ptr()
@@ -256,8 +256,7 @@ unsafe extern "C-unwind" fn walk_query(node: *mut pg_sys::Node, context: *mut c_
                     .any(|(position, arg)| position != 1 && walk_query(arg, context));
             }
         }
-        // Literal type input can already be folded by parse analysis. Avoid inspecting the
-        // result type of function calls, since pdb.more_like_this(document) also returns it.
+        // Parsed V1 literals can be constants. V2 builders can return the same type.
         pg_sys::NodeTag::T_Const => calls.input_type((*node.cast::<pg_sys::Const>()).consttype),
         pg_sys::NodeTag::T_Param => {
             let param = &*node.cast::<pg_sys::Param>();
@@ -273,8 +272,7 @@ unsafe extern "C-unwind" fn walk_query(node: *mut pg_sys::Node, context: *mut c_
     pg_sys::expression_tree_walker(node, Some(walk_query), context)
 }
 
-/// Inspect user-written expressions before planner rewrites build their own internal calls
-/// to functions such as with_index, term_with_operator, and the fielded query builders.
+/// Check V1 usage before the planner adds internal calls.
 pub(crate) unsafe fn warn_query(query: *mut pg_sys::Query, extension: pg_sys::Oid) {
     let mode = v1api_warnings();
     if mode == PlannerWarnings::Off {
@@ -376,7 +374,7 @@ unsafe fn warn_index_utility(node: *mut pg_sys::Node) {
 
     if let Some(index) = nodecast!(IndexStmt, node) {
         let index = &*index;
-        // PostgreSQL can synthesize transformed statements when it copies an existing index.
+        // Copying an index can generate a transformed statement.
         if index.transformed || index.accessMethod.is_null() {
             return;
         }

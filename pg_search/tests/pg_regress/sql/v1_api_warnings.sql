@@ -1,4 +1,4 @@
--- V1 migrations are diagnosed before the planner rewrites search and score expressions.
+-- Check V1 diagnostics before planner rewrites.
 \set VERBOSITY default
 \pset format unaligned
 SET paradedb.planner_warnings = 'off';
@@ -17,16 +17,15 @@ WITH matches AS (
 )
 SELECT id FROM matches;
 
--- The legacy comparison matches an indexed token in the body.
 SELECT id FROM v1_api_items WHERE id @@@ paradedb.term_with_operator('body', '=', 'shoes'::text);
 
--- Legacy JSON and argument values are distinct from V2 builders, including when folded.
+-- Check V1 literals and builders.
 SELECT '{"all":null}'::paradedb.searchqueryinput;
 SELECT '{"all":null}'::jsonb::paradedb.searchqueryinput;
 SELECT paradedb.searchqueryinput_in('"all"');
 SELECT paradedb.disjunction_max(ARRAY[paradedb.all()]);
 
--- Existing indexes can still be read and maintained in error mode.
+-- Legacy indexes remain usable in error mode.
 SET paradedb.v1api_warnings = 'off';
 SELECT id FROM v1_api_items WHERE id @@@ paradedb.term('body', 'shoes');
 SET plan_cache_mode = force_generic_plan;

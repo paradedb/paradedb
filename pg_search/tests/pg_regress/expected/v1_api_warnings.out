@@ -1,4 +1,4 @@
--- V1 migrations are diagnosed before the planner rewrites search and score expressions.
+-- Check V1 diagnostics before planner rewrites.
 \set VERBOSITY default
 \pset format unaligned
 SET paradedb.planner_warnings = 'off';
@@ -35,14 +35,13 @@ SELECT id FROM matches;
 id
 1
 (1 row)
--- The legacy comparison matches an indexed token in the body.
 SELECT id FROM v1_api_items WHERE id @@@ paradedb.term_with_operator('body', '=', 'shoes'::text);
 WARNING:  paradedb.term_with_operator() uses the deprecated ParadeDB V1 API
 HINT:  Use SQL operators for column-value comparisons. To match an indexed text token, use field @@@ pdb.term(value).
 id
 1
 (1 row)
--- Legacy JSON and argument values are distinct from V2 builders, including when folded.
+-- Check V1 literals and builders.
 SELECT '{"all":null}'::paradedb.searchqueryinput;
 WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
 HINT:  Use pdb query builders or the V2 search operators. V2 has no equivalent for arbitrary searchqueryinput JSON. To request V2 support, open a GitHub issue with your SQL and index definition at https://github.com/paradedb/paradedb/issues/new?template=feature_request.yml
@@ -69,7 +68,7 @@ HINT:  V2 has no equivalent for DisMax scoring or its tie_breaker. SQL OR can ma
 disjunction_max
 {"disjunction_max":{"disjuncts":["all"],"tie_breaker":null}}
 (1 row)
--- Existing indexes can still be read and maintained in error mode.
+-- Legacy indexes remain usable in error mode.
 SET paradedb.v1api_warnings = 'off';
 SELECT id FROM v1_api_items WHERE id @@@ paradedb.term('body', 'shoes');
 id

@@ -47,8 +47,8 @@ fn direct_or_queries(mut conn: PgConnection) {
     for query in &[
         "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('description:keyboard OR category:electronics')",
         "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' OR category ||| 'electronics'",
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') OR bm25_search @@@ paradedb.term('category', 'electronics')",
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') OR category ||| 'electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE description === 'keyboard' OR category === 'electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE description === 'keyboard' OR category ||| 'electronics'",
     ] {
         let columns: SimpleProductsTableVec = query.fetch_collect(&mut conn);
 
@@ -80,8 +80,8 @@ fn direct_and_queries(mut conn: PgConnection) {
     for query in &[
         "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('description:keyboard AND category:electronics')",
         "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' AND category ||| 'electronics'",
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') AND bm25_search @@@ paradedb.term('category', 'electronics')",
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') AND category ||| 'electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE description === 'keyboard' AND category === 'electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE description === 'keyboard' AND category ||| 'electronics'",
     ] {
         let columns: SimpleProductsTableVec = query.fetch_collect(&mut conn);
 

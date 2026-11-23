@@ -32,9 +32,8 @@ fn expression_paradedb_func(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let (count,) =
-        "SELECT count(*) FROM paradedb.index_config WHERE index_config @@@ paradedb.term('description', 'test')"
-            .fetch_one::<(i64,)>(&mut conn);
+    let (count,) = "SELECT count(*) FROM paradedb.index_config WHERE description === 'test'"
+        .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
     let (count,) = "SELECT count(*) FROM paradedb.index_config WHERE lower(description) ||| 'test'"

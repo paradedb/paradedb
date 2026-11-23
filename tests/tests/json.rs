@@ -82,7 +82,7 @@ fn json_date_query_with_date_in_path(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = r#"
         SELECT id FROM json_date_collapse_test
-        WHERE id @@@ paradedb.term('metadata.a.date', '2023-05-01T09:12:34Z'::timestamptz)
+        WHERE (metadata -> 'a' -> 'date') @@@ pdb.term('2023-05-01T09:12:34Z'::timestamptz)
         ORDER BY id;
     "#
     .fetch_collect(&mut conn);

@@ -296,33 +296,33 @@ fn test_group_by_key_pinned_to_constant(mut conn: PgConnection) {
     let queries = [
         // The only key is pinned, with and without a matching row.
         "SELECT account_id, COUNT(*) FROM pinned_keys
-         WHERE account_id = 1 AND id @@@ paradedb.all() GROUP BY account_id",
+         WHERE account_id = 1 AND id @@@ pdb.all()::pdb.const(0) GROUP BY account_id",
         "SELECT account_id, COUNT(*) FROM pinned_keys
-         WHERE account_id = 99 AND id @@@ paradedb.all() GROUP BY account_id",
+         WHERE account_id = 99 AND id @@@ pdb.all()::pdb.const(0) GROUP BY account_id",
         "SELECT COUNT(*), SUM(price) FROM pinned_keys
-         WHERE account_id = 99 AND id @@@ paradedb.all() GROUP BY account_id",
+         WHERE account_id = 99 AND id @@@ pdb.all()::pdb.const(0) GROUP BY account_id",
         "SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none') FROM pinned_keys
-         WHERE account_id = 1 AND id @@@ paradedb.all() GROUP BY account_id",
+         WHERE account_id = 1 AND id @@@ pdb.all()::pdb.const(0) GROUP BY account_id",
         // A pinned key next to a key that is not pinned.
         "SELECT account_id, kind, COUNT(*), SUM(price) FROM pinned_keys
-         WHERE account_id = 2 AND id @@@ paradedb.all() GROUP BY account_id, kind",
+         WHERE account_id = 2 AND id @@@ pdb.all()::pdb.const(0) GROUP BY account_id, kind",
         // The constant has a different type than the key.
         "SELECT region, kind, COUNT(*) FROM pinned_keys
-         WHERE region = 2::bigint AND id @@@ paradedb.all() GROUP BY region, kind",
+         WHERE region = 2::bigint AND id @@@ pdb.all()::pdb.const(0) GROUP BY region, kind",
         "SELECT region, COUNT(*) FROM pinned_keys
-         WHERE region = 100000 AND id @@@ paradedb.all() GROUP BY region",
+         WHERE region = 100000 AND id @@@ pdb.all()::pdb.const(0) GROUP BY region",
         // A node above the scan reads the aggregate.
         "SELECT DISTINCT account_id, COUNT(*) FROM pinned_keys
-         WHERE account_id = 1 AND id @@@ paradedb.all() GROUP BY account_id",
+         WHERE account_id = 1 AND id @@@ pdb.all()::pdb.const(0) GROUP BY account_id",
         "SELECT account_id, COUNT(*), SUM(COUNT(*)) OVER () FROM pinned_keys
-         WHERE account_id = 1 AND id @@@ paradedb.all() GROUP BY account_id",
+         WHERE account_id = 1 AND id @@@ pdb.all()::pdb.const(0) GROUP BY account_id",
         // An aggregate with its own ORDER BY.
         "SELECT account_id, COUNT(id ORDER BY kind) FROM pinned_keys
-         WHERE account_id = 1 AND id @@@ paradedb.all() GROUP BY account_id",
+         WHERE account_id = 1 AND id @@@ pdb.all()::pdb.const(0) GROUP BY account_id",
         // Equal `float8` values are not always identical (`-0` and `0`), and the
         // key comes from a row.
         "SELECT price, kind, COUNT(*) FROM pinned_keys
-         WHERE price = 1 AND id @@@ paradedb.all() GROUP BY price, kind",
+         WHERE price = 1 AND id @@@ pdb.all()::pdb.const(0) GROUP BY price, kind",
     ];
 
     for query in queries {
@@ -349,10 +349,10 @@ fn test_group_by_key_pinned_to_constant(mut conn: PgConnection) {
     r#"
     PREPARE pinned_keys_count(bigint) AS
     SELECT account_id, COUNT(*) FROM pinned_keys
-    WHERE account_id = $1 AND id @@@ paradedb.all() GROUP BY account_id;
+    WHERE account_id = $1 AND id @@@ pdb.all()::pdb.const(0) GROUP BY account_id;
     PREPARE pinned_keys_count_by_kind(bigint) AS
     SELECT account_id, kind, COUNT(*) FROM pinned_keys
-    WHERE account_id = $1 AND id @@@ paradedb.all() GROUP BY account_id, kind ORDER BY kind;
+    WHERE account_id = $1 AND id @@@ pdb.all()::pdb.const(0) GROUP BY account_id, kind ORDER BY kind;
     "#
     .execute(&mut conn);
     for account_id in [1_i64, 2, 3] {
@@ -400,31 +400,31 @@ fn test_group_by_column_that_depends_on_keys(mut conn: PgConnection) {
     let queries = [
         // The column is in the GROUP BY, and PostgreSQL drops it from the keys.
         "SELECT id, kind, COUNT(*) FROM dependent_cols
-         WHERE id @@@ paradedb.all() GROUP BY id, kind",
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY id, kind",
         // The column is not in the GROUP BY.
         "SELECT id, kind, price, account_id, created, COUNT(*), SUM(price) FROM dependent_cols
-         WHERE id @@@ paradedb.all() GROUP BY id",
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY id",
         // A cast of the column next to the column.
         "SELECT id, created, created::text, COUNT(*) FROM dependent_cols
-         WHERE id @@@ paradedb.all() GROUP BY id",
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY id",
         "SELECT id, kind, COUNT(*) FROM dependent_cols
-         WHERE id @@@ paradedb.all() GROUP BY id ORDER BY kind NULLS FIRST, id LIMIT 7",
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY id ORDER BY kind NULLS FIRST, id LIMIT 7",
         // The primary key is pinned to one value.
         "SELECT id, kind, COUNT(*) FROM dependent_cols
-         WHERE id = 7 AND id @@@ paradedb.all() GROUP BY id",
+         WHERE id = 7 AND id @@@ pdb.all()::pdb.const(0) GROUP BY id",
         "SELECT id, kind, COUNT(*) FROM dependent_cols
-         WHERE id = 999 AND id @@@ paradedb.all() GROUP BY id",
+         WHERE id = 999 AND id @@@ pdb.all()::pdb.const(0) GROUP BY id",
         // One key is pinned, and the other key still decides the groups.
         "SELECT region, kind, COUNT(*) FROM dependent_cols
-         WHERE region = 2 AND id @@@ paradedb.all() GROUP BY region, kind",
+         WHERE region = 2 AND id @@@ pdb.all()::pdb.const(0) GROUP BY region, kind",
         "SELECT price, kind, COUNT(*) FROM dependent_cols
-         WHERE price = 2 AND id @@@ paradedb.all() GROUP BY price, kind",
+         WHERE price = 2 AND id @@@ pdb.all()::pdb.const(0) GROUP BY price, kind",
     ];
 
     // Two keys, and no key decides the other: the scan groups on both, on the
     // Tantivy backend.
     let plain_keys = "SELECT price, kind, COUNT(*) FROM dependent_cols
-         WHERE id @@@ paradedb.all() GROUP BY price, kind";
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY price, kind";
     "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
     let (plan,) = format!("EXPLAIN (FORMAT JSON) {plain_keys}").fetch_one::<(Value,)>(&mut conn);
     let plan = plan.to_string();
@@ -476,18 +476,18 @@ fn test_group_by_flatten_matches_postgres(mut conn: PgConnection) {
 
     let queries = [
         "SELECT a, b, COUNT(*), SUM(value) FROM flatten_paths
-         WHERE id @@@ paradedb.all() GROUP BY a, b",
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY a, b",
         "SELECT a, b, COUNT(*), COUNT(*) FILTER (WHERE value > 4),
                 SUM(value) FILTER (WHERE value < 4) FROM flatten_paths
-         WHERE id @@@ paradedb.all() GROUP BY a, b",
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY a, b",
         // Groups 35-39 have no bucket in the second filter.
         "SELECT g, COUNT(*), COUNT(*) FILTER (WHERE value > 200),
                 SUM(value) FILTER (WHERE g < 35) FROM flatten_many
-         WHERE id @@@ paradedb.all() GROUP BY g",
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY g",
         "SELECT f, COUNT(*), SUM(value) FILTER (WHERE value > 200) FROM flatten_many
-         WHERE id @@@ paradedb.all() GROUP BY f",
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY f",
         "SELECT f, COUNT(*), SUM(value) FROM flatten_nan
-         WHERE id @@@ paradedb.all() GROUP BY f",
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY f",
     ];
 
     for query in queries {
@@ -555,11 +555,11 @@ fn test_ordered_aggregate_is_not_a_group_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let queries = [
-        "SELECT COUNT(id ORDER BY kind) FROM ordered_aggs WHERE id @@@ paradedb.all()",
+        "SELECT COUNT(id ORDER BY kind) FROM ordered_aggs WHERE id @@@ pdb.all()::pdb.const(0)",
         "SELECT account_id, COUNT(id ORDER BY kind), SUM(price ORDER BY kind) FROM ordered_aggs
-         WHERE id @@@ paradedb.all() GROUP BY account_id",
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY account_id",
         "SELECT kind, MAX(price ORDER BY kind, account_id) FROM ordered_aggs
-         WHERE id @@@ paradedb.all() GROUP BY kind",
+         WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY kind",
     ];
 
     for query in queries {

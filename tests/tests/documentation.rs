@@ -555,7 +555,7 @@ fn match_query(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.match('description', 'running shoes');
+    WHERE description ||| 'running shoes';
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -577,11 +577,7 @@ fn match_query(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.match(
-        'description',
-        'running shoes',
-        tokenizer => paradedb.tokenizer('whitespace')
-    );
+    WHERE description ||| 'running shoes'::pdb.whitespace;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -604,7 +600,7 @@ fn match_query(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.match('description', 'ruining shoez', distance => 2);
+    WHERE description ||| 'ruining shoez'::pdb.fuzzy(2);
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -627,7 +623,7 @@ fn match_query(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.match('description', 'running shoes', conjunction_mode => true);
+    WHERE description &&& 'running shoes';
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -665,7 +661,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.exists('rating')
+    WHERE rating @@@ pdb.exists()
     LIMIT 5;
     "#
     .fetch(&mut conn);
@@ -720,7 +716,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.fuzzy_term('description', 'shoez')
+    WHERE description @@@ pdb.fuzzy_term('shoez')
     LIMIT 5;
     "#
     .fetch(&mut conn);
@@ -745,10 +741,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.range(
-        field => 'rating',
-        range => int4range(1, 3, '[)')
-    );
+    WHERE rating @@@ pdb.range(range => int4range(1, 3, '[)'));
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 4);
@@ -771,10 +764,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.range(
-        field => 'rating',
-        range => int4range(1, 3, '[]')
-    );
+    WHERE rating @@@ pdb.range(range => int4range(1, 3, '[]'));
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 13);
@@ -797,10 +787,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.range(
-        field => 'rating',
-        range => int4range(1, NULL, '[)')
-    );
+    WHERE rating @@@ pdb.range(range => int4range(1, NULL, '[)'));
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 41);
@@ -823,7 +810,7 @@ fn term_level_queries(mut conn: PgConnection) {
     // Range term
     let rows: Vec<(i32,)> = r#"
     SELECT id, weight_range FROM mock_items
-    WHERE id @@@ paradedb.range_term('weight_range', 1);
+    WHERE weight_range @@@ pdb.range_term(1);
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 16);
@@ -880,7 +867,7 @@ fn term_level_queries(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = r#"
     SELECT id, weight_range FROM mock_items
-    WHERE id @@@ paradedb.range_term('weight_range', '(10, 12]'::int4range, 'Intersects');
+    WHERE weight_range @@@ pdb.range_term('(10, 12]'::int4range, 'Intersects');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -901,7 +888,7 @@ fn term_level_queries(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = r#"
     SELECT id, weight_range FROM mock_items
-    WHERE id @@@ paradedb.range_term('weight_range', '(3, 9]'::int4range, 'Contains');
+    WHERE weight_range @@@ pdb.range_term('(3, 9]'::int4range, 'Contains');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 7);
@@ -922,7 +909,7 @@ fn term_level_queries(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = r#"
     SELECT id, weight_range FROM mock_items
-    WHERE id @@@ paradedb.range_term('weight_range', '(2, 11]'::int4range, 'Within');
+    WHERE weight_range @@@ pdb.range_term('(2, 11]'::int4range, 'Within');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -945,7 +932,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.regex('description', '(plush|leather)');
+    WHERE description @@@ pdb.regex('(plush|leather)');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -967,7 +954,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.regex('description', 'key.*rd');
+    WHERE description @@@ pdb.regex('key.*rd');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -990,7 +977,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.term('description', 'shoes');
+    WHERE description === 'shoes';
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -1012,7 +999,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.term('rating', 4);
+    WHERE rating @@@ pdb.term(4);
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 16);
@@ -1035,12 +1022,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.term_set(
-    	terms => ARRAY[
-    		paradedb.term('description', 'shoes'),
-    		paradedb.term('description', 'novel')
-    	]
-    );
+    WHERE description === ARRAY['shoes', 'novel'];
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
@@ -1127,7 +1109,7 @@ fn phrase_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.phrase_prefix('description', ARRAY['running', 'sh'])
+    WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh'])
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -1150,7 +1132,7 @@ fn phrase_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.regex_phrase('description', ARRAY['run.*', 'shoe.*'])
+    WHERE description @@@ pdb.regex_phrase(ARRAY['run.*', 'shoe.*'])
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -1158,7 +1140,7 @@ fn phrase_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.regex_phrase('description', ARRAY['run.*', 'sh.*'])
+    WHERE description @@@ pdb.regex_phrase(ARRAY['run.*', 'sh.*'])
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -1190,7 +1172,7 @@ fn json_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.term('metadata.color', 'white')
+    WHERE (metadata -> 'color') @@@ pdb.term('white')
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -1269,8 +1251,8 @@ fn json_arrays(mut conn: PgConnection) {
     let rows: Vec<(String, serde_json::Value)> = r#"
     SELECT description, metadata
     FROM mock_items
-    WHERE id @@@ paradedb.term('metadata.colors', 'blue')
-       OR id @@@ paradedb.term('metadata.colors', 'red');
+    WHERE (metadata -> 'colors') @@@ pdb.term('blue')
+       OR (metadata -> 'colors') @@@ pdb.term('red');
     "#
     .fetch(&mut conn);
 
@@ -1325,7 +1307,7 @@ fn custom_enum(mut conn: PgConnection) {
     let rows: Vec<(Option<String>, Option<i32>, Option<String>)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.term('color', 'red'::color);
+    WHERE color @@@ pdb.term('red'::color);
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -1348,7 +1330,7 @@ fn custom_enum(mut conn: PgConnection) {
     let rows: Vec<(Option<String>, Option<i32>, Option<String>)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse('color:1.0');
+    WHERE id @@@ pdb.parse('color:1.0');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -1585,7 +1567,7 @@ fn compound_queries(mut conn: PgConnection) {
     -- Returns no rows
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.empty();
+    WHERE id @@@ pdb.empty();
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 0);
@@ -1603,7 +1585,7 @@ fn compound_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse('description:"running shoes" OR category:footwear');
+    WHERE id @@@ pdb.parse('description:"running shoes" OR category:footwear');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -1658,7 +1640,7 @@ fn compound_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse('speaker electronics', lenient => true);
+    WHERE id @@@ pdb.parse('speaker electronics', lenient => true);
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
@@ -1681,7 +1663,7 @@ fn compound_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse('description:speaker category:electronics');
+    WHERE id @@@ pdb.parse('description:speaker category:electronics');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
@@ -1689,7 +1671,7 @@ fn compound_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse('description:speaker OR category:electronics');
+    WHERE id @@@ pdb.parse('description:speaker OR category:electronics');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
@@ -1710,7 +1692,7 @@ fn compound_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse(
+    WHERE id @@@ pdb.parse(
       'description:speaker category:electronics',
       conjunction_mode => true
     );
@@ -1721,7 +1703,7 @@ fn compound_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse(
+    WHERE id @@@ pdb.parse(
     'description:speaker AND category:electronics'
     )"#
     .fetch(&mut conn);
@@ -1758,11 +1740,7 @@ fn compound_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse_with_field(
-      'description',
-      'speaker bluetooth',
-      conjunction_mode => true
-    );
+    WHERE description @@@ pdb.parse_with_field('speaker bluetooth', conjunction_mode => true);
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -1860,10 +1838,7 @@ fn autocomplete(mut conn: PgConnection) {
     // Fuzzy term
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE id @@@ paradedb.fuzzy_term(
-        field => 'description',
-        value => 'shoez'
-    ) ORDER BY rating DESC
+    WHERE description @@@ pdb.fuzzy_term(value => 'shoez') ORDER BY rating DESC
     "#
     .fetch(&mut conn);
     assert_eq!(rows, expected);
@@ -1871,23 +1846,14 @@ fn autocomplete(mut conn: PgConnection) {
     // Match
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE id @@@ paradedb.match(
-        field => 'description',
-        value => 'ruining shoez',
-        distance => 2
-    ) ORDER BY rating DESC
+    WHERE description @@@ pdb.match(value => 'ruining shoez', distance => 2) ORDER BY rating DESC
     "#
     .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE id @@@ paradedb.match(
-        field => 'description',
-        value => 'ruining shoez',
-        distance => 2,
-        conjunction_mode => true
-    )
+    WHERE description @@@ pdb.match(value => 'ruining shoez', distance => 2, conjunction_mode => true)
     "#
     .fetch(&mut conn);
     assert_eq!(rows, vec![expected[0].clone()]);
@@ -1924,11 +1890,7 @@ fn autocomplete(mut conn: PgConnection) {
     // Ngram term set
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE id @@@ paradedb.match(
-        field => 'description',
-        value => 'hsoes',
-        distance => 0
-    ) ORDER BY rating DESC
+    WHERE description @@@ pdb.match(value => 'hsoes', distance => 0) ORDER BY rating DESC
     "#
     .fetch(&mut conn);
     assert_eq!(rows, expected);
@@ -2303,10 +2265,7 @@ fn available_tokenizers(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    SELECT * FROM paradedb.tokenize(
-    paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false),
-    'keyboard'
-    );
+    SELECT 'keyboard'::pdb.ngram(3, 3, 'prefix_only=false')::text[];
     "#
     .execute(&mut conn);
 
@@ -2320,7 +2279,7 @@ fn available_tokenizers(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse('description_ngram:cam AND description_stem:digitally')
+    WHERE id @@@ pdb.parse('description_ngram:cam AND description_stem:digitally')
     ORDER BY rating DESC
     LIMIT 5;
     "#
@@ -2332,7 +2291,7 @@ fn available_tokenizers(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse('description:"Soft cotton" OR description_stem:shirts')
+    WHERE id @@@ pdb.parse('description:"Soft cotton" OR description_stem:shirts')
     ORDER BY rating DESC
     LIMIT 5;
     "#

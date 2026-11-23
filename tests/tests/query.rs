@@ -45,27 +45,19 @@ fn fuzzy_term(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.fuzzy_term(field => 'category', value => 'elector', prefix => true)
+    WHERE category @@@ pdb.fuzzy_term(value => 'elector', prefix => true)
     ORDER BY id"#
-    .fetch_collect(&mut conn);
+        .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2, 12, 22, 32], "wrong results");
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
-    paradedb.term(field => 'category', value => 'electornics')
+    SELECT * FROM paradedb.bm25_search WHERE category === 'electornics'
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert!(columns.is_empty(), "without fuzzy field should be empty");
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
-        paradedb.fuzzy_term(
-            field => 'description',
-            value => 'keybaord',
-            transposition_cost_one => false,
-            distance => 1,
-            prefix => true
-        ) ORDER BY id"#
+    SELECT * FROM paradedb.bm25_search WHERE description @@@ pdb.fuzzy_term(value => 'keybaord', transposition_cost_one => false, distance => 1, prefix => true) ORDER BY id"#
         .fetch_collect(&mut conn);
     assert!(
         columns.is_empty(),
@@ -73,14 +65,7 @@ fn fuzzy_term(mut conn: PgConnection) {
     );
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
-        paradedb.fuzzy_term(
-            field => 'description',
-            value => 'keybaord',
-            transposition_cost_one => true,
-            distance => 1,
-            prefix => true
-        ) ORDER BY id"#
+    SELECT * FROM paradedb.bm25_search WHERE description @@@ pdb.fuzzy_term(value => 'keybaord', transposition_cost_one => true, distance => 1, prefix => true) ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(
         columns.id,
@@ -89,12 +74,7 @@ fn fuzzy_term(mut conn: PgConnection) {
     );
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
-        paradedb.fuzzy_term(
-            field => 'description',
-            value => 'keybaord',
-            prefix => true
-        ) ORDER BY id"#
+    SELECT * FROM paradedb.bm25_search WHERE description @@@ pdb.fuzzy_term(value => 'keybaord', prefix => true) ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2], "incorrect defaults");
 }

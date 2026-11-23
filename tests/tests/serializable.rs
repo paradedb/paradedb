@@ -32,14 +32,11 @@ const SETUP: &str = r#"
     INSERT INTO ssi_doctors
     SELECT g, 'doc' || g, CASE WHEN g <= 2 THEN 'oncall' ELSE 'offcall' END
     FROM generate_series(1, 10) g;
-    CREATE INDEX ssi_doctors_idx ON ssi_doctors USING bm25 (id, name, status)
-    WITH (text_fields = '{"status": {"tokenizer": {"type": "keyword"}, "fast": true},
-                          "name": {"fast": true}}');
+    CREATE INDEX ssi_doctors_idx ON ssi_doctors USING paradedb (id, (name::pdb.unicode_words('columnar=true')), (status::pdb.literal));
 
     CREATE TABLE ssi_shifts (id int PRIMARY KEY, doctor_id int, ward text);
     INSERT INTO ssi_shifts SELECT g, g, 'ward' || g FROM generate_series(1, 10) g;
-    CREATE INDEX ssi_shifts_idx ON ssi_shifts USING bm25 (id, doctor_id, ward)
-    WITH (text_fields = '{"ward": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+    CREATE INDEX ssi_shifts_idx ON ssi_shifts USING paradedb (id, doctor_id, (ward::pdb.literal));
 "#;
 
 async fn run(conn: &mut PgConnection, sql: &str) -> Result<(), sqlx::Error> {

@@ -451,7 +451,7 @@ fn partitioned_all(mut conn: PgConnection) {
     PartitionedTable::setup().execute(&mut conn);
 
     let schema_rows: Vec<(String, String)> =
-        "SELECT id from sales WHERE id @@@ paradedb.all()".fetch(&mut conn);
+        "SELECT id from sales WHERE id @@@ pdb.all()::pdb.const(0)".fetch(&mut conn);
     assert_eq!(schema_rows.len(), 0);
 
     r#"
@@ -462,7 +462,7 @@ fn partitioned_all(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let schema_rows: Vec<(i32,)> =
-        "SELECT id from sales WHERE id @@@ paradedb.all()".fetch(&mut conn);
+        "SELECT id from sales WHERE id @@@ pdb.all()::pdb.const(0)".fetch(&mut conn);
     assert_eq!(schema_rows.len(), 2);
 }
 
@@ -615,7 +615,8 @@ fn custom_enum_term(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32, String)> =
-        "SELECT id, description FROM paradedb.index_config WHERE id @@@ paradedb.term('color', 'red'::color)".fetch(&mut conn);
+        "SELECT id, description FROM paradedb.index_config WHERE color @@@ pdb.term('red'::color)"
+            .fetch(&mut conn);
 
     assert_eq!(rows, vec![(1, "Item 1".into())]);
 }
@@ -636,7 +637,8 @@ fn custom_enum_parse(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32, String)> =
-        "SELECT id, description FROM paradedb.index_config WHERE id @@@ paradedb.parse('color:1.0')".fetch(&mut conn);
+        "SELECT id, description FROM paradedb.index_config WHERE id @@@ pdb.parse('color:1.0')"
+            .fetch(&mut conn);
 
     assert_eq!(rows, vec![(1, "Item 1".into())]);
 }
@@ -657,7 +659,7 @@ fn uuid_as_raw_issue2199(mut conn: PgConnection) {
     assert_eq!(count, 1);
 
     let (count,) =
-        format!("SELECT count(*) FROM issue2199 WHERE id @@@ paradedb.term('value', '{uuid}')")
+        format!("SELECT count(*) FROM issue2199 WHERE value @@@ pdb.term('{uuid}'::uuid)")
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }

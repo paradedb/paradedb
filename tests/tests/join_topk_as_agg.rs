@@ -243,11 +243,11 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
     assert_paths_agree::<(i32, i32, f32)>(
         &mut conn,
         r#"
-        SELECT t1.id, t2.id, paradedb.score(t1.id)
+        SELECT t1.id, t2.id, pdb.score(t1.id)
         FROM tka_t1 t1
         JOIN tka_t2 t2 ON t1.id = t2.t1_id
         WHERE t1.val ||| 'val 42 77'
-        ORDER BY paradedb.score(t1.id) DESC, t1.id ASC, t2.id ASC
+        ORDER BY pdb.score(t1.id) DESC, t1.id ASC, t2.id ASC
         LIMIT 8
         "#,
         8,
@@ -301,7 +301,7 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
             FROM tka_t1 t1
             JOIN tka_t2 t2 ON t1.id = t2.t1_id
             WHERE t1.val ||| 'val 42 77' AND t2.val ||| 'val 7 99'
-            ORDER BY paradedb.score(t1.id) + paradedb.score(t2.id) DESC, t1.id ASC, t2.id ASC
+            ORDER BY pdb.score(t1.id) + pdb.score(t2.id) DESC, t1.id ASC, t2.id ASC
             LIMIT 8
             "#,
             8,
@@ -384,11 +384,11 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
     assert_paths_agree::<(i32, f32)>(
         &mut conn,
         r#"
-        SELECT DISTINCT t1.id, paradedb.score(t1.id)
+        SELECT DISTINCT t1.id, pdb.score(t1.id)
         FROM tka_t1 t1
         JOIN tka_t2 t2 ON t1.id = t2.t1_id
         WHERE t1.val ||| 'val 42 77'
-        ORDER BY paradedb.score(t1.id) DESC, t1.id ASC
+        ORDER BY pdb.score(t1.id) DESC, t1.id ASC
         LIMIT 8
         "#,
         8,

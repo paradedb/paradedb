@@ -33,8 +33,9 @@ fn select_everything(mut conn: PgConnection) {
 
     r#"set paradedb.enable_custom_scan to off; set max_parallel_workers_per_gather = 0;"#
         .execute(&mut conn);
-    let (count,) = r#"SELECT count(*) FROM test_table WHERE id @@@ paradedb.all() OR id > 0"#
-        .fetch_one::<(i64,)>(&mut conn);
+    let (count,) =
+        r#"SELECT count(*) FROM test_table WHERE id @@@ pdb.all()::pdb.const(0) OR id > 0"#
+            .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 3);
 }
 
@@ -286,7 +287,7 @@ fn negated_exists_returns_missing_rows_issue_5264(mut conn: PgConnection) {
 
     // `exists` itself returns the rows where the field is present.
     let present_rows: Vec<(i32,)> = r#"
-    SELECT id FROM exists_repro WHERE id @@@ paradedb.exists('color') ORDER BY id;
+    SELECT id FROM exists_repro WHERE color @@@ pdb.exists() ORDER BY id;
     "#
     .fetch(&mut conn);
     assert_eq!(present_rows, vec![(1,), (3,)]);
@@ -294,7 +295,7 @@ fn negated_exists_returns_missing_rows_issue_5264(mut conn: PgConnection) {
     // Negating `exists` must return the rows where the field is missing, not an
     // unsatisfiable `exists AND NOT exists`. Custom scan path:
     let negated_custom_scan: Vec<(i32,)> = r#"
-    SELECT id FROM exists_repro WHERE NOT (id @@@ paradedb.exists('color')) ORDER BY id;
+    SELECT id FROM exists_repro WHERE NOT (color @@@ pdb.exists()) ORDER BY id;
     "#
     .fetch(&mut conn);
     assert_eq!(negated_custom_scan, missing_rows);
@@ -311,7 +312,7 @@ fn negated_exists_returns_missing_rows_issue_5264(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let negated_operator_path: Vec<(i32,)> = r#"
-    SELECT id FROM exists_repro WHERE NOT (id @@@ paradedb.exists('color')) ORDER BY id;
+    SELECT id FROM exists_repro WHERE NOT (color @@@ pdb.exists()) ORDER BY id;
     "#
     .fetch(&mut conn);
     assert_eq!(negated_operator_path, missing_rows);

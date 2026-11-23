@@ -55,7 +55,7 @@ fn ltree_basic_index_and_search(mut conn: PgConnection) {
     // also matches child paths like Astrophysics and Cosmology.
     let rows: Vec<(i32,)> = r#"
     SELECT id FROM test_ltree
-    WHERE test_ltree @@@ paradedb.term(field => 'path', value => 'Top.Science.Astronomy')
+    WHERE path @@@ pdb.term('Top.Science.Astronomy')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -87,7 +87,7 @@ fn ltree_returns_correct_value(mut conn: PgConnection) {
     // Verify ltree value is returned correctly (exercises try_into_datum for ltree)
     let rows: Vec<(i32, String)> = r#"
     SELECT id, path::text FROM test_ltree
-    WHERE test_ltree @@@ paradedb.term(field => 'path', value => 'Top.Science.Astronomy')
+    WHERE path @@@ pdb.term('Top.Science.Astronomy')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -120,7 +120,7 @@ fn ltree_multiple_matches(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = r#"
     SELECT id FROM test_ltree
-    WHERE test_ltree @@@ paradedb.term(field => 'category', value => 'Electronics.Phones.Mobile')
+    WHERE category @@@ pdb.term('Electronics.Phones.Mobile')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -151,10 +151,10 @@ fn ltree_with_parse_query(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // Use term query on the ltree field (paradedb.parse cannot handle dots in facet paths)
+    // Use term query on the ltree field (pdb.parse cannot handle dots in facet paths)
     let rows: Vec<(i32,)> = r#"
     SELECT id FROM test_ltree
-    WHERE test_ltree @@@ paradedb.term(field => 'path', value => 'Top.Science.Biology')
+    WHERE path @@@ pdb.term('Top.Science.Biology')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -228,7 +228,7 @@ fn ltree_columnar_exec_reads(mut conn: PgConnection) {
 
     let rows: Vec<(i32, String)> = r#"
     SELECT id, path::text FROM test_ltree
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -309,7 +309,7 @@ fn ltree_ordering(mut conn: PgConnection) {
     // ORDER BY ltree exercises PartialOrd for Facet values
     let rows: Vec<(i32, String)> = r#"
     SELECT id, path::text FROM test_ltree
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     ORDER BY path ASC
     "#
     .fetch_collect(&mut conn);
@@ -358,7 +358,7 @@ fn ltree_null_handling(mut conn: PgConnection) {
     // All scan should still return all rows including NULL path
     let rows: Vec<(i32,)> = r#"
     SELECT id FROM test_ltree
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -393,7 +393,7 @@ fn ltree_aggregate_groupby(mut conn: PgConnection) {
     // GROUP BY exercises Hash trait for Facet values
     let rows: Vec<(String, i64)> = r#"
     SELECT path::text, count(*) FROM test_ltree
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()::pdb.const(0)
     GROUP BY path
     ORDER BY path
     "#

@@ -1903,25 +1903,12 @@ impl<'a> HeapDocFetcher<'a> {
             // row_to_search_document can race with VACUUM deleting TOAST chunks
             // after we release the pin (the "missing chunk number 0" crash).
             // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
-            // If concurrent VACUUM/pruning already freed TOAST chunks for a dead/superseded
-            // tuple version, catch ERRCODE_DATA_CORRUPTED and treat the tuple as unreadable.
             for i in 0..self.heaptupdesc.len() {
                 if !self.isnull[i] {
                     let att = self.heaptupdesc.get(i).expect("valid attribute");
                     if att.attlen == -1 {
                         let ptr = self.values[i].cast_mut_ptr();
-                        let detoasted =
-                            pgrx::pg_sys::PgTryBuilder::new(|| pg_sys::pg_detoast_datum(ptr))
-                                .catch_when(
-                                    pgrx::pg_sys::errcodes::PgSqlErrorCode::ERRCODE_DATA_CORRUPTED,
-                                    |_| std::ptr::null_mut(),
-                                )
-                                .execute();
-
-                        if detoasted.is_null() {
-                            pg_sys::ExecClearTuple(self.fetch_state.slot());
-                            return None;
-                        }
+                        let detoasted = pg_sys::pg_detoast_datum(ptr);
                         self.values[i] = pg_sys::Datum::from(detoasted);
                     }
                 }

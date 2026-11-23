@@ -751,14 +751,14 @@ impl Directory for MVCCDirectory {
 
     /// atomic_read is used by Tantivy to read from managed.json and meta.json
     /// This function should never be called by our Tantivy fork because we read from them ourselves
-    fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        unimplemented!("atomic_read should not be called for {:?}", path);
+    fn atomic_read(&self, _path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
+        unimplemented!("atomic_read should not be called");
     }
 
     /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
     /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
-    fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
-        unimplemented!("atomic_write should not be called for {:?}", path);
+    fn atomic_write(&self, _path: &Path, _data: &[u8]) -> io::Result<()> {
+        unimplemented!("atomic_write should not be called");
     }
 
     /// Postgres block storage handles flushing to disk for us

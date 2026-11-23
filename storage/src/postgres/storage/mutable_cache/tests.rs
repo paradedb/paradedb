@@ -498,6 +498,7 @@ mod tests {
 
 #[cfg(test)]
 mod backend {
+    use postgres::error::SqlState;
     use postgres::{Client, NoTls};
     use rstest::rstest;
     use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
@@ -659,6 +660,70 @@ mod backend {
             control.query_one("SELECT 1", &[]).unwrap().get::<_, i32>(0),
             1
         );
+    }
+
+    #[test]
+    fn live_toast_corruption_is_not_cached() {
+        let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+        let mut client = connect();
+        client
+            .batch_execute(
+                "CREATE EXTENSION IF NOT EXISTS pg_surgery;
+                 SET max_parallel_workers_per_gather=0;
+                 DROP TABLE IF EXISTS cache_corrupt_toast;
+                 CREATE TABLE cache_corrupt_toast(id bigint PRIMARY KEY, body text)
+                     WITH(autovacuum_enabled=false);
+                 ALTER TABLE cache_corrupt_toast ALTER COLUMN body SET STORAGE EXTERNAL;
+                 CREATE INDEX cache_corrupt_toast_idx ON cache_corrupt_toast USING paradedb(id, body)
+                     WITH(mutable_segment_rows=1000, layer_sizes='0', background_layer_sizes='0');
+                 INSERT INTO cache_corrupt_toast VALUES
+                     (1, 'marker'), (2, 'marker ' || repeat(md5('2') || ' ', 200)), (3, 'marker');
+                 DO $$
+                 DECLARE toast_relation regclass;
+                 BEGIN
+                     SELECT reltoastrelid INTO toast_relation FROM pg_class
+                     WHERE oid='cache_corrupt_toast'::regclass;
+                     EXECUTE format('SELECT heap_force_kill(%L::regclass, array_agg(ctid)) FROM %s',
+                                    toast_relation, toast_relation);
+                 END $$;",
+            )
+            .unwrap();
+        let error = client
+            .query(
+                "SELECT length(body) FROM cache_corrupt_toast WHERE id=2",
+                &[],
+            )
+            .unwrap_err();
+        assert_eq!(error.code(), Some(&SqlState::DATA_CORRUPTED));
+
+        let query = "SELECT id FROM cache_corrupt_toast WHERE body ||| 'marker' ORDER BY id";
+        for enabled in [false, true] {
+            client
+                .batch_execute(&format!(
+                    "SET paradedb.enable_mutable_segment_cache={enabled}"
+                ))
+                .unwrap();
+            for _ in 0..2 {
+                let error = client.query(query, &[]).unwrap_err();
+                assert_eq!(error.code(), Some(&SqlState::DATA_CORRUPTED));
+            }
+        }
+
+        client
+            .execute("DELETE FROM cache_corrupt_toast WHERE id=2", &[])
+            .unwrap();
+        for _ in 0..2 {
+            let ids: Vec<i64> = client
+                .query(query, &[])
+                .unwrap()
+                .iter()
+                .map(|row| row.get(0))
+                .collect();
+            assert_eq!(ids, [1, 3]);
+        }
+        client
+            .batch_execute("DROP TABLE cache_corrupt_toast")
+            .unwrap();
     }
 
     #[test]

@@ -293,7 +293,7 @@ pub struct RelationState {
     pub ffhelper: Option<Arc<FFHelper>>,
     pub visibility_checker: VisibilityChecker,
     pub fetch_slot: *mut pg_sys::TupleTableSlot,
-    pub slot_owner: crate::postgres::utils::ResourceOwnerStamp,
+    pub slot_owner: crate::postgres::resowner::ResourceOwnerStamp,
     /// Index of the CTID column for this relation in the result RecordBatch.
     pub ctid_col_idx: Option<usize>,
     /// Keeps the relation open and locked during the scan.

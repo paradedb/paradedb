@@ -122,7 +122,7 @@ impl RelationBufferAccess {
             // is dropped before exhaustion.
             struct BufferIter<I: Iterator<Item = pg_sys::Buffer>> {
                 iter: I,
-                owner: crate::postgres::utils::ResourceOwnerStamp,
+                owner: crate::postgres::resowner::ResourceOwnerStamp,
             }
             crate::impl_safe_drop!([I: Iterator<Item = pg_sys::Buffer>] BufferIter<I>, |self| {
                 let owner = self.owner;
@@ -143,7 +143,7 @@ impl RelationBufferAccess {
                 }
             }
 
-            let owner = crate::postgres::utils::ResourceOwnerStamp::current();
+            let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
             let rel = self.rel.as_ptr();
             let fork = self.rel.fork_number();
             let iter = (0..npages)

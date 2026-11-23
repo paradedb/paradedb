@@ -119,7 +119,7 @@ struct PgSearchRelationInner {
     relation: NonNull<pg_sys::RelationData>,
     need_close: bool,
     lockmode: Option<pg_sys::LOCKMODE>,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     schema: parking_lot::Mutex<Option<Result<SearchIndexSchema, SchemaError>>>,
     options: BM25IndexOptions,
     index_type: OnceLock<IndexType>,
@@ -140,9 +140,9 @@ impl PgSearchRelationInner {
         lockmode: Option<pg_sys::LOCKMODE>,
     ) -> Arc<Self> {
         let owner = if need_close {
-            crate::postgres::utils::ResourceOwnerStamp::current()
+            crate::postgres::resowner::ResourceOwnerStamp::current()
         } else {
-            crate::postgres::utils::ResourceOwnerStamp::default()
+            crate::postgres::resowner::ResourceOwnerStamp::default()
         };
         Arc::new(Self {
             relation,
@@ -162,7 +162,7 @@ impl PgSearchRelationInner {
 struct RelationCloseOnMainThread {
     relation: usize,
     lockmode: Option<pg_sys::LOCKMODE>,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 crate::impl_safe_drop!(RelationCloseOnMainThread, |self| {

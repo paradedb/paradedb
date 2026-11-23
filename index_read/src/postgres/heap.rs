@@ -56,7 +56,7 @@ pub const BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY: u64 = 256;
 /// `CREATE INDEX` reads the heap while its own index buffers are tracked.
 pub struct HeapBufferPin {
     pg_buffer: pg_sys::Buffer,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 impl HeapBufferPin {
@@ -65,7 +65,7 @@ impl HeapBufferPin {
     /// # Safety
     /// `heaprel` must stay open for the lifetime of the returned pin.
     pub unsafe fn read(heaprel: &PgSearchRelation, blockno: BlockNumber) -> Self {
-        let owner = crate::postgres::utils::ResourceOwnerStamp::current();
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         Self {
             pg_buffer: pg_sys::ReadBufferExtended(
                 heaprel.as_ptr(),
@@ -85,7 +85,7 @@ impl HeapBufferPin {
 
 struct ReleaseHeapBufferOnMainThread {
     pg_buffer: pg_sys::Buffer,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 crate::impl_safe_drop!(ReleaseHeapBufferOnMainThread, |self| {
@@ -224,7 +224,7 @@ pub struct VisibilityChecker {
     scan: *mut pg_sys::IndexFetchTableData,
     snapshot: pg_sys::Snapshot,
     tid: pg_sys::ItemPointerData,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 
     // we hold onto this b/c `scan` points to the relation this does
     heaprel: PgSearchRelation,
@@ -276,7 +276,7 @@ impl Clone for VisibilityChecker {
 struct VisibilityCheckerCleanupOnMainThread {
     vmbuff: pg_sys::Buffer,
     scan: usize,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     _heaprel: PgSearchRelation,
 }
 
@@ -408,7 +408,7 @@ impl VisibilityChecker {
     /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
     /// `relation` and `snapshot`
     pub fn with_rel_and_snap(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) -> Self {
-        let owner = crate::postgres::utils::ResourceOwnerStamp::current();
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             let nblocks =
                 pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), heaprel.fork_number());
@@ -1382,7 +1382,7 @@ pub struct HeapFetchState {
     // A virtual view of the fetched tuple, handed to expression evaluation by
     // `fetch_eval_slot`. See that method for why a virtual slot is required.
     virtual_slot: *mut pg_sys::TupleTableSlot,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     // Hold a reference to the heap relation to keep it open for the lifetime of the scan.
     // The scan stores an internal pointer to the relation, so it must not be closed early.
     _heaprel: PgSearchRelation,
@@ -1395,7 +1395,7 @@ pub struct HeapFetchState {
 impl HeapFetchState {
     /// Create a HeapFetchState which will fetch the entire content of the given relation.
     pub fn new(heaprel: &PgSearchRelation) -> Self {
-        let owner = crate::postgres::utils::ResourceOwnerStamp::current();
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             let scan = pg_sys::table_index_fetch_begin(heaprel.as_ptr());
             let slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
@@ -1535,7 +1535,7 @@ struct HeapFetchStateCleanupOnMainThread {
     slot: usize,
     virtual_slot: usize,
     scan: usize,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     _heaprel: PgSearchRelation,
 }
 

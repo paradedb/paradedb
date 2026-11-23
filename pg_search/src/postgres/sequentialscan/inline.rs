@@ -301,7 +301,7 @@ pub(super) struct RowMatcher {
     empty_index: Index,
     ctid_field: Field,
     slot: *mut pg_sys::TupleTableSlot,
-    slot_owner: crate::postgres::utils::ResourceOwnerStamp,
+    slot_owner: crate::postgres::resowner::ResourceOwnerStamp,
     expression_state: ExpressionState,
     required_expressions: HashSet<usize>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
@@ -392,7 +392,7 @@ impl RowMatcher {
                 }
             }
         }
-        let slot_owner = crate::postgres::utils::ResourceOwnerStamp::current();
+        let slot_owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         let slot = pg_sys::MakeSingleTupleTableSlot(tuple_desc, &pg_sys::TTSOpsVirtual);
 
         Self {

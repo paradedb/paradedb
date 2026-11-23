@@ -307,7 +307,7 @@ enum BitmapCursorSourceInner {
         area: *mut pg_sys::dsa_area,
         table: pg_sys::dsa_pointer,
         slot: u32,
-        owner: crate::postgres::utils::ResourceOwnerStamp,
+        owner: crate::postgres::resowner::ResourceOwnerStamp,
         pages: RefCell<SharedPages>,
     },
 }
@@ -326,7 +326,7 @@ impl BitmapCursorSource {
     /// Attach a published claim table as participant `slot` (the owner is slot 0,
     /// a parallel worker is its worker number plus one).
     pub fn shared(area: *mut pg_sys::dsa_area, table: pg_sys::dsa_pointer, slot: u32) -> Self {
-        let owner = crate::postgres::utils::ResourceOwnerStamp::current();
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         Self(crate::postgres::customscan::mpp::MainThread::new(
             BitmapCursorSourceInner::Shared {
                 area,
@@ -543,7 +543,7 @@ enum PageState {
 /// A forward-only merge cursor over one bitmap iteration stream.
 pub struct BitmapCursor {
     iter: CursorIter,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     state: PageState,
     offsets: [pg_sys::OffsetNumber; OFFSETS_CAP],
     counters: *const CursorCounters,
@@ -571,7 +571,7 @@ impl BitmapCursor {
     fn new(iter: CursorIter, counters: *const CursorCounters) -> Self {
         Self {
             iter,
-            owner: crate::postgres::utils::ResourceOwnerStamp::current(),
+            owner: crate::postgres::resowner::ResourceOwnerStamp::current(),
             state: PageState::NotStarted,
             offsets: [0; OFFSETS_CAP],
             counters,

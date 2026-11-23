@@ -18,8 +18,8 @@
 use crate::api::{HashMap, HashSet};
 use crate::index::directory::mvcc::PgTempFile;
 use crate::postgres::buffile::TempFileOwner;
+use crate::postgres::resowner::ResourceOwnerStamp;
 use crate::postgres::storage::block::SegmentFileDetails;
-use crate::postgres::utils::ResourceOwnerStamp;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use std::fmt;

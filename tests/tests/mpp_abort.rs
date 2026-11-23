@@ -22,12 +22,15 @@
 //! Exercises:
 //! 1. Repeated `work_mem` exhaustion (`paradedb.spill_to_disk = off`) mid-shuffle / mid-execution.
 //! 2. Mid-stream PostgreSQL `ERROR` (`division by zero`) raised in a parent executor node above an
-//!    active `AggregateScan` or `JoinScan`.
+//!    active `AggregateScan` or `JoinScan`, both in-memory (`spill_to_disk = off`, `work_mem = 64MB`)
+//!    and while `AggregateScan` is spilling to disk (`spill_to_disk = on`, exercising
+//!    `SpillNotifier::mark_spilled` + `DsmLease` and `BufFile` cleanup on abort).
 //! 3. Subtransaction rollback (`SAVEPOINT` / `ROLLBACK TO SAVEPOINT`), both for MPP DSM detach
 //!    (`AtEOSubXact_Parallel`) and for nested cursors (a healthy outer cursor surviving subxact
-//!    rollback alongside a promoted nested cursor and an outer cursor whose `FETCH` failed inside
-//!    the savepoint).
-//! 4. Non-portal `_SPI_execute_plan` aborts inside PL/pgSQL `DO` exception blocks.
+//!    rollback and failing parallel `BaseScan` subtransactions alongside a promoted nested cursor
+//!    and an outer cursor whose `FETCH` failed inside the savepoint).
+//! 4. Non-portal `_SPI_execute_plan` aborts (`PERFORM`) inside PL/pgSQL `DO` exception blocks,
+//!    both in-memory and with `spill_to_disk = on`.
 //! 5. Backend `proc_exit` (`pg_terminate_backend` on a paused portal holding a live
 //!    `PgTokioRuntime`), verifying `before_shmem_exit` joins worker threads cleanly without
 //!    triggering postmaster crash recovery.
@@ -172,10 +175,32 @@ ORDER BY e.payload, e.id
 LIMIT 15000
 "#;
 
+const BASESCAN_ERR_QUERY: &str = r#"
+SELECT id, 1 / (id - 12000)
+FROM abort_events
+WHERE content @@@ 'Section'
+"#;
+
+#[derive(Clone, Copy, Debug)]
+enum SpillMode {
+    Off,
+    On,
+}
+
+impl SpillMode {
+    fn guc_value(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::On => "on",
+        }
+    }
+}
+
 async fn configure_session(
     conn: &mut PgConnection,
     mode: ExecutionMode,
     work_mem: &str,
+    spill: SpillMode,
 ) -> Result<()> {
     let sql = format!(
         r#"
@@ -184,12 +209,13 @@ async fn configure_session(
         SET paradedb.enable_join_custom_scan TO on;
         SET paradedb.max_term_agg_buckets TO 1;
         SET paradedb.enable_columnar_exec TO true;
-        SET paradedb.spill_to_disk TO off;
+        SET paradedb.spill_to_disk TO {};
         SET enable_indexscan TO off;
         SET hash_mem_multiplier TO 1.0;
         SET work_mem TO '{work_mem}';
         {}
         "#,
+        spill.guc_value(),
         mode.guc_sql()
     );
     conn.execute(AssertSqlSafe(sql)).await?;
@@ -234,7 +260,7 @@ async fn abort_safety_across_scan_and_lifecycle_paths(
     let initial_pid = backend_pid(&mut conn).await?;
     let witness_pid = backend_pid(&mut witness).await?;
 
-    configure_session(&mut conn, mode, "64MB").await?;
+    configure_session(&mut conn, mode, "64MB", SpillMode::Off).await?;
     let agg_plan = explain_plan(&mut conn, AGG_QUERY).await?;
     assert!(
         agg_plan.contains("ParadeDB Aggregate Scan"),
@@ -257,9 +283,20 @@ async fn abort_safety_across_scan_and_lifecycle_paths(
         "unexpected DistributedExec presence for {mode:?} in join plan:\n{join_plan}"
     );
 
+    let basescan_plan = explain_plan(&mut conn, BASESCAN_ERR_QUERY).await?;
+    assert!(
+        basescan_plan.contains("ParadeDB Base Scan"),
+        "expected ParadeDB Base Scan for {mode:?}, got:\n{basescan_plan}"
+    );
+    assert_eq!(
+        basescan_plan.contains("Parallel Custom Scan (ParadeDB Base Scan)"),
+        mode.is_mpp(),
+        "unexpected parallel BaseScan presence for {mode:?} in plan:\n{basescan_plan}"
+    );
+
     // 1. Repeated `work_mem` exhaustion (`spill_to_disk = off`) across both AggregateScan and
     //    JoinScan, exercising the `DsmAsyncStream::copy_into_tx_ring` / `on_dsm_detach` race.
-    configure_session(&mut conn, mode, "64kB").await?;
+    configure_session(&mut conn, mode, "64kB", SpillMode::Off).await?;
     for iter in 0..8 {
         for (label, query) in [("agg", AGG_QUERY), ("join", JOIN_QUERY)] {
             let Err(err) = sqlx::query(AssertSqlSafe(query)).fetch_all(&mut conn).await else {
@@ -287,26 +324,67 @@ async fn abort_safety_across_scan_and_lifecycle_paths(
     assert_eq!(backend_pid(&mut conn).await?, initial_pid);
 
     // 2. Mid-stream PostgreSQL `ERROR` (`division by zero`) raised in a parent executor node above
-    //    an active AggregateScan and JoinScan while background Tokio tasks and DSM streams are live.
-    configure_session(&mut conn, mode, "64MB").await?;
+    //    an active AggregateScan and JoinScan while background Tokio tasks and DSM streams are
+    //    live, both in-memory and with `spill_to_disk = on` (`SpillNotifier::mark_spilled` +
+    //    `BufFile` cleanup across abnormal abort).
+    //
+    //    Verify `spill_work_mem` actually overflows `work_mem` when `spill_to_disk = off` so the
+    //    `SpillMode::On` runs below are guaranteed to spill to `BufFile` and invoke
+    //    `SpillNotifier::mark_spilled`.
+    let spill_work_mem = if mode.is_mpp() { "1MB" } else { "2MB" };
+    configure_session(&mut conn, mode, spill_work_mem, SpillMode::Off).await?;
+    let spill_proof_err = sqlx::query(AGG_QUERY)
+        .fetch_all(&mut conn)
+        .await
+        .expect_err("AGG_QUERY must exceed spill_work_mem when spill_to_disk = off");
+    let spill_proof_msg = spill_proof_err.to_string();
+    assert!(
+        spill_proof_msg.contains("work_mem")
+            || spill_proof_msg.contains("DiskManager")
+            || spill_proof_msg.contains("Resources exhausted")
+            || spill_proof_msg.contains("temporary files are not enabled")
+            || spill_proof_msg.contains("transport receiver detached"),
+        "({mode:?}): unexpected spill-proof error: {spill_proof_msg}"
+    );
+
     let outer_err_agg =
         format!("SELECT group_key, 1 / ((cnt - cnt)::int) FROM ({AGG_QUERY} OFFSET 0) sub");
     let outer_err_join = format!("SELECT id, 1 / (id - id) FROM ({JOIN_QUERY} OFFSET 0) sub");
-    for iter in 0..8 {
-        for (label, query) in [("agg_div0", &outer_err_agg), ("join_div0", &outer_err_join)] {
-            let Err(err) = sqlx::query(AssertSqlSafe(query.as_str()))
-                .fetch_all(&mut conn)
-                .await
-            else {
-                panic!("iter {iter} ({mode:?} {label}): expected outer division by zero error");
-            };
-            assert!(
-                err.to_string().to_lowercase().contains("division by zero"),
-                "iter {iter} ({mode:?} {label}): expected division by zero, got: {err}"
-            );
+    // In-memory (`SpillMode::Off`, `64MB`) exercises both `AggregateScan` and `JoinScan`;
+    // `SpillMode::On` runs `AggregateScan` (`HashJoinExec` + `TopK` in `JOIN_QUERY` have no
+    // spillable operator in DataFusion).
+    for (spill, work_mem, queries) in [
+        (
+            SpillMode::Off,
+            "64MB",
+            vec![("agg_div0", &outer_err_agg), ("join_div0", &outer_err_join)],
+        ),
+        (
+            SpillMode::On,
+            spill_work_mem,
+            vec![("agg_div0", &outer_err_agg)],
+        ),
+    ] {
+        configure_session(&mut conn, mode, work_mem, spill).await?;
+        for iter in 0..8 {
+            for (label, query) in &queries {
+                let Err(err) = sqlx::query(AssertSqlSafe(query.as_str()))
+                    .fetch_all(&mut conn)
+                    .await
+                else {
+                    panic!(
+                        "iter {iter} ({mode:?} {spill:?} {label}): expected outer division by zero error"
+                    );
+                };
+                assert!(
+                    err.to_string().to_lowercase().contains("division by zero"),
+                    "iter {iter} ({mode:?} {spill:?} {label}): expected division by zero, got: {err}"
+                );
+            }
         }
+        assert_eq!(backend_pid(&mut conn).await?, initial_pid);
     }
-    assert_eq!(backend_pid(&mut conn).await?, initial_pid);
+    configure_session(&mut conn, mode, "64MB", SpillMode::Off).await?;
 
     // 3a. Subtransaction rollback (`AtEOSubXact_Parallel`) with no open cursors so MPP engages
     //     inside the savepoint and detaches DSM during `AbortSubTransaction`.
@@ -323,7 +401,10 @@ async fn abort_safety_across_scan_and_lifecycle_paths(
     }
     conn.execute("COMMIT").await?;
 
-    // 3b. Cursor + savepoint interaction (`ResourceOwner` hierarchy + deferred `PortalDrop`):
+    // 3b. Cursor + savepoint interaction (`ResourceOwner` hierarchy + deferred `PortalDrop`).
+    //     Note: `DECLARE ... CURSOR` plans do not receive `CURSOR_OPT_PARALLEL_OK` in Postgres, so
+    //     the cursors themselves execute serially on `PgTokioRuntime` while the nested `BaseScan`
+    //     subtransaction aborts below exercise parallel `Gather` DSM detach alongside `outer_ok`.
     //     - `outer_ok`: declared before `s1`, paused (`PORTAL_READY`), must survive `ROLLBACK TO s1`.
     //     - `outer_fail_closed` & `outer_fail_committed`: declared before `s1`, fetched 2 rows
     //       cleanly, then fail on row 3 inside `s1` (`AtSubAbort_Portals` reparents their
@@ -400,38 +481,69 @@ async fn abort_safety_across_scan_and_lifecycle_paths(
 
     conn.execute("ROLLBACK TO SAVEPOINT s1").await?;
 
+    // A failing `Gather -> Parallel Custom Scan (ParadeDB Base Scan)` inside a subtransaction
+    // (`SAVEPOINT` or PL/pgSQL `EXCEPTION` block) triggers `on_basescan_dsm_detach` during
+    // `AtEOSubXact_Parallel`; it must only shut down runtimes belonging to the aborting
+    // subtransaction and leave `outer_ok`'s `PgTokioRuntime` intact.
+    conn.execute("SAVEPOINT s_basescan").await?;
+    let Err(basescan_err) = sqlx::query(BASESCAN_ERR_QUERY).fetch_all(&mut conn).await else {
+        panic!("expected division by zero from BaseScan query inside savepoint");
+    };
+    assert!(
+        basescan_err
+            .to_string()
+            .to_lowercase()
+            .contains("division by zero")
+    );
+    conn.execute("ROLLBACK TO SAVEPOINT s_basescan").await?;
+    conn.execute("RELEASE SAVEPOINT s_basescan").await?;
+
+    conn.execute(
+        r#"
+        DO $do$
+        BEGIN
+            PERFORM id, 1 / (id - 12000) FROM abort_events WHERE content @@@ 'Section';
+            RAISE EXCEPTION 'expected division_by_zero';
+        EXCEPTION WHEN division_by_zero THEN
+            NULL;
+        END;
+        $do$;
+        "#,
+    )
+    .await?;
+
     // Explicitly `CLOSE` one subxact-failed outer portal while `IsTransactionState()` is `true`,
     // and leave `outer_fail_committed` for `COMMIT` (`PreCommit_Portals` -> `PortalDrop`).
     conn.execute("CLOSE outer_fail_closed").await?;
 
-    // `outer_ok` must still have its `PgTokioRuntime` and relation/buffer pins intact.
-    let resumed_ok_rows = sqlx::query("FETCH 5 FROM outer_ok")
+    // `outer_ok` must still have its `PgTokioRuntime` and relation/buffer pins intact across the
+    // remaining batches (`FETCH ALL` forces subsequent `block_on_next` pulls beyond the first
+    // buffered batch).
+    let resumed_ok_rows = sqlx::query("FETCH ALL FROM outer_ok")
         .fetch_all(&mut conn)
         .await?;
-    assert_eq!(resumed_ok_rows.len(), 5);
+    assert_eq!(resumed_ok_rows.len(), 15_000 - 3);
     conn.execute("CLOSE outer_ok").await?;
     conn.execute("COMMIT").await?;
 
     // 4. Non-portal `_SPI_execute_plan` aborts inside a PL/pgSQL `DO` block (`EXCEPTION WHEN`).
-    let do_sql = format!(
+    //    Uses `PERFORM` (rather than `FOR ... IN ... LOOP`, which opens a portal with
+    //    `es_use_parallel_mode = false`) so `_SPI_execute_plan` runs with MPP workers active,
+    //    exercising both in-memory (`AggregateScan` + `JoinScan`) and spilling (`AggregateScan`
+    //    with `spill_to_disk = on`) paths.
+    let do_in_memory_sql = format!(
         r#"
         DO $do$
-        DECLARE
-            rec RECORD;
         BEGIN
             BEGIN
-                FOR rec IN {outer_err_agg} LOOP
-                    NULL;
-                END LOOP;
+                PERFORM group_key, 1 / ((cnt - cnt)::int) FROM ({AGG_QUERY} OFFSET 0) sub;
                 RAISE EXCEPTION 'expected division_by_zero';
             EXCEPTION WHEN division_by_zero THEN
                 NULL;
             END;
 
             BEGIN
-                FOR rec IN {outer_err_join} LOOP
-                    NULL;
-                END LOOP;
+                PERFORM id, 1 / (id - id) FROM ({JOIN_QUERY} OFFSET 0) sub;
                 RAISE EXCEPTION 'expected division_by_zero';
             EXCEPTION WHEN division_by_zero THEN
                 NULL;
@@ -440,14 +552,33 @@ async fn abort_safety_across_scan_and_lifecycle_paths(
         $do$;
         "#
     );
-    conn.execute(AssertSqlSafe(do_sql)).await?;
+    let do_spill_sql = format!(
+        r#"
+        DO $do$
+        BEGIN
+            BEGIN
+                PERFORM group_key, 1 / ((cnt - cnt)::int) FROM ({AGG_QUERY} OFFSET 0) sub;
+                RAISE EXCEPTION 'expected division_by_zero';
+            EXCEPTION WHEN division_by_zero THEN
+                NULL;
+            END;
+        END;
+        $do$;
+        "#
+    );
+    configure_session(&mut conn, mode, "64MB", SpillMode::Off).await?;
+    conn.execute(AssertSqlSafe(do_in_memory_sql)).await?;
+    configure_session(&mut conn, mode, spill_work_mem, SpillMode::On).await?;
+    conn.execute(AssertSqlSafe(do_spill_sql)).await?;
+    configure_session(&mut conn, mode, "64MB", SpillMode::Off).await?;
 
-    // 5. `proc_exit` (`pg_terminate_backend`) on a victim backend holding an open DataFusion portal
-    //    (`drop_unless_exiting` skips `CustomScanState` drop; `before_shmem_exit` must join
-    //    `PgTokioRuntime` worker threads before `PGSharedMemoryDetach`).
+    // 5. `proc_exit` (`pg_terminate_backend`) on a victim backend holding an open serial cursor
+    //    portal with a live `PgTokioRuntime` (`drop_unless_exiting` skips `CustomScanState` drop;
+    //    `before_shmem_exit` must join `PgTokioRuntime` worker threads before
+    //    `PGSharedMemoryDetach`).
     {
         let mut victim = database.connection().await;
-        configure_session(&mut victim, mode, "64MB").await?;
+        configure_session(&mut victim, mode, "64MB", SpillMode::Off).await?;
         let victim_pid = backend_pid(&mut victim).await?;
         victim.execute("BEGIN").await?;
         victim

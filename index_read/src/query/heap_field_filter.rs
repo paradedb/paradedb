@@ -51,7 +51,7 @@ struct HeapFieldFilterState {
     heap_fetch_state: Option<HeapFetchState>,
     scratch_context: Option<(
         pg_sys::MemoryContext,
-        crate::postgres::utils::ResourceOwnerStamp,
+        crate::postgres::resowner::ResourceOwnerStamp,
     )>,
 }
 
@@ -165,7 +165,7 @@ impl HeapFieldFilterState {
             }
 
             let (scratch_context, _) = self.scratch_context.get_or_insert_with(|| {
-                let owner = crate::postgres::utils::ResourceOwnerStamp::current();
+                let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
                 let ctx = pg_sys::AllocSetContextCreateExtended(
                     (*econtext).ecxt_per_query_memory,
                     c"HeapFieldFilter scratch context".as_ptr(),

@@ -90,7 +90,7 @@
 //!   - Per-PID PostgreSQL lifecycle hooks (`before_shmem_exit`, `XactCallback`, `SubXactCallback`,
 //!     and `ResourceReleaseCallback` in [`interrupt`]) join live `PgTokioRuntime` worker pools
 //!     before `PGSharedMemoryDetach` or `ResourceOwnerRelease` unmaps shared memory or releases
-//!     buffer pins, and invalidate [`crate::postgres::utils::ResourceOwnerStamp`] tokens at
+//!     buffer pins, and invalidate [`crate::postgres::resowner::ResourceOwnerStamp`] tokens at
 //!     `RESOURCE_RELEASE_BEFORE_LOCKS` so deferred `MemoryContextDelete` drops skip already-released
 //!     C resources.
 //!

@@ -135,13 +135,13 @@ const METAPAGE: pg_sys::BlockNumber = 0;
 pub struct CleanupAdmission {
     tag: pg_sys::LOCKTAG,
     mode: pg_sys::LOCKMODE,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 struct LockReleaseOnMainThread {
     tag: pg_sys::LOCKTAG,
     mode: pg_sys::LOCKMODE,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 crate::impl_safe_drop!(LockReleaseOnMainThread, |self| {
@@ -433,7 +433,7 @@ impl MetaPage {
             locktag_type: pg_sys::LockTagType::LOCKTAG_PAGE as u8,
             locktag_lockmethodid: pg_sys::DEFAULT_LOCKMETHOD as u8,
         };
-        let owner = crate::postgres::utils::ResourceOwnerStamp::current();
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe { pg_sys::LockAcquire(&tag, mode, false, false) };
         CleanupAdmission { tag, mode, owner }
     }

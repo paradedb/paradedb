@@ -38,7 +38,7 @@
 //! on the main thread as a Rust panic and is caught and propagated by `run_on_main_thread`;
 //! nothing here may add a second guard around such a call, since a panic cannot cross the
 //! outer guard's C trampoline. Closing is guarded on top of that: Postgres may
-//! release the owner's files before the Rust holder drops ([`crate::postgres::utils::ResourceOwnerStamp`]
+//! release the owner's files before the Rust holder drops ([`crate::postgres::resowner::ResourceOwnerStamp`]
 //! inside [`TempFileOwner`]), and `BufFileClose` flushes, so a call that raised mid-flush leaves
 //! the file poisoned (the close would raise again). A poisoned or released file, or one dropped
 //! from abort processing, is left to the owner.
@@ -114,17 +114,19 @@ impl TempFileFactory for BufFileTempFileFactory {
         &self,
         _description: &str,
     ) -> datafusion::common::Result<Arc<dyn SpillFile>> {
-        if self
-            .notified
-            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
-        {
-            (self.on_spill)();
-        }
         crate::postgres::customscan::mpp::try_run_on_main_thread(|_| {
-            let file = unsafe { buffile::create_temp_buffile() };
+            let file = Arc::new(TempFileOwner::new(unsafe {
+                buffile::create_temp_buffile()
+            }));
+            if self
+                .notified
+                .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                (self.on_spill)();
+            }
             Ok(Arc::new(BufFileSpillFile {
-                file: Arc::new(TempFileOwner::new(file)),
+                file,
                 size: Arc::new(AtomicU64::new(0)),
                 writer_opened: AtomicBool::new(false),
             }) as Arc<dyn SpillFile>)

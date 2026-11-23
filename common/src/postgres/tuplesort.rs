@@ -29,7 +29,7 @@ use std::os::raw::c_int;
 /// Wraps a `Tuplesortstate` over `bytea` datums: `memcmp` order, caller-provided memory budget.
 pub struct Sorter {
     state: *mut pg_sys::Tuplesortstate,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     /// PG15's `tuplesort_getdatum` has no `copy` flag and always hands back a copy palloc'd in
     /// the caller's context, which the caller owns. Held here so [`Self::next_sorted`] can free
     /// the previous record instead of leaking one allocation per record into a context that may
@@ -41,7 +41,7 @@ pub struct Sorter {
 impl Sorter {
     /// `budget` is in bytes; the sort spills to temporary files beyond it.
     pub fn new(budget: usize) -> Self {
-        let owner = crate::postgres::utils::ResourceOwnerStamp::current();
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             // `<` operator for bytea, so the sort orders by memcmp of the serialized keys.
             let tcache =
@@ -125,13 +125,13 @@ crate::impl_safe_drop!(Sorter, |self| {
 /// of the sort, and about a third of the sort memory a `bytea` record of the same size takes.
 pub struct Int8Sorter {
     state: *mut pg_sys::Tuplesortstate,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 impl Int8Sorter {
     /// `budget` is in bytes; the sort spills to temporary files beyond it.
     pub fn new(budget: usize) -> Self {
-        let owner = crate::postgres::utils::ResourceOwnerStamp::current();
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             let tcache =
                 pg_sys::lookup_type_cache(pg_sys::INT8OID, pg_sys::TYPECACHE_LT_OPR as c_int);

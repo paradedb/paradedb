@@ -22,7 +22,7 @@ pub use interrupt::{
     HeldInterrupts, MainThread, MainThreadAbort, MainThreadExecutor, MainThreadToken,
     PgTokioRuntime, PgTokioRuntimeShutdownHandle, cancel_pending, catch_worker_panic_with,
     check_for_interrupts, check_for_interrupts_or_cancel, drop_on_main_thread, run_on_main_thread,
-    shutdown_all_backend_runtimes, try_run_on_main_thread_with,
+    shutdown_aborting_xact_runtimes, try_run_on_main_thread_with,
 };
 
 pub fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {

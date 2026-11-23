@@ -1842,7 +1842,7 @@ impl CustomScan for JoinScan {
                     predicate_lock_read(&heaprel, snapshot);
                     let visibility_checker =
                         VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
-                    let slot_owner = crate::postgres::utils::ResourceOwnerStamp::current();
+                    let slot_owner = crate::postgres::resowner::ResourceOwnerStamp::current();
                     let fetch_slot =
                         pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
                     state.custom_state_mut().relations.insert(

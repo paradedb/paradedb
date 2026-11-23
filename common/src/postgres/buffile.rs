@@ -19,7 +19,7 @@
 //! Wraps Postgres's `BufFile*` C API. Some of these signatures differ across supported PG
 //! versions; the rest are thin safety wrappers over the same underlying calls.
 
-use crate::postgres::utils::ResourceOwnerStamp;
+use crate::postgres::resowner::ResourceOwnerStamp;
 use pgrx::PgMemoryContexts;
 use pgrx::pg_sys;
 use std::io;

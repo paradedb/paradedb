@@ -97,8 +97,9 @@ pub fn vacuum_delay_point() {
 /// `MemoryContext` callback necessarily runs (for example, a failed outer cursor dropped later at
 /// `CLOSE` or `COMMIT`, or an SPI query failing inside an inner PL/pgSQL `EXCEPTION` block while
 /// `IsTransactionState()` is `true`). Wrappers that can live inside a `MemoryContext` should
-/// capture [`ResourceOwnerStamp::current`] at acquisition time and gate C cleanup through
-/// [`ResourceOwnerStamp::run_if_live`] rather than checking `IsTransactionState()` alone.
+/// capture [`crate::postgres::resowner::ResourceOwnerStamp::current`] at acquisition time and gate
+/// C cleanup through [`crate::postgres::resowner::ResourceOwnerStamp::run_if_live`] rather than
+/// checking `IsTransactionState()` alone.
 ///
 /// Cleanup is also skipped once `proc_exit` has started: a FATAL doesn't unwind, so `panicking()`
 /// can't see it, and the abort that `proc_exit` runs releases those resources too. Skipping the body
@@ -223,8 +224,6 @@ pub fn proc_exit_in_progress() -> bool {
     false
 }
 
-pub use crate::postgres::customscan::mpp::interrupt::ResourceOwnerStamp;
-
 /// RAII guard for PostgreSQL standalone expression context
 /// Automatically frees the context when dropped
 ///
@@ -234,13 +233,13 @@ pub use crate::postgres::customscan::mpp::interrupt::ResourceOwnerStamp;
 #[derive(Debug)]
 pub struct ExprContextGuard {
     econtext: *mut pg_sys::ExprContext,
-    owner: ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 impl ExprContextGuard {
     /// Creates a new standalone expression context
     pub fn new() -> Self {
-        let owner = ResourceOwnerStamp::current();
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             Self {
                 econtext: pg_sys::CreateStandaloneExprContext(),

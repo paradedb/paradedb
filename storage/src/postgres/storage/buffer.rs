@@ -198,7 +198,7 @@ mod block_tracker {
 #[derive(Debug)]
 pub struct Buffer {
     pub(super) pg_buffer: pg_sys::Buffer,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     /// Read while the buffer is pinned, so `Drop` never asks Postgres for it: after an abort
     /// releases the pin, `BufferGetBlockNumber` fails `Assert(BufferIsPinned)`.
     #[cfg(feature = "block_tracker")]
@@ -207,7 +207,7 @@ pub struct Buffer {
 
 struct UnlockReleaseBufferOnMainThread {
     pg_buffer: pg_sys::Buffer,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 crate::impl_safe_drop!(UnlockReleaseBufferOnMainThread, |self| {
@@ -278,7 +278,7 @@ impl Buffer {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self {
             pg_buffer,
-            owner: crate::postgres::utils::ResourceOwnerStamp::current(),
+            owner: crate::postgres::resowner::ResourceOwnerStamp::current(),
             #[cfg(feature = "block_tracker")]
             blockno: unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) },
         }
@@ -477,7 +477,7 @@ impl BufferMut {
             &mut self.inner,
             Buffer {
                 pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
-                owner: crate::postgres::utils::ResourceOwnerStamp::default(),
+                owner: crate::postgres::resowner::ResourceOwnerStamp::default(),
                 #[cfg(feature = "block_tracker")]
                 blockno: pg_sys::InvalidBlockNumber,
             },
@@ -528,7 +528,7 @@ impl BufferMut {
 #[derive(Debug)]
 pub struct PinnedBuffer {
     pg_buffer: pg_sys::Buffer,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     /// See [`Buffer`]'s field of the same name.
     #[cfg(feature = "block_tracker")]
     blockno: pg_sys::BlockNumber,
@@ -536,7 +536,7 @@ pub struct PinnedBuffer {
 
 struct ReleaseBufferOnMainThread {
     pg_buffer: pg_sys::Buffer,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 crate::impl_safe_drop!(ReleaseBufferOnMainThread, |self| {
@@ -572,13 +572,13 @@ impl PinnedBuffer {
     pub fn new(pg_buffer: pg_sys::Buffer) -> Self {
         Self::with_owner(
             pg_buffer,
-            crate::postgres::utils::ResourceOwnerStamp::current(),
+            crate::postgres::resowner::ResourceOwnerStamp::current(),
         )
     }
 
     fn with_owner(
         pg_buffer: pg_sys::Buffer,
-        owner: crate::postgres::utils::ResourceOwnerStamp,
+        owner: crate::postgres::resowner::ResourceOwnerStamp,
     ) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self {
@@ -603,7 +603,7 @@ impl PinnedBuffer {
 #[derive(Debug)]
 pub struct BorrowedBuffer {
     pg_buffer: pg_sys::Buffer,
-    owner: crate::postgres::utils::ResourceOwnerStamp,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 impl BorrowedBuffer {
@@ -612,7 +612,7 @@ impl BorrowedBuffer {
     /// This will acquire a share lock on the buffer, and release it on Drop.
     pub unsafe fn from_pg(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
-        let owner = crate::postgres::utils::ResourceOwnerStamp::current();
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
         Self { pg_buffer, owner }
     }

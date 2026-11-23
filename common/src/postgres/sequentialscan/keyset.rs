@@ -34,9 +34,9 @@
 use crate::api::HashSet;
 use crate::gucs::WorkMem;
 use crate::postgres::buffile;
+use crate::postgres::resowner::ResourceOwnerStamp;
 use crate::postgres::tuplesort::Sorter;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::ResourceOwnerStamp;
 use pgrx::pg_sys;
 use std::os::raw::c_int;
 

@@ -47,7 +47,7 @@ use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::datafusion::memory::{WorkMemMemoryPool, build_runtime_env};
 use crate::postgres::customscan::datafusion::{all_pg_search_udafs, all_pg_search_udfs};
 use crate::postgres::customscan::mpp::dsm_stream::{
-    DsmAsyncStream, ServerProc, build_worker_streams, proc_wakeup_slot,
+    DsmAsyncStream, DsmLease, ServerProc, build_worker_streams, proc_wakeup_slot,
 };
 use crate::postgres::customscan::mpp::glue::{
     BgWorkerCount, MppBudget, MppLeaderState, WorkerSession, register_worker_streams_on_dsm_detach,
@@ -371,16 +371,24 @@ fn build_mpp_session_context(
     SessionContext::new_with_state(state_builder.build())
 }
 
-#[derive(Clone, Copy)]
-struct SpillNotifier(*mut ParallelScanState);
+#[derive(Clone)]
+struct SpillNotifier {
+    parallel_state: *mut ParallelScanState,
+    dsm_lease: DsmLease,
+}
 
-// SAFETY: `ParallelScanState::mark_spilled` only stores to an `AtomicU32` inside the DSM segment.
+// SAFETY: `ParallelScanState::mark_spilled` only stores to an `AtomicU32` inside the DSM segment,
+// and `mark_spilled` holds a `DsmReadGuard` from `dsm_lease` across that store so `on_dsm_detach`
+// cannot unmap the segment concurrently or beforehand (even if `shutdown_timeout` expires).
 unsafe impl Send for SpillNotifier {}
 unsafe impl Sync for SpillNotifier {}
 
 impl SpillNotifier {
-    fn mark_spilled(self) {
-        unsafe { (*self.0).mark_spilled() }
+    fn mark_spilled(&self) {
+        let Some(_lease) = self.dsm_lease.try_read_attached() else {
+            return;
+        };
+        unsafe { (*self.parallel_state).mark_spilled() }
     }
 }
 
@@ -537,7 +545,10 @@ fn setup_leader_worker(
         .take()
         .expect("participating leader must have inbound DSM server streams");
 
-    let spill_notifier = SpillNotifier(scan_ptr);
+    let spill_notifier = SpillNotifier {
+        parallel_state: scan_ptr,
+        dsm_lease: leader.session.shutdown_handle.lease().clone(),
+    };
     let on_spill: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
         spill_notifier.mark_spilled();
         leader_spilled.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -629,7 +640,10 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
         );
     }
 
-    let spill_state = SpillNotifier(parallel_state);
+    let spill_state = SpillNotifier {
+        parallel_state,
+        dsm_lease: detach_handle.lease().clone(),
+    };
     let worker = build_mpp_worker(
         parallel_state,
         Some(expr_context_guard.as_ptr()),
@@ -885,5 +899,17 @@ mod tests {
                 reservation.release();
             });
         }
+    }
+
+    #[test]
+    fn spill_notifier_skips_dsm_write_after_lease_detached() {
+        let lease = DsmLease::new();
+        lease.detach();
+        let notifier = SpillNotifier {
+            parallel_state: std::ptr::null_mut(),
+            dsm_lease: lease,
+        };
+        // Must return without dereferencing `parallel_state` once the DSM lease is detached.
+        notifier.mark_spilled();
     }
 }

@@ -100,8 +100,9 @@ impl ParallelScanHandle {
 
 // LIMIT can shut down the leader scan before its workers; collect after Gather joins them.
 // On abnormal transaction/subtransaction abort (`!IsTransactionState()`), `AtEOXact_Parallel` /
-// `AtEOSubXact_Parallel` detaches `Gather`'s DSM segment before `XactCallback` runs, so join any
-// live `PgTokioRuntime` worker threads before the segment unmaps.
+// `AtEOSubXact_Parallel` detaches `Gather`'s DSM segment before `XactCallback` / `SubXactCallback`
+// runs, so join any live `PgTokioRuntime` worker threads belonging to the aborting transaction or
+// subtransaction before the segment unmaps while leaving healthy outer-transaction runtimes intact.
 #[pgrx::pg_guard]
 unsafe extern "C-unwind" fn on_basescan_dsm_detach(
     _seg: *mut pg_sys::dsm_segment,
@@ -114,7 +115,7 @@ unsafe extern "C-unwind" fn on_basescan_dsm_detach(
             parallel.finalize_buffer_hits(&trace);
         }
     } else {
-        crate::postgres::customscan::mpp::interrupt::shutdown_all_backend_runtimes();
+        crate::postgres::customscan::mpp::interrupt::shutdown_aborting_xact_runtimes();
     }
 }
 

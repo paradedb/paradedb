@@ -114,7 +114,7 @@ use pgrx::pg_sys;
 use std::cell::UnsafeCell;
 use std::ffi::c_void;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering};
 use tantivy::Directory;
 use tantivy::directory::RamDirectory;
 use tantivy::index::SegmentId;
@@ -206,6 +206,8 @@ pub struct InflightBuild {
     pub key: MutableCacheKey,
     /// PID of the backend process currently building the segment, or 0 if inactive.
     pub builder_pid: pg_sys::pid_t,
+    /// Distinguishes successive attempts for the same key and backend.
+    pub attempt: u64,
 }
 
 impl InflightBuild {
@@ -222,6 +224,7 @@ impl InflightBuild {
                 },
             },
             builder_pid: 0,
+            attempt: 0,
         }
     }
 
@@ -349,7 +352,7 @@ impl Drop for ReleaseActiveReader {
             if self.0 < slots.len() {
                 BACKEND_READERS[self.0].fetch_sub(1, Ordering::Relaxed);
                 let prev = slots[self.0].active_readers.fetch_sub(1, Ordering::Release);
-                if prev == 1 && slots[self.0].state() == SlotState::Superseded {
+                if prev == 1 {
                     cache.reclaim_superseded_slot(self.0);
                 }
             }
@@ -405,6 +408,7 @@ pub struct MutableCacheHeader {
     pub arena_capacity: u32,
     /// Clock hand for eviction sweep across slots.
     pub clock_hand: AtomicU32,
+    next_build_attempt: AtomicU64,
     slab_pool: UnsafeCell<SlabPool>,
     inflight_builds: UnsafeCell<[InflightBuild; MAX_INFLIGHT_BUILDS]>,
     slots: UnsafeCell<[CacheSlot; MAX_SLOTS]>,
@@ -429,6 +433,7 @@ impl MutableCacheHeader {
         std::ptr::addr_of_mut!((*ptr).arena_capacity).write(arena_capacity);
         (*ptr).cv.init();
         (*ptr).clock_hand.store(0, Ordering::Relaxed);
+        (*ptr).next_build_attempt.store(0, Ordering::Relaxed);
         (*(*ptr).slab_pool.get()).init(arena_capacity as usize);
         for build in &mut *(*ptr).inflight_builds.get() {
             *build = InflightBuild::empty();
@@ -493,6 +498,9 @@ impl MutableCacheHeader {
         needed_bytes: usize,
         guard: &LWLockExclusiveGuard<'_>,
     ) -> Option<ArenaSpan> {
+        if needed_bytes > self.arena_capacity as usize {
+            return None;
+        }
         let slab_pool = unsafe { self.slab_pool_mut(guard) };
         if let Some(span) = slab_pool.allocate(needed_bytes) {
             return Some(span);
@@ -764,6 +772,7 @@ impl Drop for InflightBuildGuard {
 ///    If an older bound has zero active readers, its slab is immediately freed back to the [`SlabPool`].
 /// 5. **Unshared Fallback**: If the shared arena or slot table is full and cannot be evicted (e.g., all memory
 ///    is pinned by active readers), returns backend-private `RamDirectory` without failing the query.
+///    Waiters whose build finished without a cached entry also build privately, in parallel.
 pub fn get_or_build(
     key: &MutableCacheKey,
     build_fn: impl FnOnce() -> anyhow::Result<RamDirectory>,
@@ -785,6 +794,7 @@ pub fn get_or_build(
         BACKEND_EXIT_REGISTERED.store(true, Ordering::Relaxed);
     }
 
+    let mut awaited_build = None;
     loop {
         let guard = cache.lock.acquire_exclusive();
         let slots = unsafe { cache.slots_mut(&guard) };
@@ -818,10 +828,17 @@ pub fn get_or_build(
 
         // 2. Check if another worker is building
         let inflights = unsafe { cache.inflight_builds_mut(&guard) };
+        if let Some(awaited) = awaited_build
+            && !inflights.contains(&awaited)
+        {
+            drop(guard);
+            return Ok(Arc::new(build_fn()?));
+        }
         let mut in_flight_building = false;
         for build in inflights.iter_mut() {
             if !build.is_empty() && build.key == *key {
                 if unsafe { is_pid_alive(build.builder_pid) } {
+                    awaited_build = Some(*build);
                     in_flight_building = true;
                     break;
                 } else {
@@ -866,6 +883,7 @@ pub fn get_or_build(
         let my_pid = unsafe { pg_sys::MyProcPid };
         inflights[build_idx].key = *key;
         inflights[build_idx].builder_pid = my_pid;
+        inflights[build_idx].attempt = cache.next_build_attempt.fetch_add(1, Ordering::Relaxed);
 
         drop(guard);
 
@@ -880,8 +898,11 @@ pub fn get_or_build(
         let ram_dir = build_fn()?;
 
         let segment_id = SegmentId::from_bytes(key.segment_id);
-        let packed_bytes = pack::pack_segment(&ram_dir, &segment_id)
+        let packed_bytes = pack::pack_segment(&ram_dir, &segment_id, cache.arena_capacity as usize)
             .expect("failed to pack mutable segment for caching");
+        let Some(packed_bytes) = packed_bytes else {
+            return Ok(Arc::new(ram_dir));
+        };
 
         let guard = cache.lock.acquire_exclusive();
 
@@ -976,9 +997,8 @@ pub fn get_or_build(
         let slice_ptr = unsafe { arena_start.add(span.offset as usize) as *const u8 };
         let slice_len = span.len as usize;
         let slice = unsafe { std::slice::from_raw_parts(slice_ptr, slice_len) };
-        let toc = pack::unpack_toc(slice).expect("packed segment must unpack valid TOC");
-
         drop(guard);
+        let toc = pack::unpack_toc(slice).expect("packed segment must unpack valid TOC");
 
         return Ok(Arc::new(SharedMemoryDirectory::new(
             slice_ptr,

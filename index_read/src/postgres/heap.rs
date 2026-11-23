@@ -1449,14 +1449,28 @@ impl HeapFetchState {
         // `ExecCopySlot`, which would materialize (palloc + copy) every varlena
         // column on every row.
         let src = self.slot();
-        let dst = self.virtual_slot;
-
-        pg_sys::ExecClearTuple(dst);
         pg_sys::slot_getallattrs(src);
-
         let natts = (*src).tts_nvalid as usize;
-        std::ptr::copy_nonoverlapping((*src).tts_values, (*dst).tts_values, natts);
-        std::ptr::copy_nonoverlapping((*src).tts_isnull, (*dst).tts_isnull, natts);
+        Some(self.eval_slot(
+            std::slice::from_raw_parts((*src).tts_values, natts),
+            std::slice::from_raw_parts((*src).tts_isnull, natts),
+        ))
+    }
+
+    /// Present values from the fetched tuple for immediate expression evaluation.
+    /// By-reference datums must remain valid until evaluation finishes.
+    unsafe fn eval_slot(
+        &self,
+        values: &[pg_sys::Datum],
+        isnull: &[bool],
+    ) -> *mut pg_sys::TupleTableSlot {
+        let src = self.slot();
+        let dst = self.virtual_slot;
+        assert_eq!(values.len(), (*(*dst).tts_tupleDescriptor).natts as usize);
+        assert_eq!(values.len(), isnull.len());
+        pg_sys::ExecClearTuple(dst);
+        std::ptr::copy_nonoverlapping(values.as_ptr(), (*dst).tts_values, values.len());
+        std::ptr::copy_nonoverlapping(isnull.as_ptr(), (*dst).tts_isnull, isnull.len());
 
         // `slot_getsysattr` reads `ctid` and `tableoid` from the slot itself, not
         // from a tuple. Clearing the virtual slot set its `ctid` to an invalid
@@ -1464,7 +1478,7 @@ impl HeapFetchState {
         (*dst).tts_tid = (*src).tts_tid;
         (*dst).tts_tableOid = (*src).tts_tableOid;
 
-        Some(pg_sys::ExecStoreVirtualTuple(dst))
+        pg_sys::ExecStoreVirtualTuple(dst)
     }
 
     /// Wrapper around `table_index_fetch_tuple` that guards against stale ctids
@@ -1953,7 +1967,12 @@ impl<'a> HeapDocFetcher<'a> {
                 break;
             }
 
-            let expr_results = self.expression_state.evaluate(self.fetch_state.slot());
+            let expr_results = if self.expression_state.expr_states.is_empty() {
+                Vec::new()
+            } else {
+                let eval_slot = self.fetch_state.eval_slot(&self.values, &self.isnull);
+                self.expression_state.evaluate(eval_slot)
+            };
 
             let mut doc = TantivyDocument::new();
 
@@ -2205,8 +2224,70 @@ mod unit_tests {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::AnyElement;
     use pgrx::pg_sys::Oid;
     use pgrx::prelude::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static REMOVE_EXPRESSION_TOAST: AtomicBool = AtomicBool::new(false);
+
+    #[pg_extern(immutable)]
+    fn test_toast_expression(body: AnyElement) -> String {
+        if REMOVE_EXPRESSION_TOAST.swap(false, Ordering::Relaxed) {
+            Spi::run(
+                "SELECT heap_force_kill(toast_relation, tids) FROM cache_expression_toast_chunks",
+            )
+            .unwrap();
+        }
+        body.value::<String>().unwrap().unwrap().to_lowercase()
+    }
+
+    #[pg_extern]
+    fn test_materialize_toast_expression(index_oid: Oid, ctid: pg_sys::ItemPointerData) -> bool {
+        let indexrel = PgSearchRelation::open(index_oid);
+        let heaprel = indexrel.heap_relation().unwrap();
+        let fetch_state = HeapFetchState::new(&heaprel);
+        let expression_state = ExpressionState::new(&indexrel);
+        let heaptupdesc = unsafe { PgTupleDesc::from_pg_unchecked(heaprel.rd_att) };
+        let schema = indexrel.schema().unwrap();
+        let fields = schema.categorized_fields();
+        let mut fetcher = HeapDocFetcher::new(
+            &fetch_state,
+            &expression_state,
+            &heaprel,
+            &heaptupdesc,
+            &fields,
+            indexrel.created_by_version(),
+            false,
+        );
+        unsafe {
+            let mut tid = ctid;
+            assert!(fetch_state.fetch_tuple(
+                &mut tid,
+                &raw mut pg_sys::SnapshotAnyData,
+                &mut false,
+                &mut false,
+            ));
+            let slot = fetch_state.buffer_heap_slot();
+            let _lock = BorrowedBuffer::from_pg((*slot).buffer);
+            assert_eq!(
+                pg_sys::HeapTupleSatisfiesVacuum(
+                    (*slot).base.tuple,
+                    fetcher.oldest_xmin,
+                    (*slot).buffer,
+                ),
+                pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
+            );
+        }
+        REMOVE_EXPRESSION_TOAST.store(true, Ordering::Relaxed);
+        PgTryBuilder::new(AssertUnwindSafe(|| {
+            let doc = unsafe { fetcher.fetch_doc(utils::item_pointer_to_u64(ctid)) };
+            assert!(!REMOVE_EXPRESSION_TOAST.load(Ordering::Relaxed));
+            doc.is_some()
+        }))
+        .finally(|| REMOVE_EXPRESSION_TOAST.store(false, Ordering::Relaxed))
+        .execute()
+    }
 
     #[pg_test]
     fn recently_dead_toast_error_cleanup() {

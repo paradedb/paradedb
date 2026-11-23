@@ -227,11 +227,12 @@ impl Directory for SegmentCollector {
     }
 }
 
-/// Pack all files in a `RamDirectory` belonging to `segment_id` into a single binary buffer.
+/// Pack files belonging to `segment_id`, or return `None` if they exceed `max_bytes`.
 pub fn pack_segment(
     ram_directory: &tantivy::directory::RamDirectory,
     segment_id: &SegmentId,
-) -> anyhow::Result<Vec<u8>> {
+    max_bytes: usize,
+) -> anyhow::Result<Option<Vec<u8>>> {
     let id_str = segment_id.uuid_string();
     let collector = SegmentCollector::new(id_str);
     ram_directory.persist(&collector)?;
@@ -272,6 +273,9 @@ pub fn pack_segment(
     }
 
     let total_bytes = ((current_offset + 7) & !7) as u64;
+    if total_bytes > max_bytes as u64 {
+        return Ok(None);
+    }
     let mut buffer = vec![0u8; total_bytes as usize];
 
     let header = PackedHeader {
@@ -300,7 +304,7 @@ pub fn pack_segment(
         buffer[offset..offset + data.len()].copy_from_slice(data);
     }
 
-    Ok(buffer)
+    Ok(Some(buffer))
 }
 
 /// Unpack the Table of Contents from a packed segment buffer.

@@ -7,10 +7,10 @@
   zstd,
 }:
 let
-  version = "0.20.0";
+  version = "0.20.1";
   archive = fetchurl {
     url = "https://static.crates.io/crates/cargo-pgrx/cargo-pgrx-${version}.crate";
-    hash = "sha256-poWQqboVKRuKBtF3ofDtHrXH+3yIgXSHe4ogeMhaGgA=";
+    hash = "sha256-eCTOdglM0tvAFeFbh9UMMZxwPpJKiO41ddyWP0HFMBY=";
   };
   # Use the published crate's lockfile without maintaining another copy here.
   source = runCommand "cargo-pgrx-${version}-source" { } ''

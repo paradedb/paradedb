@@ -24,6 +24,7 @@
 use std::collections::VecDeque;
 use std::io;
 use std::ops::{Deref, Range};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use crate::api::HashMap;
@@ -39,8 +40,8 @@ use crate::postgres::utils;
 use crate::scan::deferred_encode::DeferredCtid;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use parking_lot::Mutex;
-use pgrx::pg_sys::{self, BlockNumber};
-use pgrx::{PgList, PgTupleDesc, check_for_interrupts};
+use pgrx::pg_sys::{self, BlockNumber, ResourceReleasePhase, TransactionId};
+use pgrx::{PgList, PgSqlErrorCode, PgTryBuilder, PgTupleDesc, check_for_interrupts};
 use tantivy::SegmentReader;
 use tantivy::index::SegmentId;
 use tantivy::{DocId, Order, SegmentOrdinal, TantivyDocument};
@@ -1691,6 +1692,48 @@ unsafe fn heap_tuple_get_update_xid(
     }
 }
 
+/// A recently-dead tuple can lose its TOAST chunks when another backend releases
+/// the snapshot retaining it. Only suppress corruption once its deleter is removable.
+unsafe fn detoast_recently_dead(
+    heaprel: &PgSearchRelation,
+    xmax: TransactionId,
+    detoast: impl FnOnce(),
+) -> bool {
+    unsafe {
+        let heaprel = heaprel.as_ptr();
+        let parent = pg_sys::CurrentResourceOwner;
+        let owner = pg_sys::ResourceOwnerCreate(parent, c"mutable segment detoast".as_ptr());
+        pg_sys::CurrentResourceOwner = owner;
+        PgTryBuilder::new(AssertUnwindSafe(|| {
+            detoast();
+            true
+        }))
+        .catch_when(PgSqlErrorCode::ERRCODE_DATA_CORRUPTED, |error| {
+            if xmax != pg_sys::InvalidTransactionId {
+                // GlobalVisCheckRemovableXid can reuse this query's earlier horizon.
+                pg_sys::GetOldestNonRemovableTransactionId(heaprel);
+                if pg_sys::GlobalVisCheckRemovableXid(heaprel, xmax) {
+                    return false;
+                }
+            }
+            error.rethrow()
+        })
+        .finally(|| {
+            pg_sys::CurrentResourceOwner = parent;
+            // A failed detoast can leave TOAST pins and relation locks behind.
+            for phase in [
+                ResourceReleasePhase::RESOURCE_RELEASE_BEFORE_LOCKS,
+                ResourceReleasePhase::RESOURCE_RELEASE_LOCKS,
+                ResourceReleasePhase::RESOURCE_RELEASE_AFTER_LOCKS,
+            ] {
+                pg_sys::ResourceOwnerRelease(owner, phase, false, false);
+            }
+            pg_sys::ResourceOwnerDelete(owner);
+        })
+        .execute()
+    }
+}
+
 impl<'a> HeapDocFetcher<'a> {
     pub fn new(
         fetch_state: &'a HeapFetchState,
@@ -1786,13 +1829,9 @@ impl<'a> HeapDocFetcher<'a> {
                     return None;
                 }
 
-                if self.query_visible {
-                    // Visible to the snapshot: skip the SnapshotAny dead-tuple filtering below and
-                    // index it.
-                    break;
-                }
-
-                let (mut htsv_result, hot_updated) = {
+                let (mut htsv_result, hot_updated) = if self.query_visible {
+                    (pg_sys::HTSV_Result::HEAPTUPLE_LIVE, false)
+                } else {
                     let buffer = (*self.fetch_state.buffer_heap_slot()).buffer;
                     let _lock = BorrowedBuffer::from_pg(buffer);
                     let tuple = (*self.fetch_state.buffer_heap_slot()).base.tuple;
@@ -1816,6 +1855,63 @@ impl<'a> HeapDocFetcher<'a> {
                         && pg_sys::GlobalVisCheckRemovableXid(self.heaprel.as_ptr(), xmax)
                     {
                         htsv_result = pg_sys::HTSV_Result::HEAPTUPLE_DEAD;
+                    }
+                }
+
+                // The raw HOT bit is enough here. `HeapTupleHeaderIsHotUpdated` also wants a
+                // valid xmax and xmin, and under the visibility check taken in the same locked
+                // block an aborted updater reads as LIVE and an aborted inserter as DEAD, so
+                // neither reaches this branch.
+                if self.root_ctids
+                    && hot_updated
+                    && (htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
+                        || htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_DELETE_IN_PROGRESS)
+                {
+                    // This member survives for old snapshots, but a newer HOT member carries
+                    // the values the build callback delivered for this root. Skip forward so
+                    // the segment holds the live version, matching what
+                    // heapam_index_build_range_scan indexes for a broken HOT chain. A member
+                    // that was deleted outright (not HOT-updated) is indexed below instead,
+                    // as heapam does: a pre-existing snapshot may still need to see it. Under
+                    // SnapshotAny `call_again` is set after every fetch, so it says nothing
+                    // about whether the chain goes on; the tuple's own HOT flag does.
+                    pg_sys::ExecClearTuple(self.fetch_state.slot());
+                    continue 'next_hot_chain;
+                }
+
+                if htsv_result != pg_sys::HTSV_Result::HEAPTUPLE_DEAD {
+                    // Keep the heap tuple pinned until all values have been read. A separate
+                    // TOAST vacuum can still remove chunks of a tuple that becomes DEAD.
+                    let htup = pg_sys::ExecFetchSlotHeapTuple(
+                        self.fetch_state.slot(),
+                        false,
+                        std::ptr::null_mut(),
+                    );
+                    pg_sys::heap_deform_tuple(
+                        htup,
+                        self.heaptupdesc.as_ptr(),
+                        self.values.as_mut_ptr(),
+                        self.isnull.as_mut_ptr(),
+                    );
+                    let mut detoast = || {
+                        for i in 0..self.heaptupdesc.len() {
+                            if !self.isnull[i] {
+                                let att = self.heaptupdesc.get(i).expect("valid attribute");
+                                if att.attlen == -1 {
+                                    let ptr = self.values[i].cast_mut_ptr();
+                                    self.values[i] =
+                                        pg_sys::Datum::from(pg_sys::pg_detoast_datum(ptr));
+                                }
+                            }
+                        }
+                    };
+                    if htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
+                        let xmax = heap_tuple_get_update_xid((*htup).t_data);
+                        if !detoast_recently_dead(self.heaprel, xmax, detoast) {
+                            htsv_result = pg_sys::HTSV_Result::HEAPTUPLE_DEAD;
+                        }
+                    } else {
+                        detoast();
                     }
                 }
 
@@ -1853,65 +1949,8 @@ impl<'a> HeapDocFetcher<'a> {
                     }
                 }
 
-                // The raw HOT bit is enough here. `HeapTupleHeaderIsHotUpdated` also wants a
-                // valid xmax and xmin, and under the visibility check taken in the same locked
-                // block an aborted updater reads as LIVE and an aborted inserter as DEAD, so
-                // neither reaches this branch.
-                if self.root_ctids
-                    && hot_updated
-                    && (htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
-                        || htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_DELETE_IN_PROGRESS)
-                {
-                    // This member survives for old snapshots, but a newer HOT member carries
-                    // the values the build callback delivered for this root. Skip forward so
-                    // the segment holds the live version, matching what
-                    // heapam_index_build_range_scan indexes for a broken HOT chain. A member
-                    // that was deleted outright (not HOT-updated) is indexed below instead,
-                    // as heapam does: a pre-existing snapshot may still need to see it. Under
-                    // SnapshotAny `call_again` is set after every fetch, so it says nothing
-                    // about whether the chain goes on; the tuple's own HOT flag does.
-                    pg_sys::ExecClearTuple(self.fetch_state.slot());
-                    continue 'next_hot_chain;
-                }
-
-                // We successfully fetched a tuple. Break out to fetch and deform it.
+                // The tuple and its TOAST values are ready to index.
                 break;
-            }
-
-            // We have a completely valid tuple to index: fetch and deform it.
-            //
-            // NOTE: We intentionally pass `false` (don't materialize) to keep the
-            // buffer pin held by the BufferHeapTupleTableSlot. This pin blocks
-            // VACUUM's LockBufferForCleanup, which prevents it from removing the
-            // heap tuple and deleting its TOAST chunks while we read them below.
-            // See: https://github.com/paradedb/paradedb/issues/5076
-            let htup = pg_sys::ExecFetchSlotHeapTuple(
-                self.fetch_state.slot(),
-                false,
-                std::ptr::null_mut(),
-            );
-
-            pg_sys::heap_deform_tuple(
-                htup,
-                self.heaptupdesc.as_ptr(),
-                self.values.as_mut_ptr(),
-                self.isnull.as_mut_ptr(),
-            );
-
-            // Eagerly detoast all variable-length (varlena) datums while the
-            // buffer pin is still held. Without this, the lazy detoasting in
-            // row_to_search_document can race with VACUUM deleting TOAST chunks
-            // after we release the pin (the "missing chunk number 0" crash).
-            // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
-            for i in 0..self.heaptupdesc.len() {
-                if !self.isnull[i] {
-                    let att = self.heaptupdesc.get(i).expect("valid attribute");
-                    if att.attlen == -1 {
-                        let ptr = self.values[i].cast_mut_ptr();
-                        let detoasted = pg_sys::pg_detoast_datum(ptr);
-                        self.values[i] = pg_sys::Datum::from(detoasted);
-                    }
-                }
             }
 
             let expr_results = self.expression_state.evaluate(self.fetch_state.slot());
@@ -2166,7 +2205,73 @@ mod unit_tests {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::pg_sys::Oid;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    fn recently_dead_toast_error_cleanup() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS pg_surgery;
+             CREATE TABLE recently_dead_toast(body text) WITH(autovacuum_enabled=false);
+             ALTER TABLE recently_dead_toast ALTER COLUMN body SET STORAGE EXTERNAL;
+             INSERT INTO recently_dead_toast VALUES (repeat(md5('toast') || ' ', 200));
+             DO $$
+             DECLARE toast_relation regclass;
+             BEGIN
+                 SELECT reltoastrelid INTO toast_relation FROM pg_class
+                 WHERE oid='recently_dead_toast'::regclass;
+                 EXECUTE format('SELECT heap_force_kill(%L::regclass, array_agg(ctid)) FROM %s',
+                                toast_relation, toast_relation);
+             END $$;",
+        )
+        .unwrap();
+        let oid = Spi::get_one::<Oid>("SELECT 'recently_dead_toast'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let relation = PgSearchRelation::open(oid);
+        let toast = PgSearchRelation::open(unsafe {
+            (*relation.as_ptr()).rd_rel.as_ref().unwrap().reltoastrelid
+        });
+        Spi::connect(|client| {
+            let row = client
+                .select("SELECT body FROM recently_dead_toast", None, &[])
+                .unwrap()
+                .first();
+            let datum = row.get_datum_by_ordinal(1).unwrap().unwrap();
+            unsafe {
+                let parent = pg_sys::CurrentResourceOwner;
+                let refcount = (*toast.as_ptr()).rd_refcnt;
+                // Exercise both outcomes with an actual missing TOAST chunk. The frozen XID
+                // models a deleter that became removable between the first check and detoast.
+                for removable in [false, true] {
+                    let xmax = if removable {
+                        pg_sys::FrozenTransactionId
+                    } else {
+                        pg_sys::GetCurrentTransactionId()
+                    };
+                    let skipped = PgTryBuilder::new(AssertUnwindSafe(|| {
+                        !detoast_recently_dead(&relation, xmax, || {
+                            pg_sys::pg_detoast_datum(datum.cast_mut_ptr());
+                        })
+                    }))
+                    .catch_when(PgSqlErrorCode::ERRCODE_DATA_CORRUPTED, |_| false)
+                    .execute();
+                    assert_eq!(skipped, removable);
+                    assert_eq!({ pg_sys::CurrentResourceOwner }, parent);
+                    assert_eq!((*toast.as_ptr()).rd_refcnt, refcount);
+                }
+                let healthy = "healthy".into_datum().unwrap();
+                assert!(detoast_recently_dead(
+                    &relation,
+                    pg_sys::FrozenTransactionId,
+                    || {
+                        pg_sys::pg_detoast_datum(healthy.cast_mut_ptr());
+                    }
+                ));
+                assert_eq!({ pg_sys::CurrentResourceOwner }, parent);
+            }
+        });
+    }
 
     #[pg_test]
     fn bitmap_window_visibility_partition() {

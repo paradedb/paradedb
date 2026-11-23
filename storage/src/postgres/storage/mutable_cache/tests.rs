@@ -709,6 +709,22 @@ mod backend {
             }
         }
 
+        let mut snapshot = connect();
+        snapshot
+            .batch_execute(
+                "BEGIN ISOLATION LEVEL REPEATABLE READ;
+                 SELECT id FROM cache_corrupt_toast;",
+            )
+            .unwrap();
+        client
+            .execute("DELETE FROM cache_corrupt_toast WHERE id=2", &[])
+            .unwrap();
+        for _ in 0..2 {
+            let error = client.query(query, &[]).unwrap_err();
+            assert_eq!(error.code(), Some(&SqlState::DATA_CORRUPTED));
+        }
+        snapshot.batch_execute("COMMIT").unwrap();
+
         client
             .batch_execute(
                 "TRUNCATE cache_corrupt_toast;

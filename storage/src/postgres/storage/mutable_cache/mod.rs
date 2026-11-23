@@ -65,21 +65,18 @@
 //! - Slabs are power-of-two multiples of a base slab size (typically 256KB), scaling up to the entire cache
 //!   capacity (e.g. 64MB or 1GB).
 //! - The tree is maintained entirely in a flat array in shared memory without pointers or linked lists.
-//! - Slabs automatically coalesce with adjacent buddies in $O(\log N)$ steps upon deallocation.
+//! - Slabs automatically coalesce with adjacent buddies in `O(log N)` steps upon deallocation.
 //!
-//! ### Eager Reclamation & Table Isolation (Eliminating the Noisy Neighbor)
+//! ### Eager Reclamation
 //!
-//! In a global FIFO ring buffer, high write churn on one relation continually advances a shared tail,
-//! evicting hot segments belonging to unrelated read-heavy relations.
-//!
-//! The slab pool eliminates this noisy-neighbor problem via eager out-of-order reclamation:
 //! - When a newer bound for a segment is cached, earlier bounds transition to [`SlotState::Superseded`].
 //! - Any superseded slot whose active reader count has dropped to zero is immediately freed back to the
 //!   [`SlabPool`], recycling the memory block for the next write commit.
 //! - When in-flight queries reading a superseded bound finish, [`ActiveReaderGuard::drop`] immediately
 //!   returns the slab to the pool.
-//! - High write churn on one table continuously recycles its own slabs and never touches or evicts
-//!   unrelated tables.
+//!
+//! Reclaiming superseded slabs reduces eviction pressure on other tables. When memory or slots
+//! run out, the clock sweep can still evict unpinned entries belonging to any table.
 //!
 //! ### Clock Sweep Cache Eviction
 //!
@@ -96,9 +93,9 @@
 //! ### Invalidation Lifecycle
 //!
 //! - Segment merges: When background merge workers consolidate mutable segments into immutable segments
-//!   (`pg_search/src/postgres/merge.rs`), [`invalidate_segment`] eagerly frees matching slots if they have
+//!   (`index_write/src/postgres/merge.rs`), [`invalidate_segment`] eagerly frees matching slots if they have
 //!   zero active readers, or marks them as superseded.
-//! - Relation lifecycle: `build_empty` (`pg_search/src/postgres/build.rs`) and `object_access_hook`
+//! - Relation lifecycle: `build_empty` (`index_write/src/postgres/build.rs`) and `object_access_hook`
 //!   (`OAT_DROP` on `pg_class`) call [`invalidate_index`] to evict all cached slots for dropped, reindexed,
 //!   or truncated relations.
 
@@ -117,7 +114,7 @@ use pgrx::pg_sys;
 use std::cell::UnsafeCell;
 use std::ffi::c_void;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
 use tantivy::Directory;
 use tantivy::directory::RamDirectory;
 use tantivy::index::SegmentId;
@@ -260,9 +257,10 @@ pub enum SlotState {
 impl SlotState {
     pub const fn from_u32(val: u32) -> Self {
         match val {
+            0 => SlotState::Empty,
             1 => SlotState::Ready,
             2 => SlotState::Superseded,
-            _ => SlotState::Empty,
+            _ => panic!("invalid mutable cache slot state"),
         }
     }
 }
@@ -376,7 +374,6 @@ unsafe extern "C-unwind" fn release_backend_resources(_code: i32, _arg: pg_sys::
         if previous == count && slot.state() == SlotState::Superseded {
             slab_pool.free(slot.span.offset, slot.span.order);
             *slot = CacheSlot::empty();
-            cache.generation.fetch_add(1, Ordering::Release);
         }
     }
     for build in unsafe { cache.inflight_builds_mut(&guard) } {
@@ -398,7 +395,6 @@ unsafe extern "C-unwind" fn release_backend_resources(_code: i32, _arg: pg_sys::
 /// - The [`SlabPool`] implicit binary tree buddy allocator.
 /// - Fixed-size arrays for `slots` ([`MAX_SLOTS`]) and `inflight_builds` ([`MAX_INFLIGHT_BUILDS`]).
 /// - An atomic `clock_hand` for clock-sweep cache eviction.
-/// - An atomic `generation` counter incremented on slot invalidation or deallocation.
 #[repr(C)]
 pub struct MutableCacheHeader {
     /// LWLock protecting the slot table and slab pool.
@@ -407,8 +403,6 @@ pub struct MutableCacheHeader {
     pub cv: ConditionVariable,
     /// Total usable capacity of the data arena in bytes.
     pub arena_capacity: u32,
-    /// Invalidation generation counter.
-    pub generation: AtomicU64,
     /// Clock hand for eviction sweep across slots.
     pub clock_hand: AtomicU32,
     slab_pool: UnsafeCell<SlabPool>,
@@ -434,7 +428,6 @@ impl MutableCacheHeader {
         std::ptr::addr_of_mut!((*ptr).lock).write(lock);
         std::ptr::addr_of_mut!((*ptr).arena_capacity).write(arena_capacity);
         (*ptr).cv.init();
-        (*ptr).generation.store(0, Ordering::Relaxed);
         (*ptr).clock_hand.store(0, Ordering::Relaxed);
         (*(*ptr).slab_pool.get()).init(arena_capacity as usize);
         for build in &mut *(*ptr).inflight_builds.get() {
@@ -537,7 +530,6 @@ impl MutableCacheHeader {
                     if slot.active_readers.load(Ordering::Acquire) == 0 {
                         slab_pool.free(slot.span.offset, slot.span.order);
                         *slot = CacheSlot::empty();
-                        self.generation.fetch_add(1, Ordering::Release);
                         if let Some(span) = slab_pool.allocate(needed_bytes) {
                             return Some(span);
                         }
@@ -553,7 +545,6 @@ impl MutableCacheHeader {
                     } else {
                         slab_pool.free(slot.span.offset, slot.span.order);
                         *slot = CacheSlot::empty();
-                        self.generation.fetch_add(1, Ordering::Release);
                         if let Some(span) = slab_pool.allocate(needed_bytes) {
                             return Some(span);
                         }
@@ -583,7 +574,6 @@ impl MutableCacheHeader {
                     if slot.active_readers.load(Ordering::Acquire) == 0 {
                         slab_pool.free(slot.span.offset, slot.span.order);
                         *slot = CacheSlot::empty();
-                        self.generation.fetch_add(1, Ordering::Release);
                         return Some(idx);
                     }
                 }
@@ -597,7 +587,6 @@ impl MutableCacheHeader {
                     } else {
                         slab_pool.free(slot.span.offset, slot.span.order);
                         *slot = CacheSlot::empty();
-                        self.generation.fetch_add(1, Ordering::Release);
                         return Some(idx);
                     }
                 }
@@ -622,7 +611,6 @@ impl MutableCacheHeader {
                 *slot = CacheSlot::empty();
                 let slab_pool = unsafe { self.slab_pool_mut(&guard) };
                 slab_pool.free(span.offset, span.order);
-                self.generation.fetch_add(1, Ordering::Release);
             }
         }
     }
@@ -670,7 +658,6 @@ impl MutableCacheHeader {
         if cancelled_any {
             self.cv.broadcast();
         }
-        self.generation.fetch_add(1, Ordering::Release);
     }
 
     /// Transition all cache slots for `index_oid` to [`SlotState::Superseded`].
@@ -709,7 +696,6 @@ impl MutableCacheHeader {
         if cancelled_any {
             self.cv.broadcast();
         }
-        self.generation.fetch_add(1, Ordering::Release);
     }
 }
 
@@ -818,15 +804,15 @@ pub fn get_or_build(
                     unsafe { (cache.arena_slice().as_ptr()).add(slot.span.offset as usize) };
                 let slice_len = slot.span.len as usize;
                 let slice = unsafe { std::slice::from_raw_parts(slice_ptr, slice_len) };
-                if let Some(toc) = pack::unpack_toc(slice) {
-                    drop(guard);
-                    return Ok(Arc::new(SharedMemoryDirectory::new(
-                        slice_ptr,
-                        slice_len,
-                        reader_guard,
-                        toc,
-                    )));
-                }
+                drop(guard);
+                let toc =
+                    pack::unpack_toc(slice).expect("invalid cached segment table of contents");
+                return Ok(Arc::new(SharedMemoryDirectory::new(
+                    slice_ptr,
+                    slice_len,
+                    reader_guard,
+                    toc,
+                )));
             }
         }
 
@@ -894,19 +880,8 @@ pub fn get_or_build(
         let ram_dir = build_fn()?;
 
         let segment_id = SegmentId::from_bytes(key.segment_id);
-        let packed_bytes = match pack::pack_segment(&ram_dir, &segment_id) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                build_guard.completed = true;
-                let guard = cache.lock.acquire_exclusive();
-                let inflights = unsafe { cache.inflight_builds_mut(&guard) };
-                if inflights[build_idx].key == *key && inflights[build_idx].builder_pid == my_pid {
-                    inflights[build_idx] = InflightBuild::empty();
-                    cache.cv.broadcast();
-                }
-                return Ok(Arc::new(ram_dir));
-            }
-        };
+        let packed_bytes = pack::pack_segment(&ram_dir, &segment_id)
+            .expect("failed to pack mutable segment for caching");
 
         let guard = cache.lock.acquire_exclusive();
 

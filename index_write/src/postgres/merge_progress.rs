@@ -19,12 +19,12 @@ use crate::index::merge_policy::MUTABLE_SEGMENT_LAYER;
 use crate::index::writer::index::format_bytes;
 use crate::postgres::ps_status::set_ps_display_suffix;
 use crate::postgres::storage::block::{CTID_MAP_EXT, STATS_EXT};
-use log::{Level, LevelFilter, Record, max_level, set_max_level};
+use log::{Level, LevelFilter, Log, Metadata, Record, max_level, set_max_level};
 use pgrx::pg_sys::{self, BackendState};
 use std::cell::RefCell;
 use std::ffi::CString;
 
-pub(super) const MERGER_LOG_TARGET: &str = "tantivy::indexer::merger";
+const MERGER_LOG_TARGET: &str = "tantivy::indexer::merger";
 const MERGE_PLUGIN_PREFIX: &str = "merge-plugin: ";
 
 thread_local! {
@@ -85,34 +85,41 @@ fn report_phase(phase: &str) {
     }
 }
 
-pub(super) fn report_record(record: &Record) {
-    if record.target() != MERGER_LOG_TARGET
-        || record.level() != Level::Debug
-        || !MERGE_STATUS.with_borrow(Option::is_some)
-    {
-        return;
+pub(super) struct MergeProgressLogger;
+
+impl Log for MergeProgressLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        metadata.target() == MERGER_LOG_TARGET && metadata.level() == Level::Debug
     }
-    // Tantivy's pinned merge loop emits this record before each component on the calling thread.
-    let message = record.args().to_string();
-    let Some(extensions) = message.strip_prefix(MERGE_PLUGIN_PREFIX) else {
-        return;
-    };
-    let phase = if extensions.contains("\"term\"") {
-        "inverted index"
-    } else if extensions.contains("\"fast\"") {
-        "fast fields"
-    } else if extensions.contains("\"store\"") {
-        "document store"
-    } else if extensions.contains("\"vec\"") {
-        "vectors"
-    } else if extensions.contains(STATS_EXT) {
-        "statistics"
-    } else if extensions.contains(CTID_MAP_EXT) {
-        "tuple map"
-    } else {
-        "custom components"
-    };
-    report_phase(phase);
+
+    fn log(&self, record: &Record) {
+        if !self.enabled(record.metadata()) || !MERGE_STATUS.with_borrow(Option::is_some) {
+            return;
+        }
+        // Tantivy's pinned merge loop emits this record before each component on the calling thread.
+        let message = record.args().to_string();
+        let Some(extensions) = message.strip_prefix(MERGE_PLUGIN_PREFIX) else {
+            return;
+        };
+        let phase = if extensions.contains("\"term\"") {
+            "inverted index"
+        } else if extensions.contains("\"fast\"") {
+            "fast fields"
+        } else if extensions.contains("\"store\"") {
+            "document store"
+        } else if extensions.contains("\"vec\"") {
+            "vectors"
+        } else if extensions.contains(STATS_EXT) {
+            "statistics"
+        } else if extensions.contains(CTID_MAP_EXT) {
+            "tuple map"
+        } else {
+            "custom components"
+        };
+        report_phase(phase);
+    }
+
+    fn flush(&self) {}
 }
 
 #[cfg(any(test, feature = "pg_test"))]

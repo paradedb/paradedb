@@ -158,9 +158,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     postgres::options::init();
     #[cfg(feature = "debug-logging")]
-    postgres::build_logging::init_with_logger(dependency_logger);
+    postgres::logging::init_with_logger(dependency_logger);
     #[cfg(not(feature = "debug-logging"))]
-    postgres::build_logging::init();
+    postgres::logging::init();
     gucs::init();
     postgres::mutable_sweep::init();
     postgres::customscan::mpp::wakeup::init_wakeup_pool();

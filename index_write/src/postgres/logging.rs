@@ -15,41 +15,49 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Targeted logging bridge for IVF build timings and synchronous merge phases.
+//! Route build notices, merge progress, and optional dependency logs.
 
-use crate::postgres::merge_progress::{MERGER_LOG_TARGET, report_record};
+use crate::postgres::merge_progress::MergeProgressLogger;
 use log::{Level, LevelFilter, Log, Metadata, Record, set_logger, set_max_level};
 use std::sync::OnceLock;
 
 const IVF_BUILD_TARGET: &str = "paradedb::ivf_build";
 
-struct IndexLogger {
-    fallback: Option<Box<dyn Log>>,
-}
+struct IvfBuildLogger;
 
-impl Log for IndexLogger {
+impl Log for IvfBuildLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        (metadata.target() == IVF_BUILD_TARGET && metadata.level() <= Level::Info)
-            || (metadata.target() == MERGER_LOG_TARGET && metadata.level() == Level::Debug)
-            || self
-                .fallback
-                .as_ref()
-                .is_some_and(|logger| logger.enabled(metadata))
+        metadata.target() == IVF_BUILD_TARGET && metadata.level() <= Level::Info
     }
 
     fn log(&self, record: &Record) {
-        report_record(record);
-        if let Some(logger) = &self.fallback {
-            if logger.enabled(record.metadata()) {
-                logger.log(record);
-            }
-        } else if record.target() == IVF_BUILD_TARGET && record.level() <= Level::Info {
+        if self.enabled(record.metadata()) {
             pgrx::notice!("{}", record.args());
         }
     }
 
+    fn flush(&self) {}
+}
+
+struct IndexLogger {
+    loggers: Vec<Box<dyn Log>>,
+}
+
+impl Log for IndexLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        self.loggers.iter().any(|logger| logger.enabled(metadata))
+    }
+
+    fn log(&self, record: &Record) {
+        for logger in &self.loggers {
+            if logger.enabled(record.metadata()) {
+                logger.log(record);
+            }
+        }
+    }
+
     fn flush(&self) {
-        if let Some(logger) = &self.fallback {
+        for logger in &self.loggers {
             logger.flush();
         }
     }
@@ -57,17 +65,14 @@ impl Log for IndexLogger {
 
 static INDEX_LOGGER: OnceLock<IndexLogger> = OnceLock::new();
 
-/// Retain optional dependency logging while observing merge records on the backend thread.
 pub fn init() {
-    init_inner(None);
+    init_with_logger(IvfBuildLogger);
 }
 
 pub fn init_with_logger(logger: impl Log + 'static) {
-    init_inner(Some(Box::new(logger)));
-}
-
-fn init_inner(fallback: Option<Box<dyn Log>>) {
-    let logger = INDEX_LOGGER.get_or_init(|| IndexLogger { fallback });
+    let logger = INDEX_LOGGER.get_or_init(|| IndexLogger {
+        loggers: vec![Box::new(MergeProgressLogger), Box::new(logger)],
+    });
     if set_logger(logger).is_ok() {
         set_max_level(LevelFilter::Info);
     }

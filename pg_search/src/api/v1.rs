@@ -17,6 +17,7 @@
 
 #![allow(unsafe_op_in_unsafe_fn)]
 
+use crate::api::operator::is_search_with_query_input_exec_procoid;
 use crate::gucs::{PlannerWarnings, v1api_warnings};
 use crate::nodecast;
 use crate::postgres::catalog::lookup_namespace;
@@ -197,9 +198,9 @@ impl QueryCalls {
         pg_sys::pfree(name.cast());
     }
 
-    unsafe fn input_type(&mut self, oid: pg_sys::Oid) {
+    unsafe fn is_legacy_query_type(&mut self, oid: pg_sys::Oid) -> bool {
         if oid.to_u32() < pg_sys::FirstNormalObjectId {
-            return;
+            return false;
         }
         let query_types = self.query_types.get_or_insert_with(|| {
             let tuple = pg_sys::SearchSysCache2(
@@ -217,7 +218,11 @@ impl QueryCalls {
             pg_sys::ReleaseSysCache(tuple);
             types
         });
-        if query_types.contains(&oid) {
+        query_types.contains(&oid)
+    }
+
+    unsafe fn input_type(&mut self, oid: pg_sys::Oid) {
+        if self.is_legacy_query_type(oid) {
             self.found
                 .insert(LEGACY_QUERY_TYPE.into(), LEGACY_QUERY_HINT);
         }
@@ -234,7 +239,23 @@ unsafe extern "C-unwind" fn walk_query(node: *mut pg_sys::Node, context: *mut c_
         pg_sys::NodeTag::T_Query => {
             return pg_sys::query_tree_walker(node.cast(), Some(walk_query), context, 0);
         }
-        pg_sys::NodeTag::T_FuncExpr => calls.function((*node.cast::<pg_sys::FuncExpr>()).funcid),
+        pg_sys::NodeTag::T_FuncExpr => {
+            let function = &*node.cast::<pg_sys::FuncExpr>();
+            calls.function(function.funcid);
+            let args = PgList::<pg_sys::Node>::from_pg(function.args);
+            if let Some(query_arg) = args.get_ptr(1)
+                && let Some(query) = nodecast!(Const, query_arg)
+                && calls.is_legacy_query_type((*query).consttype)
+                && is_search_with_query_input_exec_procoid(function.funcid)
+            {
+                // Deparsed sequential scan filters carry the planner's query as a literal.
+                pg_sys::check_stack_depth();
+                return args
+                    .iter_ptr()
+                    .enumerate()
+                    .any(|(position, arg)| position != 1 && walk_query(arg, context));
+            }
+        }
         // Literal type input can already be folded by parse analysis. Avoid inspecting the
         // result type of function calls, since pdb.more_like_this(document) also returns it.
         pg_sys::NodeTag::T_Const => calls.input_type((*node.cast::<pg_sys::Const>()).consttype),

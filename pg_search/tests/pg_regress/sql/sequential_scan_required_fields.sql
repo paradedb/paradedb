@@ -33,14 +33,10 @@ WHERE body @@@ pdb.parse_with_field('alpha OR lower_body:beta');
 SELECT array_agg(id ORDER BY id) FROM required_fields
 WHERE id @@@ pdb.parse('body:alpha OR lower_body:beta', lenient => true);
 SELECT array_agg(id ORDER BY id) FROM required_fields
-WHERE id @@@ paradedb.term_set(ARRAY[
-    paradedb.term('body', 'alpha'), paradedb.term('lower_body', 'beta')
-]);
+WHERE body === 'alpha' OR lower(body)::pdb.alias('lower_body') === 'beta';
 SELECT array_agg(id ORDER BY id) FROM required_fields
-WHERE id @@@ paradedb.boost(2.0, paradedb.boolean(
-    must => paradedb.exists('lower_body'),
-    must_not => paradedb.term('lower_body', 'beta')
-));
+WHERE lower(body)::pdb.alias('lower_body') @@@ pdb.exists()::pdb.boost(2)
+  AND NOT (lower(body)::pdb.alias('lower_body') === 'beta');
 
 -- The NULL guard still needs its field even when the query matches no documents.
 SELECT id, lower(body) @@@ pdb.empty() AS empty_match,

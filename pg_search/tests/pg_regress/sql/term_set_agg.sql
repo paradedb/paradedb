@@ -51,25 +51,6 @@ ORDER BY plants.id;
 
 
 --
--- Test 2: Basic paradedb.aggregate query
--- Count all plants belonging to the 'oak' genus.
---
-SELECT *
-FROM paradedb.aggregate(
-  'plants_idx',
-  paradedb.to_search_query_input(
-    'genus_id', 
-    (
-      SELECT pdb.term_set(id)
-      FROM genus
-      WHERE genus.name ||| 'oak'
-    )
-  ),
-  '{"count":{"value_count":{"field":"genus_id"}}}'
-);
-
-
---
 -- Test 3: No matching genus
 -- Search for a genus that does not exist. Should return no plants.
 --

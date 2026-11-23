@@ -94,25 +94,23 @@ GROUP BY occurred_at
 ORDER BY occurred_at;
 
 -- =====================================================================
--- 6. date_histogram via paradedb.aggregate() — bucket keys and
+-- 6. date_histogram via pdb.agg() — bucket keys and
 --    key_as_string format must remain stable
 -- =====================================================================
 
-SELECT * FROM paradedb.aggregate(
-    index => 'events_idx',
-    query => paradedb.all(),
-    agg   => '{"by_day": {"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}}}'
-);
+SELECT pdb.agg(
+    '{"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}}'::jsonb
+)
+FROM events WHERE id @@@ pdb.all();
 
 -- =====================================================================
 -- 7. terms aggregation over a datetime field
 -- =====================================================================
 
-SELECT * FROM paradedb.aggregate(
-    index => 'events_idx',
-    query => paradedb.all(),
-    agg   => '{"by_dt": {"terms": {"field": "occurred_at"}}}'
-);
+SELECT pdb.agg(
+    '{"terms": {"field": "occurred_at"}}'::jsonb
+)
+FROM events WHERE id @@@ pdb.all();
 
 -- =====================================================================
 -- 8. Plan shape: TopK on a datetime field still gets the fast-field plan
@@ -129,11 +127,10 @@ LIMIT 3;
 -- 9. date_histogram with a nested sub-agg — sub-bucket structure preserved
 -- =====================================================================
 
-SELECT * FROM paradedb.aggregate(
-    index => 'events_idx',
-    query => paradedb.all(),
-    agg   => '{"by_day": {"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}, "aggs": {"count": {"value_count": {"field": "id"}}}}}'
-);
+SELECT pdb.agg(
+    '{"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}, "aggs": {"count": {"value_count": {"field": "id"}}}}'::jsonb
+)
+FROM events WHERE id @@@ pdb.all();
 
 -- Cleanup
 DROP TABLE events CASCADE;

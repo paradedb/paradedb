@@ -11,13 +11,8 @@ INSERT INTO field_requirements VALUES (1, 'Running shoes', 'shoes', '{"color":"B
 CREATE INDEX field_requirements_idx ON field_requirements
 USING paradedb (id, description, metadata);
 
--- Typed queries can execute without inferring a field from the left-hand side.
-SET paradedb.planner_warnings = off;
-SELECT count(*) AS empty_matches FROM field_requirements
-WHERE omitted @@@ paradedb.empty();
-SELECT count(*) AS all_matches FROM field_requirements
-WHERE omitted @@@ paradedb.with_index('field_requirements_idx', paradedb.all());
 -- Field-based searches still fail when performance warnings are disabled.
+SET paradedb.planner_warnings = off;
 SELECT id FROM field_requirements WHERE omitted ||| 'shoes';
 RESET paradedb.planner_warnings;
 

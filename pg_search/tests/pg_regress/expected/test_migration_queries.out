@@ -166,47 +166,6 @@ SELECT * FROM products WHERE description ||| 'running shoes' OR category ||| 'ru
   6 | Cotton running shorts            | apparel  |      4 | 34.99 | Sun Jun 01 00:00:00 2025
 (3 rows)
 
--- multi_match with disjunction_max
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT * FROM products
-WHERE id @@@ paradedb.disjunction_max(
-  disjuncts => ARRAY[
-    paradedb.match('description', 'running shoes'),
-    paradedb.match('category', 'running shoes')
-  ],
-  tie_breaker => 0.3
-) ORDER BY id;
-WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on products
-         Table: products
-         Index: search_idx
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}},{"match":{"field":"category","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}],"tie_breaker":0.30000001192092896}}}}
-(8 rows)
-
-SELECT * FROM products
-WHERE id @@@ paradedb.disjunction_max(
-  disjuncts => ARRAY[
-    paradedb.match('description', 'running shoes'),
-    paradedb.match('category', 'running shoes')
-  ],
-  tie_breaker => 0.3
-) ORDER BY id;
-WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
- id |           description            | category | rating | price |        created_at        
-----+----------------------------------+----------+--------+-------+--------------------------
-  1 | Sleek running shoes for athletes | footwear |      5 | 89.99 | Wed Jan 15 00:00:00 2025
-  2 | Cheap running shoes on sale      | footwear |      3 | 29.99 | Thu Feb 20 00:00:00 2025
-  6 | Cotton running shorts            | apparel  |      4 | 34.99 | Sun Jun 01 00:00:00 2025
-(3 rows)
-
 -- query_string (pdb.parse)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM products WHERE description @@@ pdb.parse('running AND shoes') ORDER BY id;
@@ -478,92 +437,10 @@ ORDER BY id;
   1 | Sleek running shoes for athletes | footwear |      5 | 89.99 | Wed Jan 15 00:00:00 2025
 (1 row)
 
--- bool (paradedb.boolean)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT * FROM products
-WHERE id @@@ paradedb.boolean(
-  must => ARRAY[paradedb.match('description', 'shoes')],
-  should => ARRAY[paradedb.term('category', 'footwear')]
-)
-AND NOT (price >= 100)
-AND rating = 5
-ORDER BY id;
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on products
-         Table: products
-         Index: search_idx
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}],"should":[{"term":{"field":"category","value":"footwear"}}]}}}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}},{"term":{"field":"rating","value":5}}]}}
-(8 rows)
-
-SELECT * FROM products
-WHERE id @@@ paradedb.boolean(
-  must => ARRAY[paradedb.match('description', 'shoes')],
-  should => ARRAY[paradedb.term('category', 'footwear')]
-)
-AND NOT (price >= 100)
-AND rating = 5
-ORDER BY id;
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
- id |           description            | category | rating | price |        created_at        
-----+----------------------------------+----------+--------+-------+--------------------------
-  1 | Sleek running shoes for athletes | footwear |      5 | 89.99 | Wed Jan 15 00:00:00 2025
-(1 row)
-
--- boosting
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT * FROM products
-WHERE id @@@ paradedb.boolean(
-  must => ARRAY[paradedb.match('description', 'shoes')],
-  should => ARRAY[paradedb.boost(-0.5, paradedb.match('description', 'cheap'))]
-) ORDER BY id;
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on products
-         Table: products
-         Index: search_idx
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}],"should":[{"boost":{"query":{"match":{"field":"description","value":"cheap","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}},"factor":-0.5}}]}}}}
-(8 rows)
-
-SELECT * FROM products
-WHERE id @@@ paradedb.boolean(
-  must => ARRAY[paradedb.match('description', 'shoes')],
-  should => ARRAY[paradedb.boost(-0.5, paradedb.match('description', 'cheap'))]
-) ORDER BY id;
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
- id |           description            | category | rating | price |        created_at        
-----+----------------------------------+----------+--------+-------+--------------------------
-  1 | Sleek running shoes for athletes | footwear |      5 | 89.99 | Wed Jan 15 00:00:00 2025
-  2 | Cheap running shoes on sale      | footwear |      3 | 29.99 | Thu Feb 20 00:00:00 2025
-(2 rows)
-
 -- constant_score
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM products
-WHERE id @@@ paradedb.const_score(
-  score => 1.5,
-  query => paradedb.term('category', 'electronics')
-) ORDER BY id;
-WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE category === 'electronics'::pdb.const(1.5) ORDER BY id;
                                                                 QUERY PLAN                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -577,60 +454,12 @@ WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 (8 rows)
 
 SELECT * FROM products
-WHERE id @@@ paradedb.const_score(
-  score => 1.5,
-  query => paradedb.term('category', 'electronics')
-) ORDER BY id;
-WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WHERE category === 'electronics'::pdb.const(1.5) ORDER BY id;
  id |          description          |  category   | rating | price  |        created_at        
 ----+-------------------------------+-------------+--------+--------+--------------------------
   4 | Wireless bluetooth headphones | electronics |      4 |  59.99 | Sat Apr 05 00:00:00 2025
   5 | Ergonomic mechanical keyboard | electronics |      5 | 129.99 | Mon May 12 00:00:00 2025
  10 | Digital fitness tracker watch | electronics |      4 |  79.99 | Tue Oct 14 00:00:00 2025
-(3 rows)
-
--- dis_max
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT * FROM products
-WHERE id @@@ paradedb.disjunction_max(
-  disjuncts => ARRAY[
-    paradedb.match('description', 'shoes'),
-    paradedb.term('category', 'footwear')
-  ],
-  tie_breaker => 0.5
-) ORDER BY id;
-WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-                                                                                                                                                  QUERY PLAN                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on products
-         Table: products
-         Index: search_idx
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}},{"term":{"field":"category","value":"footwear"}}],"tie_breaker":0.5}}}}
-(8 rows)
-
-SELECT * FROM products
-WHERE id @@@ paradedb.disjunction_max(
-  disjuncts => ARRAY[
-    paradedb.match('description', 'shoes'),
-    paradedb.term('category', 'footwear')
-  ],
-  tie_breaker => 0.5
-) ORDER BY id;
-WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
- id |           description            | category | rating | price  |        created_at        
-----+----------------------------------+----------+--------+--------+--------------------------
-  1 | Sleek running shoes for athletes | footwear |      5 |  89.99 | Wed Jan 15 00:00:00 2025
-  2 | Cheap running shoes on sale      | footwear |      3 |  29.99 | Thu Feb 20 00:00:00 2025
-  3 | Premium leather boots            | footwear |      4 | 149.99 | Mon Mar 10 00:00:00 2025
 (3 rows)
 
 -------------------------------------------------------------

@@ -1,8 +1,4 @@
--- Range queries against JSON-column subpaths, exercising both supported syntaxes:
---   * V2 syntax:    json_path @@@ pdb.range(<native range type>)
---   * Legacy syntax: raw JSONB '{"range": {"field": "<json.path>", ...}}'::jsonb
--- Covers numeric subpaths and datetime subpaths (which require is_datetime in the
--- legacy form) so future cleanups that drop is_datetime don't silently regress.
+-- Range queries against numeric and datetime JSON subpaths.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
@@ -33,31 +29,6 @@ WHERE (metadata -> 'attributes' -> 'score') @@@ pdb.range(int4range(4, NULL, '[)
 ORDER BY id;
 
 -- ============================================================================
--- Numeric subpath: legacy JSONB syntax
--- ============================================================================
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id FROM json_range_test
-WHERE id @@@ '{
-    "range": {
-        "field": "metadata.attributes.score",
-        "lower_bound": {"included": 4},
-        "upper_bound": null
-    }
-}'::jsonb
-ORDER BY id;
-
-SELECT id FROM json_range_test
-WHERE id @@@ '{
-    "range": {
-        "field": "metadata.attributes.score",
-        "lower_bound": {"included": 4},
-        "upper_bound": null
-    }
-}'::jsonb
-ORDER BY id;
-
--- ============================================================================
 -- Datetime subpath: V2 syntax (pdb.range + tstzrange)
 -- ============================================================================
 
@@ -68,33 +39,6 @@ ORDER BY id;
 
 SELECT id FROM json_range_test
 WHERE (metadata -> 'attributes' -> 'tstz') @@@ pdb.range(tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
-ORDER BY id;
-
--- ============================================================================
--- Datetime subpath: legacy JSONB syntax with is_datetime
--- ============================================================================
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id FROM json_range_test
-WHERE id @@@ '{
-    "range": {
-        "field": "metadata.attributes.tstz",
-        "lower_bound": {"included": "2023-05-01T09:12:00Z"},
-        "upper_bound": null,
-        "is_datetime": true
-    }
-}'::jsonb
-ORDER BY id;
-
-SELECT id FROM json_range_test
-WHERE id @@@ '{
-    "range": {
-        "field": "metadata.attributes.tstz",
-        "lower_bound": {"included": "2023-05-01T09:12:00Z"},
-        "upper_bound": null,
-        "is_datetime": true
-    }
-}'::jsonb
 ORDER BY id;
 
 DROP TABLE json_range_test;

@@ -150,10 +150,7 @@ WHERE id @@@ pdb.all() AND price IN (12.345, 12.34) ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
 WHERE price @@@ pdb.term_set(ARRAY[12.345::numeric]) ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.term_set(ARRAY[
-    paradedb.term('price', 12.345::numeric),
-    paradedb.term('price', 12.34::numeric)
-]) ORDER BY id;
+WHERE price @@@ pdb.term_set(ARRAY[12.345::numeric, 12.34::numeric]) ORDER BY id;
 
 -- Crossing i64's range must not change comparison semantics or raise an error.
 SELECT id, price FROM numeric64_high_precision

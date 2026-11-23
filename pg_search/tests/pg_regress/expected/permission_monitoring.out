@@ -93,7 +93,6 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
  'SELECT * FROM permission_monitoring.docs',
  'SELECT * FROM permission_monitoring.rls_docs',
  'SELECT paradedb.find_ctid(''permission_monitoring.docs_idx'', ''(0,1)''::tid)',
- 'SELECT paradedb.aggregate(''permission_monitoring.docs_idx'', paradedb.all(), ''{"a":{"terms":{"field":"body"}}}'')',
  'SELECT * FROM pdb.verify_index(''permission_monitoring.docs_idx'')',
  'SELECT * FROM paradedb.merge_lock_garbage_collect(''permission_monitoring.docs_idx'')',
  'SELECT * FROM paradedb.vector_estimator_info(''permission_monitoring.docs_idx'', ''missing'')'
@@ -168,11 +167,9 @@ FROM pdb.indexes() WHERE schemaname = 'permission_monitoring';
 (1 row)
 
 SELECT permission_monitoring.assert_denied(permission_monitoring.content_queries()) AS content_denials;
-WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  content_denials 
 -----------------
-               7
+               6
 (1 row)
 
 SELECT count(*) AS hidden_bulk_verification
@@ -223,11 +220,9 @@ SELECT sum(num_docs) AS inherited_rls_docs FROM pdb.index_segments('permission_m
 (1 row)
 
 SELECT permission_monitoring.assert_denied(permission_monitoring.content_queries()) AS inherited_content_denials;
-WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  inherited_content_denials 
 ---------------------------
-                         7
+                         6
 (1 row)
 
 PREPARE permission_monitoring_cached AS

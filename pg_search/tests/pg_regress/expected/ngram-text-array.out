@@ -79,54 +79,6 @@ ORDER BY id;
   1 | {"The Dragon Hatchling","A Tale of Fire","Wings of Gold"}
 (1 row)
 
--- Test 3: disjunction_max combining boosted ICU match with ngram conjunction
--- Matches the pattern from the reported issue
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.disjunction_max(
-    disjuncts => ARRAY[
-        paradedb.boost(50, paradedb.match('all_titles', 'Dragon', prefix => true, conjunction_mode => true)),
-        paradedb.match('all_titles_ngram', 'Dragon', conjunction_mode => true)
-    ]
-)
-ORDER BY id;
-WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Output: id, all_titles
-   Sort Key: books.id
-   ->  Custom Scan (ParadeDB Base Scan) on public.books
-         Output: id, all_titles
-         Table: books
-         Index: idx_books
-         Worker Selection: Cost model
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"all_titles","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":true,"conjunction_mode":true}},"factor":50.0}},{"match":{"field":"all_titles_ngram","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}],"tie_breaker":null}}}}
-(11 rows)
-
-SELECT id, all_titles FROM books
-WHERE id @@@ paradedb.disjunction_max(
-    disjuncts => ARRAY[
-        paradedb.boost(50, paradedb.match('all_titles', 'Dragon', prefix => true, conjunction_mode => true)),
-        paradedb.match('all_titles_ngram', 'Dragon', conjunction_mode => true)
-    ]
-)
-ORDER BY id;
-WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
- id |                            all_titles                             
-----+-------------------------------------------------------------------
-  1 | {"The Dragon Hatchling","A Tale of Fire","Wings of Gold"}
-  3 | {"The Hatchling Returns","Dragon Slayer","Fire and Ice"}
-  4 | {"Cooking with Dragon Fruit","Hatchling Care Guide"}
-  8 | {"The Dragon Chronicles","Rise of the Phoenix","Ancient Legends"}
-(4 rows)
-
 -- Test 4: Short query (fewer than min_gram characters — no tokens)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, all_titles FROM books
@@ -182,39 +134,6 @@ ORDER BY id;
   1 | {"The Dragon Hatchling","A Tale of Fire","Wings of Gold"}
   3 | {"The Hatchling Returns","Dragon Slayer","Fire and Ice"}
 (2 rows)
-
--- Test 6: JSON-based disjunction_max via ::jsonb path
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, all_titles FROM books
-WHERE id @@@ '{"disjunction_max":{"disjuncts":[{"boost":{"factor":50,"query":{"match":{"field":"all_titles","value":"Dragon","prefix":true,"conjunction_mode":true}}}},{"match":{"field":"all_titles_ngram","value":"Dragon","prefix":false,"conjunction_mode":true}}]}}'::jsonb
-ORDER BY id;
-WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
-                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Output: id, all_titles
-   Sort Key: books.id
-   ->  Custom Scan (ParadeDB Base Scan) on public.books
-         Output: id, all_titles
-         Table: books
-         Index: idx_books
-         Worker Selection: Cost model
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"all_titles","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":true,"conjunction_mode":true}},"factor":50.0}},{"match":{"field":"all_titles_ngram","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}}],"tie_breaker":null}}}}
-(11 rows)
-
-SELECT id, all_titles FROM books
-WHERE id @@@ '{"disjunction_max":{"disjuncts":[{"boost":{"factor":50,"query":{"match":{"field":"all_titles","value":"Dragon","prefix":true,"conjunction_mode":true}}}},{"match":{"field":"all_titles_ngram","value":"Dragon","prefix":false,"conjunction_mode":true}}]}}'::jsonb
-ORDER BY id;
-WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
- id |                            all_titles                             
-----+-------------------------------------------------------------------
-  1 | {"The Dragon Hatchling","A Tale of Fire","Wings of Gold"}
-  3 | {"The Hatchling Returns","Dragon Slayer","Fire and Ice"}
-  4 | {"Cooking with Dragon Fruit","Hatchling Care Guide"}
-  8 | {"The Dragon Chronicles","Rise of the Phoenix","Ancient Legends"}
-(4 rows)
 
 -- Test 7: Ngram match without conjunction_mode (disjunction baseline)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

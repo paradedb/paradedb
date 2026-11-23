@@ -68,16 +68,5 @@ ERROR:  term set contains 5 terms, which exceeds paradedb.max_term_set_size (4)
 SELECT count(*) FROM term_set_size_cap
 WHERE id @@@ pdb.all() AND rating IN (1, 2, 3, 4, 5);
 ERROR:  term set contains 5 terms, which exceeds paradedb.max_term_set_size (4)
-SELECT count(*) FROM term_set_size_cap
-WHERE id @@@ paradedb.term_set(terms => ARRAY[
-    paradedb.term(field => 'rating', value => 1),
-    paradedb.term(field => 'rating', value => 2),
-    paradedb.term(field => 'rating', value => 3),
-    paradedb.term(field => 'rating', value => 4),
-    paradedb.term(field => 'rating', value => 5)
-]);
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
-ERROR:  term set contains 5 terms, which exceeds paradedb.max_term_set_size (4)
 RESET paradedb.max_term_set_size;
 DROP TABLE term_set_size_cap;

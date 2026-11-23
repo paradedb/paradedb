@@ -135,23 +135,13 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
   5 | Item 5 | 4.9947444e-05
 (5 rows)
 
--- Test 3: NOT EXISTS with multiple @@@ predicates
+-- Test 3: NOT EXISTS with multiple search predicates
 -- Verify the plan uses an Anti Join with combined predicates
 EXPLAIN (COSTS OFF)
 SELECT id
 FROM score_aj_items AS s
-WHERE s.id @@@ '{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}'::jsonb
-AND s.id @@@ paradedb.boolean(
-    should => ARRAY[
-        paradedb.disjunction_max(
-            tie_breaker => 0.75,
-            disjuncts => ARRAY[
-                paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
-                paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
-            ]
-        )
-    ]
-)
+WHERE s.state === 'active'
+AND (s.title &&& 'Item'::pdb.fuzzy(1, f, t)::pdb.boost(2) OR s.title &&& 'Item')
 AND NOT EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -159,14 +149,9 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
-                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (pdb.score(s.id)) DESC, s.id
@@ -177,7 +162,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
                      Index: score_aj_items_idx
                      Exec Method: NormalScanExecState
                      Scores: true
-                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}}},{"with_index":{"query":{"boolean":{"should":[{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"title","value":"Item","tokenizer":null,"distance":1,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}},"factor":2.0}},{"match":{"field":"title","value":"Item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}}],"tie_breaker":0.75}}]}}}}]}}
+                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"state","value":"active"}}}},{"boolean":{"should":[{"with_index":{"query":{"boost":{"query":{"match":{"field":"title","value":"Item","tokenizer":null,"distance":1,"transposition_cost_one":true,"prefix":false,"conjunction_mode":true}},"factor":2.0}}}},{"with_index":{"query":{"match":{"field":"title","value":"Item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}]}}]}}
                ->  Materialize
                      ->  Seq Scan on score_aj_entries
                            Filter: (user_id = 'user1'::text)
@@ -185,18 +170,8 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
 
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
-WHERE s.id @@@ '{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}'::jsonb
-AND s.id @@@ paradedb.boolean(
-    should => ARRAY[
-        paradedb.disjunction_max(
-            tie_breaker => 0.75,
-            disjuncts => ARRAY[
-                paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
-                paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
-            ]
-        )
-    ]
-)
+WHERE s.state === 'active'
+AND (s.title &&& 'Item'::pdb.fuzzy(1, f, t)::pdb.boost(2) OR s.title &&& 'Item')
 AND NOT EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -204,19 +179,14 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
-WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
  id  |  title   |   score   
 -----+----------+-----------
- 501 | Item 501 | 2.0000873
- 502 | Item 502 | 2.0000873
- 503 | Item 503 | 2.0000873
- 504 | Item 504 | 2.0000873
- 505 | Item 505 | 2.0000873
+ 501 | Item 501 | 2.0000997
+ 502 | Item 502 | 2.0000997
+ 503 | Item 503 | 2.0000997
+ 504 | Item 504 | 2.0000997
+ 505 | Item 505 | 2.0000997
 (5 rows)
 
 -- Reset GUCs

@@ -365,12 +365,7 @@ WHERE price @@@ pdb.term_set(ARRAY[12.345::numeric]) ORDER BY id;
 (0 rows)
 
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.term_set(ARRAY[
-    paradedb.term('price', 12.345::numeric),
-    paradedb.term('price', 12.34::numeric)
-]) ORDER BY id;
-WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
+WHERE price @@@ pdb.term_set(ARRAY[12.345::numeric, 12.34::numeric]) ORDER BY id;
  id | price 
 ----+-------
   1 | 12.34

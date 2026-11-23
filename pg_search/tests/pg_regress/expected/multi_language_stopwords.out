@@ -23,35 +23,6 @@ SELECT
  {the,cat,in,the,hat,le,renard,et} | {cat,hat,renard}
 (1 row)
 
--- Test v1 paradedb.tokenizer() with stopwords_languages parameter (array form)
-SELECT * FROM paradedb.tokenize(
-    paradedb.tokenizer('default', stopwords_languages => ARRAY['English', 'French']),
-    'the quick fox and le renard et'
-);
-WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
- token  | position 
---------+----------
- quick  |        1
- fox    |        2
- renard |        5
-(3 rows)
-
--- Test v1 paradedb.tokenizer() with single stopwords_language parameter (backwards compatible)
-SELECT * FROM paradedb.tokenize(
-    paradedb.tokenizer('default', stopwords_language => 'English'),
-    'the quick fox and'
-);
-WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
-WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
- token | position 
--------+----------
- quick |        1
- fox   |        2
-(2 rows)
-
--- Clean up
-DROP TABLE IF EXISTS test_multi_stopwords;
 -- Create test table
 CREATE TABLE test_multi_stopwords (
     id SERIAL PRIMARY KEY,

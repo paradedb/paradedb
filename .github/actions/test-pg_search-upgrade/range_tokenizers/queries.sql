@@ -9,7 +9,7 @@ BEGIN
         SELECT 1 FROM paradedb.index_info('range_tokenizers_idx') WHERE mutable
     ), 'the upgraded index must have a mutable segment';
     ASSERT (
-        SELECT array_agg(id ORDER BY id) FROM range_tokenizers WHERE id @@@ paradedb.all()
+        SELECT array_agg(id ORDER BY id) FROM range_tokenizers WHERE id @@@ pdb.all()
     ) = ARRAY[1, 2], 'search must materialize new rows in the legacy range index';
     ASSERT (
         SELECT array_agg(id ORDER BY id) FROM range_tokenizers
@@ -28,7 +28,7 @@ INSERT INTO range_tokenizers VALUES (3, '[300,400)', '[2026-03-01,2026-04-01)');
 DO $$
 BEGIN
     ASSERT (
-        SELECT array_agg(id ORDER BY id) FROM range_tokenizers WHERE id @@@ paradedb.all()
+        SELECT array_agg(id ORDER BY id) FROM range_tokenizers WHERE id @@@ pdb.all()
     ) = ARRAY[1, 2, 3], 'immutable writes must also work with the legacy range schema';
     ASSERT NOT EXISTS (
         SELECT 1 FROM paradedb.schema('range_tokenizers_idx') current

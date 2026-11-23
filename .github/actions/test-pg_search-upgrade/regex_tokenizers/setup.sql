@@ -15,8 +15,7 @@ WITH (
 );
 
 -- Keep both exact-term and analyzed-query results, rather than assuming which
--- pattern wins the old registration collision. This view is evaluated again
--- against the upgraded extension, including rows written after the upgrade.
+-- pattern wins the old registration collision.
 CREATE VIEW regex_results AS
 SELECT 'digits_term' AS query, ARRAY(
     SELECT id FROM regex_patterns WHERE id @@@ paradedb.term('digits', '123') ORDER BY id
@@ -34,6 +33,7 @@ SELECT 'letters_parse', ARRAY(
     SELECT id FROM regex_patterns WHERE id @@@ 'letters:abc123' ORDER BY id
 );
 CREATE TABLE regex_before_upgrade AS SELECT * FROM regex_results;
+DROP VIEW regex_results;
 CREATE TABLE regex_schema_before_upgrade AS
 SELECT name, tokenizer FROM paradedb.schema('regex_patterns_idx')
 WHERE name IN ('digits', 'letters');

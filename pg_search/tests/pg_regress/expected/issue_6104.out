@@ -27,11 +27,15 @@ CREATE INDEX n64_build_idx ON n64_build USING paradedb (id, amount, tag)
 WITH (partition_by = 'amount', target_segment_count = 4,
       numeric_fields = '{"amount": {"fast": true}}',
       text_fields = '{"tag": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+WARNING:  numeric_fields uses the deprecated ParadeDB V1 API
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 WARNING:  only 0 parallel workers were available for index build
 CREATE INDEX n64_probe_idx ON n64_probe USING paradedb (id, amount, tag)
 WITH (partition_by = 'amount', target_segment_count = 4,
       numeric_fields = '{"amount": {"fast": true}}',
       text_fields = '{"tag": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+WARNING:  numeric_fields uses the deprecated ParadeDB V1 API
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 WARNING:  only 0 parallel workers were available for index build
 -- =====================================================================
 -- Serial baseline.
@@ -146,11 +150,15 @@ CREATE INDEX nb_build_idx ON nb_build USING paradedb (id, amount, tag)
 WITH (partition_by = 'amount', target_segment_count = 4,
       numeric_fields = '{"amount": {"fast": true}}',
       text_fields = '{"tag": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+WARNING:  numeric_fields uses the deprecated ParadeDB V1 API
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 WARNING:  only 0 parallel workers were available for index build
 CREATE INDEX nb_probe_idx ON nb_probe USING paradedb (id, amount, tag)
 WITH (partition_by = 'amount', target_segment_count = 4,
       numeric_fields = '{"amount": {"fast": true}}',
       text_fields = '{"tag": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+WARNING:  numeric_fields uses the deprecated ParadeDB V1 API
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 WARNING:  only 0 parallel workers were available for index build
 SET max_parallel_workers_per_gather TO 0;
 SELECT count(*)

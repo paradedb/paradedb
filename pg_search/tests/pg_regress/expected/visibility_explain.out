@@ -137,6 +137,7 @@ BEGIN
 END;
 $$;
 SELECT check_visibility_stats('dirty');
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  check_visibility_stats 
 ------------------------
  
@@ -144,6 +145,7 @@ SELECT check_visibility_stats('dirty');
 
 VACUUM (INDEX_CLEANUP ON) visibility_stats_docs;
 SELECT check_visibility_stats('visible');
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  check_visibility_stats 
 ------------------------
  

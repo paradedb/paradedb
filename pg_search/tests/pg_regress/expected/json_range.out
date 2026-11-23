@@ -21,6 +21,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM json_range_test
 WHERE id @@@ paradedb.range('metadata.attributes.score', int4range(4, NULL, '[)'))
 ORDER BY id;
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                                                    QUERY PLAN                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -37,6 +38,7 @@ ORDER BY id;
 SELECT id FROM json_range_test
 WHERE id @@@ paradedb.range('metadata.attributes.score', int4range(4, NULL, '[)'))
 ORDER BY id;
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  id 
 ----
   2
@@ -56,6 +58,7 @@ WHERE id @@@ '{
     }
 }'::jsonb
 ORDER BY id;
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
                                                                    QUERY PLAN                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -78,6 +81,7 @@ WHERE id @@@ '{
     }
 }'::jsonb
 ORDER BY id;
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
  id 
 ----
   2
@@ -91,6 +95,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM json_range_test
 WHERE id @@@ paradedb.range('metadata.attributes.tstz', tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
 ORDER BY id;
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                                                                       QUERY PLAN                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -107,6 +112,7 @@ ORDER BY id;
 SELECT id FROM json_range_test
 WHERE id @@@ paradedb.range('metadata.attributes.tstz', tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
 ORDER BY id;
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  id 
 ----
   2
@@ -127,6 +133,7 @@ WHERE id @@@ '{
     }
 }'::jsonb
 ORDER BY id;
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -150,6 +157,7 @@ WHERE id @@@ '{
     }
 }'::jsonb
 ORDER BY id;
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
  id 
 ----
   2

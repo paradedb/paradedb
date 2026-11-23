@@ -4,6 +4,7 @@
 CREATE TABLE issue_7031_items (id integer PRIMARY KEY, state text NOT NULL);
 INSERT INTO issue_7031_items SELECT g, 'active' FROM generate_series(1, 10000) g;
 CREATE INDEX issue_7031_idx ON issue_7031_items USING bm25 (id, (state::pdb.literal));
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 ANALYZE issue_7031_items;
 SET paradedb.planner_warnings = off;
 -- The reported query: with default settings the planner picks a bm25 Index Scan.
@@ -12,6 +13,8 @@ SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term('state', 'active')
   AND i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_items WHERE id < 0))
 $$);
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
                                                                                                                        explain_redact_oid                                                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using issue_7031_idx on issue_7031_items i
@@ -25,6 +28,8 @@ $$);
 SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term('state', 'active')
   AND i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_items WHERE id < 0));
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -34,6 +39,8 @@ SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term('state', 'active')
   AND i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_items WHERE id <= 3))
 ORDER BY i.id;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  id 
 ----
   1
@@ -47,6 +54,7 @@ SET enable_seqscan = off;
 SET enable_bitmapscan = off;
 EXPLAIN (COSTS OFF) SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_items WHERE id < 0));
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
                                                                QUERY PLAN                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using issue_7031_idx on issue_7031_items i
@@ -59,18 +67,21 @@ WHERE i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_ite
 
 SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_items WHERE id < 0));
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
 
 SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term('id', (SELECT max(id) FROM issue_7031_items WHERE id < 0));
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
 
 SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ (SELECT NULL::paradedb.searchqueryinput);
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -80,6 +91,7 @@ RESET enable_bitmapscan;
 SET enable_indexscan = off;
 EXPLAIN (COSTS OFF) SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_items WHERE id < 0));
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Bitmap Heap Scan on issue_7031_items i
@@ -96,6 +108,7 @@ WHERE i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_ite
 
 SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_items WHERE id < 0));
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -103,6 +116,8 @@ WHERE i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_ite
 SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term('state', 'active')
   AND i.id @@@ (SELECT NULL::paradedb.searchqueryinput);
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -113,6 +128,7 @@ RESET enable_seqscan;
 RESET paradedb.enable_custom_scan;
 SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_items WHERE id < 0));
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)

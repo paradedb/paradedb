@@ -480,7 +480,8 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     // Clear any existing warnings for this planning cycle
     clear_planner_warnings();
 
-    if !pg_search_extension_installed() {
+    let extension = pg_sys::get_extension_oid(c"pg_search".as_ptr(), true);
+    if extension == pg_sys::InvalidOid {
         let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
             prev_hook(parse, query_string, cursor_options, bound_params)
         } else {
@@ -488,6 +489,8 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         };
         return result;
     }
+
+    crate::api::v1::warn_query(parse, extension);
 
     // Check if we should replace window functions and do so if needed
     // This checks the OUTER query level

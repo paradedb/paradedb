@@ -1707,6 +1707,7 @@ FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
 WHERE i.id @@@ paradedb.all()
 GROUP BY i.metadata->>'category';
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1731,6 +1732,7 @@ JOIN agg_json_orders o ON i.id = o.item_id
 WHERE i.id @@@ paradedb.all()
 GROUP BY i.metadata->>'category'
 ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | count | sum 
 -------------+-------+-----
  Electronics |     3 |  18
@@ -1745,6 +1747,7 @@ JOIN agg_json_orders o ON i.id = o.item_id
 WHERE i.id @@@ paradedb.all()
 GROUP BY i.metadata->>'category'
 ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | count | sum 
 -------------+-------+-----
  Electronics |     3 |  18

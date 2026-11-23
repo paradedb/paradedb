@@ -401,6 +401,7 @@ SELECT
             + (jsonb_path_query_first(value, '$.**.located_matches') #>> '{}')::bigint
         AS located_visits_accounted
 FROM segment_info;
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  access_path | located_matches | located_prunes_nothing | located_rows_every_located_cluster | located_scores_every_match | located_visits_accounted 
 -------------+-----------------+------------------------+------------------------------------+----------------------------+--------------------------
  Located     |              50 | t                      | t                                  | t                          | t
@@ -418,6 +419,7 @@ SELECT
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) AS located_matches_exhaustive;
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  located_matches_exhaustive 
 ----------------------------
  t
@@ -450,6 +452,7 @@ SELECT
             + (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint
         AS filtered_visits_accounted
 FROM segment_info;
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  access_path | filtered_scores_only_eligible | filtered_prunes_at_admission | filtered_visits_accounted 
 -------------+-------------------------------+------------------------------+---------------------------
  Routed      | t                             | t                            | t
@@ -467,6 +470,7 @@ SELECT
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) AS routed_matches_exhaustive;
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  routed_matches_exhaustive 
 ---------------------------
  t

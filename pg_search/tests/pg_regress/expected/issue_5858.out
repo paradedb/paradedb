@@ -50,6 +50,7 @@ USING paradedb (id, name_ci, name_icu, name_c, name_default)
 WITH (
     text_fields = '{"name_ci": {"tokenizer": {"type": "keyword"}}, "name_icu": {"tokenizer": {"type": "keyword"}}, "name_c": {"tokenizer": {"type": "keyword"}}, "name_default": {"tokenizer": {"type": "keyword"}}}'
 );
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 ANALYZE issue_5858_products;
 \echo '=== SECTION 1: nondeterministic collation, equality ==='
 === SECTION 1: nondeterministic collation, equality ===
@@ -60,6 +61,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_ci = 'Electronics'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                  QUERY PLAN                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -89,6 +91,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_ci = 'Electronics'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
   1
@@ -102,6 +105,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_ci <> 'Electronics'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                  QUERY PLAN                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -128,6 +132,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_ci <> 'Electronics'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
   3
@@ -142,6 +147,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_ci IN ('Electronics', 'Books')
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                          QUERY PLAN                                                                                                         
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -172,6 +178,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_ci IN ('Electronics', 'Books')
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
   1
@@ -188,6 +195,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_icu = 'Banana'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                          QUERY PLAN                                                          
 -----------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -213,6 +221,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_icu = 'Banana'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
   2
@@ -225,6 +234,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_icu IN ('apple', 'cherry')
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -242,6 +252,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_icu IN ('apple', 'cherry')
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
   1
@@ -255,6 +266,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_icu > 'B'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                             QUERY PLAN                                                                                             
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -284,6 +296,7 @@ SELECT id, name_icu FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_icu > 'B'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | name_icu 
 ----+----------
   2 | Banana
@@ -299,6 +312,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_c > 'B'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -328,6 +342,7 @@ SELECT id, name_c FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_c > 'B'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | name_c 
 ----+--------
   1 | apple
@@ -342,6 +357,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_icu COLLATE "C" > 'B'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -371,6 +387,7 @@ SELECT id, name_icu FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_icu COLLATE "C" > 'B'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | name_icu 
 ----+----------
   1 | apple
@@ -387,6 +404,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_default = 'Banana'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -404,6 +422,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_default = 'Banana'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
   2
@@ -416,6 +435,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_default > 'B'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -443,6 +463,7 @@ SELECT id, name_default FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND name_default > 'B'
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | name_default 
 ----+--------------
   1 | apple
@@ -459,6 +480,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND id > 1
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -476,6 +498,7 @@ SELECT id FROM issue_5858_products
 WHERE id @@@ paradedb.all()
   AND id > 1
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
   2
@@ -494,6 +517,7 @@ SELECT count(*) FILTER (WHERE name_icu > 'B') AS range_count,
        count(*) FILTER (WHERE name_ci = 'Books') AS equality_count
 FROM issue_5858_products
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                           QUERY PLAN                           
 ---------------------------------------------------------------
  Aggregate
@@ -511,6 +535,7 @@ SELECT count(*) FILTER (WHERE name_icu > 'B') AS range_count,
        count(*) FILTER (WHERE name_ci = 'Books') AS equality_count
 FROM issue_5858_products
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  range_count | equality_count 
 -------------+----------------
            2 |              1

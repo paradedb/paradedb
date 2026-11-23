@@ -34,6 +34,7 @@ SELECT id,
        pdb.snippet_positions(metadata_jsonb->'details'->'author'->>'description')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  id |       snippet        | snippet_positions 
 ----+----------------------+-------------------
   1 | A <b>test</b> author | {{2,6}}
@@ -44,6 +45,7 @@ SELECT id,
        pdb.snippet_positions(metadata_jsonb#>'{details,author,description}')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  id |       snippet        | snippet_positions 
 ----+----------------------+-------------------
   1 | A <b>test</b> author | {{2,6}}
@@ -54,6 +56,7 @@ SELECT id,
        pdb.snippet_positions(metadata_jsonb#>>'{details,author,description}')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  id |       snippet        | snippet_positions 
 ----+----------------------+-------------------
   1 | A <b>test</b> author | {{2,6}}
@@ -64,6 +67,7 @@ SELECT id,
        pdb.snippet_positions(metadata_json->'tags')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  id |       snippet       | snippet_positions 
 ----+---------------------+-------------------
   1 | test <b>snippet</b> | {{5,12}}
@@ -74,6 +78,7 @@ SELECT id,
        pdb.snippet_positions(metadata_json#>'{tags}')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  id |       snippet       | snippet_positions 
 ----+---------------------+-------------------
   1 | test <b>snippet</b> | {{5,12}}
@@ -84,6 +89,7 @@ SELECT id,
        pdb.snippet_positions(metadata_json#>>'{tags}')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  id |       snippet       | snippet_positions 
 ----+---------------------+-------------------
   1 | test <b>snippet</b> | {{5,12}}

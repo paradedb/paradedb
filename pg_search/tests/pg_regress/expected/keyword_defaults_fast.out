@@ -52,6 +52,9 @@ WITH (
         "range_col": {}
     }'
 );
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
+WARNING:  json_fields uses the deprecated ParadeDB V1 API
+WARNING:  range_fields uses the deprecated ParadeDB V1 API
 SELECT * FROM paradedb.schema('t_json_idx') ORDER BY name;
      name      | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         | record | normalizer 
 ---------------+------------+--------+---------+------+------------+-------------+--------------------------+--------+------------

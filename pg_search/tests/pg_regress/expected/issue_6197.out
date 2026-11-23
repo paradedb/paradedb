@@ -28,6 +28,7 @@ FROM (
     FROM issue_6197_json_fast_field_repro
     WHERE id @@@ paradedb.parse('custom.score:>990')
 ) q;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
@@ -44,6 +45,7 @@ FROM (
     FROM issue_6197_json_fast_field_repro
     WHERE id @@@ paradedb.parse('custom.score:>990')
 ) q;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  count | min | max 
 -------+-----+-----
      3 | 991 | 999
@@ -53,6 +55,7 @@ EXPLAIN (VERBOSE, COSTS OFF)
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
 WHERE id @@@ paradedb.parse('custom.score:>990');
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
@@ -66,6 +69,7 @@ WHERE id @@@ paradedb.parse('custom.score:>990');
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
 WHERE id @@@ paradedb.parse('custom.score:>990');
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  count 
 -------
      3
@@ -79,6 +83,7 @@ FROM (
     FROM issue_6197_json_fast_field_repro
     WHERE id @@@ paradedb.parse('custom.score:>990')
 ) q;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -99,6 +104,7 @@ FROM (
     FROM issue_6197_json_fast_field_repro
     WHERE id @@@ paradedb.parse('custom.score:>990')
 ) q;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  count | min | max 
 -------+-----+-----
      3 | 991 | 999
@@ -129,6 +135,7 @@ FROM (
     FROM issue_6197_json_fast_field_repro
     WHERE id @@@ paradedb.parse('score:>990')
 ) q;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
@@ -145,6 +152,7 @@ FROM (
     FROM issue_6197_json_fast_field_repro
     WHERE id @@@ paradedb.parse('score:>990')
 ) q;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  count | min | max 
 -------+-----+-----
      3 | 991 | 999
@@ -154,6 +162,7 @@ EXPLAIN (VERBOSE, COSTS OFF)
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
 WHERE id @@@ paradedb.parse('score:>990');
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                         QUERY PLAN                                                        
 --------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
@@ -167,6 +176,7 @@ WHERE id @@@ paradedb.parse('score:>990');
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
 WHERE id @@@ paradedb.parse('score:>990');
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  count 
 -------
      3

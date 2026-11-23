@@ -24,6 +24,7 @@ WITH (
         "color": {"tokenizer": {"type": "keyword"}, "fast": true}
     }'
 );
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 INSERT INTO emptied (name, color, note)
 SELECT 'bob', 'blue', 'row ' || g FROM generate_series(1, 5) g;
 SET paradedb.global_mutable_segment_rows TO 10;

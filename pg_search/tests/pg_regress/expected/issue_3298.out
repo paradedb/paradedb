@@ -19,6 +19,8 @@ INSERT INTO allowed_categories (category) VALUES
     ('Clothing');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
                                                               QUERY PLAN                                                              
 --------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
@@ -35,6 +37,8 @@ SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => AR
 (11 rows)
 
 SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
@@ -46,6 +50,8 @@ SELECT
   COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2))),
   COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
 FROM mock_items;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
@@ -71,6 +77,8 @@ SELECT
   COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2))),
   COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
 FROM mock_items;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  total | count | count 
 -------+-------+-------
     41 |     5 |     0
@@ -79,6 +87,8 @@ FROM mock_items;
 -- Make sure the results are correct
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
@@ -89,6 +99,8 @@ SELECT
   COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2))),
   COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
 FROM mock_items;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  total | count | count 

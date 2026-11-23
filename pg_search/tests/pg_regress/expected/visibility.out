@@ -213,6 +213,8 @@ SELECT * FROM paradedb.aggregate(
     query => paradedb.match('description', 'running'),
     agg => '{"count": {"value_count": {"field": "id"}}}'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
           aggregate          
 -----------------------------
  {"count": {"value": 900.0}}
@@ -224,6 +226,8 @@ SELECT * FROM paradedb.aggregate(
     agg => '{"count": {"value_count": {"field": "id"}}}',
     visibility => 'raw'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
           aggregate           
 ------------------------------
  {"count": {"value": 1000.0}}
@@ -236,6 +240,8 @@ SELECT * FROM paradedb.aggregate(
     agg => '{"count": {"value_count": {"field": "id"}}}',
     visibility => 'threshold'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
           aggregate           
 ------------------------------
  {"count": {"value": 1000.0}}
@@ -249,6 +255,8 @@ SELECT * FROM paradedb.aggregate(
     agg => '{"count": {"value_count": {"field": "id"}}}',
     solve_mvcc => false
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 WARNING:  `solve_mvcc` is deprecated and will be removed in a future release. Use `visibility => 'raw'` instead.
           aggregate           
 ------------------------------
@@ -264,6 +272,8 @@ SELECT * FROM paradedb.aggregate(
     '{"count": {"value_count": {"field": "id"}}}',
     false
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 WARNING:  `solve_mvcc` is deprecated and will be removed in a future release. Use `visibility => 'raw'` instead.
           aggregate           
 ------------------------------
@@ -278,6 +288,8 @@ SELECT * FROM paradedb.aggregate(
     solve_mvcc => false,
     visibility => 'raw'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 ERROR:  cannot specify both `solve_mvcc` and `visibility`. `solve_mvcc` is deprecated: pass `visibility` alone.
 -- An unrecognized mode errors here too.
 SELECT * FROM paradedb.aggregate(
@@ -286,5 +298,7 @@ SELECT * FROM paradedb.aggregate(
     agg => '{"count": {"value_count": {"field": "id"}}}',
     visibility => 'nonsense'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 ERROR:  unrecognized visibility mode 'nonsense'. Valid values: 'transaction' (default), 'raw', 'threshold'.
 DROP TABLE vis_test;

@@ -26,6 +26,7 @@ SELECT * FROM comments
 WHERE id @@@ paradedb.term('customer_id', 'customer_1')
 ORDER BY id desc
 LIMIT 2;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
             id            | customer_id | text 
 --------------------------+-------------+------
  ctx_01iso5q4prkOQVGKK0ue | customer_1  | 
@@ -37,6 +38,7 @@ SELECT * FROM comments
 WHERE id @@@ paradedb.term('customer_id', 'customer_1')
 ORDER BY id desc
 LIMIT 2;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                               QUERY PLAN                                               
 -------------------------------------------------------------------------------------------------------
  Limit
@@ -55,6 +57,7 @@ LIMIT 2;
 SELECT * FROM comments
 WHERE id @@@ paradedb.term('customer_id', 'customer_1')
 ORDER BY id DESC;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
             id            | customer_id | text 
 --------------------------+-------------+------
  ctx_01iso5q4prkOQVGKK0ue | customer_1  | 
@@ -67,6 +70,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM comments
 WHERE id @@@ paradedb.term('customer_id', 'customer_1')
 ORDER BY id DESC;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                               QUERY PLAN                                               
 -------------------------------------------------------------------------------------------------------
  Sort

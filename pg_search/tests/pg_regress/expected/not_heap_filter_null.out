@@ -12,7 +12,8 @@ INSERT INTO not_heap_null VALUES
     (3, 'hello null', NULL),
     (4, 'other', false);
 CREATE INDEX not_heap_null_idx ON not_heap_null USING bm25 (id, body) WITH (key_field = 'id');
-WARNING:  key_field is deprecated as of 0.26.0 and is a no-op; it no longer needs to be provided
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+WARNING:  key_field uses the deprecated ParadeDB V1 API
 SET paradedb.enable_filter_pushdown = on;
 EXPLAIN (COSTS OFF) SELECT id FROM not_heap_null WHERE body @@@ 'hello' AND NOT flag;
                                                                                                                                   QUERY PLAN                                                                                                                                   
@@ -83,6 +84,7 @@ RESET paradedb.enable_custom_scan;
 -- Index flag as well: NOT must remain an index predicate with no heap filter.
 DROP INDEX not_heap_null_idx;
 CREATE INDEX not_heap_null_idx ON not_heap_null USING bm25 (id, body, flag);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 SELECT line LIKE '%"query_string":"hello"%'
    AND line LIKE '%"field":"flag"%'
    AND line LIKE '%"value":false%'

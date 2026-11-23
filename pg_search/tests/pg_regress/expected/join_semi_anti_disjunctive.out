@@ -55,6 +55,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -83,6 +84,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -111,6 +113,7 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -139,6 +142,7 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
   10
@@ -171,6 +175,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -203,6 +208,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -233,6 +239,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -266,6 +273,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -296,6 +304,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -322,6 +331,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -350,6 +360,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -365,6 +376,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -386,6 +398,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -414,6 +427,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -439,6 +453,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -471,6 +486,7 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -501,6 +517,7 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -526,6 +543,7 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -560,6 +578,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -591,6 +610,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -619,6 +639,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -652,6 +673,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                   QUERY PLAN                                                                                  
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -680,6 +702,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -705,6 +728,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -738,6 +762,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'other'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  499
@@ -763,6 +788,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'other'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  499
@@ -823,6 +849,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -851,6 +878,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  200
@@ -876,6 +904,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  200
@@ -909,6 +938,7 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -939,6 +969,7 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
  10
@@ -959,6 +990,7 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
  10
@@ -984,6 +1016,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1013,6 +1046,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1033,6 +1067,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1059,6 +1094,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1089,6 +1125,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1109,6 +1146,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1134,6 +1172,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1163,6 +1202,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1183,6 +1223,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1210,6 +1251,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1239,6 +1281,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1259,6 +1302,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1286,6 +1330,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                QUERY PLAN                                                                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1316,6 +1361,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1336,6 +1382,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1369,6 +1416,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                               QUERY PLAN                                                                              
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1400,6 +1448,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -1415,6 +1464,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -1441,6 +1491,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                 QUERY PLAN                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1472,6 +1523,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1492,6 +1544,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1522,6 +1575,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                        QUERY PLAN                                                                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1553,6 +1607,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1574,6 +1629,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id  
 -----
  500
@@ -1663,6 +1719,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ paradedb.all()
 ORDER BY i.id
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1695,6 +1752,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ paradedb.all()
 ORDER BY i.id
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  name   
 ----+---------
   4 | Delta
@@ -1717,6 +1775,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ paradedb.all()
 ORDER BY i.id
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  name   
 ----+---------
   1 | Alpha
@@ -1742,6 +1801,7 @@ WHERE NOT EXISTS (
 AND i.id @@@ paradedb.all()
 ORDER BY i.id
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  name   
 ----+---------
   4 | Delta

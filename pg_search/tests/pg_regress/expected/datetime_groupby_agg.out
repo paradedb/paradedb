@@ -43,6 +43,7 @@ SELECT
 FROM transactions
 WHERE transactions.id @@@ paradedb.all()
 GROUP BY transactions.as_of_date;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                 QUERY PLAN                                                
 ----------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.transactions
@@ -61,6 +62,7 @@ FROM transactions
 WHERE transactions.id @@@ paradedb.all()
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date NULLS LAST;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count_all | as_of_date 
 -----------+------------
          2 | 12-26-2025
@@ -87,6 +89,7 @@ WHERE transactions.organization_id = 'org1'
     AND transactions.id @@@ paradedb.all()
     AND transactions.as_of_date BETWEEN '2025-12-25' AND '2026-02-01'
 GROUP BY transactions.as_of_date;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                                    
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.transactions
@@ -110,6 +113,7 @@ WHERE transactions.organization_id = 'org1'
     AND transactions.as_of_date BETWEEN '2025-12-25' AND '2026-02-01'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count_all | as_of_date 
 -----------+------------
          2 | 12-26-2025
@@ -128,6 +132,7 @@ FROM transactions
 WHERE transactions.id @@@ paradedb.all()
     AND transactions.as_of_date < '2025-12-29'
 GROUP BY transactions.as_of_date;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.transactions
@@ -147,6 +152,7 @@ WHERE transactions.id @@@ paradedb.all()
     AND transactions.as_of_date < '2025-12-29'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count_all | as_of_date 
 -----------+------------
          2 | 12-26-2025
@@ -165,6 +171,7 @@ FROM transactions
 WHERE transactions.id @@@ paradedb.all()
     AND transactions.as_of_date > '2025-12-28'
 GROUP BY transactions.as_of_date;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.transactions
@@ -184,6 +191,7 @@ WHERE transactions.id @@@ paradedb.all()
     AND transactions.as_of_date > '2025-12-28'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count_all | as_of_date 
 -----------+------------
          1 | 12-29-2025
@@ -201,6 +209,7 @@ SELECT
 FROM transactions
 WHERE transactions.id @@@ paradedb.all()
     AND transactions.live_mode = TRUE;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.transactions
@@ -217,6 +226,7 @@ SELECT
 FROM transactions
 WHERE transactions.id @@@ paradedb.all()
     AND transactions.live_mode = TRUE;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   min_date  |  max_date  
 ------------+------------
  12-26-2025 | 12-31-2025

@@ -30,6 +30,7 @@ FROM json_test_single
 WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                QUERY PLAN                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_single
@@ -47,6 +48,7 @@ FROM json_test_single
 WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   category   | count 
 -------------+-------
  clothing    |     3
@@ -81,6 +83,7 @@ WHERE id @@@ paradedb.exists('metadata.category')
   AND id @@@ paradedb.exists('metadata.brand')
 GROUP BY metadata->>'category', metadata->>'brand'
 ORDER BY category, brand;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                        QUERY PLAN                                                                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multiple
@@ -101,6 +104,7 @@ WHERE id @@@ paradedb.exists('metadata.category')
   AND id @@@ paradedb.exists('metadata.brand')
 GROUP BY metadata->>'category', metadata->>'brand'
 ORDER BY category, brand;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   category   |  brand  | count 
 -------------+---------+-------
  clothing    | Nike    |     2
@@ -134,6 +138,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.brand')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
@@ -152,6 +157,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.brand')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   brand  | count 
 ---------+-------
  Apple   |     2
@@ -167,6 +173,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                           QUERY PLAN                                                                                                           
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
@@ -185,6 +192,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  category | total_price 
 ----------+-------------
           |        3285
@@ -199,6 +207,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                              QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
@@ -218,6 +227,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   brand  | avg_price | item_count 
 ---------+-----------+------------
  Apple   |      1149 |          2
@@ -235,6 +245,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                          QUERY PLAN                                                                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
@@ -255,6 +266,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  category | min_price | max_price | item_count 
 ----------+-----------+-----------+------------
           |        89 |      1299 |          5
@@ -272,6 +284,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
@@ -294,6 +307,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   brand  | item_count | total_value | avg_price | min_price | max_price 
 ---------+------------+-------------+-----------+-----------+-----------
  Apple   |          2 |        2298 |      1149 |       999 |      1299
@@ -325,6 +339,7 @@ FROM json_test_nulls
 WHERE id @@@ paradedb.all()
 GROUP BY metadata->>'category'
 ORDER BY category NULLS FIRST;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                QUERY PLAN                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_nulls
@@ -341,6 +356,7 @@ FROM json_test_nulls
 WHERE id @@@ paradedb.all()
 GROUP BY metadata->>'category'
 ORDER BY category NULLS FIRST;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | count 
 -------------+-------
              |     2
@@ -375,6 +391,7 @@ FROM ledger_transactions
 WHERE id @@@ paradedb.exists('metadata_json.reservation_id')
 GROUP BY metadata_json->>'reservation_id'
 ORDER BY txn_key_value;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.ledger_transactions
@@ -393,6 +410,7 @@ FROM ledger_transactions
 WHERE id @@@ paradedb.exists('metadata_json.reservation_id')
 GROUP BY metadata_json->>'reservation_id'
 ORDER BY txn_key_value;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  txn_key_value | count 
 ---------------+-------
  res_001       |     2
@@ -429,6 +447,7 @@ WHERE id @@@ paradedb.exists('config.user.profile.settings.theme')
 GROUP BY config->'user'->'profile'->'settings'->>'theme',
          config->'user'->'profile'->'settings'->>'region'
 ORDER BY theme, region;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                                           QUERY PLAN                                                                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_deep
@@ -450,6 +469,7 @@ WHERE id @@@ paradedb.exists('config.user.profile.settings.theme')
 GROUP BY config->'user'->'profile'->'settings'->>'theme',
          config->'user'->'profile'->'settings'->>'region'
 ORDER BY theme, region;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  theme |   region   | count 
 -------+------------+-------
  auto  | us-east    |     1
@@ -493,6 +513,7 @@ FROM json_test_mixed
 WHERE id @@@ paradedb.exists('data.type')
 GROUP BY data->>'type'
 ORDER BY object_type;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                            QUERY PLAN                                                           
 --------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
@@ -510,6 +531,7 @@ FROM json_test_mixed
 WHERE id @@@ paradedb.exists('data.type')
 GROUP BY data->>'type'
 ORDER BY object_type;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  object_type | count 
 -------------+-------
  event       |     3
@@ -526,6 +548,8 @@ WHERE id @@@ paradedb.term('data.type', 'product')
   AND id @@@ paradedb.exists('data.brand')
 GROUP BY data->>'category', data->>'brand'
 ORDER BY category, brand;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                    QUERY PLAN                                                                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
@@ -545,6 +569,8 @@ WHERE id @@@ paradedb.term('data.type', 'product')
   AND id @@@ paradedb.exists('data.brand')
 GROUP BY data->>'category', data->>'brand'
 ORDER BY category, brand;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
   category   |  brand  | count 
 -------------+---------+-------
  clothing    | Nike    |     1
@@ -561,6 +587,8 @@ WHERE id @@@ paradedb.term('data.type', 'user')
   AND id @@@ paradedb.exists('data.profile.location.country')
 GROUP BY data->'profile'->'location'->>'country'
 ORDER BY country;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                           QUERY PLAN                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
@@ -580,6 +608,8 @@ WHERE id @@@ paradedb.term('data.type', 'user')
   AND id @@@ paradedb.exists('data.profile.location.country')
 GROUP BY data->'profile'->'location'->>'country'
 ORDER BY country;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  country | user_count 
 ---------+------------
  Canada  |          1
@@ -612,6 +642,7 @@ FROM json_test_operators
 WHERE id @@@ paradedb.exists('payload.metadata.priority')
 GROUP BY payload->'metadata'->>'priority'
 ORDER BY priority_text;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                    QUERY PLAN                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
@@ -630,6 +661,7 @@ FROM json_test_operators
 WHERE id @@@ paradedb.exists('payload.metadata.priority')
 GROUP BY payload->'metadata'->>'priority'
 ORDER BY priority_text;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  priority_text | count 
 ---------------+-------
  high          |     2
@@ -645,6 +677,7 @@ FROM json_test_operators
 WHERE id @@@ paradedb.exists('payload.team')
 GROUP BY payload->>'team'
 ORDER BY team;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
@@ -663,6 +696,7 @@ FROM json_test_operators
 WHERE id @@@ paradedb.exists('payload.team')
 GROUP BY payload->>'team'
 ORDER BY team;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
     team     | count 
 -------------+-------
  engineering |     3
@@ -678,6 +712,7 @@ WHERE id @@@ paradedb.exists('payload.metadata.priority')
   AND id @@@ paradedb.exists('payload.metadata.assignee.team')
 GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
 ORDER BY priority_text, team;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                                    QUERY PLAN                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
@@ -698,6 +733,7 @@ WHERE id @@@ paradedb.exists('payload.metadata.priority')
   AND id @@@ paradedb.exists('payload.metadata.assignee.team')
 GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
 ORDER BY priority_text, team;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  priority_text |    team     | count 
 ---------------+-------------+-------
  high          | engineering |     1
@@ -735,6 +771,7 @@ WHERE id @@@ paradedb.exists('document.source.system')
   AND id @@@ paradedb.exists('document.metrics.category')
 GROUP BY document->'source'->>'system', document->'metrics'->>'category'
 ORDER BY source_system, metric_category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                                                                    QUERY PLAN                                                                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_complex
@@ -756,6 +793,7 @@ WHERE id @@@ paradedb.exists('document.source.system')
   AND id @@@ paradedb.exists('document.metrics.category')
 GROUP BY document->'source'->>'system', document->'metrics'->>'category'
 ORDER BY source_system, metric_category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  source_system | metric_category | count | avg_score 
 ---------------+-----------------+-------+-----------
  billing       | A               |     1 |        95
@@ -776,6 +814,7 @@ FROM json_test_complex
 WHERE id @@@ paradedb.exists('document.metrics.score')
 GROUP BY document->'metrics'->>'category'
 ORDER BY metric_category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_complex
@@ -798,6 +837,7 @@ FROM json_test_complex
 WHERE id @@@ paradedb.exists('document.metrics.score')
 GROUP BY document->'metrics'->>'category'
 ORDER BY metric_category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  metric_category | total_records | total_score | avg_score | min_score | max_score 
 -----------------+---------------+-------------+-----------+-----------+-----------
  A               |             2 |         180 |        90 |        85 |        95
@@ -832,6 +872,7 @@ FROM json_test_reconstruction
 WHERE id @@@ paradedb.exists('config.api.version')
 GROUP BY config->'api'->>'version'  -- Group by version string
 ORDER BY api_version;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_reconstruction
@@ -851,6 +892,7 @@ FROM json_test_reconstruction
 WHERE id @@@ paradedb.exists('config.api.version')
 GROUP BY config->'api'->>'version'
 ORDER BY api_version;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  api_version | count 
 -------------+-------
  v1          |     3
@@ -868,6 +910,7 @@ WHERE id @@@ paradedb.exists('config.database.host')
   AND id @@@ paradedb.exists('config.api.version')
 GROUP BY config->'database'->>'host', config->'api'->>'version'
 ORDER BY db_host, api_version;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                            QUERY PLAN                                                                                                                           
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_reconstruction
@@ -889,6 +932,7 @@ WHERE id @@@ paradedb.exists('config.database.host')
   AND id @@@ paradedb.exists('config.api.version')
 GROUP BY config->'database'->>'host', config->'api'->>'version'
 ORDER BY db_host, api_version;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  db_host | api_version | count 
 ---------+-------------+-------
  db1     | v1          |     3
@@ -907,6 +951,7 @@ WHERE id @@@ paradedb.exists('config.api.endpoints.users')
   AND id @@@ paradedb.exists('config.database.port')
 GROUP BY config->'api'->'endpoints'->>'users', config->'database'->>'port'
 ORDER BY users_endpoint, db_port;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                                QUERY PLAN                                                                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_reconstruction
@@ -928,6 +973,7 @@ WHERE id @@@ paradedb.exists('config.api.endpoints.users')
   AND id @@@ paradedb.exists('config.database.port')
 GROUP BY config->'api'->'endpoints'->>'users', config->'database'->>'port'
 ORDER BY users_endpoint, db_port;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  users_endpoint | db_port | count 
 ----------------+---------+-------
  /api/v1/users  | 3306    |     1
@@ -968,6 +1014,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('user_profile.role')
 GROUP BY user_profile->>'department', user_profile->>'role'
 ORDER BY department, role;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                             QUERY PLAN                                                                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multi_subfields
@@ -989,6 +1036,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('user_profile.role')
 GROUP BY user_profile->>'department', user_profile->>'role'
 ORDER BY department, role;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  department  |  role   | employee_count 
 -------------+---------+----------------
  Engineering | Junior  |              1
@@ -1012,6 +1060,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('user_profile.location')
 GROUP BY user_profile->>'department', user_profile->>'role', user_profile->>'location'
 ORDER BY department, role, location;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multi_subfields
@@ -1035,6 +1084,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('user_profile.location')
 GROUP BY user_profile->>'department', user_profile->>'role', user_profile->>'location'
 ORDER BY department, role, location;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  department  |  role   | location | employee_count 
 -------------+---------+----------+----------------
  Engineering | Junior  | NYC      |              1
@@ -1058,6 +1108,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('order_details.category')
 GROUP BY user_profile->>'department', order_details->>'category'
 ORDER BY department, product_category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                                                                               QUERY PLAN                                                                                                                                                                              
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multi_subfields
@@ -1080,6 +1131,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('order_details.category')
 GROUP BY user_profile->>'department', order_details->>'category'
 ORDER BY department, product_category;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  department  | product_category | order_count | total_quantity 
 -------------+------------------+-------------+----------------
  Engineering | electronics      |           3 |              9
@@ -1105,6 +1157,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
 GROUP BY user_profile->>'department', user_profile->>'location', 
          order_details->>'product', order_details->>'category'
 ORDER BY department, location, product;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multi_subfields
@@ -1131,6 +1184,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
 GROUP BY user_profile->>'department', user_profile->>'location', 
          order_details->>'product', order_details->>'category'
 ORDER BY department, location, product;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  department  | location | product |  category   | order_count | avg_price | total_quantity 
 -------------+----------+---------+-------------+-------------+-----------+----------------
  Engineering | NYC      | mouse   | electronics |           1 |        25 |              5
@@ -1168,6 +1222,7 @@ FROM json_test_special
 WHERE id @@@ paradedb.exists('content.user-info.email@domain')
 GROUP BY content->'user-info'->>'email@domain'
 ORDER BY email_type;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_special
@@ -1186,6 +1241,7 @@ FROM json_test_special
 WHERE id @@@ paradedb.exists('content.user-info.email@domain')
 GROUP BY content->'user-info'->>'email@domain'
 ORDER BY email_type;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  email_type | count 
 ------------+-------
  personal   |     1

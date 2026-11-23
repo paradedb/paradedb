@@ -18,6 +18,7 @@ USING paradedb (id, category_id, deleted_at);
 -- Should show Custom Scan with Tantivy Query containing "exists"
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM products WHERE deleted_at IS NOT NULL AND id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                 QUERY PLAN                                                
 ----------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.products
@@ -31,6 +32,7 @@ SELECT * FROM products WHERE deleted_at IS NOT NULL AND id @@@ paradedb.all();
 (8 rows)
 
 SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
    700
@@ -40,6 +42,7 @@ SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ paradedb.a
 -- Should show Custom Scan with Tantivy Query containing "must_not exists"
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM products WHERE deleted_at IS NULL AND id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                      QUERY PLAN                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.products
@@ -53,6 +56,7 @@ SELECT * FROM products WHERE deleted_at IS NULL AND id @@@ paradedb.all();
 (8 rows)
 
 SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
    300
@@ -63,6 +67,7 @@ SELECT
     (SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND id @@@ paradedb.all()) AS null_count,
     (SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ paradedb.all()) AS not_null_count,
     (SELECT COUNT(*) FROM products WHERE id @@@ paradedb.all()) AS total_count;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  null_count | not_null_count | total_count 
 ------------+----------------+-------------
         300 |            700 |        1000
@@ -74,6 +79,7 @@ SELECT * FROM products
 WHERE deleted_at IS NULL 
   AND category_id = 5 
   AND id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                           QUERY PLAN                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.products
@@ -90,6 +96,7 @@ SELECT COUNT(*) FROM products
 WHERE deleted_at IS NULL 
   AND category_id = 5 
   AND id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
     30
@@ -110,6 +117,7 @@ SELECT * FROM products
 WHERE deleted_at IS NULL 
   AND category_id = 5 
   AND id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                     QUERY PLAN                                                     
 -------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.products
@@ -126,6 +134,7 @@ SELECT COUNT(*) FROM products
 WHERE deleted_at IS NULL 
   AND category_id = 5 
   AND id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
     30

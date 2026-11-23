@@ -25,11 +25,13 @@ USING paradedb (id, payload)
 WITH (
     json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
+WARNING:  json_fields uses the deprecated ParadeDB V1 API
 -- Test COUNT with special character fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*)
 FROM json_special_agg
 WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                             QUERY PLAN                                            
 --------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_special_agg
@@ -43,6 +45,7 @@ WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
 SELECT COUNT(*)
 FROM json_special_agg
 WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  count 
 -------
      2
@@ -53,6 +56,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*)
 FROM json_special_agg
 WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                   QUERY PLAN                                                   
 ---------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_special_agg
@@ -66,6 +70,7 @@ WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
 SELECT COUNT(*)
 FROM json_special_agg
 WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count 
 -------
      1

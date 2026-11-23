@@ -93,17 +93,31 @@ static ENABLE_SEGMENT_PRUNING: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
 static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
     GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
+static V1API_WARNINGS: GucSetting<PlannerWarnings> =
+    GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
 
 /// Recheck saved plans when their diagnostic policy changes, including SET LOCAL rollback.
 /// PostgreSQL calls assign hooks before updating the GUC's stored value.
+fn recheck_warning_mode(current: PlannerWarnings, new_value: std::ffi::c_int) {
+    if new_value != current.to_ordinal() {
+        unsafe { pg_sys::ResetPlanCache() };
+    }
+}
+
 #[pgrx::pg_guard]
 unsafe extern "C-unwind" fn assign_planner_warnings(
     new_value: std::ffi::c_int,
     _extra: *mut std::ffi::c_void,
 ) {
-    if new_value != PLANNER_WARNINGS.get().to_ordinal() {
-        unsafe { pg_sys::ResetPlanCache() };
-    }
+    recheck_warning_mode(planner_warnings(), new_value);
+}
+
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn assign_v1api_warnings(
+    new_value: std::ffi::c_int,
+    _extra: *mut std::ffi::c_void,
+) {
+    recheck_warning_mode(v1api_warnings(), new_value);
 }
 
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
@@ -582,6 +596,19 @@ pub fn init() {
             GucFlags::default(),
             None,
             Some(assign_planner_warnings),
+            None,
+        );
+        GucRegistry::define_enum_guc_with_hooks(
+            c"paradedb.v1api_warnings",
+            c"Controls ParadeDB V1 API migration diagnostics",
+            c"When set to 'warning' (default), reports deprecated V1 API usage with migration hints. \
+              When set to 'error', rejects statements using the V1 API, except during EXPLAIN without ANALYZE. \
+              When set to 'off', suppresses these diagnostics. Changing this setting invalidates cached plans.",
+            &V1API_WARNINGS,
+            GucContext::Userset,
+            GucFlags::default(),
+            None,
+            Some(assign_v1api_warnings),
             None,
         );
     }
@@ -1257,6 +1284,10 @@ pub fn enable_bitmap_intersection() -> bool {
 
 pub fn planner_warnings() -> PlannerWarnings {
     PLANNER_WARNINGS.get()
+}
+
+pub fn v1api_warnings() -> PlannerWarnings {
+    V1API_WARNINGS.get()
 }
 
 pub fn disjunction_pruning() -> tantivy::query::DisjunctionPruning {

@@ -30,6 +30,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.category');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                      QUERY PLAN                                     
 ------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -44,6 +45,7 @@ WHERE id @@@ paradedb.exists('metadata.category');
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.category');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  count 
 -------
      8
@@ -57,6 +59,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                QUERY PLAN                                               
 --------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -71,6 +74,7 @@ WHERE id @@@ paradedb.term('metadata.category', 'electronics');
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count 
 -------
      3
@@ -85,6 +89,7 @@ SELECT COUNT(*)
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.category') 
   AND id @@@ paradedb.exists('metadata.brand');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                 QUERY PLAN                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -100,6 +105,7 @@ SELECT COUNT(*)
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.category') 
   AND id @@@ paradedb.exists('metadata.brand');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  count 
 -------
      8
@@ -113,6 +119,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                 QUERY PLAN                                                 
 -----------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -127,6 +134,7 @@ WHERE id @@@ paradedb.exists('metadata.price');
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  total_price 
 -------------
         3862
@@ -137,6 +145,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                 QUERY PLAN                                                 
 -----------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -150,6 +159,7 @@ WHERE id @@@ paradedb.term('metadata.category', 'electronics');
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  electronics_total 
 -------------------
               3097
@@ -160,6 +170,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('data.stock');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                               QUERY PLAN                                               
 -------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -173,6 +184,7 @@ WHERE id @@@ paradedb.exists('data.stock');
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('data.stock');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  total_stock 
 -------------
          125
@@ -186,6 +198,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -200,6 +213,7 @@ WHERE id @@@ paradedb.exists('metadata.price');
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  avg_price 
 -----------
     482.75
@@ -210,6 +224,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                           QUERY PLAN                                           
 -----------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -223,6 +238,7 @@ WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  apple_avg_price 
 -----------------
                 
@@ -233,6 +249,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'clothing');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                              QUERY PLAN                                              
 -----------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -246,6 +263,7 @@ WHERE id @@@ paradedb.term('metadata.category', 'clothing');
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'clothing');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  avg_stock 
 -----------
         25
@@ -261,6 +279,7 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -277,6 +296,7 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  min_price | max_price 
 -----------+-----------
         79 |      1299
@@ -289,6 +309,7 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_electronics_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -304,6 +325,7 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_electronics_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  min_electronics_price | max_electronics_price 
 -----------------------+-----------------------
                    799 |                  1299
@@ -316,6 +338,7 @@ SELECT
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.brand');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
                                       QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
@@ -336,6 +359,7 @@ SELECT
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.brand');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  first_brand | last_brand 
 -------------+------------
@@ -357,6 +381,7 @@ SELECT
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
                                                                                                                                     QUERY PLAN                                                                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -383,6 +408,7 @@ SELECT
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  item_count | total_value |      avg_price       | min_price | max_price | first_brand | last_brand 
 ------------+-------------+----------------------+-----------+-----------+-------------+------------
@@ -402,6 +428,9 @@ WHERE id @@@ paradedb.boolean(
         paradedb.term('metadata.category', 'electronics')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                QUERY PLAN                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  [                                                                                                                                                                                                      +
@@ -451,6 +480,9 @@ WHERE id @@@ paradedb.boolean(
         paradedb.term('metadata.category', 'electronics')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count 
 -------
      3
@@ -464,6 +496,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                              QUERY PLAN                                              
 -----------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -477,6 +510,7 @@ WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count 
 -------
      0
@@ -487,6 +521,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                           QUERY PLAN                           
 ---------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
@@ -500,6 +535,7 @@ WHERE id @@@ paradedb.all();
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      8
@@ -528,6 +564,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_deep_agg 
 WHERE id @@@ paradedb.exists('nested_data.level1.level2.level3.level4.value');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                    QUERY PLAN                                                   
 ----------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_deep_agg
@@ -541,6 +578,7 @@ WHERE id @@@ paradedb.exists('nested_data.level1.level2.level3.level4.value');
 SELECT COUNT(*) 
 FROM json_deep_agg 
 WHERE id @@@ paradedb.exists('nested_data.level1.level2.level3.level4.value');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  count 
 -------
      3
@@ -551,6 +589,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_deep_agg 
 WHERE id @@@ paradedb.term('nested_data.level1.level2.level3.level4.value', 'target1');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                            QUERY PLAN                                                           
 --------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_deep_agg
@@ -564,6 +603,7 @@ WHERE id @@@ paradedb.term('nested_data.level1.level2.level3.level4.value', 'tar
 SELECT COUNT(*) 
 FROM json_deep_agg 
 WHERE id @@@ paradedb.term('nested_data.level1.level2.level3.level4.value', 'target1');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count 
 -------
      2
@@ -598,6 +638,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_mixed_agg 
 WHERE id @@@ paradedb.term('doc.type', 'sensor');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                         QUERY PLAN                                        
 ------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
@@ -611,6 +652,7 @@ WHERE id @@@ paradedb.term('doc.type', 'sensor');
 SELECT COUNT(*) 
 FROM json_mixed_agg 
 WHERE id @@@ paradedb.term('doc.type', 'sensor');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count 
 -------
      2
@@ -622,6 +664,7 @@ SELECT COUNT(*)
 FROM json_mixed_agg 
 WHERE id @@@ paradedb.term('doc.type', 'sensor')
   AND id @@@ paradedb.term('doc.device.location', 'warehouse');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                               QUERY PLAN                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
@@ -636,6 +679,7 @@ SELECT COUNT(*)
 FROM json_mixed_agg 
 WHERE id @@@ paradedb.term('doc.type', 'sensor')
   AND id @@@ paradedb.term('doc.device.location', 'warehouse');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count 
 -------
      1
@@ -647,6 +691,7 @@ SELECT COUNT(*)
 FROM json_mixed_agg 
 WHERE id @@@ paradedb.term('doc.type', 'transaction')
   AND id @@@ paradedb.term('doc.payment.method', 'credit');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                QUERY PLAN                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
@@ -661,6 +706,7 @@ SELECT COUNT(*)
 FROM json_mixed_agg 
 WHERE id @@@ paradedb.term('doc.type', 'transaction')
   AND id @@@ paradedb.term('doc.payment.method', 'credit');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count 
 -------
      1
@@ -679,6 +725,8 @@ WHERE id @@@ paradedb.boolean(
         paradedb.term('doc.device.location', 'office')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                 QUERY PLAN                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
@@ -697,6 +745,8 @@ WHERE id @@@ paradedb.boolean(
         paradedb.term('doc.device.location', 'office')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count 
 -------
      1
@@ -724,6 +774,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_array_agg 
 WHERE id @@@ paradedb.term('data.tags', 'urgent');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_array_agg
@@ -737,6 +788,7 @@ WHERE id @@@ paradedb.term('data.tags', 'urgent');
 SELECT COUNT(*) 
 FROM json_array_agg 
 WHERE id @@@ paradedb.term('data.tags', 'urgent');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count 
 -------
      2
@@ -747,6 +799,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_array_agg 
 WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                               QUERY PLAN                                              
 ------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_array_agg
@@ -760,6 +813,7 @@ WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
 SELECT COUNT(*) 
 FROM json_array_agg 
 WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count 
 -------
      2

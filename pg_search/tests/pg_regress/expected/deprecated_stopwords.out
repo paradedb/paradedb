@@ -24,6 +24,7 @@ CREATE INDEX idx_stopwords_bm25 ON test_stopwords
         "name": {"tokenizer": {"type": "default", "stopwords": ["stopword"]}}
     }'
 );
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 -- "something else" and "something, stopword, else" have the same score
 SELECT pdb.score(id) AS score, name
 FROM test_stopwords

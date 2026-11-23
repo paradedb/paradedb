@@ -337,6 +337,7 @@ SELECT id, color @@@ pdb.all() AS field_all,
        color @@@ pdb.empty() AS field_empty,
        id @@@ paradedb.all() AS all_rows
 FROM sequential_scan_nulls ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id | field_all | boosted_all | constant_all | field_empty | all_rows 
@@ -348,6 +349,11 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 
 SELECT id, field_match, wrapped_match, missing, compound, wrapped_compound
 FROM sequential_scan_null_checks ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id | field_match | wrapped_match | missing | compound | wrapped_compound 
@@ -358,6 +364,11 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (3 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT field_match ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id 
@@ -366,6 +377,11 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (1 row)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT wrapped_match ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id 
@@ -374,6 +390,11 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (1 row)
 
 SELECT explain_redact_oid($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                               explain_redact_oid                                                                                                                                                                                                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Seq Scan on sequential_scan_nulls
@@ -381,6 +402,11 @@ SELECT explain_redact_oid($$SELECT id FROM sequential_scan_null_checks WHERE NOT
 (2 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id 
@@ -390,6 +416,11 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (2 rows)
 
 SELECT id, query_and, query_or, sql_and, sql_or FROM sequential_scan_null_checks ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id | query_and | query_or | sql_and | sql_or 
@@ -400,6 +431,11 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (3 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT query_and ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id 
@@ -410,6 +446,11 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (3 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT query_or ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id 
@@ -418,6 +459,11 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (1 row)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id 
@@ -427,6 +473,11 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (2 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id 
@@ -435,18 +486,33 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 
 SET paradedb.enable_custom_scan = on;
 SELECT id FROM sequential_scan_null_checks WHERE NOT field_match ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   2
 (1 row)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT wrapped_match ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   2
 (1 row)
 
 SELECT explain_redact_oid($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                       explain_redact_oid                                                                                       
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on sequential_scan_nulls
@@ -458,6 +524,11 @@ SELECT explain_redact_oid($$SELECT id FROM sequential_scan_null_checks WHERE NOT
 (6 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   2
@@ -465,6 +536,11 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
 (2 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT query_and ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   1
@@ -473,12 +549,22 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT query_and ORDER BY id;
 (3 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT query_or ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   3
 (1 row)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   1
@@ -486,6 +572,11 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
 (2 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -498,6 +589,11 @@ USING paradedb (id, (color::pdb.literal)) WHERE covered;
 UPDATE sequential_scan_nulls SET covered = false;
 SELECT id, field_match, wrapped_match, missing, compound, wrapped_compound
 FROM sequential_scan_null_checks ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id | field_match | wrapped_match | missing | compound | wrapped_compound 
 ----+-------------+---------------+---------+----------+------------------
   1 | t           | t             | f       | t        | t
@@ -506,18 +602,33 @@ FROM sequential_scan_null_checks ORDER BY id;
 (3 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT field_match ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   2
 (1 row)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT wrapped_match ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   2
 (1 row)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   2
@@ -525,6 +636,11 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
 (2 rows)
 
 SELECT id, query_and, query_or, sql_and, sql_or FROM sequential_scan_null_checks ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id | query_and | query_or | sql_and | sql_or 
 ----+-----------+----------+---------+--------
   1 | f         | t        | f       | t
@@ -533,6 +649,11 @@ SELECT id, query_and, query_or, sql_and, sql_or FROM sequential_scan_null_checks
 (3 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT query_and ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   1
@@ -541,12 +662,22 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT query_and ORDER BY id;
 (3 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT query_or ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   3
 (1 row)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   1
@@ -554,6 +685,11 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
 (2 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
 (0 rows)
@@ -572,6 +708,8 @@ SELECT paradedb.search_with_query_input_ctid(
        paradedb.search_with_query_input_ctid_strict(
            NULL::int, paradedb.empty(), '(0,1)'::tid
        ) IS NULL AS strict_anchor;
+WARNING:  paradedb.empty() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  null_query | null_ctid | nullable_anchor | strict_anchor 
@@ -594,6 +732,8 @@ SELECT paradedb.search_with_query_input_ctid_or_row(
        paradedb.search_with_query_input_ctid_or_row(
            1, paradedb.empty(), '(0,1)'::tid, ARRAY[NULL::record]
        ) IS NULL AS null_row;
+WARNING:  paradedb.empty() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
  null_inline_query | null_index_query | null_ctid | null_rows | null_row 
 -------------------+------------------+-----------+-----------+----------
  t                 | t                | t         | t         | t
@@ -606,10 +746,14 @@ ALTER TABLE sequential_scan_queries ALTER COLUMN query SET STORAGE EXTENDED;
 INSERT INTO sequential_scan_queries VALUES (
     'compressed', paradedb.with_index('sequential_scan_nulls_idx', paradedb.term('color', repeat('a', 4000)))
 );
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.with_index() uses the deprecated ParadeDB V1 API
 ALTER TABLE sequential_scan_queries ALTER COLUMN query SET STORAGE EXTERNAL;
 INSERT INTO sequential_scan_queries VALUES (
     'external', paradedb.with_index('sequential_scan_nulls_idx', paradedb.term('color', repeat('b', 4000)))
 );
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.with_index() uses the deprecated ParadeDB V1 API
 SELECT label, pg_column_size(query) < 4000 AS compressed
 FROM sequential_scan_queries ORDER BY label;
    label    | compressed 
@@ -859,12 +1003,17 @@ SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
     paradedb.with_index('sequential_scan_arrays_idx', paradedb.term('body', 'alpha')),
     paradedb.with_index('sequential_scan_arrays_idx', paradedb.term('body', 'beta'))
 ]);
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.with_index() uses the deprecated ParadeDB V1 API
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 SELECT id FROM sequential_scan_arrays WHERE id @@@ ALL(ARRAY[
     paradedb.with_index('sequential_scan_arrays_idx', paradedb.all())
 ]);
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.with_index() uses the deprecated ParadeDB V1 API
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[paradedb.empty()]);
+WARNING:  paradedb.empty() uses the deprecated ParadeDB V1 API
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- PostgreSQL handles these without invoking the operator.
 SELECT id,
@@ -873,6 +1022,7 @@ SELECT id,
     id @@@ ANY(NULL::paradedb.searchqueryinput[]) AS null_array,
     id @@@ ANY(ARRAY[NULL::paradedb.searchqueryinput]) AS null_element
 FROM sequential_scan_arrays WHERE id = 1;
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
  id | any_empty | all_empty | null_array | null_element 
 ----+-----------+-----------+------------+--------------
   1 | f         | t         |            | 
@@ -900,6 +1050,9 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 SELECT paradedb.search_with_query_input(1, paradedb.empty()) AS direct_empty,
     paradedb.search_with_query_input(1,
         paradedb.with_index('sequential_scan_arrays_idx', paradedb.all())) AS direct_all;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.empty() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.with_index() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  direct_empty | direct_all 
@@ -912,6 +1065,7 @@ SET enable_seqscan = off;
 SELECT explain_redact_oid($$SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
     paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
 ])$$);
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                             explain_redact_oid                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using sequential_scan_arrays_idx on sequential_scan_arrays
@@ -921,6 +1075,7 @@ SELECT explain_redact_oid($$SELECT id FROM sequential_scan_arrays WHERE id @@@ A
 SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
     paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
 ]) ORDER BY id;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
   1

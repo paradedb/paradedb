@@ -17,6 +17,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -38,6 +39,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | rating | count 
 ----+--------+-------
   1 |      4 |     1
@@ -54,6 +56,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, metadata->>'color'
 ORDER BY id, metadata->>'color'
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                    QUERY PLAN                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -72,6 +75,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, metadata->>'color'
 ORDER BY id, metadata->>'color'
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | color  | count 
 ----+--------+-------
   1 | Silver |     1

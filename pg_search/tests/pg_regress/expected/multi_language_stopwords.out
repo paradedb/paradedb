@@ -28,6 +28,8 @@ SELECT * FROM paradedb.tokenize(
     paradedb.tokenizer('default', stopwords_languages => ARRAY['English', 'French']),
     'the quick fox and le renard et'
 );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token  | position 
 --------+----------
  quick  |        1
@@ -40,6 +42,8 @@ SELECT * FROM paradedb.tokenize(
     paradedb.tokenizer('default', stopwords_language => 'English'),
     'the quick fox and'
 );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token | position 
 -------+----------
  quick |        1

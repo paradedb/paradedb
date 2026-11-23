@@ -118,6 +118,7 @@ SET plan_cache_mode = force_generic_plan;
 PREPARE issue_6928_positive(paradedb.searchqueryinput) AS
 SELECT count(*) FROM issue_6928_docs WHERE body @@@ $1;
 EXECUTE issue_6928_positive(NULL);
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
  count 
 -------
      0
@@ -133,6 +134,7 @@ DEALLOCATE issue_6928_positive;
 PREPARE issue_6928_negated(paradedb.searchqueryinput) AS
 SELECT count(*) FROM issue_6928_docs WHERE NOT (body @@@ $1);
 EXECUTE issue_6928_negated(NULL);
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
  count 
 -------
      0

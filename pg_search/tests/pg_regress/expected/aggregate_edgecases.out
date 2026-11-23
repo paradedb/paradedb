@@ -33,6 +33,7 @@ FROM large_agg_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                QUERY PLAN                                                                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -58,6 +59,7 @@ FROM large_agg_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Aggregate result is too large: 1800010 vs 1048576. Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC.
 RESET parallel_setup_cost;
 RESET parallel_tuple_cost;
@@ -81,6 +83,7 @@ DELETE FROM delete_agg_test WHERE id > 1;
 -- Should return 1
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                            QUERY PLAN                            
 -----------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
@@ -92,6 +95,7 @@ SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
 (6 rows)
 
 SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      1
@@ -100,6 +104,7 @@ SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
 -- Should return {"value": 1.0}
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                   QUERY PLAN                                   
 -------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
@@ -111,6 +116,7 @@ SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test W
 (6 rows)
 
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
       agg       
 ----------------
  {"value": 1.0}
@@ -119,6 +125,7 @@ SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test W
 -- Should return count: 1
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                QUERY PLAN                                
 -------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
@@ -130,6 +137,7 @@ SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE i
 (6 rows)
 
 SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                              agg                              
 --------------------------------------------------------------
  {"avg": 1.0, "max": 1.0, "min": 1.0, "sum": 1.0, "count": 1}
@@ -145,6 +153,7 @@ FROM delete_agg_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -169,6 +178,7 @@ FROM delete_agg_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count |      agg       
 -------+----------------
      1 | {"value": 1.0}
@@ -190,6 +200,7 @@ ANALYZE mvcc_agg_test;
 -- Test solve_mvcc=false in standard aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.mvcc_agg_test
@@ -201,6 +212,7 @@ SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc
 (6 rows)
 
 SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
       agg       
 ----------------
  {"value": 3.0}
@@ -209,6 +221,7 @@ SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc
 -- Test solve_mvcc=false with GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.mvcc_agg_test
@@ -221,6 +234,7 @@ SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM 
 (7 rows)
 
 SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category |      agg       
 ----------+----------------
  A        | {"value": 2.0}
@@ -232,6 +246,7 @@ SELECT
     pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false),
     pdb.agg('{"value_count": {"field": "category"}}'::jsonb, true)
 FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  pdb.agg() calls have contradicting visibility settings: 'raw' and 'transaction'. All pdb.agg() calls in a query must use the same visibility value, and omitting the argument selects 'transaction'.
 DROP TABLE mvcc_agg_test;
 -- =====================================================================

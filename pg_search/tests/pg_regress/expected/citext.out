@@ -432,6 +432,7 @@ USING paradedb (id, name);
 SELECT id FROM citext_term_op
 WHERE id @@@ paradedb.term_with_operator('name', '=', 'hello'::citext)
 ORDER BY id;
+WARNING:  paradedb.term_with_operator() uses the deprecated ParadeDB V1 API
  id 
 ----
   1

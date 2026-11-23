@@ -25,6 +25,7 @@ USING paradedb (id, (content::pdb.unicode_words));
 SELECT id FROM varchar_text_casts
 WHERE id @@@ paradedb.phrase('content'::varchar, ARRAY['a', 'b'])
 ORDER BY id;
+WARNING:  paradedb.phrase() uses the deprecated ParadeDB V1 API
  id 
 ----
   1
@@ -33,6 +34,7 @@ ORDER BY id;
 SELECT id FROM varchar_text_casts
 WHERE id @@@ paradedb.phrase('content'::text, ARRAY['a', 'b'])
 ORDER BY id;
+WARNING:  paradedb.phrase() uses the deprecated ParadeDB V1 API
  id 
 ----
   1

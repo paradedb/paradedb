@@ -53,6 +53,9 @@ SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -74,6 +77,9 @@ SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
   id  
 ------
     9
@@ -94,6 +100,9 @@ SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
   id  
 ------
     9
@@ -129,6 +138,9 @@ CROSS JOIN LATERAL (
     ORDER BY paradedb.score(mu.id) DESC, mu.id LIMIT 3
 ) m
 ORDER BY d.n, m.id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -158,6 +170,9 @@ CROSS JOIN LATERAL (
     ORDER BY paradedb.score(mu.id) DESC, mu.id LIMIT 3
 ) m
 ORDER BY d.n, m.id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  n | id  
 ---+-----
  1 |   9
@@ -191,6 +206,9 @@ SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                          
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -213,6 +231,9 @@ SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
   id  
 ------
     9
@@ -237,6 +258,8 @@ FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 LIMIT 10;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                          
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -259,6 +282,8 @@ FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 LIMIT 10;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
        agg       
 -----------------
  {"value": 67.0}
@@ -286,6 +311,8 @@ FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 LIMIT 10;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
   id  |       agg       
 ------+-----------------
  7209 | {"value": 67.0}
@@ -324,6 +351,9 @@ SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
   id   
 -------
      9
@@ -339,6 +369,9 @@ SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
   id   
 -------
      9

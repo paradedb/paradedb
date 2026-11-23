@@ -65,6 +65,7 @@ SELECT id,
        pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
 FROM rls_score_bug_test
 WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
  id |             title              |   score   |                snippet                
 ----+--------------------------------+-----------+---------------------------------------
   1 | sheriff department los angeles | 0.6747451 | <b>sheriff</b> department los angeles
@@ -75,6 +76,7 @@ EXPLAIN (COSTS OFF)
 SELECT id, pdb.score(id)
 FROM rls_score_bug_test
 WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
                                                                                           QUERY PLAN                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on rls_score_bug_test

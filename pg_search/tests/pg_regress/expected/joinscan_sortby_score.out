@@ -105,6 +105,7 @@ UNION ALL
 SELECT 'pages' AS tbl, id, 'vector' AS query, paradedb.score(id) AS score
 FROM pages WHERE content ||| 'vector'
 ORDER BY tbl, score DESC, id ASC;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
     tbl    |   id   |  query   |   score    
 -----------+--------+----------+------------
  documents | doc-1  | postgres |  0.5231233
@@ -133,6 +134,7 @@ UNION ALL
 SELECT 'pages' AS tbl, id, 'search' AS query, paradedb.score(id) AS score
 FROM pages WHERE content ||| 'search'
 ORDER BY tbl, score DESC, id ASC;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
     tbl    |   id   | query  |   score    
 -----------+--------+--------+------------
  documents | doc-1  | search |  1.0594962
@@ -146,6 +148,7 @@ ORDER BY tbl, score DESC, id ASC;
 SELECT 'documents' AS tbl, id, 'postgres OR search' AS query, paradedb.score(id) AS score
 FROM documents WHERE (content ||| 'postgres' OR content ||| 'search')
 ORDER BY score DESC, id ASC;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
     tbl    |  id   |       query        |   score    
 -----------+-------+--------------------+------------
  documents | doc-1 | postgres OR search |  1.5826194
@@ -180,6 +183,7 @@ WHERE documents.content ||| 'postgres'
   AND pages.content ||| 'vector'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                  QUERY PLAN                                                                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -217,6 +221,7 @@ WHERE documents.content ||| 'postgres'
   AND pages.content ||| 'vector'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | page_id | doc_score  | file_score | page_score |   score   
 --------+---------+---------+------------+------------+------------+-----------
  doc-1  | file-1  | page-1  |  0.5231233 | 0.33802766 |  0.3005307 | 1.1616817
@@ -248,6 +253,7 @@ WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                           QUERY PLAN                                                                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -278,6 +284,7 @@ WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | doc_score  | file_score |   score    
 --------+---------+------------+------------+------------
  doc-1  | file-1  |  0.5231233 | 0.33802766 |   0.861151
@@ -305,6 +312,7 @@ WHERE documents.content ||| 'postgres'
   AND pages.content ||| 'vector'
 ORDER BY pdb_score DESC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                  QUERY PLAN                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -340,6 +348,7 @@ WHERE documents.content ||| 'postgres'
   AND pages.content ||| 'vector'
 ORDER BY pdb_score DESC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | page_id | pdb_score 
 --------+---------+---------+-----------
  doc-1  | file-1  | page-1  | 1.1616817
@@ -375,6 +384,7 @@ WHERE documents.content ||| 'search'
    OR pages.content ||| 'search'
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -414,6 +424,7 @@ WHERE documents.content ||| 'search'
    OR pages.content ||| 'search'
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | page_id | doc_score | file_score | page_score |   score   
 --------+---------+---------+-----------+------------+------------+-----------
  doc-1  | file-1  | page-1  | 1.0594962 |  1.2511479 | 0.71042687 |  3.021071
@@ -440,6 +451,7 @@ WHERE documents.content ||| 'search'
    OR pages.content ||| 'search'
 ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -476,6 +488,7 @@ WHERE documents.content ||| 'search'
    OR pages.content ||| 'search'
 ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | page_id | page_score 
 --------+---------+---------+------------
  doc-1  | file-2  | page-3  |  0.7879951
@@ -504,6 +517,7 @@ WHERE documents.content ||| 'postgres'
   AND (files.content ||| 'search' OR pages.content ||| 'search')
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -542,6 +556,7 @@ WHERE documents.content ||| 'postgres'
   AND (files.content ||| 'search' OR pages.content ||| 'search')
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | page_id | doc_score | file_score | page_score |   score   
 --------+---------+---------+-----------+------------+------------+-----------
  doc-1  | file-1  | page-1  | 0.5231233 |  1.2511479 | 0.71042687 |  2.484698
@@ -569,6 +584,7 @@ WHERE documents.content ||| 'postgres'
   AND pages.content ||| 'vector'
 ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                  QUERY PLAN                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -605,6 +621,7 @@ WHERE documents.content ||| 'postgres'
   AND pages.content ||| 'vector'
 ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | page_id | page_score | doc_score  
 --------+---------+---------+------------+------------
  doc-1  | file-1  | page-1  |  0.3005307 |  0.5231233
@@ -636,6 +653,7 @@ WHERE (documents.content ||| 'postgres' OR documents.content ||| 'search')
   AND pages.content ||| 'vector'
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -674,6 +692,7 @@ WHERE (documents.content ||| 'postgres' OR documents.content ||| 'search')
   AND pages.content ||| 'vector'
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | page_id | doc_score  | file_score | page_score |   score   
 --------+---------+---------+------------+------------+------------+-----------
  doc-1  | file-1  | page-1  |  1.5826194 | 0.33802766 |  0.3005307 | 2.2211778
@@ -700,6 +719,7 @@ WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
@@ -729,6 +749,7 @@ WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | doc_score  | file_score |   score    
 --------+---------+------------+------------+------------
  doc-1  | file-1  |  0.5231233 | 0.33802766 |   0.861151
@@ -752,6 +773,7 @@ WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
@@ -781,6 +803,7 @@ WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | doc_score  | file_score |   score    
 --------+---------+------------+------------+------------
  doc-1  | file-1  |  0.5231233 | 0.33802766 |   0.861151
@@ -804,6 +827,7 @@ WHERE documents.content ||| 'postgres'
   AND pages.content ||| 'vector'
 ORDER BY pdb_score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=6.00 loops=1)
@@ -837,6 +861,7 @@ WHERE documents.content ||| 'postgres'
   AND pages.content ||| 'vector'
 ORDER BY pdb_score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | page_id | pdb_score 
 --------+---------+---------+-----------
  doc-1  | file-1  | page-1  | 1.1616817
@@ -860,6 +885,7 @@ WHERE documents.content ||| 'search'
    OR files.content ||| 'search'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
@@ -890,6 +916,7 @@ WHERE documents.content ||| 'search'
    OR files.content ||| 'search'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | doc_score | file_score |   score   
 --------+---------+-----------+------------+-----------
  doc-1  | file-1  | 1.0594962 |  1.2511479 | 2.3106441
@@ -913,6 +940,7 @@ WHERE documents.content ||| 'search'
    OR pages.content ||| 'search'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=4.00 loops=1)
@@ -950,6 +978,7 @@ WHERE documents.content ||| 'search'
    OR pages.content ||| 'search'
 ORDER BY score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | page_id | doc_score | file_score | page_score |   score   
 --------+---------+---------+-----------+------------+------------+-----------
  doc-1  | file-1  | page-1  | 1.0594962 |  1.2511479 | 0.71042687 |  3.021071
@@ -969,6 +998,7 @@ WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
 ORDER BY paradedb.score(files.id) DESC, documents.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                   
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
@@ -996,6 +1026,7 @@ WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
 ORDER BY paradedb.score(files.id) DESC, documents.id ASC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  doc_id | file_id | file_score 
 --------+---------+------------
  doc-1  | file-1  | 0.33802766

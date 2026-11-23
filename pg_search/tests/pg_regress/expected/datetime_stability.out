@@ -137,6 +137,8 @@ SELECT * FROM paradedb.aggregate(
     query => paradedb.all(),
     agg   => '{"by_day": {"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}}}'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                              aggregate                                                                                                                                                                                                                              
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"by_day": {"buckets": [{"key": 757382400000000.0, "doc_count": 1, "key_as_string": "2024-01-01T00:00:00Z"}, {"key": 757468800000000.0, "doc_count": 1, "key_as_string": "2024-01-02T00:00:00Z"}, {"key": 757555200000000.0, "doc_count": 1, "key_as_string": "2024-01-03T00:00:00Z"}, {"key": 757641600000000.0, "doc_count": 1, "key_as_string": "2024-01-04T00:00:00Z"}, {"key": 757728000000000.0, "doc_count": 1, "key_as_string": "2024-01-05T00:00:00Z"}]}}
@@ -150,6 +152,8 @@ SELECT * FROM paradedb.aggregate(
     query => paradedb.all(),
     agg   => '{"by_dt": {"terms": {"field": "occurred_at"}}}'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                  aggregate                                                                                                                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"by_dt": {"buckets": [{"key": "2024-01-01T10:00:00Z", "doc_count": 1}, {"key": "2024-01-02T11:00:00Z", "doc_count": 1}, {"key": "2024-01-03T12:00:00Z", "doc_count": 1}, {"key": "2024-01-04T13:00:00Z", "doc_count": 1}, {"key": "2024-01-05T14:00:00Z", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
@@ -186,6 +190,8 @@ SELECT * FROM paradedb.aggregate(
     query => paradedb.all(),
     agg   => '{"by_day": {"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}, "aggs": {"count": {"value_count": {"field": "id"}}}}}'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                             aggregate                                                                                                                                                                                                                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"by_day": {"buckets": [{"key": 757382400000000.0, "count": {"value": 1.0}, "doc_count": 1, "key_as_string": "2024-01-01T00:00:00Z"}, {"key": 757468800000000.0, "count": {"value": 1.0}, "doc_count": 1, "key_as_string": "2024-01-02T00:00:00Z"}, {"key": 757555200000000.0, "count": {"value": 1.0}, "doc_count": 1, "key_as_string": "2024-01-03T00:00:00Z"}, {"key": 757641600000000.0, "count": {"value": 1.0}, "doc_count": 1, "key_as_string": "2024-01-04T00:00:00Z"}, {"key": 757728000000000.0, "count": {"value": 1.0}, "doc_count": 1, "key_as_string": "2024-01-05T00:00:00Z"}]}}

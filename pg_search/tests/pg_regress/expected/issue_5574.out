@@ -13,9 +13,11 @@ INSERT INTO issue_5574_child
 SELECT g, ((g - 1) % 1000) + 1
 FROM generate_series(1, 2000) g;
 CREATE INDEX issue_5574_parent_idx ON issue_5574_parent USING bm25 (id, kind) WITH (key_field = 'id');
-WARNING:  key_field is deprecated as of 0.26.0 and is a no-op; it no longer needs to be provided
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+WARNING:  key_field uses the deprecated ParadeDB V1 API
 CREATE INDEX issue_5574_child_idx ON issue_5574_child USING bm25 (id, parent_id) WITH (key_field = 'id');
-WARNING:  key_field is deprecated as of 0.26.0 and is a no-op; it no longer needs to be provided
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+WARNING:  key_field uses the deprecated ParadeDB V1 API
 ANALYZE issue_5574_parent;
 ANALYZE issue_5574_child;
 -- Steer the planner to the Join Scan

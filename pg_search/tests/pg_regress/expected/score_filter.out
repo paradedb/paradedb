@@ -25,6 +25,7 @@ FROM score_items
 WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) >= 0
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                 QUERY PLAN                                                                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -45,6 +46,7 @@ FROM score_items
 WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) >= 0
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |      description      |   score   
 ----+-----------------------+-----------
   1 | PostgreSQL is amazing | 1.0226655
@@ -60,6 +62,7 @@ FROM score_items
 WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) > 0.1
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                         QUERY PLAN                                                                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -80,6 +83,7 @@ FROM score_items
 WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) > 0.1
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |      description      |   score   
 ----+-----------------------+-----------
   1 | PostgreSQL is amazing | 1.0226655
@@ -94,6 +98,7 @@ FROM score_items
 WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) > 10.0
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                 QUERY PLAN                                                                                                                                                 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -114,6 +119,7 @@ FROM score_items
 WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) > 10.0
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id | description | score 
 ----+-------------+-------
 (0 rows)
@@ -128,6 +134,7 @@ WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) >= 0
   AND paradedb.score(id) < 100
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -149,6 +156,7 @@ WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) >= 0
   AND paradedb.score(id) < 100
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |      description      |   score   
 ----+-----------------------+-----------
   1 | PostgreSQL is amazing | 1.0226655
@@ -164,6 +172,7 @@ SELECT id, description, paradedb.score(id)
 FROM score_items
 WHERE paradedb.score(id) >= 0
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                             QUERY PLAN                                             
 ---------------------------------------------------------------------------------------------------
  Sort
@@ -184,6 +193,7 @@ SELECT id, description, paradedb.score(id)
 FROM score_items
 WHERE paradedb.score(id) >= 0
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |         description         | score 
 ----+-----------------------------+-------
   1 | PostgreSQL is amazing       |     0

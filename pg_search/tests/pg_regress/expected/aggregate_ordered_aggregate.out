@@ -32,6 +32,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(id ORDER BY kind)
 FROM ordered_agg_items
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                   QUERY PLAN                                   
 -------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.ordered_agg_items
@@ -45,6 +46,7 @@ WHERE id @@@ paradedb.all();
 SELECT COUNT(id ORDER BY kind)
 FROM ordered_agg_items
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
    120
@@ -58,6 +60,7 @@ FROM ordered_agg_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                          QUERY PLAN                                                                                         
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.ordered_agg_items
@@ -74,6 +77,7 @@ FROM ordered_agg_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
           1 |    40
@@ -89,6 +93,7 @@ FROM ordered_agg_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                QUERY PLAN                                                                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.ordered_agg_items
@@ -105,6 +110,7 @@ FROM ordered_agg_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | sum | min | max 
 ------------+-----+-----+-----
           1 |  80 |   0 |   4
@@ -120,6 +126,7 @@ FROM ordered_agg_items
 WHERE id @@@ paradedb.all()
 GROUP BY kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.ordered_agg_items
@@ -136,6 +143,7 @@ FROM ordered_agg_items
 WHERE id @@@ paradedb.all()
 GROUP BY kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  kind | count 
 ------+-------
  a    |    30
@@ -152,6 +160,7 @@ FROM ordered_agg_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
                             QUERY PLAN                             
 -------------------------------------------------------------------
@@ -174,6 +183,7 @@ FROM ordered_agg_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
  account_id | count 
 ------------+-------
@@ -187,6 +197,7 @@ Test 6: pdb.agg() -> one row
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb ORDER BY kind)
 FROM ordered_agg_items
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
        agg        
 ------------------
  {"value": 120.0}
@@ -202,6 +213,7 @@ FROM ordered_agg_items
 WHERE id <= 12 AND id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -222,6 +234,7 @@ FROM ordered_agg_items
 WHERE id <= 12 AND id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
  account_id |  sum  | string_agg 
 ------------+-------+------------
@@ -234,6 +247,7 @@ EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
                             QUERY PLAN                             
 -------------------------------------------------------------------
@@ -253,6 +267,7 @@ WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key w
 SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
   sum   | count 
 --------+-------
@@ -265,6 +280,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(id ORDER BY kind)
 FROM ordered_agg_items
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
    120
@@ -275,6 +291,7 @@ FROM ordered_agg_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
           1 |    40
@@ -287,6 +304,7 @@ FROM ordered_agg_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | sum | min | max 
 ------------+-----+-----+-----
           1 |  80 |   0 |   4
@@ -299,6 +317,7 @@ FROM ordered_agg_items
 WHERE id @@@ paradedb.all()
 GROUP BY kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  kind | count 
 ------+-------
  a    |    30
@@ -312,6 +331,7 @@ FROM ordered_agg_items
 WHERE id <= 12 AND id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id |  sum  | string_agg 
 ------------+-------+------------
           1 | 12.00 | a,b,c,d
@@ -322,6 +342,7 @@ ORDER BY account_id;
 SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   sum   | count 
 --------+-------
  300.00 |     4

@@ -67,6 +67,7 @@ SELECT u.id, u.name
 FROM users u
 WHERE u.id @@@ paradedb.term('org_id', 1)
 ORDER BY u.id;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id | name  
 ----+-------
   1 | Alice
@@ -84,6 +85,7 @@ AND EXISTS(
     AND t.id @@@ paradedb.term('status', 'completed')
 )
 ORDER BY u.id;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: t, u)
  id | name  
 ----+-------
@@ -110,6 +112,8 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: d, id, t, ti, u)
  id | name 
 ----+------
@@ -138,6 +142,8 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: a WHERE predicate cannot be pushed into the scan (tables: t, u)
  id | name  
 ----+-------
@@ -166,6 +172,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: a WHERE predicate cannot be pushed into the scan (tables: t, u)
  id | name  
 ----+-------
@@ -193,6 +200,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: a WHERE predicate cannot be pushed into the scan (tables: t, u)
  id |  name   
 ----+---------
@@ -214,6 +222,7 @@ WHERE EXISTS(
         )
     )
 );
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  result 
 --------
       1
@@ -247,6 +256,8 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: a WHERE predicate cannot be pushed into the scan (tables: t, u)
  id | name  
 ----+-------

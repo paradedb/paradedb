@@ -1014,6 +1014,7 @@ SELECT DISTINCT n::text
 FROM dist_cast
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_cast)
                          QUERY PLAN                          
 -------------------------------------------------------------
@@ -1033,6 +1034,7 @@ SELECT DISTINCT n::text
 FROM dist_cast
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_cast)
  n 
 ---
@@ -1046,6 +1048,7 @@ SELECT DISTINCT n::text
 FROM dist_cast
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  n 
 ---
  1
@@ -1077,6 +1080,7 @@ SELECT DISTINCT meta->'tags'
 FROM dist_json
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_json)
                          QUERY PLAN                          
 -------------------------------------------------------------
@@ -1096,6 +1100,7 @@ SELECT DISTINCT meta->'tags'
 FROM dist_json
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_json)
   ?column?  
 ------------
@@ -1109,6 +1114,7 @@ SELECT DISTINCT meta->'tags'
 FROM dist_json
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   ?column?  
 ------------
  ["a"]
@@ -1146,6 +1152,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT value
 FROM dist_ci
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: dist_ci)
                          QUERY PLAN                          
 -------------------------------------------------------------
@@ -1167,6 +1174,7 @@ SELECT COUNT(*) FROM (
     FROM dist_ci
     WHERE id @@@ paradedb.all()
 ) t;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: dist_ci)
  count 
 -------
@@ -1180,6 +1188,7 @@ SELECT COUNT(*) FROM (
     FROM dist_ci
     WHERE id @@@ paradedb.all()
 ) t;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      2
@@ -1207,6 +1216,7 @@ FROM dist_ci c
 JOIN dist_ci_join j ON c.join_id = j.id
 WHERE c.id @@@ paradedb.all()
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: DISTINCT on a nondeterministic collation is not supported (tables: c, j)
                                QUERY PLAN                                
 -------------------------------------------------------------------------
@@ -1234,6 +1244,7 @@ SELECT COUNT(*) FROM (
     WHERE c.id @@@ paradedb.all()
     LIMIT 10
 ) t;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: DISTINCT on a nondeterministic collation is not supported (tables: c, j)
  count 
 -------
@@ -1250,6 +1261,7 @@ SELECT COUNT(*) FROM (
     WHERE c.id @@@ paradedb.all()
     LIMIT 10
 ) t;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      2
@@ -1371,6 +1383,7 @@ USING paradedb (id, ia, (ta::pdb.literal), da, dates);
 \pset null '<NULL>'
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, which is not read from the index (table: dist_arrays)
                          QUERY PLAN                          
 -------------------------------------------------------------
@@ -1387,6 +1400,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, 
 (10 rows)
 
 SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, which is not read from the index (table: dist_arrays)
  id |    ia     
 ----+-----------
@@ -1401,6 +1415,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, 
 (8 rows)
 
 SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ia;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, which is not read from the index (table: dist_arrays)
     ia     
 -----------
@@ -1415,6 +1430,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, 
 (8 rows)
 
 SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ta;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ta is an array, which is not read from the index (table: dist_arrays)
     ta     
 -----------
@@ -1432,6 +1448,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ta is an array, 
 SET paradedb.max_term_agg_buckets TO 2;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
                          QUERY PLAN                          
 -------------------------------------------------------------
@@ -1449,6 +1466,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, 
 (11 rows)
 
 SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
     ia     | count 
 -----------+-------
@@ -1463,6 +1481,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, 
 (8 rows)
 
 SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ta ORDER BY ta;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ta is an array, which is not read from the index (table: dist_arrays)
     ta     | count 
 -----------+-------
@@ -1477,6 +1496,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ta is an array, 
 (8 rows)
 
 SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY id ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column ia is an array, which is not read from the index (table: dist_arrays)
  id |    ia     | count 
 ----+-----------+-------
@@ -1494,6 +1514,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output co
 -- binary-compatible domain casts. Date slices must not reach Arrow projection.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
                          QUERY PLAN                          
 -------------------------------------------------------------
@@ -1511,6 +1532,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, 
 (11 rows)
 
 SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
     ia     | count 
 -----------+-------
@@ -1524,6 +1546,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, 
 (7 rows)
 
 SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1] ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
    ia   | count 
 --------+-------
@@ -1533,6 +1556,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, 
 (3 rows)
 
 SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY da::int[] ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column da is an array, which is not read from the index (table: dist_arrays)
     da     | count 
 -----------+-------
@@ -1547,6 +1571,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column da is an array, 
 (8 rows)
 
 SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY dates[1:2] ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column dates is an array, which is not read from the index (table: dist_arrays)
           dates          | count 
 -------------------------+-------
@@ -1559,6 +1584,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column dates is an arra
 -- Compare with PostgreSQL aggregation.
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |    ia     
 ----+-----------
   1 | {3,1,1}
@@ -1572,6 +1598,7 @@ SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
 (8 rows)
 
 SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ia;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
     ia     
 -----------
  {}
@@ -1585,6 +1612,7 @@ SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ia;
 (8 rows)
 
 SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ta;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
     ta     
 -----------
  {}
@@ -1598,6 +1626,7 @@ SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ta;
 (8 rows)
 
 SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
     ia     | count 
 -----------+-------
  {}        |     1
@@ -1611,6 +1640,7 @@ SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORD
 (8 rows)
 
 SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ta ORDER BY ta;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
     ta     | count 
 -----------+-------
  {}        |     1
@@ -1624,6 +1654,7 @@ SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ta ORD
 (8 rows)
 
 SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY id ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |    ia     | count 
 ----+-----------+-------
   1 | {3,1,1}   |     1
@@ -1637,6 +1668,7 @@ SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY id
 (8 rows)
 
 SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
     ia     | count 
 -----------+-------
  {}        |     2
@@ -1649,6 +1681,7 @@ SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY i
 (7 rows)
 
 SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1] ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
    ia   | count 
 --------+-------
       3 |     1
@@ -1657,6 +1690,7 @@ SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[
 (3 rows)
 
 SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY da::int[] ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
     da     | count 
 -----------+-------
  {}        |     1
@@ -1670,6 +1704,7 @@ SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY
 (8 rows)
 
 SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY dates[1:2] ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
           dates          | count 
 -------------------------+-------
  {}                      |     1

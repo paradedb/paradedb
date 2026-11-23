@@ -42,10 +42,13 @@ WITH (
     text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
     numeric_fields = '{"age": {"fast": true}}'
 );
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
+WARNING:  numeric_fields uses the deprecated ParadeDB V1 API
 CREATE INDEX hot_orders_idx ON hot_orders USING paradedb (id, user_id, note)
 WITH (
     numeric_fields = '{"user_id": {"fast": true}}'
 );
+WARNING:  numeric_fields uses the deprecated ParadeDB V1 API
 CREATE EXTENSION IF NOT EXISTS pageinspect;
 CREATE EXTENSION IF NOT EXISTS pg_visibility;
 CREATE TEMP TABLE hot_users_roots AS

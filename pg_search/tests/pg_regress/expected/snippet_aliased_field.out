@@ -15,6 +15,8 @@ USING bm25 (id, content)
 WITH (
     text_fields = '{"content_de": {"tokenizer": {"type": "default", "stemmer": "German"}, "column": "content"}}'
 );
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 -- The alias only stems in German, so this match is reachable through it alone.
 SELECT id, pdb.snippet(content) FROM snippet_alias_test
 WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
@@ -61,6 +63,7 @@ INSERT INTO snippet_alias_only (content) VALUES
 ('Die Zertifikate werden jaehrlich ausgestellt');
 CREATE INDEX snippet_alias_only_idx ON snippet_alias_only
 USING bm25 (id, ((content)::pdb.simple('stemmer=german', 'alias=content_de')));
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 SELECT id, pdb.snippet(content) FROM snippet_alias_only
 WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
  id |                       snippet                       
@@ -78,6 +81,7 @@ CREATE TABLE snippet_alias_empty (
 );
 CREATE INDEX snippet_alias_empty_idx ON snippet_alias_empty
 USING bm25 (id, ((content)::pdb.simple('stemmer=german', 'alias=content_de')));
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 SELECT id, pdb.snippet(content) FROM snippet_alias_empty
 WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
  id | snippet 
@@ -99,6 +103,8 @@ USING bm25 (id, content)
 WITH (
     text_fields = '{"content_de": {"tokenizer": {"type": "default", "stemmer": "German"}, "column": "content"}}'
 );
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 SELECT id, pdb.snippet_positions(content) FROM snippet_alias_both
 WHERE content ||| 'certificates' OR content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
  id | snippet_positions 
@@ -119,6 +125,7 @@ USING bm25 (
     id, content,
     (replace(content, 'cat', 'dog')::pdb.simple('alias=replaced_content'))
 );
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 SELECT pdb.snippet(content) = '<b>cat</b> dog'
        AND pdb.snippets(content) = ARRAY['<b>cat</b> dog']
        AND pdb.snippet_positions(content) = ARRAY[ARRAY[0, 3]] AS correct_highlights

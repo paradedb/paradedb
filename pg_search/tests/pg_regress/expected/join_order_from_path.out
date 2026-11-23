@@ -8,8 +8,11 @@ CREATE TABLE jo_authors (id INT PRIMARY KEY, name TEXT, bio TEXT);
 CREATE TABLE jo_books (id INT PRIMARY KEY, author_id INT, title TEXT);
 CREATE TABLE jo_reviews (id INT PRIMARY KEY, book_id INT, body TEXT, rating INT);
 CREATE INDEX jo_authors_idx ON jo_authors USING bm25 (id, (name::pdb.literal), bio);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 CREATE INDEX jo_books_idx ON jo_books USING bm25 (id, author_id, title);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 CREATE INDEX jo_reviews_idx ON jo_reviews USING bm25 (id, book_id, body, rating);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 -- One segment per table, so the plans are stable.
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO jo_authors

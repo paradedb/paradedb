@@ -72,6 +72,8 @@ FROM paradedb.aggregate(
   ),
   '{"count":{"value_count":{"field":"genus_id"}}}'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.to_search_query_input() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: unsupported aggregate function: pdb.term_set. To disable this warning: SET paradedb.planner_warnings = 'off' (table: genus)
 WARNING:  using `pdb.term_set` in aggregate position is deprecated
          aggregate         

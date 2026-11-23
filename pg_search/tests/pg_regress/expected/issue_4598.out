@@ -20,6 +20,7 @@ ERROR:  unrecognized configuration parameter "force_parallel_mode"
 SELECT COUNT(*) FROM issue_4598_repro
 WHERE mock_text @@@ paradedb.all()
 AND mock_hash = ANY(ARRAY(SELECT mock_hash FROM issue_4598_repro LIMIT 5));
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
@@ -31,6 +32,7 @@ SELECT COUNT(*) FROM issue_4598_repro
 WHERE mock_text @@@ paradedb.all()
 AND mock_hash = $1;
 EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      0
@@ -43,6 +45,7 @@ WHERE text_searchable @@@ paradedb.all()
 AND doc_id_hash = $1;
 ERROR:  column "text_searchable" does not exist at character 78
 EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      0

@@ -231,6 +231,7 @@ FROM dist_products p
 WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                            QUERY PLAN                                                                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -257,6 +258,7 @@ FROM dist_products p
 WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
        name       |   score   
 ------------------+-----------
  Keyboard         | 0.7199212
@@ -682,6 +684,7 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -719,6 +722,7 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id  |       name       |   score   
 -----+------------------+-----------
  201 | Wireless Mouse   | 1.3818457
@@ -867,6 +871,7 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                                          QUERY PLAN                                                                                         
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -900,6 +905,7 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  id | name  
 ----+-------
   1 | Alice
@@ -918,6 +924,7 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -949,6 +956,7 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  id | name  
 ----+-------
   1 | Alice
@@ -988,6 +996,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1022,6 +1031,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  profile_id 
 ------------
           1
@@ -1044,6 +1054,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1076,6 +1087,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
  profile_id 
 ------------
           1

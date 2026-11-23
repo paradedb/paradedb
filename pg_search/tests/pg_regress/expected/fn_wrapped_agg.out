@@ -29,6 +29,7 @@ SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'
 FROM fn_wrapped_agg_logs
 WHERE description @@@ paradedb.all()
 ORDER BY log_id DESC LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                      QUERY PLAN                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -50,6 +51,7 @@ SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'
 FROM fn_wrapped_agg_logs
 WHERE description @@@ paradedb.all()
 ORDER BY log_id DESC LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  log_id |   description    | category |                                                                                     agg                                                                                      
 --------+------------------+----------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
       5 | info message     | app      | {"buckets": [{"key": "app", "doc_count": 3}, {"key": "db", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -63,6 +65,7 @@ SELECT log_id, description, category, jsonb_pretty(pdb.agg('{"terms": {"field": 
 FROM fn_wrapped_agg_logs
 WHERE description @@@ paradedb.all()
 ORDER BY log_id DESC LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                             QUERY PLAN                                                                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -84,6 +87,7 @@ SELECT log_id, description, category, jsonb_pretty(pdb.agg('{"terms": {"field": 
 FROM fn_wrapped_agg_logs
 WHERE description @@@ paradedb.all()
 ORDER BY log_id DESC LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  log_id |   description    | category |             jsonb_pretty             
 --------+------------------+----------+--------------------------------------
       5 | info message     | app      | {                                   +
@@ -151,6 +155,7 @@ WITH agg AS (
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT * FROM agg;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                        QUERY PLAN                                                                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  CTE Scan on agg
@@ -178,6 +183,7 @@ WITH agg AS (
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT * FROM agg;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  log_id |   description    | category |                                                                                  agg_result                                                                                  
 --------+------------------+----------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
       5 | info message     | app      | {"buckets": [{"key": "app", "doc_count": 3}, {"key": "db", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -194,6 +200,7 @@ WITH agg AS (
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                        QUERY PLAN                                                                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  CTE Scan on agg
@@ -221,6 +228,7 @@ WITH agg AS (
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  log_id |   description    | category |             jsonb_pretty             
 --------+------------------+----------+--------------------------------------
       5 | info message     | app      | {                                   +

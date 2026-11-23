@@ -16,6 +16,8 @@ SELECT COUNT(*)
 FROM issue3300
 WHERE category @@@
       paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  count 
 -------
      5

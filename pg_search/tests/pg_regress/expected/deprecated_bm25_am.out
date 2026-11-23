@@ -10,6 +10,7 @@ SET paradedb.enable_columnar_exec = true;
 CREATE TABLE guard_test (id INTEGER PRIMARY KEY, content TEXT);
 INSERT INTO guard_test (id, content) VALUES (1, 'wireless keyboard'), (2, 'wired mouse');
 CREATE INDEX guard_bm25_idx ON guard_test USING bm25 (id, content);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 CREATE INDEX guard_paradedb_idx ON guard_test USING paradedb (id, content);
 ERROR:  a relation may only have one ParadeDB index
 -- ...but CREATE INDEX CONCURRENTLY bypasses the guard, so the two coexist.

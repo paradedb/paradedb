@@ -42,6 +42,7 @@ SELECT c.body, d.filename, pdb.score(c.id) AS s
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY s DESC, c.id LIMIT 100;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -77,6 +78,7 @@ SELECT c.body, d.filename, pdb.score(c.id) AS s
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY s DESC, c.id LIMIT 100;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
          body         |  filename  |     s     
 ----------------------+------------+-----------
@@ -187,6 +189,7 @@ SELECT pdb.snippet(c.body) AS snip, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY snip DESC, c.id LIMIT 100;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -222,6 +225,7 @@ SELECT pdb.snippet(c.body) AS snip, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY snip DESC, c.id LIMIT 100;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
             snip             |  filename  
 -----------------------------+------------
@@ -332,6 +336,7 @@ SELECT pdb.snippet_positions(c.body) AS pos, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY pos DESC, c.id LIMIT 100;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -367,6 +372,7 @@ SELECT pdb.snippet_positions(c.body) AS pos, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
 WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
 ORDER BY pos DESC, c.id LIMIT 100;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, d)
    pos    |  filename  
 ----------+------------
@@ -484,6 +490,7 @@ WITH matched AS (
 SELECT m.body, d.filename, m.s
 FROM matched m JOIN issue_5108_docs d ON d.id = m.doc_id
 ORDER BY m.s DESC, m.id;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
                                                                                                  QUERY PLAN                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Nested Loop
@@ -519,6 +526,7 @@ WITH matched AS (
 SELECT m.body, d.filename, m.s
 FROM matched m JOIN issue_5108_docs d ON d.id = m.doc_id
 ORDER BY m.s DESC, m.id;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
          body         |  filename  |     s     
 ----------------------+------------+-----------
  healthcare notes 3   | doc_3.pdf  | 0.9835667
@@ -633,6 +641,7 @@ WITH matched AS (
 SELECT m.snip, d.filename
 FROM matched m JOIN issue_5108_docs d ON d.id = m.doc_id
 ORDER BY m.snip DESC, m.id;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_5108_chunks)
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -673,6 +682,7 @@ WITH matched AS (
 SELECT m.snip, d.filename
 FROM matched m JOIN issue_5108_docs d ON d.id = m.doc_id
 ORDER BY m.snip DESC, m.id;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_5108_chunks)
             snip             |  filename  
 -----------------------------+------------

@@ -24,6 +24,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                          QUERY PLAN                                                         
 ----------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -50,6 +51,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | count 
 -------------+-------
  Footwear    |     6
@@ -69,6 +71,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                          QUERY PLAN                                                         
 ----------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -95,6 +98,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | sum 
 -------------+-----
  Footwear    |  24
@@ -112,6 +116,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) ASC
 LIMIT 2;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                          QUERY PLAN                                                         
 ----------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -138,6 +143,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) ASC
 LIMIT 2;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category  | count 
 -----------+-------
  Furniture |     3
@@ -153,6 +159,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 2 OFFSET 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | count 
 -------------+-------
  Electronics |     5
@@ -168,6 +175,7 @@ FROM mock_items
 WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | count | sum 
 -------------+-------+-----
  Footwear    |     6 |  24
@@ -188,6 +196,7 @@ FROM mock_items
 WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | count | sum 
 -------------+-------+-----
  Footwear    |     6 |  24
@@ -213,6 +222,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -239,6 +249,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | count | sum | min | max 
 -------------+-------+-----+-----+-----
  Footwear    |     6 |  24 |   3 |   5
@@ -256,6 +267,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                          QUERY PLAN                                                         
 ----------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -282,6 +294,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | count 
 ----------+-------
  Footwear |     6
@@ -296,6 +309,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 100;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | count 
 -------------+-------
  Footwear    |     6
@@ -323,6 +337,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | count 
 -------------+-------
  Footwear    |     6
@@ -337,6 +352,7 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   | count 
 -------------+-------
  Footwear    |     6
@@ -369,6 +385,7 @@ FROM agg_null_test
 WHERE agg_null_test @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | s  
 ----------+----
  nine_grp |  9
@@ -383,6 +400,7 @@ FROM agg_null_test
 WHERE agg_null_test @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | s  
 ----------+----
  nine_grp |  9
@@ -397,6 +415,7 @@ FROM agg_null_test
 WHERE agg_null_test @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | min | max 
 ----------+-----+-----
  nine_grp |   9 |   9
@@ -410,6 +429,7 @@ FROM agg_null_test
 WHERE agg_null_test @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | min | max 
 ----------+-----+-----
  nine_grp |   9 |   9

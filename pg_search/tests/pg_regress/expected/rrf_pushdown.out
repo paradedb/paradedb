@@ -91,6 +91,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC, id) AS rank
 FROM wlp WHERE label ||| 'shoes'
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                QUERY PLAN                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -326,6 +327,7 @@ SELECT COALESCE(a.id, b.id) AS id,
        COALESCE(1.0/(60 + a.rank), 0.0) + COALESCE(1.0/(60 + b.rank), 0.0) AS rrf
 FROM a FULL OUTER JOIN b ON a.id = b.id
 ORDER BY rrf DESC, id LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                               QUERY PLAN                                                                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

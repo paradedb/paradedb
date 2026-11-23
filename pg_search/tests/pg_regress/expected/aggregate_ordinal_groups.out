@@ -29,12 +29,20 @@ CREATE INDEX aog_products_idx ON aog_products
 USING bm25 (id, description, category, brand, price)
 WITH (text_fields='{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
       numeric_fields='{"price": {"fast": true}}');
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
+WARNING:  numeric_fields uses the deprecated ParadeDB V1 API
 CREATE INDEX aog_reviews_idx ON aog_reviews
 USING bm25 (id, product_id, stars)
 WITH (numeric_fields='{"product_id": {"fast": true}, "stars": {"fast": true}}');
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+WARNING:  numeric_fields uses the deprecated ParadeDB V1 API
 CREATE INDEX aog_notes_idx ON aog_notes
 USING bm25 (id, product_id, note)
 WITH (numeric_fields='{"product_id": {"fast": true}}', text_fields='{"note": {"fast": true}}');
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+WARNING:  numeric_fields uses the deprecated ParadeDB V1 API
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO aog_products (description, category, brand, price)
 SELECT CASE WHEN i % 10 = 0 THEN 'gadget ' ELSE 'widget ' END || i,

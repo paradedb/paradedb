@@ -76,6 +76,8 @@ WHERE
     AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -110,6 +112,8 @@ WHERE
     AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  contact_id | company_id | revenue_rank 
 ------------+------------+--------------
          19 |          9 |           19
@@ -156,6 +160,8 @@ WHERE
     AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -194,6 +200,8 @@ WHERE
     AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  contact_id | company_id | revenue_rank 
 ------------+------------+--------------
          19 |          9 |           19

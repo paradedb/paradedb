@@ -45,6 +45,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY price, kind
 ORDER BY price, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                             QUERY PLAN                                                                                                             
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.dependent_col_items
@@ -61,6 +62,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY price, kind
 ORDER BY price, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  price | kind | count 
 -------+------+-------
      0 |      |     7
@@ -92,6 +94,7 @@ FROM dependent_col_items
 WHERE region = 2 AND id @@@ paradedb.all()
 GROUP BY region, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                 QUERY PLAN                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -115,6 +118,7 @@ FROM dependent_col_items
 WHERE region = 2 AND id @@@ paradedb.all()
 GROUP BY region, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  region | kind | count 
 --------+------+-------
       2 | a    |     2
@@ -132,6 +136,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, kind
 ORDER BY id, kind
 LIMIT 6;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                             QUERY PLAN                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -156,6 +161,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, kind
 ORDER BY id, kind
 LIMIT 6;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind | count 
 ----+------+-------
   1 | b    |     1
@@ -175,6 +181,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 8;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                          QUERY PLAN                                                                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -199,6 +206,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 8;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind |      account_id      | price |  created   | count | sum 
 ----+------+----------------------+-------+------------+-------+-----
   1 | b    |  9223372036854775807 |     1 | 01-02-2024 |     1 |   1
@@ -220,6 +228,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                     QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -243,6 +252,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  created   | created_text | count 
 ----+------------+--------------+-------
   1 | 01-02-2024 | 01-02-2024   |     1
@@ -261,6 +271,7 @@ GROUP BY id
 HAVING kind <> 'a'
 ORDER BY kind DESC, id
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                          QUERY PLAN                                                                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -285,6 +296,7 @@ GROUP BY id
 HAVING kind <> 'a'
 ORDER BY kind DESC, id
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind | count 
 ----+------+-------
   3 | d    |     1
@@ -302,6 +314,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -330,6 +343,7 @@ FROM (
     GROUP BY id
     LIMIT 3
 ) AS limited;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  same_kind 
 -----------
  t
@@ -344,6 +358,7 @@ SELECT id, kind, account_id, COUNT(*)
 FROM dependent_col_items
 WHERE id = 8 AND id @@@ paradedb.all()
 GROUP BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -362,6 +377,7 @@ SELECT id, kind, account_id, COUNT(*)
 FROM dependent_col_items
 WHERE id = 8 AND id @@@ paradedb.all()
 GROUP BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind | account_id | count 
 ----+------+------------+-------
   8 | a    |          3 |     1
@@ -371,6 +387,7 @@ SELECT id, kind, account_id, COUNT(*)
 FROM dependent_col_items
 WHERE id = 999 AND id @@@ paradedb.all()
 GROUP BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind | account_id | count 
 ----+------+------------+-------
 (0 rows)
@@ -384,6 +401,7 @@ WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                     QUERY PLAN                                                                                                     
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -407,6 +425,7 @@ WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | account_id | count 
 ----+------------+-------
   4 |          2 |     1
@@ -424,6 +443,7 @@ WHERE price = 2 AND id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -447,6 +467,7 @@ WHERE price = 2 AND id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price | count 
 ----+-------+-------
   2 |     2 |     1
@@ -464,6 +485,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 6;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                 QUERY PLAN                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -488,6 +510,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 6;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind |      agg       
 ----+------+----------------
   1 | b    | {"value": 1.0}
@@ -507,6 +530,7 @@ FROM dependent_col_items
 WHERE id = $1 AND id @@@ paradedb.all()
 GROUP BY id;
 EXECUTE dependent_col_by_id(3);
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind |  created   | count 
 ----+------+------------+-------
   3 | d    | 01-04-2024 |     1
@@ -534,6 +558,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column tags is an array, which is not read from the index (table: dependent_col_items)
                                 QUERY PLAN                                 
 ---------------------------------------------------------------------------
@@ -557,6 +582,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column tags is an array, which is not read from the index (table: dependent_col_items)
  id |   tags   | count 
 ----+----------+-------
@@ -575,6 +601,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, created::text
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 2 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
                                 QUERY PLAN                                 
 ---------------------------------------------------------------------------
@@ -598,6 +625,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, created::text
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 2 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
  id | kind | count 
 ----+------+-------
@@ -614,6 +642,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY price::text
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
                                               QUERY PLAN                                              
 ------------------------------------------------------------------------------------------------------
@@ -642,6 +671,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY price::text
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
  label | n | total 
 -------+---+-------
@@ -662,6 +692,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column dependent_col_items.meta is not columnar indexed (table: dependent_col_items)
                                 QUERY PLAN                                 
 ---------------------------------------------------------------------------
@@ -685,6 +716,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column dependent_col_items.meta is not columnar indexed (table: dependent_col_items)
  id |   meta   | count 
 ----+----------+-------
@@ -702,6 +734,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column dependent_col_items.note is not columnar indexed (table: dependent_col_items)
                                 QUERY PLAN                                 
 ---------------------------------------------------------------------------
@@ -725,6 +758,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column dependent_col_items.note is not columnar indexed (table: dependent_col_items)
  id |  note  | count 
 ----+--------+-------
@@ -745,6 +779,7 @@ FROM dependent_col_days
 WHERE id @@@ paradedb.all()
 GROUP BY date(ts)
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                             QUERY PLAN                                                                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -771,6 +806,7 @@ FROM dependent_col_days
 WHERE id @@@ paradedb.all()
 GROUP BY date(ts)
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      d      | n | total 
 ------------+---+-------
  01-01-2024 | 3 |    30
@@ -793,6 +829,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id::text
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
                              QUERY PLAN                              
 ---------------------------------------------------------------------
@@ -814,6 +851,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id::text
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
        account        | count 
 ----------------------+-------
@@ -839,6 +877,7 @@ FROM dependent_col_codes
 WHERE code @@@ paradedb.all() AND title = 'x'
 GROUP BY code::text, title
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -861,6 +900,7 @@ FROM dependent_col_codes
 WHERE code @@@ paradedb.all() AND title = 'x'
 GROUP BY code::text, title
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  code | title | count 
 ------+-------+-------
  c10  | x     |     1
@@ -878,6 +918,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY price, kind
 ORDER BY price, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  price | kind | count 
 -------+------+-------
      0 |      |     7
@@ -907,6 +948,7 @@ FROM dependent_col_items
 WHERE region = 2 AND id @@@ paradedb.all()
 GROUP BY region, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  region | kind | count 
 --------+------+-------
       2 | a    |     2
@@ -921,6 +963,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, kind
 ORDER BY id, kind
 LIMIT 6;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind | count 
 ----+------+-------
   1 | b    |     1
@@ -937,6 +980,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 8;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind |      account_id      | price |  created   | count | sum 
 ----+------+----------------------+-------+------------+-------+-----
   1 | b    |  9223372036854775807 |     1 | 01-02-2024 |     1 |   1
@@ -955,6 +999,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  created   | created_text | count 
 ----+------------+--------------+-------
   1 | 01-02-2024 | 01-02-2024   |     1
@@ -970,6 +1015,7 @@ GROUP BY id
 HAVING kind <> 'a'
 ORDER BY kind DESC, id
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind | count 
 ----+------+-------
   3 | d    |     1
@@ -984,6 +1030,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY price::text
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  label | n | total 
 -------+---+-------
  0!    | 7 |    40
@@ -998,6 +1045,7 @@ SELECT id, kind, account_id, COUNT(*)
 FROM dependent_col_items
 WHERE id = 8 AND id @@@ paradedb.all()
 GROUP BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind | account_id | count 
 ----+------+------------+-------
   8 | a    |          3 |     1
@@ -1007,6 +1055,7 @@ SELECT id, kind, account_id, COUNT(*)
 FROM dependent_col_items
 WHERE id = 999 AND id @@@ paradedb.all()
 GROUP BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind | account_id | count 
 ----+------+------------+-------
 (0 rows)
@@ -1017,6 +1066,7 @@ WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | account_id | count 
 ----+------------+-------
   4 |          2 |     1
@@ -1031,6 +1081,7 @@ WHERE price = 2 AND id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price | count 
 ----+-------+-------
   2 |     2 |     1
@@ -1046,6 +1097,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 6;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind | count 
 ----+------+-------
   1 | b    |     1
@@ -1063,6 +1115,7 @@ FROM dependent_col_items
 WHERE id = $1 AND id @@@ paradedb.all()
 GROUP BY id;
 EXECUTE dependent_col_by_id(3);
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | kind |  created   | count 
 ----+------+------------+-------
   3 | d    | 01-04-2024 |     1
@@ -1086,6 +1139,7 @@ FROM dependent_col_days
 WHERE id @@@ paradedb.all()
 GROUP BY date(ts)
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
      d      | n | total 
 ------------+---+-------
  01-01-2024 | 3 |    30
@@ -1104,6 +1158,7 @@ FROM dependent_col_codes
 WHERE code @@@ paradedb.all() AND title = 'x'
 GROUP BY code::text, title
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  code | title | count 
 ------+-------+-------
  c10  | x     |     1

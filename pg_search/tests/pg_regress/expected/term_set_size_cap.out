@@ -7,6 +7,7 @@ INSERT INTO term_set_size_cap
 SELECT i, 'item ' || i, i % 10 FROM generate_series(1, 100) i;
 CREATE INDEX term_set_size_cap_idx ON term_set_size_cap
 USING bm25 (id, description, rating);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 SHOW paradedb.max_term_set_size;
  paradedb.max_term_set_size 
 ----------------------------
@@ -76,6 +77,8 @@ WHERE id @@@ paradedb.term_set(terms => ARRAY[
     paradedb.term(field => 'rating', value => 4),
     paradedb.term(field => 'rating', value => 5)
 ]);
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
 ERROR:  term set contains 5 terms, which exceeds paradedb.max_term_set_size (4)
 RESET paradedb.max_term_set_size;
 DROP TABLE term_set_size_cap;

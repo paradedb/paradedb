@@ -526,6 +526,8 @@ SELECT paradedb.aggregate(
         "max_rating": {"max": {"field": "rating"}}
     }'::json
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                            aggregate                                            
 ------------------------------------------------------------------------------------------------
  {"sum_price": {"value": 8679.92}, "max_rating": {"value": 5.0}, "total_count": {"value": 8.0}}
@@ -549,6 +551,8 @@ SELECT paradedb.aggregate(
         }
     }'::json
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                aggregate                                                                                                                                                                                                                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"category_breakdown": {"buckets": [{"key": "books", "avg_price": {"value": 51.656666666666666}, "doc_count": 3, "total_views": {"value": 4600.0}}, {"key": "clothing", "avg_price": {"value": 54.98999999999999}, "doc_count": 3, "total_views": {"value": 670.0}}, {"key": "electronics", "avg_price": {"value": 1188.3233333333333}, "doc_count": 6, "total_views": {"value": 4800.0}}, {"key": "sports", "avg_price": {"value": 376.6566666666667}, "doc_count": 3, "total_views": {"value": 500.0}}], "sum_other_doc_count": 0}}

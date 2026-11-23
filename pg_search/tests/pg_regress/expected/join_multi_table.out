@@ -370,6 +370,7 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                             QUERY PLAN                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -399,6 +400,7 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
       name      |   score   
 ----------------+-----------
  Wireless Mouse | 1.0935268
@@ -414,6 +416,7 @@ JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info ||| 'wireless'
 ORDER BY paradedb.score(s.id) DESC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                              QUERY PLAN                                                                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -443,6 +446,7 @@ JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info ||| 'wireless'
 ORDER BY paradedb.score(s.id) DESC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
    name   |   score   
 ----------+-----------
  TechCorp | 0.9808292

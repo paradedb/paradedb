@@ -28,6 +28,8 @@ WHERE id @@@ paradedb.boolean(
     minimum_should_match => 2
 )
 ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |        title        
 ----+---------------------
   1 | apple banana cherry
@@ -47,6 +49,8 @@ WHERE id @@@ paradedb.boolean(
     minimum_should_match => 3
 )
 ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |        title        
 ----+---------------------
   1 | apple banana cherry
@@ -64,6 +68,8 @@ WHERE id @@@ paradedb.boolean(
     minimum_should_match => 0
 )
 ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |        title        
 ----+---------------------
   1 | apple banana cherry
@@ -83,6 +89,8 @@ WHERE id @@@ paradedb.boolean(
     minimum_should_match => 5
 )
 ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id | title 
 ----+-------
 (0 rows)
@@ -101,6 +109,8 @@ WHERE id @@@ paradedb.boolean(
     minimum_should_match => 2
 )
 ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |        title        
 ----+---------------------
   1 | apple banana cherry
@@ -116,6 +126,8 @@ WHERE id @@@ paradedb.boolean(
     ]
 )
 ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |        title        
 ----+---------------------
   1 | apple banana cherry
@@ -132,6 +144,8 @@ WHERE id @@@ paradedb.boolean(
     minimum_should_match => 1
 )
 ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |        title        
 ----+---------------------
   1 | apple banana cherry

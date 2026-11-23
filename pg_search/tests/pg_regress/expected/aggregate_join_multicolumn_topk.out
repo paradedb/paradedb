@@ -15,6 +15,7 @@ CREATE TABLE multicolumn_topk_work_items (
 );
 CREATE INDEX multicolumn_topk_researchers_idx ON multicolumn_topk_researchers
 USING bm25 (researcher_id, bio);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 CREATE INDEX multicolumn_topk_work_items_idx ON multicolumn_topk_work_items
 USING bm25 (
     work_id,
@@ -23,6 +24,7 @@ USING bm25 (
     item_date,
     abstract_text
 );
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 -- Two segments per table, so MPP has something to split.
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO multicolumn_topk_researchers (researcher_id, bio) VALUES

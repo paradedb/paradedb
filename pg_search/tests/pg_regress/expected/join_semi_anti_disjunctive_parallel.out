@@ -93,6 +93,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -138,6 +139,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 SET paradedb.enable_join_custom_scan = off;
 CREATE TEMP TABLE jsd_par_r1_off AS
 SELECT i.id
@@ -150,6 +152,7 @@ WHERE NOT EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 SET paradedb.enable_join_custom_scan = on;
 -- Row counts must match.
 SELECT
@@ -217,6 +220,7 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -266,6 +270,7 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 SET paradedb.enable_join_custom_scan = off;
 CREATE TEMP TABLE jsd_par_r2_off AS
 SELECT i.id
@@ -282,6 +287,7 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 SET paradedb.enable_join_custom_scan = on;
 SELECT
     (SELECT count(*) FROM jsd_par_r2_on)  AS joinscan_rows,

@@ -33,6 +33,7 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 1
 LIMIT 5;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                   QUERY PLAN                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -53,6 +54,7 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 1
 LIMIT 5;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   category   | count 
 -------------+-------
  clothing    |     4
@@ -67,6 +69,7 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -90,6 +93,7 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   category   | count 
 -------------+-------
  electronics |     3

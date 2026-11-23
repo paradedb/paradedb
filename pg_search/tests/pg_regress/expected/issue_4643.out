@@ -23,6 +23,7 @@ SELECT i, CASE WHEN i % 2 = 0 THEN 'John Smith' ELSE 'Jane Doe' END, i % 2
 FROM generate_series(1, 64) i;
 CREATE INDEX orders_part_idx ON orders_part
 USING bm25 (order_id, customer_name);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 CREATE TABLE products (
     product_id INT,
     description TEXT
@@ -32,6 +33,7 @@ SELECT i, CASE WHEN i % 3 = 0 THEN 'blue widget' ELSE 'plain widget' END
 FROM generate_series(1, 64) i;
 CREATE INDEX products_idx ON products
 USING bm25 (product_id, description);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 ANALYZE orders_part;
 ANALYZE products;
 \echo '=== single-relation predicates on the parent (re-planned per partition) ==='
@@ -58,6 +60,7 @@ SELECT count(*) FROM orders_part WHERE orders_part @@@ 'John';
 CREATE TABLE orders_plain AS SELECT * FROM orders_part;
 CREATE INDEX orders_plain_idx ON orders_plain
 USING bm25 (order_id, customer_name);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 ANALYZE orders_plain;
 \echo '=== the reported shape: join-level OR keeps the parent index ==='
 === the reported shape: join-level OR keeps the parent index ===
@@ -272,9 +275,11 @@ CREATE TABLE leak_p1 PARTITION OF leak_part FOR VALUES IN (1);
 INSERT INTO leak_p0 VALUES (1, 'alpha only here', 0);
 INSERT INTO leak_p1 VALUES (2, 'beta only here', 1);
 CREATE INDEX leak_part_idx ON leak_part USING bm25 (id, body);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 CREATE TABLE leak_plain (id INT, tag TEXT);
 INSERT INTO leak_plain VALUES (1, 'x'), (2, 'x');
 CREATE INDEX leak_plain_idx ON leak_plain USING bm25 (id, tag);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 ANALYZE leak_part;
 ANALYZE leak_plain;
 SELECT o.id, o.body FROM leak_part o JOIN leak_plain p ON o.id = p.id
@@ -310,6 +315,7 @@ CREATE TABLE dup_p1 PARTITION OF dup_part FOR VALUES IN (1);
 INSERT INTO dup_p0 VALUES (1, 'alpha only here', 0), (2, 'no match here', 0);
 INSERT INTO dup_p1 VALUES (1, 'beta only here', 1), (2, 'no match here', 1);
 CREATE INDEX dup_part_idx ON dup_part USING bm25 (order_id, body);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 ANALYZE dup_part;
 SELECT o.order_id, o.part_key, o.body
 FROM dup_part o JOIN leak_plain p ON o.order_id = p.id
@@ -345,6 +351,7 @@ INSERT INTO ml_part
 SELECT i, CASE i % 3 WHEN 0 THEN 'red apple' WHEN 1 THEN 'green leaf' ELSE 'blue sky' END, i % 2, (i / 2) % 2
 FROM generate_series(1, 40) i;
 CREATE INDEX ml_part_idx ON ml_part USING bm25 (id, body);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 ANALYZE ml_part;
 -- the walk reaches leaves under an intermediate parent, which has no storage either
 SELECT name FROM paradedb.schema('ml_part_idx') ORDER BY name;
@@ -400,8 +407,10 @@ INSERT INTO skew_part VALUES (0, 'zeta', 0);
 INSERT INTO skew_part
 SELECT i, CASE WHEN i % 10 = 0 THEN 'alpha' ELSE 'zeta' END, 1 FROM generate_series(1, 1000) i;
 CREATE INDEX skew_part_idx ON skew_part USING bm25 (id, body);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 CREATE TABLE skew_plain AS SELECT * FROM skew_part;
 CREATE INDEX skew_plain_idx ON skew_plain USING bm25 (id, body);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 ANALYZE skew_part;
 ANALYZE skew_plain;
 CREATE FUNCTION plan_rows_4643(query text) RETURNS text LANGUAGE plpgsql AS $$
@@ -443,6 +452,7 @@ DROP TABLE IF EXISTS orders CASCADE;
 CALL paradedb.create_paradedb_test_table(schema_name => 'public', table_name => 'items', table_type => 'Items');
 CALL paradedb.create_paradedb_test_table(schema_name => 'public', table_name => 'orders', table_type => 'Orders');
 CREATE INDEX items_idx ON items USING bm25 (id, description);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 CREATE TABLE orders_part (
     LIKE orders,
     part_key INT NOT NULL,
@@ -455,6 +465,7 @@ INSERT INTO orders_part SELECT *, order_id % 2 FROM orders;
 INSERT INTO orders_part VALUES (65, 3, 1, 1.00, 'John Smith', 1);
 CREATE INDEX orders_part_idx ON orders_part
 USING bm25 (order_id, part_key, product_id, order_total, customer_name);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 ANALYZE items;
 ANALYZE orders_part;
 -- the issue's query; order_id breaks its order_total ties so the output is stable

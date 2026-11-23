@@ -176,6 +176,8 @@ WHERE id @@@ paradedb.disjunction_max(
   ],
   tie_breaker => 0.3
 ) ORDER BY id;
+WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -196,6 +198,8 @@ WHERE id @@@ paradedb.disjunction_max(
   ],
   tie_breaker => 0.3
 ) ORDER BY id;
+WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
  id |           description            | category | rating | price |        created_at        
 ----+----------------------------------+----------+--------+-------+--------------------------
   1 | Sleek running shoes for athletes | footwear |      5 | 89.99 | Wed Jan 15 00:00:00 2025
@@ -484,6 +488,9 @@ WHERE id @@@ paradedb.boolean(
 AND NOT (price >= 100)
 AND rating = 5
 ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -504,6 +511,9 @@ WHERE id @@@ paradedb.boolean(
 AND NOT (price >= 100)
 AND rating = 5
 ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |           description            | category | rating | price |        created_at        
 ----+----------------------------------+----------+--------+-------+--------------------------
   1 | Sleek running shoes for athletes | footwear |      5 | 89.99 | Wed Jan 15 00:00:00 2025
@@ -516,6 +526,9 @@ WHERE id @@@ paradedb.boolean(
   must => ARRAY[paradedb.match('description', 'shoes')],
   should => ARRAY[paradedb.boost(-0.5, paradedb.match('description', 'cheap'))]
 ) ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                             
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -533,6 +546,9 @@ WHERE id @@@ paradedb.boolean(
   must => ARRAY[paradedb.match('description', 'shoes')],
   should => ARRAY[paradedb.boost(-0.5, paradedb.match('description', 'cheap'))]
 ) ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
  id |           description            | category | rating | price |        created_at        
 ----+----------------------------------+----------+--------+-------+--------------------------
   1 | Sleek running shoes for athletes | footwear |      5 | 89.99 | Wed Jan 15 00:00:00 2025
@@ -546,6 +562,8 @@ WHERE id @@@ paradedb.const_score(
   score => 1.5,
   query => paradedb.term('category', 'electronics')
 ) ORDER BY id;
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                 QUERY PLAN                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -563,6 +581,8 @@ WHERE id @@@ paradedb.const_score(
   score => 1.5,
   query => paradedb.term('category', 'electronics')
 ) ORDER BY id;
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |          description          |  category   | rating | price  |        created_at        
 ----+-------------------------------+-------------+--------+--------+--------------------------
   4 | Wireless bluetooth headphones | electronics |      4 |  59.99 | Sat Apr 05 00:00:00 2025
@@ -580,6 +600,9 @@ WHERE id @@@ paradedb.disjunction_max(
   ],
   tie_breaker => 0.5
 ) ORDER BY id;
+WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                   QUERY PLAN                                                                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -600,6 +623,9 @@ WHERE id @@@ paradedb.disjunction_max(
   ],
   tie_breaker => 0.5
 ) ORDER BY id;
+WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |           description            | category | rating | price  |        created_at        
 ----+----------------------------------+----------+--------+--------+--------------------------
   1 | Sleek running shoes for athletes | footwear |      5 |  89.99 | Wed Jan 15 00:00:00 2025

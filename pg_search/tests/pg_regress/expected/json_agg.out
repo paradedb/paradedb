@@ -38,6 +38,7 @@ FROM json_test
 WHERE id @@@ paradedb.exists('metadata_json.value')
 GROUP BY metadata_json->>'value'
 ORDER BY count DESC, value;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                        QUERY PLAN                                                        
 -------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -58,6 +59,7 @@ FROM json_test
 WHERE id @@@ paradedb.exists('metadata_json.value')
 GROUP BY metadata_json->>'value'
 ORDER BY count DESC, value;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  value  | count 
 --------+-------
  apple  |     3
@@ -81,6 +83,7 @@ FROM json_test
 WHERE id @@@ paradedb.exists('metadata_json.value')
 GROUP BY metadata_json->'value'
 ORDER BY count DESC;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -100,6 +103,7 @@ FROM json_test
 WHERE id @@@ paradedb.exists('metadata_json.value')
 GROUP BY metadata_json->'value'
 ORDER BY count DESC;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
   value   | count 
 ----------+-------
  "apple"  |     3
@@ -124,6 +128,7 @@ FROM json_test
 WHERE id @@@ paradedb.exists('metadata_json.value')
 GROUP BY metadata_json->>'value'
 ORDER BY value;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  value  | count | min_count | max_count 
 --------+-------+-----------+-----------
  apple  |     3 |         2 |         5
@@ -145,6 +150,8 @@ SELECT * FROM paradedb.aggregate(
     agg=>'{"buckets": { "terms": { "field": "metadata_json.value" }}}',
     visibility=>'transaction'
 ) ORDER BY 1;
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                                                                              aggregate                                                                                                             
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": {"buckets": [{"key": "apple", "doc_count": 3}, {"key": "banana", "doc_count": 3}, {"key": "cherry", "doc_count": 1}, {"key": "orange", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}

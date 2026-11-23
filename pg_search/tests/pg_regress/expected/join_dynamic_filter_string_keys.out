@@ -56,6 +56,7 @@ JOIN strkey_probe p ON p.fk_uuid = b.id
 WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                       
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
@@ -80,6 +81,7 @@ JOIN strkey_probe p ON p.fk_uuid = b.id
 WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  ordinal 
 ---------
        1
@@ -104,6 +106,7 @@ JOIN strkey_probe p ON p.fk_txt = b.id_txt
 WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
@@ -128,6 +131,7 @@ JOIN strkey_probe p ON p.fk_txt = b.id_txt
 WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  ordinal 
 ---------
        1
@@ -152,6 +156,7 @@ JOIN strkey_probe p ON p.fk_uuid = b.id
 WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  ordinal 
 ---------
        1

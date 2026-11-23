@@ -27,8 +27,11 @@ CREATE TABLE rj_comments (
     upvotes INT
 ) WITH (autovacuum_enabled = false);
 CREATE INDEX rj_users_bm25 ON rj_users USING bm25 (id, bio, reputation);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 CREATE INDEX rj_posts_bm25 ON rj_posts USING bm25 (id, user_id, title, views);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 CREATE INDEX rj_comments_bm25 ON rj_comments USING bm25 (id, post_id, body, upvotes);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO rj_users
 SELECT i,
@@ -473,6 +476,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
 ORDER BY 2.0 * paradedb.score(u.id) + 3.0 * paradedb.score(p.id) DESC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -499,6 +503,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) * paradedb.score(p.id) DESC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -525,6 +530,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  RankJoinExec not used: scored table "u" has only constant-score predicates. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                 QUERY PLAN                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -552,6 +558,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust'::pdb.boost(100) AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  RankJoinExec not used: score contribution ratio (0.010) is below balance threshold (0.20). To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -590,6 +597,7 @@ WHERE u.bio @@@ 'rust'
    OR p.title @@@ 'query'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                             
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -623,6 +631,7 @@ WHERE u.bio @@@ 'rust'
    OR p.title @@@ 'extra'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -656,6 +665,7 @@ WHERE u.bio @@@ 'rust'
    OR p.title @@@ 'extra'
 ORDER BY 2.0 * paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -683,6 +693,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) DESC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  RankJoinExec not used: ORDER BY scores only one side of a cross-table OR join; include pdb.score() from all OR branches. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                      QUERY PLAN                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -751,6 +762,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id <= 1 AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(p.id) DESC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
@@ -775,6 +787,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id <= 1 AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(p.id) DESC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  u_id | p_id 
 ------+------
     1 |   50
@@ -822,6 +835,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                      QUERY PLAN                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -850,6 +864,7 @@ WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.user_id = ANY(ARRAY[2, 4, 6])
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                      QUERY PLAN                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -876,6 +891,7 @@ WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.user_id = ANY(ARRAY[2, 4, 6])
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  u_id | p_id 
 ------+------
     2 |   43
@@ -894,6 +910,7 @@ WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.views >= 0
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                   QUERY PLAN                                                                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -920,6 +937,7 @@ WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.views >= 0
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  u_id | p_id 
 ------+------
     2 |   43
@@ -938,6 +956,7 @@ WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.user_id = ANY(ARRAY[2, 4, 6])
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  u_id | p_id 
 ------+------
     2 |   43
@@ -954,6 +973,7 @@ WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.views >= 0
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  u_id | p_id 
 ------+------
     2 |   43
@@ -979,12 +999,15 @@ ANALYZE rj_users, rj_posts, rj_comments;
 SET max_parallel_maintenance_workers = 0;
 CREATE INDEX rj_users_bm25 ON rj_users USING bm25 (id, bio, reputation)
 WITH (target_segment_count = 3, partition_by = 'id');
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 WARNING:  only 0 parallel workers were available for index build
 CREATE INDEX rj_posts_bm25 ON rj_posts USING bm25 (id, user_id, title, views)
 WITH (target_segment_count = 3, partition_by = 'user_id,id');
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 WARNING:  only 0 parallel workers were available for index build
 CREATE INDEX rj_comments_bm25 ON rj_comments USING bm25 (id, post_id, user_id, body, upvotes)
 WITH (target_segment_count = 3, partition_by = 'user_id,post_id');
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 WARNING:  only 0 parallel workers were available for index build
 SET paradedb.enable_range_partitioned_join = on;
 SET paradedb.enable_rank_join = on;
@@ -1052,6 +1075,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                          QUERY PLAN                                                                                                                                         
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1085,6 +1109,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  u_id | p_id 
 ------+------
     2 |   43
@@ -1219,6 +1244,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  u_id | p_id 
 ------+------
     2 |   43

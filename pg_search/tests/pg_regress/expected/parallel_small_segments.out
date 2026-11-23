@@ -137,6 +137,7 @@ SELECT id, name FROM items
 WHERE name @@@ pdb.match('item')
 ORDER BY paradedb.score(id) DESC, id
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -157,6 +158,7 @@ SELECT id, name FROM items
 WHERE name @@@ pdb.match('item')
 ORDER BY paradedb.score(id) DESC, id
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |  name   
 ----+---------
   1 | item 1

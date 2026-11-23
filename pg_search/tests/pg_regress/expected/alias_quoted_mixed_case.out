@@ -125,6 +125,7 @@ WHERE "Parent"."owner" = 'user-1'
   AND "Child"."id" @@@ paradedb.term('state', 'active'::text)
 ORDER BY "Parent"."updated_at" DESC
 LIMIT 12;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -151,6 +152,7 @@ WHERE "Parent"."owner" = 'user-1'
   AND "Child"."id" @@@ paradedb.term('state', 'active'::text)
 ORDER BY "Parent"."updated_at" DESC
 LIMIT 12;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
  10
@@ -173,6 +175,7 @@ WHERE "Parent"."owner" = 'user-1'
   AND "Child"."id" @@@ paradedb.term('state', 'active'::text)
 ORDER BY "Parent"."updated_at" DESC
 LIMIT 12;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
  10
@@ -195,6 +198,7 @@ WHERE parent.owner = 'user-1'
   AND child.id @@@ paradedb.term('state', 'active'::text)
 ORDER BY parent.updated_at DESC
 LIMIT 12;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
  10
@@ -232,6 +236,7 @@ WHERE "P.A"."owner" = 'user-1'
   AND "C.A"."id" @@@ paradedb.term('state', 'active'::text)
 ORDER BY "P.A"."updated_at" DESC
 LIMIT 12;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
  10
@@ -294,6 +299,7 @@ WHERE "123"."owner" = 'user-1'
   AND "456"."id" @@@ paradedb.term('state', 'active'::text)
 ORDER BY "123"."updated_at" DESC
 LIMIT 12;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id 
 ----
  10

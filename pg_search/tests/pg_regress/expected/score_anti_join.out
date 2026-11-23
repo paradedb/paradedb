@@ -41,6 +41,7 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
                                                QUERY PLAN                                                
 ---------------------------------------------------------------------------------------------------------
@@ -72,6 +73,7 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
  id  |  title   |     score     
 -----+----------+---------------
@@ -96,6 +98,7 @@ AND EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
                                                QUERY PLAN                                                
 ---------------------------------------------------------------------------------------------------------
@@ -125,6 +128,7 @@ AND EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
  id | title  |     score     
 ----+--------+---------------
@@ -159,6 +163,11 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -199,6 +208,11 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
  id  |  title   |   score   
 -----+----------+-----------

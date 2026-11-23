@@ -227,6 +227,8 @@ SELECT sort_agg_buckets(agg) FROM (
 -- =====================================================================
 -- Test 13: Valid field via paradedb.aggregate() - should succeed
 SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"avg_rating": {"avg": {"field": "rating"}}}');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
            aggregate            
 --------------------------------
  {"avg_rating": {"value": 4.2}}
@@ -234,9 +236,13 @@ SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(),
 
 -- Test 14: Invalid field via paradedb.aggregate() - should error
 SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"avg_bad": {"avg": {"field": "nonexistent_field"}}}');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Aggregation references invalid field 'nonexistent_field'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 15: Invalid nested field via paradedb.aggregate() - should error
 SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"by_rating": {"terms": {"field": "rating"}, "aggs": {"bad_avg": {"avg": {"field": "no_such_field"}}}}}');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Aggregation references invalid field 'no_such_field'. Available indexed fields are: [created_at, description, id, rating]
 -- =====================================================================
 -- SECTION 6: Single-value metrics on datetime fields
@@ -303,6 +309,8 @@ SELECT sort_agg_buckets(agg) FROM (
 
 -- Test 22: same key_as_string behavior via paradedb.aggregate() direct API
 SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"first_seen": {"min": {"field": "created_at"}}}');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                        aggregate                                       
 ---------------------------------------------------------------------------------------
  {"first_seen": {"value": 757418400000000.0, "key_as_string": "2024-01-01T10:00:00Z"}}

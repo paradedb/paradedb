@@ -86,6 +86,7 @@ WHERE company_name &&& 'Jarvi'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: aggregate argument must be a direct column reference; wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join (table: nhfs_big)
                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -117,6 +118,7 @@ WHERE company_name &&& 'Jarvi'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: aggregate argument must be a direct column reference; wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join (table: nhfs_big)
               profile_id              | best_score 
 --------------------------------------+------------
@@ -137,6 +139,7 @@ WHERE title &&& 'developer'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: aggregate argument must be a direct column reference; wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join (table: nhfs_big)
               profile_id              | best_score 
 --------------------------------------+------------
@@ -156,6 +159,7 @@ WHERE company_name &&& 'Jarvi'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: aggregate argument must be a direct column reference; wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join (table: nhfs_big)
               profile_id              | best_score 
 --------------------------------------+------------

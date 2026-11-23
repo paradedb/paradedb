@@ -31,6 +31,7 @@ USING paradedb (id, title, n, title_vc, span)
 WITH (
     text_fields = '{"title_vc": {"fast": true, "tokenizer": {"type": "raw"}}}'
 );
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 -- bigint::text: text order is 1, 10, 100, 11 — not numeric 1, 2, 3, 4.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT n FROM issue_5997

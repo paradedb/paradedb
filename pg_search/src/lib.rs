@@ -194,6 +194,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     // Register hook for tracking explain statements (so planner warnings don't error under EXPLAIN)
     postgres::planner_warnings::register_explain_hook();
+    api::v1::register_utility_hook();
 
     // Register global planner hook for window function support and planner warning lifecycle
     customscan::register_planner_hook();

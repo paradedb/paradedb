@@ -12,6 +12,7 @@ INSERT INTO exists_json (description, data) VALUES ('CEO', NULL);
 INSERT INTO exists_json (description, data) VALUES ('CTO', '{"first_name": "Jim", "last_name": "Johnson"}');
 CREATE INDEX idx_exists_json_data ON exists_json USING paradedb (id, description, (data::pdb.unicode_words('columnar=true')));
 SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.first_name');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  id |    description    |                     data                      
 ----+-------------------+-----------------------------------------------
   1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}
@@ -20,6 +21,7 @@ SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.first_name');
 (3 rows)
 
 SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.last_name') OR description ||| 'CEO';
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  id |    description    |                     data                      
 ----+-------------------+-----------------------------------------------
   1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}
@@ -29,6 +31,7 @@ SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.last_name') OR desc
 (4 rows)
 
 SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data');
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
  id |    description    |                     data                      
 ----+-------------------+-----------------------------------------------
   1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}

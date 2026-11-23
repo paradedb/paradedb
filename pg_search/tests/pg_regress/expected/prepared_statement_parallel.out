@@ -60,36 +60,48 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
 SET plan_cache_mode = force_custom_plan;
 -- All executions should return consistent results
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
    122
@@ -97,6 +109,8 @@ EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 
 -- Try with different parameters
 EXECUTE test_parallel_join('ea', '2024-06-01', '2025-01-01');
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
     72
@@ -115,6 +129,8 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
   AND c.created_at::date <= $3::date;
 -- These should all return consistent results
 EXECUTE test_parallel_join_generic('ea', '2024-01-01', '2025-01-01');
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
    122
@@ -142,30 +158,35 @@ FROM document_text
 WHERE dwf_doid @@@ paradedb.parse_with_field('full_text', $1);
 -- Execute multiple times
 EXECUTE test_simple_parallel('ea');
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
  20000
 (1 row)
 
 EXECUTE test_simple_parallel('ea');
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
  20000
 (1 row)
 
 EXECUTE test_simple_parallel('ea');
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
  20000
 (1 row)
 
 EXECUTE test_simple_parallel('ea');
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
  20000
 (1 row)
 
 EXECUTE test_simple_parallel('ea');
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
  20000
@@ -173,6 +194,7 @@ EXECUTE test_simple_parallel('ea');
 
 -- 6th execution with generic plan
 EXECUTE test_simple_parallel('ea');
+WARNING:  paradedb.parse_with_field() uses the deprecated ParadeDB V1 API
  count 
 -------
  20000

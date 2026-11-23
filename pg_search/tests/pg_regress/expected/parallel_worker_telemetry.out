@@ -53,6 +53,8 @@ WITH (
     text_fields = '{"uuid": {"tokenizer": {"type": "keyword"}, "fast": true}}',
     numeric_fields = '{"age": {"fast": true}}'
 );
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
+WARNING:  numeric_fields uses the deprecated ParadeDB V1 API
 -- One segment per insert, so multiple workers can each claim work.
 SET paradedb.global_mutable_segment_rows TO 0;
 INSERT INTO tel_probe (uuid, age, rating)
@@ -78,6 +80,7 @@ DROP TABLE tel_probe;
 CREATE TABLE early_probe (id SERIAL8 PRIMARY KEY, ord INTEGER, grp INTEGER, rating INTEGER, pad TEXT);
 CREATE INDEX early_probe_idx ON early_probe USING paradedb (id, ord, grp)
 WITH (numeric_fields = '{"ord": {"fast": true}, "grp": {"fast": true}}');
+WARNING:  numeric_fields uses the deprecated ParadeDB V1 API
 SET paradedb.global_mutable_segment_rows TO 0;
 INSERT INTO early_probe (ord, grp, rating, pad)
 SELECT i, 1, 4, (SELECT string_agg(md5(random()::text || g::text), '') FROM generate_series(1, 32) g WHERE i > 0)

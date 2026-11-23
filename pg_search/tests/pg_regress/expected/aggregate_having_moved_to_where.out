@@ -27,6 +27,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id, kind
 HAVING account_id > 1
 ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                QUERY PLAN                                                                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.having_items
@@ -44,6 +45,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id, kind
 HAVING account_id > 1
 ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | count 
 ------------+------+-------
           2 | a    |    10
@@ -68,6 +70,7 @@ FROM (
 ) AS grouped
 WHERE account_id > 1
 ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.having_items
@@ -88,6 +91,7 @@ FROM (
 ) AS grouped
 WHERE account_id > 1
 ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | n  
 ------------+------+----
           2 | a    | 10
@@ -110,6 +114,7 @@ WITH grouped AS (
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.having_items
@@ -128,6 +133,7 @@ WITH grouped AS (
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | n  
 ------------+------+----
           1 | c    | 10
@@ -147,6 +153,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id
 HAVING COUNT(*) > 10
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
                           QUERY PLAN                          
 --------------------------------------------------------------
@@ -171,6 +178,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id
 HAVING COUNT(*) > 10
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
  account_id | count 
 ------------+-------
@@ -191,6 +199,7 @@ FROM (
 ) AS grouped
 WHERE n > 10
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
                           QUERY PLAN                          
 --------------------------------------------------------------
@@ -218,6 +227,7 @@ FROM (
 ) AS grouped
 WHERE n > 10
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
  account_id | n  
 ------------+----
@@ -230,6 +240,7 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
 Test 6: a constant true HAVING on an aggregate without GROUP BY
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                       QUERY PLAN                       
 -------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
@@ -240,6 +251,7 @@ SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
 (5 rows)
 
 SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
    120
@@ -249,6 +261,7 @@ SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
 Test 7: a constant false HAVING on an aggregate without GROUP BY stays in HAVING -> declined
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 2;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
            QUERY PLAN           
 --------------------------------
@@ -259,6 +272,7 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
 (4 rows)
 
 SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 2;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
  count 
 -------
@@ -272,6 +286,7 @@ FROM having_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id
 HAVING 1 = 2;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                        QUERY PLAN                                                       
 ------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
@@ -287,6 +302,7 @@ FROM having_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id
 HAVING 1 = 2;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
 (0 rows)
@@ -300,6 +316,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id
 HAVING account_id > random() * 0
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
                                       QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
@@ -324,6 +341,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id
 HAVING account_id > random() * 0
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
  account_id | count 
 ------------+-------
@@ -341,6 +359,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id, kind
 HAVING length(kind) = 1 AND kind <> 'b'
 ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                           QUERY PLAN                                                                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
@@ -357,6 +376,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id, kind
 HAVING length(kind) = 1 AND kind <> 'b'
 ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | count 
 ------------+------+-------
           1 | a    |    10
@@ -381,6 +401,7 @@ HAVING account_id > $1
 ORDER BY account_id, kind;
 SET plan_cache_mode TO force_generic_plan;
 EXPLAIN (COSTS OFF, TIMING OFF) EXECUTE having_param(1);
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                QUERY PLAN                                                                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
@@ -424,6 +445,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id
 HAVING account_id > 1
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
@@ -440,6 +462,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id
 HAVING account_id > 1
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id |                                                                                                  agg                                                                                                  
 ------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
           2 | {"buckets": [{"key": "a", "doc_count": 10}, {"key": "b", "doc_count": 10}, {"key": "c", "doc_count": 10}, {"key": "d", "doc_count": 10}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -454,6 +477,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id
 HAVING COUNT(*) > 10
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Cannot execute pdb.agg: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206)
 \echo 'Same results from PostgreSQL'
 Same results from PostgreSQL
@@ -464,6 +488,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id, kind
 HAVING account_id > 1
 ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | count 
 ------------+------+-------
           2 | a    |    10
@@ -485,6 +510,7 @@ FROM (
 ) AS grouped
 WHERE account_id > 1
 ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | n  
 ------------+------+----
           2 | a    | 10
@@ -504,6 +530,7 @@ WITH grouped AS (
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | n  
 ------------+------+----
           1 | c    | 10
@@ -515,6 +542,7 @@ SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
 (6 rows)
 
 SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
    120
@@ -525,6 +553,7 @@ FROM having_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id
 HAVING 1 = 2;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
 (0 rows)
@@ -535,6 +564,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id, kind
 HAVING length(kind) = 1 AND kind <> 'b'
 ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | count 
 ------------+------+-------
           1 | a    |    10
@@ -554,6 +584,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id, kind
 HAVING account_id > 2
 ORDER BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | count 
 ------------+------+-------
           3 | a    |    10

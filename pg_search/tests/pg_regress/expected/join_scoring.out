@@ -61,6 +61,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                            QUERY PLAN                                                                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -86,6 +87,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id  |      name      | supplier_name |   score    
 -----+----------------+---------------+------------
  201 | Wireless Mouse | TechCorp      | 0.96774966
@@ -108,6 +110,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                            QUERY PLAN                                                                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -133,6 +136,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id  |      name      | supplier_name |   score    
 -----+----------------+---------------+------------
  201 | Wireless Mouse | TechCorp      | 0.96774966
@@ -158,6 +162,7 @@ WHERE p.description ||| 'wireless'
   AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                            QUERY PLAN                                                                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -184,6 +189,7 @@ WHERE p.description ||| 'wireless'
   AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id  |      name      | supplier_name | supplier_score 
 -----+----------------+---------------+----------------
  201 | Wireless Mouse | TechCorp      |      1.2039728
@@ -208,6 +214,7 @@ WHERE p.description ||| 'wireless'
   AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                            QUERY PLAN                                                                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -236,6 +243,7 @@ WHERE p.description ||| 'wireless'
   AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id  |      name      | supplier_name | product_score | supplier_score 
 -----+----------------+---------------+---------------+----------------
  201 | Wireless Mouse | TechCorp      |    0.96774966 |      1.2039728
@@ -262,6 +270,7 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                            QUERY PLAN                                                                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -293,6 +302,7 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id  |      name      | relevance  
 -----+----------------+------------
  201 | Wireless Mouse | 0.96774966
@@ -312,6 +322,7 @@ WHERE p.description ||| 'wireless'
   AND paradedb.score(p.id) >= 0
 ORDER BY p.id
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                          QUERY PLAN                                                                                                                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -338,6 +349,7 @@ WHERE p.description ||| 'wireless'
   AND paradedb.score(p.id) >= 0
 ORDER BY p.id
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id  |      name      | supplier_name |   score    
 -----+----------------+---------------+------------
  201 | Wireless Mouse | TechCorp      | 0.96774966
@@ -363,6 +375,7 @@ WHERE p.price < 100
   AND paradedb.score(s.id) > 0
 ORDER BY score DESC, p.id
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                                  QUERY PLAN                                                                                                                                                                  
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -395,6 +408,7 @@ WHERE p.price < 100
   AND paradedb.score(s.id) > 0
 ORDER BY score DESC, p.id
 LIMIT 10;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id  |      name      | supplier_id | supplier_name |   score   
 -----+----------------+-------------+---------------+-----------
  201 | Wireless Mouse |         151 | TechCorp      | 1.2039728

@@ -54,6 +54,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -72,6 +73,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
           1 |    40
@@ -84,6 +86,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 99 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -102,6 +105,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 99 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
 (0 rows)
@@ -113,6 +117,7 @@ SELECT COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                           QUERY PLAN                                                                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -131,6 +136,7 @@ SELECT COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count | sum 
 -------+-----
     40 |  80
@@ -140,6 +146,7 @@ SELECT COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 99 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count | sum 
 -------+-----
 (0 rows)
@@ -151,6 +158,7 @@ SELECT account_id
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                             QUERY PLAN                                                                                             
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -168,6 +176,7 @@ SELECT account_id
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id 
 ------------
           1
@@ -177,6 +186,7 @@ SELECT account_id
 FROM pinned_key_items
 WHERE account_id = 99 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id 
 ------------
 (0 rows)
@@ -188,6 +198,7 @@ SELECT code, account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 2 AND code = 'c1' AND id @@@ paradedb.all()
 GROUP BY account_id, code;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                        QUERY PLAN                                                                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -206,6 +217,7 @@ SELECT code, account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 2 AND code = 'c1' AND id @@@ paradedb.all()
 GROUP BY account_id, code;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  code | account_id | count 
 ------+------------+-------
  c1   |          2 |    20
@@ -218,6 +230,7 @@ SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none')
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                    QUERY PLAN                                                                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -236,6 +249,7 @@ SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none')
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
           1 |     0
@@ -245,6 +259,7 @@ SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none')
 FROM pinned_key_items
 WHERE account_id = 99 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
 (0 rows)
@@ -256,6 +271,7 @@ SELECT DISTINCT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                              QUERY PLAN                                                                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
@@ -277,6 +293,7 @@ SELECT DISTINCT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count | sum 
 ------------+-------+-----
           1 |    40 |  80
@@ -287,6 +304,7 @@ SELECT account_id, COUNT(*), SUM(COUNT(*)) OVER ()
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                          QUERY PLAN                                                                                                         
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
@@ -308,6 +326,7 @@ SELECT account_id, COUNT(*), SUM(COUNT(*)) OVER ()
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count | sum 
 ------------+-------+-----
           1 |    40 |  40
@@ -317,6 +336,7 @@ SELECT account_id, generate_series(1, 2) AS n, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | n | count 
 ------------+---+-------
           1 | 1 |    40
@@ -330,6 +350,7 @@ SELECT account_id, COUNT(id ORDER BY kind)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                 QUERY PLAN                                                                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -348,6 +369,7 @@ SELECT account_id, COUNT(id ORDER BY kind)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
           1 |    40
@@ -364,6 +386,7 @@ FROM pinned_key_items
 WHERE region = 1 AND account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                QUERY PLAN                                                                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -390,6 +413,7 @@ FROM pinned_key_items
 WHERE region = 1 AND account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count_all | account_id | kind 
 -----------+------------+------
         10 |          1 | a
@@ -405,6 +429,7 @@ FROM pinned_key_items
 WHERE account_id = 99 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count_all | account_id | kind 
 -----------+------------+------
 (0 rows)
@@ -418,6 +443,7 @@ WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY account_id, kind
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                          QUERY PLAN                                                                                                          
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -445,6 +471,7 @@ WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY account_id, kind
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | sum 
 ------------+------+-----
           2 | a    |  20
@@ -460,6 +487,7 @@ FROM pinned_key_items
 WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                         QUERY PLAN                                                                                                         
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -486,6 +514,7 @@ FROM pinned_key_items
 WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | total 
 ------------+------+-------
           2 | a    |    21
@@ -502,6 +531,7 @@ FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                 QUERY PLAN                                                                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -528,6 +558,7 @@ FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind |      agg       
 ------------+------+----------------
           1 | a    | {"value": 2.0}
@@ -540,6 +571,7 @@ SELECT account_id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id |       agg       
 ------------+-----------------
           1 | {"value": 40.0}
@@ -554,6 +586,7 @@ WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -577,6 +610,7 @@ WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | account_id | count 
 ----+------------+-------
   3 |          1 |     1
@@ -591,6 +625,7 @@ FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id, code
 ORDER BY code;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | code | count | sum 
 ------------+------+-------+-----
           1 | c0   |    20 |  40
@@ -610,6 +645,7 @@ FROM (
     WHERE region = 2::bigint AND id @@@ paradedb.all()
     GROUP BY region
 ) AS grouped;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Subquery Scan on grouped
@@ -633,6 +669,7 @@ FROM (
     WHERE region = 2::bigint AND id @@@ paradedb.all()
     GROUP BY region
 ) AS grouped;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  region | pg_typeof | count 
 --------+-----------+-------
       2 | smallint  |    40
@@ -644,6 +681,7 @@ SELECT region, COUNT(*)
 FROM pinned_key_items
 WHERE region = 100000 AND id @@@ paradedb.all()
 GROUP BY region;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  region | count 
 --------+-------
 (0 rows)
@@ -652,6 +690,7 @@ SELECT region, kind, COUNT(*)
 FROM pinned_key_items
 WHERE region = 100000 AND id @@@ paradedb.all()
 GROUP BY region, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  region | kind | count 
 --------+------+-------
 (0 rows)
@@ -664,6 +703,7 @@ FROM pinned_key_items
 WHERE code = 'c1' AND id @@@ paradedb.all()
 GROUP BY code, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                   QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -690,6 +730,7 @@ FROM pinned_key_items
 WHERE code = 'c1' AND id @@@ paradedb.all()
 GROUP BY code, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  code | kind | count 
 ------+------+-------
  c1   | b    |    30
@@ -701,6 +742,7 @@ SELECT created, COUNT(*)
 FROM pinned_key_items
 WHERE created = '2024-01-02' AND id @@@ paradedb.all()
 GROUP BY created;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                         QUERY PLAN                                                                                                         
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -719,6 +761,7 @@ SELECT created, COUNT(*)
 FROM pinned_key_items
 WHERE created = '2024-01-02' AND id @@@ paradedb.all()
 GROUP BY created;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   created   | count 
 ------------+-------
  01-02-2024 |    40
@@ -730,6 +773,7 @@ FROM pinned_key_items
 WHERE metadata->>'color' = 'red' AND id @@@ paradedb.all()
 GROUP BY metadata->>'color', kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: output column pinned_key_items.metadata is not columnar indexed (table: pinned_key_items)
                                                                                                           QUERY PLAN                                                                                                           
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -755,6 +799,7 @@ FROM pinned_key_items
 WHERE metadata->>'color' = 'red' AND id @@@ paradedb.all()
 GROUP BY metadata->>'color', kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: output column pinned_key_items.metadata is not columnar indexed (table: pinned_key_items)
  color | kind | count 
 -------+------+-------
@@ -769,6 +814,7 @@ SELECT upper(kind) AS upper_kind, COUNT(*)
 FROM pinned_key_items
 WHERE upper(kind) = 'A' AND id @@@ paradedb.all()
 GROUP BY upper(kind);
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                              QUERY PLAN                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -787,6 +833,7 @@ SELECT upper(kind) AS upper_kind, COUNT(*)
 FROM pinned_key_items
 WHERE upper(kind) = 'A' AND id @@@ paradedb.all()
 GROUP BY upper(kind);
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  upper_kind | count 
 ------------+-------
  A          |    30
@@ -804,6 +851,7 @@ FROM pinned_key_items
 WHERE account_id = $1 AND id @@@ paradedb.all()
 GROUP BY account_id;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE pinned_key_all(1);
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                 QUERY PLAN                                                                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -847,6 +895,7 @@ WHERE account_id = $1 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 EXECUTE pinned_key_mixed(3);
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | count 
 ------------+------+-------
           3 | a    |    10
@@ -886,6 +935,7 @@ WHERE code = $1 AND id @@@ paradedb.all()
 GROUP BY code, kind
 ORDER BY kind;
 EXECUTE pinned_key_code('c1');
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  code | kind | count 
 ------+------+-------
  c1   | b    |    30
@@ -908,6 +958,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = (SELECT 3) AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                 QUERY PLAN                                                                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -929,6 +980,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = (SELECT 3) AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
           3 |    40
@@ -946,6 +998,7 @@ LATERAL (
     GROUP BY account_id
 ) AS grouped
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                QUERY PLAN                                                                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -976,6 +1029,7 @@ LATERAL (
     GROUP BY account_id
 ) AS grouped
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  outer_account_id | account_id | count 
 ------------------+------------+-------
                 1 |          1 |    40
@@ -995,6 +1049,7 @@ FROM pinned_key_items
 WHERE price = 1 AND id @@@ paradedb.all()
 GROUP BY price, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1019,6 +1074,7 @@ FROM pinned_key_items
 WHERE price = 1 AND id @@@ paradedb.all()
 GROUP BY price, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  price | kind | count 
 -------+------+-------
      1 | a    |     6
@@ -1035,6 +1091,7 @@ FROM pinned_key_items
 WHERE label = 'label' AND id @@@ paradedb.all()
 GROUP BY label, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pinned_key_items)
                                                                                                 QUERY PLAN                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1057,6 +1114,7 @@ FROM pinned_key_items
 WHERE label = 'label' AND id @@@ paradedb.all()
 GROUP BY label, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pinned_key_items)
  label | kind | count 
 -------+------+-------
@@ -1071,6 +1129,7 @@ SELECT label, COUNT(*)
 FROM pinned_key_items
 WHERE label = 'label' AND id @@@ paradedb.all()
 GROUP BY label;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pinned_key_items)
                                                                                              QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1089,6 +1148,7 @@ SELECT label, COUNT(*)
 FROM pinned_key_items
 WHERE label = 'label' AND id @@@ paradedb.all()
 GROUP BY label;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pinned_key_items)
  label | count 
 -------+-------
@@ -1106,6 +1166,7 @@ FROM pinned_key_items
 WHERE updated = TIMESTAMPTZ '2024-01-02 00:00:00+00' AND id @@@ paradedb.all()
 GROUP BY updated, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                          QUERY PLAN                                                                                                                                                         
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1130,6 +1191,7 @@ FROM pinned_key_items
 WHERE updated = TIMESTAMPTZ '2024-01-02 00:00:00+00' AND id @@@ paradedb.all()
 GROUP BY updated, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
          updated          | kind | count 
 --------------------------+------+-------
  Tue Jan 02 00:00:00 2024 | a    |    10
@@ -1147,6 +1209,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = current_setting('pinned_key.account')::bigint AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                           QUERY PLAN                                                                                                                                                          
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1164,6 +1227,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = current_setting('pinned_key.account')::bigint AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
           1 |    40
@@ -1187,6 +1251,7 @@ SELECT ts, SUM(amount)
 FROM pinned_key_dst
 WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ paradedb.all()
 GROUP BY ts;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                QUERY PLAN                                                                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1204,6 +1269,7 @@ SELECT ts, SUM(amount)
 FROM pinned_key_dst
 WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ paradedb.all()
 GROUP BY ts;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
             ts            | sum  
 --------------------------+------
  Sun Mar 10 02:30:00 2024 | 4.00
@@ -1213,6 +1279,7 @@ SELECT ts, kind, SUM(amount)
 FROM pinned_key_dst
 WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ paradedb.all()
 GROUP BY ts, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
             ts            | kind | sum  
 --------------------------+------+------
  Sun Mar 10 02:30:00 2024 | a    | 4.00
@@ -1225,6 +1292,7 @@ FROM pinned_key_items
 WHERE price = 1 AND id @@@ paradedb.all()
 GROUP BY price, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                              QUERY PLAN                                                                                                             
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1249,6 +1317,7 @@ FROM pinned_key_items
 WHERE price = 1 AND id @@@ paradedb.all()
 GROUP BY price, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  price | kind | sum  
 -------+------+------
      1 | a    | 9.00
@@ -1263,6 +1332,7 @@ SELECT price, kind, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM pinned_key_items
 WHERE price = 1 AND id @@@ paradedb.all()
 GROUP BY price, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  price | kind |      agg       
 -------+------+----------------
      1 | b    | {"value": 6.0}
@@ -1281,6 +1351,7 @@ SELECT account_id, SUM(amount)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                        QUERY PLAN                                                                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1299,6 +1370,7 @@ SELECT account_id, SUM(amount)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id |  sum   
 ------------+--------
           1 | 100.00
@@ -1308,6 +1380,7 @@ SELECT account_id, SUM(amount)
 FROM pinned_key_items
 WHERE account_id = 99 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | sum 
 ------------+-----
 (0 rows)
@@ -1319,6 +1392,7 @@ SELECT amount, COUNT(*)
 FROM pinned_key_items
 WHERE amount = 1.5 AND id @@@ paradedb.all()
 GROUP BY amount;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                     QUERY PLAN                                                                                                    
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1337,6 +1411,7 @@ SELECT amount, COUNT(*)
 FROM pinned_key_items
 WHERE amount = 1.5 AND id @@@ paradedb.all()
 GROUP BY amount;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  amount | count 
 --------+-------
    1.50 |    24
@@ -1351,6 +1426,7 @@ FROM pinned_key_items
 WHERE label = 'label' AND id <= 12 AND id @@@ paradedb.all()
 GROUP BY label, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pinned_key_items)
                                                                                                                                      QUERY PLAN                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1371,6 +1447,7 @@ FROM pinned_key_items
 WHERE label = 'label' AND id <= 12 AND id @@@ paradedb.all()
 GROUP BY label, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pinned_key_items)
  kind |  sum  
 ------+-------
@@ -1397,6 +1474,7 @@ FROM (
 ) AS grouped
 JOIN (VALUES (1::bigint), (2), (3)) AS accounts (id) ON accounts.id = grouped.account_id
 ORDER BY grouped.kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                     QUERY PLAN                                                                                                    
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1434,6 +1512,7 @@ FROM (
 ) AS grouped
 JOIN (VALUES (1::bigint), (2), (3)) AS accounts (id) ON accounts.id = grouped.account_id
 ORDER BY grouped.kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | n  
 ------------+------+----
           2 | a    | 10
@@ -1454,6 +1533,7 @@ FROM (
 ) AS grouped
 GROUP BY kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                     QUERY PLAN                                                                                                    
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1489,6 +1569,7 @@ FROM (
 ) AS grouped
 GROUP BY kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  kind | sum | count 
 ------+-----+-------
  a    |  10 |     1
@@ -1507,6 +1588,7 @@ WITH grouped AS MATERIALIZED (
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE account_id = 2 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  CTE Scan on grouped
@@ -1529,6 +1611,7 @@ WITH grouped AS MATERIALIZED (
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE account_id = 2 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | n  
 ------------+------+----
           2 | a    | 10
@@ -1545,6 +1628,7 @@ FROM pinned_key_items
 WHERE account_id IN (2) AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1571,6 +1655,7 @@ FROM pinned_key_items
 WHERE account_id IN (2) AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | count 
 ------------+------+-------
           2 | a    |    10
@@ -1586,6 +1671,7 @@ SELECT account_id, kind, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 2 AND account_id = 3 AND id @@@ paradedb.all()
 GROUP BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                             QUERY PLAN                                                                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1608,6 +1694,7 @@ SELECT account_id, kind, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 2 AND account_id = 3 AND id @@@ paradedb.all()
 GROUP BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | count 
 ------------+------+-------
 (0 rows)
@@ -1621,6 +1708,7 @@ SELECT ts, SUM(amount)
 FROM pinned_key_dst
 WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ paradedb.all()
 GROUP BY ts;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
             ts            | sum  
 --------------------------+------
  Sun Mar 10 02:30:00 2024 | 4.00
@@ -1630,6 +1718,7 @@ SELECT ts, kind, SUM(amount)
 FROM pinned_key_dst
 WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ paradedb.all()
 GROUP BY ts, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
             ts            | kind | sum  
 --------------------------+------+------
  Sun Mar 10 02:30:00 2024 | a    | 4.00
@@ -1641,6 +1730,7 @@ FROM pinned_key_items
 WHERE price = 1 AND id @@@ paradedb.all()
 GROUP BY price, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  price | kind | sum  
 -------+------+------
      1 | a    | 9.00
@@ -1658,6 +1748,7 @@ FROM (
 ) AS grouped
 JOIN (VALUES (1::bigint), (2), (3)) AS accounts (id) ON accounts.id = grouped.account_id
 ORDER BY grouped.kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | n  
 ------------+------+----
           2 | a    | 10
@@ -1675,6 +1766,7 @@ FROM (
 ) AS grouped
 GROUP BY kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  kind | sum | count 
 ------+-----+-------
  a    |  10 |     1
@@ -1690,6 +1782,7 @@ WITH grouped AS MATERIALIZED (
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE account_id = 2 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | n  
 ------------+------+----
           2 | a    | 10
@@ -1703,6 +1796,7 @@ FROM pinned_key_items
 WHERE account_id IN (2) AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | count 
 ------------+------+-------
           2 | a    |    10
@@ -1715,6 +1809,7 @@ SELECT account_id, kind, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 2 AND account_id = 3 AND id @@@ paradedb.all()
 GROUP BY account_id, kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | count 
 ------------+------+-------
 (0 rows)
@@ -1723,6 +1818,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
           1 |    40
@@ -1732,6 +1828,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 99 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
 (0 rows)
@@ -1740,6 +1837,7 @@ SELECT COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count | sum 
 -------+-----
     40 |  80
@@ -1749,6 +1847,7 @@ SELECT code, account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 2 AND code = 'c1' AND id @@@ paradedb.all()
 GROUP BY account_id, code;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  code | account_id | count 
 ------+------------+-------
  c1   |          2 |    20
@@ -1759,6 +1858,7 @@ FROM pinned_key_items
 WHERE region = 1 AND account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count_all | account_id | kind 
 -----------+------------+------
         10 |          1 | a
@@ -1773,6 +1873,7 @@ WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY account_id, kind
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | sum 
 ------------+------+-----
           2 | a    |  20
@@ -1785,6 +1886,7 @@ FROM pinned_key_items
 WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | kind | total 
 ------------+------+-------
           2 | a    |    21
@@ -1797,6 +1899,7 @@ SELECT region, COUNT(*)
 FROM pinned_key_items
 WHERE region = 2::bigint AND id @@@ paradedb.all()
 GROUP BY region;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  region | count 
 --------+-------
       2 |    40
@@ -1806,6 +1909,7 @@ SELECT region, COUNT(*)
 FROM pinned_key_items
 WHERE region = 100000 AND id @@@ paradedb.all()
 GROUP BY region;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  region | count 
 --------+-------
 (0 rows)
@@ -1815,6 +1919,7 @@ FROM pinned_key_items
 WHERE code = 'c1' AND id @@@ paradedb.all()
 GROUP BY code, kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  code | kind | count 
 ------+------+-------
  c1   | b    |    30
@@ -1825,6 +1930,7 @@ SELECT created, COUNT(*)
 FROM pinned_key_items
 WHERE created = '2024-01-02' AND id @@@ paradedb.all()
 GROUP BY created;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   created   | count 
 ------------+-------
  01-02-2024 |    40
@@ -1835,6 +1941,7 @@ FROM pinned_key_items
 WHERE metadata->>'color' = 'red' AND id @@@ paradedb.all()
 GROUP BY metadata->>'color', kind
 ORDER BY kind;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  color | kind | count 
 -------+------+-------
  red   | a    |    30
@@ -1845,6 +1952,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = (SELECT 3) AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
           3 |    40
@@ -1859,6 +1967,7 @@ LATERAL (
     GROUP BY account_id
 ) AS grouped
 ORDER BY 1;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  outer_account_id | account_id | count 
 ------------------+------------+-------
                 1 |          1 |    40
@@ -1869,6 +1978,7 @@ SELECT account_id, SUM(amount)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id |  sum   
 ------------+--------
           1 | 100.00
@@ -1878,6 +1988,7 @@ SELECT amount, COUNT(*)
 FROM pinned_key_items
 WHERE amount = 1.5 AND id @@@ paradedb.all()
 GROUP BY amount;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  amount | count 
 --------+-------
    1.50 |    24
@@ -1887,6 +1998,7 @@ SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none')
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
           1 |     0
@@ -1896,6 +2008,7 @@ SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none')
 FROM pinned_key_items
 WHERE account_id = 99 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
 (0 rows)
@@ -1906,6 +2019,7 @@ WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | account_id | count 
 ----+------------+-------
   3 |          1 |     1
@@ -1917,6 +2031,7 @@ SELECT upper(kind) AS upper_kind, COUNT(*)
 FROM pinned_key_items
 WHERE upper(kind) = 'A' AND id @@@ paradedb.all()
 GROUP BY upper(kind);
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  upper_kind | count 
 ------------+-------
  A          |    30
@@ -1926,6 +2041,7 @@ SELECT DISTINCT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count | sum 
 ------------+-------+-----
           1 |    40 |  80
@@ -1935,6 +2051,7 @@ SELECT account_id, COUNT(*), SUM(COUNT(*)) OVER ()
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count | sum 
 ------------+-------+-----
           1 |    40 |  40
@@ -1944,6 +2061,7 @@ SELECT account_id, generate_series(1, 2) AS n, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | n | count 
 ------------+---+-------
           1 | 1 |    40
@@ -1954,6 +2072,7 @@ SELECT account_id, COUNT(id ORDER BY kind)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
           1 |    40
@@ -1964,6 +2083,7 @@ FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id, code
 ORDER BY code;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | code | count | sum 
 ------------+------+-------+-----
           1 | c0   |    20 |  40
@@ -1981,6 +2101,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
 (0 rows)
@@ -1989,6 +2110,7 @@ SELECT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count | sum 
 ------------+-------+-----
           2 |    10 |  20
@@ -2001,6 +2123,7 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count 
 ------------+-------
 (0 rows)
@@ -2009,6 +2132,7 @@ SELECT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count | sum 
 ------------+-------+-----
 (0 rows)
@@ -2019,6 +2143,7 @@ SELECT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | count | sum 
 ------------+-------+-----
           2 |    10 |  20
@@ -2036,6 +2161,7 @@ SELECT tags, COUNT(*)
 FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 GROUP BY tags;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: output column tags is an array, which is not read from the index (table: pinned_key_arrays)
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2053,6 +2179,7 @@ SELECT tags, COUNT(*)
 FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 GROUP BY tags;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: output column tags is an array, which is not read from the index (table: pinned_key_arrays)
  tags | count 
 ------+-------
@@ -2066,6 +2193,7 @@ SELECT k, tags, COUNT(*)
 FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 GROUP BY k, tags;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: output column tags is an array, which is not read from the index (table: pinned_key_arrays)
                                                                                                  QUERY PLAN                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2086,6 +2214,7 @@ SELECT k, tags, COUNT(*)
 FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 GROUP BY k, tags;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan (DataFusion) not used: output column tags is an array, which is not read from the index (table: pinned_key_arrays)
  k | tags | count 
 ---+------+-------
@@ -2099,6 +2228,7 @@ SELECT DISTINCT k
 FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 ORDER BY k;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                    QUERY PLAN                                                                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -2120,6 +2250,7 @@ SELECT DISTINCT k
 FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 ORDER BY k;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  k 
 ---
  a
@@ -2130,6 +2261,7 @@ SELECT tags, COUNT(*)
 FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 GROUP BY tags;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  tags | count 
 ------+-------
  {1}  |    10
@@ -2139,6 +2271,7 @@ SELECT k, tags, COUNT(*)
 FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 GROUP BY k, tags;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  k | tags | count 
 ---+------+-------
  a | {1}  |    10
@@ -2148,6 +2281,7 @@ SELECT DISTINCT k
 FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 ORDER BY k;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  k 
 ---
  a
@@ -2167,6 +2301,7 @@ FROM pinned_key_names
 WHERE k = 'a' AND id @@@ paradedb.all()
 GROUP BY row_1, k
 ORDER BY row_1, k;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                          QUERY PLAN                                                                                         
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -2188,6 +2323,7 @@ FROM pinned_key_names
 WHERE k = 'a' AND id @@@ paradedb.all()
 GROUP BY row_1, k
 ORDER BY row_1, k;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  row_1 | k | count 
 -------+---+-------
      0 | a |   100
@@ -2201,6 +2337,7 @@ FROM pinned_key_names
 WHERE k = 'a' AND id @@@ paradedb.all()
 GROUP BY row_1, k
 ORDER BY row_1, k;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  row_1 | k | count 
 -------+---+-------
      0 | a |   100
@@ -2215,6 +2352,7 @@ SELECT account_id, pdb.agg('{"percentiles": {"field": "price", "percents": [50]}
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Cannot execute pdb.agg: the DataFusion backend cannot run this spec, and the Tantivy backend cannot return a column that PostgreSQL does not group on, such as a GROUP BY key that the WHERE clause sets to one value
 \echo 'Test 11.2: the same, with a column that the primary key decides -> error'
 Test 11.2: the same, with a column that the primary key decides -> error
@@ -2224,6 +2362,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 2;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Cannot execute pdb.agg: the DataFusion backend cannot run this spec, and the Tantivy backend cannot return a column that PostgreSQL does not group on, such as a GROUP BY key that the WHERE clause sets to one value
 \echo 'Test 11.3: the same spec, when PostgreSQL groups on every key'
 Test 11.3: the same spec, when PostgreSQL groups on every key
@@ -2232,6 +2371,7 @@ FROM pinned_key_items
 WHERE account_id IN (2, 3) AND id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | region_count 
 ------------+--------------
           2 | 10
@@ -2244,6 +2384,7 @@ FROM pinned_key_items
 WHERE account_id IN (2, 3) AND id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  account_id | region_count 
 ------------+--------------
           2 |           10
@@ -2264,6 +2405,7 @@ FROM pinned_key_internal
 WHERE agg_0 = 1 AND id @@@ paradedb.all()
 GROUP BY agg_0, k
 ORDER BY k;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                             QUERY PLAN                                                                                             
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -2288,6 +2430,7 @@ FROM pinned_key_internal
 WHERE agg_0 = 1 AND id @@@ paradedb.all()
 GROUP BY agg_0, k
 ORDER BY k;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  agg_0 | k | count 
 -------+---+-------
      1 | a |     5
@@ -2301,6 +2444,7 @@ SELECT __one_group, COUNT(*)
 FROM pinned_key_internal
 WHERE __one_group = 1 AND id @@@ paradedb.all()
 GROUP BY __one_group;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                            QUERY PLAN                                                                                                           
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -2318,6 +2462,7 @@ SELECT __one_group, COUNT(*)
 FROM pinned_key_internal
 WHERE __one_group = 1 AND id @@@ paradedb.all()
 GROUP BY __one_group;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  __one_group | count 
 -------------+-------
            1 |    15
@@ -2332,6 +2477,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                     QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -2353,6 +2499,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | agg_0 | count 
 ----+-------+-------
   1 |     1 |     1
@@ -2370,6 +2517,7 @@ GROUP BY agg_0, k
 HAVING COUNT(*) > agg_0
 ORDER BY COUNT(*) DESC, agg_0
 LIMIT 2;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -2394,6 +2542,7 @@ GROUP BY agg_0, k
 HAVING COUNT(*) > agg_0
 ORDER BY COUNT(*) DESC, agg_0
 LIMIT 2;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  agg_0 | k | count 
 -------+---+-------
      0 | a |     5
@@ -2408,6 +2557,7 @@ FROM pinned_key_internal
 WHERE agg_0 = 1 AND id @@@ paradedb.all()
 GROUP BY k, agg_0
 ORDER BY k;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                QUERY PLAN                                                                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -2433,6 +2583,7 @@ FROM pinned_key_internal
 WHERE agg_0 = 1 AND id @@@ paradedb.all()
 GROUP BY k, agg_0
 ORDER BY k;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  k | agg_0 | count |                                                  agg                                                  
 ---+-------+-------+-------------------------------------------------------------------------------------------------------
  a |     1 |     5 | {"buckets": [{"key": 0, "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -2445,6 +2596,7 @@ FROM pinned_key_internal
 WHERE agg_0 = 1 AND id @@@ paradedb.all()
 GROUP BY agg_0, k
 ORDER BY k;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  agg_0 | k | count 
 -------+---+-------
      1 | a |     5
@@ -2455,6 +2607,7 @@ SELECT __one_group, COUNT(*)
 FROM pinned_key_internal
 WHERE __one_group = 1 AND id @@@ paradedb.all()
 GROUP BY __one_group;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  __one_group | count 
 -------------+-------
            1 |    15
@@ -2466,6 +2619,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | agg_0 | count 
 ----+-------+-------
   1 |     1 |     1
@@ -2480,6 +2634,7 @@ GROUP BY agg_0, k
 HAVING COUNT(*) > agg_0
 ORDER BY COUNT(*) DESC, agg_0
 LIMIT 2;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  agg_0 | k | count 
 -------+---+-------
      0 | a |     5

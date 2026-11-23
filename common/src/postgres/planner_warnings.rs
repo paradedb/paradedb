@@ -216,8 +216,8 @@ pub fn clear_planner_warnings() {
 pub enum ExplainMode {
     /// Not inside an `EXPLAIN` command.
     None,
-    /// Inside `EXPLAIN` without `ANALYZE`. `emit_planner_warnings()` downgrades
-    /// `paradedb.planner_warnings = 'error'` to `WARNING`s so users can inspect fallback plans.
+    /// Inside `EXPLAIN` without `ANALYZE`. Report planner and V1 API diagnostics as
+    /// warnings so users can inspect the plan even in error mode.
     PlanOnly,
     /// Inside `EXPLAIN ANALYZE`, which executes the query and therefore enforces
     /// `paradedb.planner_warnings = 'error'` on scan fallbacks, while still enabling
@@ -300,7 +300,9 @@ unsafe extern "C-unwind" fn explain_process_utility_hook(
         };
         Some(ExplainUtilityGuard {
             _explain: ExplainGuard::new(mode),
-            invalidate: !analyze && crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Error,
+            invalidate: !analyze
+                && (crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Error
+                    || crate::gucs::v1api_warnings() == crate::gucs::PlannerWarnings::Error),
         })
     } else {
         None

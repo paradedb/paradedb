@@ -91,6 +91,7 @@ SELECT id, name_c FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_c
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                         QUERY PLAN                        
 ----------------------------------------------------------
  Limit
@@ -112,6 +113,7 @@ SELECT id, name_icu FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_icu
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                           
 ----------------------------------------------------------------
@@ -135,6 +137,7 @@ SELECT id, priority FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY priority
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                         QUERY PLAN                        
 ----------------------------------------------------------
  Limit
@@ -156,6 +159,7 @@ SELECT id, name_icu FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_icu COLLATE "C"
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                         QUERY PLAN                        
 ----------------------------------------------------------
  Limit
@@ -177,6 +181,7 @@ SELECT id, name_c FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_c COLLATE "test_icu"
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                           
 ----------------------------------------------------------------
@@ -205,6 +210,7 @@ SELECT name_c, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_c
 ORDER BY name_c;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                          QUERY PLAN                                                          
 -----------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on collation_test
@@ -222,6 +228,7 @@ SELECT name_icu, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                   QUERY PLAN                                                  
 --------------------------------------------------------------------------------------------------------------
  Sort
@@ -242,6 +249,7 @@ FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   name_icu  |      agg       
 ------------+----------------
  apple      | {"value": 1.0}
@@ -258,6 +266,7 @@ SELECT priority, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY priority
 ORDER BY priority;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                           QUERY PLAN                                                           
 -------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on collation_test
@@ -275,6 +284,7 @@ SELECT name_c, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_c
 ORDER BY name_c COLLATE "test_icu";
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -295,6 +305,7 @@ FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                                    QUERY PLAN                                    
 ---------------------------------------------------------------------------------
@@ -318,6 +329,7 @@ FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
     name     | count 
 -------------+-------
@@ -333,6 +345,7 @@ SELECT name_c, COUNT(*)
 FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY GROUPING SETS ((name_c), ());
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                         QUERY PLAN                        
 ----------------------------------------------------------
@@ -356,6 +369,7 @@ FROM (
     WHERE id @@@ paradedb.all()
     GROUP BY GROUPING SETS ((name_c), ())
 ) AS grouped;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
  group_count 
 -------------
@@ -366,6 +380,7 @@ SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY GROUPING SETS ((name_c), ());
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Cannot execute pdb.agg: GROUPING SETS are not supported
 \echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan reads the key from a row'
 Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan reads the key from a row
@@ -374,6 +389,7 @@ SELECT name_c, COUNT(*)
 FROM collation_test
 WHERE name_c = 'apple' AND id @@@ paradedb.all()
 GROUP BY name_c;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                             QUERY PLAN                                                                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -391,6 +407,7 @@ SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
 WHERE name_c = 'apple' AND id @@@ paradedb.all()
 GROUP BY name_c;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  name_c |      agg       
 --------+----------------
  apple  | {"value": 1.0}
@@ -404,6 +421,7 @@ SELECT name_case_insensitive, COUNT(*)
 FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                         QUERY PLAN                        
 ----------------------------------------------------------
@@ -426,6 +444,7 @@ FROM (
     WHERE id @@@ paradedb.all()
     GROUP BY name_case_insensitive
 ) AS grouped;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
  group_count 
 -------------
@@ -440,6 +459,7 @@ SELECT lower(name_case_insensitive) AS name,
 FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 ERROR:  Cannot execute pdb.agg: GROUP BY uses a nondeterministic collation
 \echo 'Test 2.10: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
 Test 2.10: mixed safe and unsafe GROUP BY keys -> AggregateScan declined
@@ -448,6 +468,7 @@ SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_c, name_case_insensitive
 ORDER BY name_c, name_case_insensitive;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                                           QUERY PLAN                                           
 -----------------------------------------------------------------------------------------------
@@ -492,6 +513,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, city FROM collation_sortby_test
 WHERE id @@@ paradedb.all()
 ORDER BY city ASC NULLS FIRST;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                            QUERY PLAN                            
 -----------------------------------------------------------------
  Sort
@@ -512,6 +534,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, city FROM collation_sortby_test
 WHERE id @@@ paradedb.all()
 ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                            QUERY PLAN                            
 -----------------------------------------------------------------
  Sort
@@ -535,6 +558,7 @@ Test 4.1: C collation ORDER BY -> byte order (uppercase before lowercase in ASCI
 SELECT id, city FROM collation_sortby_test
 WHERE id @@@ paradedb.all()
 ORDER BY city ASC NULLS FIRST;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |   city    
 ----+-----------
   2 | Amsterdam
@@ -549,6 +573,7 @@ Test 4.2: ICU collation ORDER BY -> linguistic order (case-insensitive from Post
 SELECT id, city FROM collation_sortby_test
 WHERE id @@@ paradedb.all()
 ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |   city    
 ----+-----------
   2 | Amsterdam
@@ -723,6 +748,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY name_c
 ORDER BY name_c
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -744,6 +770,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                    QUERY PLAN                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -769,6 +796,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY priority
 ORDER BY priority
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -795,6 +823,7 @@ SELECT id, name_default FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_default
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                         QUERY PLAN                        
 ----------------------------------------------------------
  Limit
@@ -817,6 +846,7 @@ SELECT name_default, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_default
 ORDER BY name_default;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on collation_test
@@ -835,6 +865,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY name_default
 ORDER BY name_default
 LIMIT 3;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -860,6 +891,7 @@ SELECT id, name_c, name_icu FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_c, name_icu
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                            
 -----------------------------------------------------------------
@@ -882,6 +914,7 @@ SELECT id, priority, name_icu FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY priority, name_icu
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
                            QUERY PLAN                           
 ----------------------------------------------------------------
@@ -904,6 +937,7 @@ SELECT id, name_c, name_default FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_c, name_default
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                         QUERY PLAN                        
 ----------------------------------------------------------
  Limit
@@ -925,6 +959,7 @@ SELECT id, priority, name_default FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY priority, name_default
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                         QUERY PLAN                        
 ----------------------------------------------------------
  Limit

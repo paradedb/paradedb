@@ -111,6 +111,7 @@ ERROR:  type `ltree` is not compatible with the `&&&` operator
 SELECT id, category FROM tbl_ltree
 WHERE tbl_ltree @@@ paradedb.term(field => 'category', value => 'Top.Hobbies.Photography')
 ORDER BY id;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |        category         
 ----+-------------------------
   6 | Top.Hobbies.Photography

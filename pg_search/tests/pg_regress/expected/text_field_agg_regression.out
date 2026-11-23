@@ -36,6 +36,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY name
 ORDER BY count(name) DESC, name DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -59,6 +60,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY name
 ORDER BY count(name) DESC, name DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
     value    
 -------------
  language_99
@@ -81,6 +83,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY name
 ORDER BY 2 DESC, name DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                 QUERY PLAN                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -108,6 +111,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY name
 ORDER BY 2 DESC, name DESC
 LIMIT 5;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
     value    |     count      
 -------------+----------------
  language_99 | {"value": 1.0}
@@ -130,6 +134,7 @@ SELECT pdb.agg('{
 }')
 FROM test_text_agg
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                   QUERY PLAN                                                                                                                                  
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
@@ -148,6 +153,7 @@ SELECT pdb.agg('{
 }')
 FROM test_text_agg
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                        agg                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": 0.0, "doc_count": 125, "name_count": {"value": 125.0}}, {"key": 25.0, "doc_count": 125, "name_count": {"value": 125.0}}, {"key": 50.0, "doc_count": 125, "name_count": {"value": 125.0}}, {"key": 75.0, "doc_count": 125, "name_count": {"value": 125.0}}]}
@@ -166,6 +172,7 @@ SELECT pdb.agg('{
 }')
 FROM test_text_agg
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
@@ -184,6 +191,7 @@ SELECT pdb.agg('{
 }')
 FROM test_text_agg
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                       agg                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"to": 50.0, "key": "*-50", "doc_count": 250, "name_count": {"value": 250.0}}, {"key": "50-*", "from": 50.0, "doc_count": 250, "name_count": {"value": 250.0}}]}
@@ -197,6 +205,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"value_count": {"field": "name"}}')
 FROM test_text_agg
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                    QUERY PLAN                                    
 ---------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
@@ -210,6 +219,7 @@ WHERE id @@@ paradedb.all();
 SELECT pdb.agg('{"value_count": {"field": "name"}}')
 FROM test_text_agg
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
        agg        
 ------------------
  {"value": 500.0}

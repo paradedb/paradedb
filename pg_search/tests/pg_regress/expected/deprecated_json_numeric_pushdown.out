@@ -81,6 +81,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = -42
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                         QUERY PLAN                                                        
 --------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -98,6 +99,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = -42
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
   3 | -42
@@ -110,6 +112,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 9223372036854775808
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -127,6 +130,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 9223372036854775808
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value        
 ----+---------------------
  10 | 9223372036854775808
@@ -139,6 +143,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 3.14159
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                           QUERY PLAN                                                          
 ------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -156,6 +161,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 3.14159
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  value  
 ----+---------
  18 | 3.14159
@@ -169,6 +175,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 100
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                         QUERY PLAN                                                        
 --------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -186,6 +193,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 100
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value | json_type 
 ----+-------+-----------
  20 | 100   | number
@@ -198,6 +206,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 999.0
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value | json_type 
 ----+-------+-----------
  22 | 999   | number
@@ -210,6 +219,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 9223372036854775807
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value        
 ----+---------------------
   9 | 9223372036854775807
@@ -221,6 +231,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 18446744073709551615
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
  14 | 18446744073709551615
@@ -232,6 +243,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 0
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
   5 | 0
@@ -248,6 +260,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 1000
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                             QUERY PLAN                                                                                                            
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -266,6 +279,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 1000
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   9 | 9223372036854775807
@@ -287,6 +301,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 18446744073709551613
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
  13 | 18446744073709551614
@@ -299,6 +314,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 3.0
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   7 | 42
@@ -335,6 +351,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > -100
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   3 | -42
@@ -381,6 +398,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric < 10
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -403,6 +421,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric < 9223372036854775808
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -445,6 +464,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric < 1.0
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -465,6 +485,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric < -1000
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -481,6 +502,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric >= 18446744073709551614
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
  13 | 18446744073709551614
@@ -493,6 +515,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric >= 1000
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   8 | 1000
@@ -515,6 +538,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric >= 0
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   5 | 0
@@ -557,6 +581,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric <= 1
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -578,6 +603,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric <= 9223372036854775808
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -621,6 +647,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric <= 0
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -645,6 +672,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 0 AND 100
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                          QUERY PLAN                                                                                                                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -663,6 +691,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 0 AND 100
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  value  
 ----+---------
   5 | 0
@@ -684,6 +713,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 9223372036854775807 AND 9223372036854775808
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value        
 ----+---------------------
   9 | 9223372036854775807
@@ -696,6 +726,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 18446744073709551613 AND 18446744073709551615
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
  12 | 18446744073709551613
@@ -709,6 +740,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN -1000 AND -1
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  value   
 ----+----------
   2 | -1000
@@ -724,6 +756,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN -10 AND 10
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  value   
 ----+----------
   4 | -1
@@ -740,6 +773,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 99 AND 101
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value | json_type 
 ----+-------+-----------
  20 | 100   | number
@@ -761,6 +795,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric IN (-42, -1, 42)
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                               QUERY PLAN                                                              
 --------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -778,6 +813,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric IN (-42, -1, 42)
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
   3 | -42
@@ -791,6 +827,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric IN (9223372036854775808, 18446744073709551615)
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
  10 | 9223372036854775808
@@ -803,6 +840,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric IN (0.5, 3.14159, 42.5)
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  value  
 ----+---------
  17 | 0.5
@@ -821,6 +859,7 @@ AND (data->>'num')::numeric IN (
     18446744073709551615      -- U64
 )
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   3 | -42
@@ -836,6 +875,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric IN (100, 999)
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                             QUERY PLAN                                                            
 ----------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -853,6 +893,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric IN (100, 999)
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value | json_type 
 ----+-------+-----------
  20 | 100   | number
@@ -871,6 +912,7 @@ AND (data->>'num')::numeric IN (
     18446744073709551615      -- u64::MAX
 )
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -887,6 +929,7 @@ SELECT COUNT(*) as count_not_in_list
 FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric NOT IN (100, 999);
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count_not_in_list 
 -------------------
                 33
@@ -898,6 +941,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric NOT IN (0, -1, 1, 42)
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -944,6 +988,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 9007199254740991
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      value       
 ----+------------------
  26 | 9007199254740991
@@ -955,6 +1000,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 9007199254740993
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      value       
 ----+------------------
  28 | 9007199254740993
@@ -966,6 +1012,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = -9223372036854775808
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -977,6 +1024,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 9007199254740991 AND 9007199254740993
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      value       
 ----+------------------
  26 | 9007199254740991
@@ -993,6 +1041,7 @@ SELECT COUNT(*) as count_should_be_zero
 FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 200 AND 100;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count_should_be_zero 
 ----------------------
                     0
@@ -1005,6 +1054,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 100 AND 100
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
  20 | 100
@@ -1019,6 +1069,7 @@ WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 99
 AND (data->>'num')::numeric < 101
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
  20 | 100
@@ -1034,6 +1085,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 9007199254740993 AND 18446744073709551615
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |        value         
 ----+----------------------
   9 | 9223372036854775807
@@ -1054,6 +1106,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 99.5 AND 100.5
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
  20 | 100
@@ -1069,6 +1122,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 9007199254740991 AND 9007199254740992
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      value       
 ----+------------------
  26 | 9007199254740991
@@ -1082,6 +1136,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 9007199254740992 AND 9007199254740994
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      value       
 ----+------------------
  27 | 9007199254740992
@@ -1094,6 +1149,7 @@ SELECT COUNT(*) as count_should_be_zero
 FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 100 AND 50;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count_should_be_zero 
 ----------------------
                     0
@@ -1106,6 +1162,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 100 AND 101
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
  20 | 100
@@ -1121,6 +1178,7 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric >= 100
 AND (data->>'num')::numeric < 100;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count_should_be_zero 
 ----------------------
                     0
@@ -1157,6 +1215,8 @@ INSERT INTO json_fast_field_test (data) VALUES
 CREATE INDEX json_fast_idx ON json_fast_field_test
 USING paradedb (id, data)
 WITH (text_fields = '{}', json_fields = '{"data": {"fast": true}}');
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
+WARNING:  json_fields uses the deprecated ParadeDB V1 API
 -- ============================================================================
 -- SECTION K: Comparison of NUMERIC vs FLOAT8 pushdown on JSON fast fields
 -- Both should produce IDENTICAL results since fast fields use F64 internally
@@ -1167,6 +1227,7 @@ FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric >= 100 AND (data->>'value')::numeric <= 500
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
   1 | 100
@@ -1180,6 +1241,7 @@ FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::float8 >= 100 AND (data->>'value')::float8 <= 500
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
   1 | 100
@@ -1195,6 +1257,7 @@ FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric >= 9007199254740993 AND (data->>'value')::numeric < 9007199254740994
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      value       
 ----+------------------
   8 | 9007199254740992
@@ -1207,6 +1270,7 @@ FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::float8 >= 9007199254740993 AND (data->>'value')::float8 < 9007199254740994
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      value       
 ----+------------------
   8 | 9007199254740992
@@ -1222,6 +1286,7 @@ FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric >= 1 AND (data->>'value')::numeric <= 200
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
   1 | 100
@@ -1236,6 +1301,7 @@ FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric > 500
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      value       
 ----+------------------
   4 | 1000
@@ -1251,6 +1317,7 @@ FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric < 200
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
   1 | 100
@@ -1264,6 +1331,7 @@ FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric >= 9007199254740991 AND (data->>'value')::numeric <= 9007199254740994
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      value       
 ----+------------------
   7 | 9007199254740991
@@ -1278,6 +1346,7 @@ FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric = 9007199254740992
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |      value       
 ----+------------------
   8 | 9007199254740992
@@ -1289,6 +1358,7 @@ FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric BETWEEN 100 AND 1000
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value 
 ----+-------
   1 | 100
@@ -1319,6 +1389,8 @@ INSERT INTO json_scientific_test (data) VALUES
 CREATE INDEX json_sci_idx ON json_scientific_test
 USING paradedb (id, data)
 WITH (text_fields = '{}', json_fields = '{"data": {"fast": true}}');
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
+WARNING:  json_fields uses the deprecated ParadeDB V1 API
 -- Test M1a: Query using scientific notation constant (integer result)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, data->>'value' as value
@@ -1326,6 +1398,7 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric = 1e6
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                            QUERY PLAN                                                           
 --------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1343,6 +1416,7 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric = 1e6
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  value  
 ----+---------
   1 | 1000000
@@ -1355,6 +1429,7 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric = 1.5e6
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                            QUERY PLAN                                                           
 --------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1372,6 +1447,7 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric = 1.5e6
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  value  
 ----+---------
   2 | 1500000
@@ -1384,6 +1460,7 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric >= 1e5 AND (data->>'value')::numeric <= 2e6
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                           QUERY PLAN                                                                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1401,6 +1478,7 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric >= 1e5 AND (data->>'value')::numeric <= 2e6
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  value  
 ----+---------
   1 | 1000000
@@ -1414,6 +1492,7 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric < 1e0
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1431,6 +1510,7 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric < 1e0
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | value  
 ----+--------
   3 | 0.0025
@@ -1444,6 +1524,7 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric IN (1e6, 1.5e6, 5e0)
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  value  
 ----+---------
   1 | 1000000
@@ -1479,6 +1560,7 @@ FROM numeric_scientific_test
 WHERE id @@@ paradedb.all()
 AND value = 1e6
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                         QUERY PLAN                                                         
 ---------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1497,6 +1579,7 @@ FROM numeric_scientific_test
 WHERE id @@@ paradedb.all()
 AND value = 1e6
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |    value     
 ----+--------------
   1 | 1000000.0000
@@ -1509,6 +1592,7 @@ FROM numeric_scientific_test
 WHERE id @@@ paradedb.all()
 AND value >= 1e2 AND value <= 1e4
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                    QUERY PLAN                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1527,6 +1611,7 @@ FROM numeric_scientific_test
 WHERE id @@@ paradedb.all()
 AND value >= 1e2 AND value <= 1e4
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  value   
 ----+----------
   9 | 999.0000
@@ -1538,6 +1623,7 @@ FROM numeric_scientific_test
 WHERE id @@@ paradedb.all()
 AND value < 1e0
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |   value   
 ----+-----------
   3 |    0.0025
@@ -1551,6 +1637,7 @@ FROM numeric_scientific_test
 WHERE id @@@ paradedb.all()
 AND value = -3.14e2
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |   value   
 ----+-----------
   5 | -314.0000

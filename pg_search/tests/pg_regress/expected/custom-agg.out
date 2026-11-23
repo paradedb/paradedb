@@ -1118,6 +1118,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                               QUERY PLAN                               
 -----------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
@@ -1131,6 +1132,7 @@ WHERE id @@@ paradedb.all();
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                agg                                                                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "database", "doc_count": 6}, {"key": "api", "doc_count": 5}, {"key": "application", "doc_count": 4}, {"key": "network", "doc_count": 4}, {"key": "security", "doc_count": 3}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -1143,6 +1145,7 @@ FROM logs
 WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                          QUERY PLAN                                                                                          
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
@@ -1159,6 +1162,7 @@ FROM logs
 WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
   category   |              agg              
 -------------+-------------------------------
  api         | {"value": 386.0}
@@ -1257,6 +1261,7 @@ SELECT pdb.agg('{"range": {"field": "status_code", "ranges": [
 ]}}'::jsonb) AS status_code_buckets
 FROM logs
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                      QUERY PLAN                                                                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
@@ -1275,6 +1280,7 @@ SELECT pdb.agg('{"range": {"field": "status_code", "ranges": [
 ]}}'::jsonb) AS status_code_buckets
 FROM logs
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                       status_code_buckets                                                                                                                                                                       
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"to": 200.0, "key": "*-200", "doc_count": 0}, {"to": 300.0, "key": "2xx", "from": 200.0, "doc_count": 1}, {"to": 400.0, "key": "3xx", "from": 300.0, "doc_count": 0}, {"to": 500.0, "key": "4xx", "from": 400.0, "doc_count": 8}, {"to": 600.0, "key": "5xx", "from": 500.0, "doc_count": 13}, {"key": "600-*", "from": 600.0, "doc_count": 0}]}
@@ -2365,6 +2371,8 @@ SELECT
   ])
   ORDER BY name ASC
   LIMIT 25;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  count | id 
 -------+----
      2 |  1

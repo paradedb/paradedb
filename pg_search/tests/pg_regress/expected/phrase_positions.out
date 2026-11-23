@@ -9,6 +9,7 @@ INSERT INTO phrase_notes VALUES
     (3, 'sofa red leather');
 CREATE INDEX phrase_notes_idx ON phrase_notes
     USING bm25 (id, (note::pdb.simple('stopwords_language=English')));
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 SELECT id FROM phrase_notes WHERE note ### 'sofa of leather' ORDER BY id;
  id 
 ----
@@ -29,6 +30,7 @@ DROP TABLE phrase_notes;
 CREATE TABLE phrase_names (id int PRIMARY KEY, name text);
 INSERT INTO phrase_names VALUES (1, 'sofa'), (2, 'couch'), (3, 'soda');
 CREATE INDEX phrase_names_idx ON phrase_names USING bm25 (id, (name::pdb.edge_ngram(2, 5)));
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 SELECT id FROM phrase_names WHERE name ### 'sofa' ORDER BY id;
  id 
 ----
@@ -54,6 +56,7 @@ CREATE TABLE phrase_names_st (id int PRIMARY KEY, name text);
 INSERT INTO phrase_names_st SELECT * FROM phrase_names;
 CREATE INDEX phrase_names_st_idx ON phrase_names_st
     USING bm25 (id, (name::pdb.edge_ngram(2, 5))) WITH (search_tokenizer = 'simple');
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 SELECT id FROM phrase_names_st
 WHERE name ||| (SELECT pdb.expand('sofa', rule) FROM phrase_synonyms) ORDER BY id;
  id 

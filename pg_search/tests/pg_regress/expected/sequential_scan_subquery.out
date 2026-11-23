@@ -68,6 +68,7 @@ WHERE EXISTS (SELECT 1 FROM orders
               WHERE orders.name = products.name
                     AND orders.name @@@ paradedb.term('color', 'red'))
       OR products.id = -1;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  array_agg 
 -----------
  {2}
@@ -119,6 +120,8 @@ WHERE id @@@ paradedb.with_index(
          THEN 'products_search'::regclass ELSE 'orders_search'::regclass END,
     paradedb.term('color', 'blue')
 );
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.with_index() uses the deprecated ParadeDB V1 API
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 

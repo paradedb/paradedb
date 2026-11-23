@@ -40,6 +40,7 @@ USING paradedb (id, message, (country::pdb.literal_normalized('lowercase=true'))
 -- Test 2.1: COUNT(*) - should return 0
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                  QUERY PLAN                                                  
 -------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
@@ -51,6 +52,7 @@ SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
 (6 rows)
 
 SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      0
@@ -58,6 +60,7 @@ SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.2: COUNT(column) - should return 0
 SELECT COUNT(value) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      0
@@ -66,6 +69,7 @@ SELECT COUNT(value) FROM empty_test WHERE id @@@ paradedb.all();
 -- Test 2.3: SUM - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
@@ -77,6 +81,7 @@ SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
 (6 rows)
 
 SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  sum 
 -----
     
@@ -85,6 +90,7 @@ SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
 -- Test 2.4: AVG - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
@@ -96,6 +102,7 @@ SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
 (6 rows)
 
 SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  avg 
 -----
     
@@ -104,6 +111,7 @@ SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
 -- Test 2.5: MIN - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
@@ -115,6 +123,7 @@ SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
 (6 rows)
 
 SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  min 
 -----
     
@@ -123,6 +132,7 @@ SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
 -- Test 2.6: MAX - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
@@ -134,6 +144,7 @@ SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
 (6 rows)
 
 SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  max 
 -----
     
@@ -143,6 +154,7 @@ SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value)
 FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                  
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
@@ -155,6 +167,7 @@ FROM empty_test WHERE id @@@ paradedb.all();
 
 SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value)
 FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count | count | sum | avg | min | max 
 -------+-------+-----+-----+-----+-----
      0 |     0 |     |     |     |    
@@ -162,6 +175,7 @@ FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.8: From the original issue report
 SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      0
@@ -175,6 +189,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                QUERY PLAN                                               
 --------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
@@ -189,6 +204,7 @@ GROUP BY category;
 SELECT category, COUNT(*) FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | count 
 ----------+-------
 (0 rows)
@@ -200,6 +216,7 @@ FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                         QUERY PLAN                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
@@ -216,6 +233,7 @@ FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | count | sum | avg 
 ----------+-------+-----+-----
 (0 rows)
@@ -225,6 +243,7 @@ SELECT category, COUNT(*) FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | count 
 ----------+-------
 (0 rows)
@@ -235,6 +254,7 @@ SELECT category, value, COUNT(*) FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category, value
 ORDER BY category, value;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                               QUERY PLAN                                                                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
@@ -250,6 +270,7 @@ SELECT category, value, COUNT(*) FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category, value
 ORDER BY category, value;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | value | count 
 ----------+-------+-------
 (0 rows)
@@ -260,6 +281,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY severity
 ORDER BY severity DESC
 LIMIT 10;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  severity | count 
 ----------+-------
 (0 rows)
@@ -277,6 +299,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -292,6 +316,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -307,6 +333,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -322,6 +350,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -337,6 +367,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -352,6 +384,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -373,6 +407,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -391,6 +427,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -410,6 +448,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -425,6 +465,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -447,6 +489,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -476,6 +520,8 @@ SELECT * FROM paradedb.aggregate(
         }
     }'
 );
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  aggregate 
 -----------
  null
@@ -490,6 +536,7 @@ FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 HAVING COUNT(*) > 0;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: empty_test)
  category | cnt 
 ----------+-----
@@ -505,6 +552,7 @@ SELECT
 FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: empty_test)
  category | total_count | distinct_values | high_values | doubled_avg 
 ----------+-------------+-----------------+-------------+-------------
@@ -516,6 +564,7 @@ SELECT
     SUM(value) FILTER (WHERE category = 'Electronics') as electronics_sum
 FROM empty_test
 WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  high_count | electronics_sum 
 ------------+-----------------
           0 |                
@@ -525,6 +574,7 @@ WHERE id @@@ paradedb.all();
 SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all()
 UNION ALL
 SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      0
@@ -537,12 +587,14 @@ SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
 SET paradedb.enable_aggregate_custom_scan TO off;
 -- These should work normally (no custom scan, standard PostgreSQL behavior)
 SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      0
 (1 row)
 
 SELECT category, COUNT(*) FROM empty_test WHERE id @@@ paradedb.all() GROUP BY category;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  category | count 
 ----------+-------
 (0 rows)

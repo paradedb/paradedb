@@ -27,6 +27,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
     value => 'sheos',
     distance => 1::integer
 );
+WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
@@ -44,6 +45,7 @@ SELECT id, description, rating, category FROM mock_items WHERE description @@@ p
     value => 'sheos',
     distance => 1::integer
 ) ORDER BY id;
+WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
  id |     description     | rating | category 
 ----+---------------------+--------+----------
   3 | Sleek running shoes |      5 | Footwear
@@ -57,6 +59,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
     value => 'sheos',
     distance => 2::integer
 );
+WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
@@ -74,6 +77,7 @@ SELECT id, description, rating, category FROM mock_items WHERE description @@@ p
     value => 'sheos',
     distance => 2::integer
 ) ORDER BY id;
+WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
  id |     description     | rating | category 
 ----+---------------------+--------+----------
   3 | Sleek running shoes |      5 | Footwear
@@ -88,6 +92,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
     field => 'description',
     pattern => 'sh.*es'
 );
+WARNING:  paradedb.regex() uses the deprecated ParadeDB V1 API
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
@@ -104,6 +109,7 @@ SELECT id, description, rating, category FROM mock_items WHERE description @@@ p
     field => 'description',
     pattern => 'sh.*es'
 ) ORDER BY id;
+WARNING:  paradedb.regex() uses the deprecated ParadeDB V1 API
  id |     description     | rating | category 
 ----+---------------------+--------+----------
   3 | Sleek running shoes |      5 | Footwear
@@ -118,6 +124,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ p
     field => 'rating',
     range => int4range(3, 5)
 );
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
@@ -134,6 +141,7 @@ SELECT id, description, rating, category FROM mock_items WHERE id @@@ paradedb.r
     field => 'rating',
     range => int4range(3, 5)
 ) ORDER BY id;
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  id |        description        | rating |  category   
 ----+---------------------------+--------+-------------
   1 | Ergonomic metal keyboard  |      4 | Electronics
@@ -170,6 +178,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ p
     field => 'created_at',
     range => tsrange('2023-04-01', '2023-06-01')
 );
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                                                                                      QUERY PLAN                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
@@ -186,6 +195,7 @@ SELECT id, description, rating, category FROM mock_items WHERE id @@@ paradedb.r
     field => 'created_at',
     range => tsrange('2023-04-01', '2023-06-01')
 ) ORDER BY id;
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   1 | Ergonomic metal keyboard    |      4 | Electronics
@@ -240,6 +250,9 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
         paradedb.fuzzy_term(field => 'description', value => 'runing', distance => 1::integer)
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                              QUERY PLAN                                                                                                             
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
@@ -258,6 +271,9 @@ SELECT id, description, rating, category FROM mock_items WHERE description @@@ p
         paradedb.fuzzy_term(field => 'description', value => 'runing', distance => 1::integer)
     ]
 ) ORDER BY id;
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
  id |     description     | rating | category 
 ----+---------------------+--------+----------
   3 | Sleek running shoes |      5 | Footwear
@@ -272,6 +288,7 @@ SELECT g, md5(g::text), CASE WHEN g % 2 = 0 THEN 'en' ELSE 'ja' END FROM generat
 INSERT INTO expensive_estimate_titles VALUES (10001, 'naruto', 'ja'), (10002, 'narutoo', 'ja'), (10003, 'naruta', 'ja');
 CREATE INDEX expensive_estimate_titles_idx ON expensive_estimate_titles
     USING bm25 (id, (title::pdb.literal_normalized), lang);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 ANALYZE expensive_estimate_titles;
 CREATE FUNCTION expensive_estimate_plan_rows(q text) RETURNS text LANGUAGE plpgsql AS $$
 DECLARE plan json;

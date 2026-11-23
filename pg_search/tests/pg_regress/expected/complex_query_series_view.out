@@ -43,6 +43,7 @@ WHERE "InventoryItems"."id" @@@ '{"boolean":{"must":[{"term":{"field":"supplier_
 ORDER BY pdb.score("InventoryItems"."id") DESC
 LIMIT 12
 OFFSET 0;
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
  id  
 -----
    3

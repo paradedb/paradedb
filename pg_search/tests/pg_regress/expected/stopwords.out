@@ -6,6 +6,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords => ARRAY['stopword']),
         'something, stopword, else'
 );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
    token   | position 
 -----------+----------
  something |        0
@@ -16,6 +18,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'English'),
         'something and else'
 );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
    token   | position 
 -----------+----------
  something |        0
@@ -27,6 +31,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'English', stopwords => ARRAY['stopword']),
         'stopword and else'
 );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token | position 
 -------+----------
  else  |        2
@@ -37,6 +43,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Danish'),
         'ikke æbler'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token | position 
 -------+----------
  æbler |        1
@@ -46,6 +54,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Dutch'),
         'geen appels'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token  | position 
 --------+----------
  appels |        1
@@ -55,6 +65,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'English'),
         'no apples'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token  | position 
 --------+----------
  apples |        1
@@ -64,6 +76,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Finnish'),
         'ei omenoita'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
   token   | position 
 ----------+----------
  omenoita |        1
@@ -73,6 +87,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'French'),
         'pas de pommes'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token  | position 
 --------+----------
  pommes |        2
@@ -82,6 +98,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'German'),
         'keine Äpfel'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token | position 
 -------+----------
  äpfel |        1
@@ -91,6 +109,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Hungarian'),
         'nincs alma'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token | position 
 -------+----------
  alma  |        1
@@ -100,6 +120,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Italian'),
         'non mele'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token | position 
 -------+----------
  mele  |        1
@@ -109,6 +131,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Norwegian'),
         'ingen epler'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token | position 
 -------+----------
  epler |        1
@@ -118,6 +142,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Czech'),
         'bez jablek'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token  | position 
 --------+----------
  jablek |        1
@@ -127,6 +153,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Polish'),
         'bez jabłek'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token  | position 
 --------+----------
  jabłek |        1
@@ -136,6 +164,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Portuguese'),
         'sem maçãs'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token | position 
 -------+----------
  maçãs |        1
@@ -145,6 +175,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Russian'),
         'нет яблок'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token | position 
 -------+----------
  яблок |        1
@@ -154,6 +186,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Spanish'),
         'sin manzanas'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
   token   | position 
 ----------+----------
  manzanas |        1
@@ -163,6 +197,8 @@ SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Swedish'),
         'inte äpplen'
               );
+WARNING:  paradedb.tokenize() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
  token  | position 
 --------+----------
  äpplen |        1

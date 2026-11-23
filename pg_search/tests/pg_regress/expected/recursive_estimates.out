@@ -136,6 +136,8 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'running')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                     QUERY PLAN                                                                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -157,6 +159,8 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'walking')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                       QUERY PLAN                                                                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -176,6 +180,8 @@ WHERE description @@@ paradedb.boolean(
     must := ARRAY[paradedb.term('description', 'shoes')],
     should := ARRAY[paradedb.term('description', 'running'), paradedb.term('description', 'athletic')]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                              QUERY PLAN                                                                                                                                                             
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -195,6 +201,8 @@ WHERE description @@@ paradedb.boolean(
     must := ARRAY[paradedb.term('description', 'shoes')],
     must_not := ARRAY[paradedb.term('description', 'athletic')]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                            QUERY PLAN                                                                                                                           
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -225,6 +233,8 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'athletic')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                                             QUERY PLAN                                                                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -251,6 +261,8 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'boots')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                                             QUERY PLAN                                                                                                                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -282,6 +294,8 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'athletic')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -333,6 +347,7 @@ WHERE id @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                                                                QUERY PLAN                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -352,6 +367,7 @@ WHERE description @@@ paradedb.regex(
     field => 'description',
     pattern => 'run.*'
 );
+WARNING:  paradedb.regex() uses the deprecated ParadeDB V1 API
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -372,6 +388,7 @@ WHERE description @@@ paradedb.fuzzy_term(
     value => 'sheos',
     distance => 1::integer
 );
+WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -388,6 +405,7 @@ WHERE description @@@ paradedb.fuzzy_term(
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE description @@@ paradedb.empty();
+WARNING:  paradedb.empty() uses the deprecated ParadeDB V1 API
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -407,6 +425,8 @@ WHERE description @@@ paradedb.boost(
     factor => 2.0,
     query => paradedb.term('description', 'shoes')
 );
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -426,6 +446,8 @@ WHERE description @@@ paradedb.const_score(
     score => 1.5,
     query => paradedb.term('description', 'shoes')
 );
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -447,6 +469,8 @@ WHERE description @@@ paradedb.disjunction_max(
         paradedb.term('description', 'boots')
     ]
 );
+WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                    QUERY PLAN                                                                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -469,6 +493,8 @@ WHERE description @@@ paradedb.disjunction_max(
     ],
     tie_breaker => 0.3
 );
+WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                            QUERY PLAN                                                                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -485,6 +511,7 @@ WHERE description @@@ paradedb.disjunction_max(
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE description @@@ paradedb.parse('description:shoes AND description:running');
+WARNING:  paradedb.parse() uses the deprecated ParadeDB V1 API
                                                                                           QUERY PLAN                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -505,6 +532,7 @@ WHERE description @@@ paradedb.phrase(
     phrases => ARRAY['running', 'shoes'],
     slop => 2
 );
+WARNING:  paradedb.phrase() uses the deprecated ParadeDB V1 API
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -524,6 +552,7 @@ WHERE description @@@ paradedb.phrase_prefix(
     field => 'description',
     phrases => ARRAY['run']
 );
+WARNING:  paradedb.phrase_prefix() uses the deprecated ParadeDB V1 API
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -543,6 +572,7 @@ WHERE description @@@ paradedb.regex_phrase(
     field => 'description',
     regexes => ARRAY['run.*', 'shoe.*']
 );
+WARNING:  paradedb.regex_phrase() uses the deprecated ParadeDB V1 API
                                                                                        QUERY PLAN                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -578,6 +608,7 @@ WHERE description @@@ paradedb.match(
     field => 'description',
     value => 'running shoes'
 );
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
                                                                                                                    QUERY PLAN                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -597,6 +628,7 @@ WHERE description @@@ paradedb.match_conjunction(
     field => 'description',
     terms_to_tokenize => 'running shoes'
 );
+WARNING:  paradedb.match_conjunction() uses the deprecated ParadeDB V1 API
                                                                                                                    QUERY PLAN                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -616,6 +648,7 @@ WHERE description @@@ paradedb.match_disjunction(
     field => 'description',
     terms_to_tokenize => 'running walking'
 );
+WARNING:  paradedb.match_disjunction() uses the deprecated ParadeDB V1 API
                                                                                                                     QUERY PLAN                                                                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -667,6 +700,7 @@ WHERE id @@@ paradedb.range(
     field => 'created_at',
     range => tsrange('2023-01-01', '2023-12-31')
 );
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                                                                                                          QUERY PLAN                                                                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -689,6 +723,8 @@ WHERE description @@@ paradedb.term_set(
         paradedb.term('description', 'sandals')
     ]
 );
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -717,6 +753,9 @@ WHERE description @@@ paradedb.boost(
         ]
     )
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                               QUERY PLAN                                                                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -741,6 +780,9 @@ WHERE description @@@ paradedb.const_score(
         ]
     )
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                   QUERY PLAN                                                                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -762,6 +804,9 @@ WHERE description @@@ paradedb.boolean(
         paradedb.boost(factor => 1.5, query => paradedb.term('description', 'running'))
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                                         QUERY PLAN                                                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -788,6 +833,9 @@ WHERE description @@@ paradedb.disjunction_max(
         paradedb.term('description', 'boots')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                                         QUERY PLAN                                                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -817,6 +865,10 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'shoes')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.boost() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.const_score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -963,6 +1015,7 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 
 -- Test 8.2: Match all query (very broad)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -1059,6 +1112,8 @@ WHERE description @@@ paradedb.boolean(
         )
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                         
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -1084,6 +1139,8 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'shoes')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                     QUERY PLAN                                                                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
@@ -1139,6 +1196,8 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'running')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                           QUERY PLAN                                                                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  [                                                                                                                                                                                                                                                                                           +
@@ -1178,6 +1237,8 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'athletic')
     ]
 );
+WARNING:  paradedb.boolean() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                            
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  [                                                                                                                                                                                                                                                                                                                                                                                                                              +
@@ -1210,6 +1271,7 @@ WHERE rating @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
+WARNING:  paradedb.range() uses the deprecated ParadeDB V1 API
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  [                                                                                                                                                                                                   +
@@ -1243,6 +1305,7 @@ WHERE description @@@ paradedb.fuzzy_term(
     value => 'sheos',
     distance => 1::integer
 );
+WARNING:  paradedb.fuzzy_term() uses the deprecated ParadeDB V1 API
                                                                                                            QUERY PLAN                                                                                                            
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  [                                                                                                                                                                                                                              +

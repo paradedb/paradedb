@@ -98,6 +98,7 @@ SELECT count(*) FROM (
     ORDER BY c.name ASC
     LIMIT 26
 ) sub;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, e)
  count 
 -------
@@ -114,6 +115,7 @@ WHERE c.id @@@ paradedb.all()
   )
 ORDER BY c.name ASC
 LIMIT 26;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, e)
                               QUERY PLAN                              
 ----------------------------------------------------------------------
@@ -150,6 +152,7 @@ SELECT count(*) FROM (
     ORDER BY c.id ASC
     LIMIT 26
 ) sub;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, lj_job_openings, p)
  count 
 -------
@@ -171,6 +174,7 @@ SELECT count(*) FROM (
     ORDER BY c.id ASC
     LIMIT 26
 ) sub;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: OR-nested subquery cannot be pushed into the scan (tables: c, p)
  count 
 -------
@@ -189,6 +193,7 @@ JOIN lj_people p ON c.id = p.company_id
 WHERE c.id @@@ paradedb.all()
 ORDER BY c.id ASC
 LIMIT 26;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                           QUERY PLAN                                                           
 -------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -222,6 +227,7 @@ SELECT count(*) FROM (
     ORDER BY c.name ASC
     LIMIT 26 OFFSET 10
 ) sub;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, e)
  count 
 -------
@@ -251,6 +257,7 @@ SELECT count(*) FROM (
     ORDER BY p.id DESC
     LIMIT 26
 ) sub;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: c, p)
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: ec, p)
  count 
@@ -274,6 +281,7 @@ WHERE p.id @@@ paradedb.all()
        ))
 ORDER BY p.id DESC
 LIMIT 26;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: c, p)
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: ec, p)
                                                                                                                      QUERY PLAN                                                                                                                     

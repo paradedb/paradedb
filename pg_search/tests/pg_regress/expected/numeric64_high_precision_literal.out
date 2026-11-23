@@ -22,6 +22,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price = 1e-41
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -42,6 +43,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price > 1e-41
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -61,12 +63,14 @@ ORDER BY id;
 -- Far below one step of the scale: no row equals it, and 0.00 < 1e-41 < 0.01.
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price = 1e-41 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
 (0 rows)
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price > 1e-41 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   3 |  0.01
@@ -76,6 +80,7 @@ WHERE id @@@ paradedb.all() AND price > 1e-41 ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price >= 1e-41 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   3 |  0.01
@@ -85,6 +90,7 @@ WHERE id @@@ paradedb.all() AND price >= 1e-41 ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price < 1e-41 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   1 | -0.01
@@ -93,6 +99,7 @@ WHERE id @@@ paradedb.all() AND price < 1e-41 ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price <= 1e-41 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   1 | -0.01
@@ -102,12 +109,14 @@ WHERE id @@@ paradedb.all() AND price <= 1e-41 ORDER BY id;
 -- The same on the negative side: -0.01 < -1e-41 < 0.00.
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price = -1e-41 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
 (0 rows)
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price >= -1e-41 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   2 |  0.00
@@ -118,6 +127,7 @@ WHERE id @@@ paradedb.all() AND price >= -1e-41 ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price < -1e-41 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   1 | -0.01
@@ -127,6 +137,7 @@ WHERE id @@@ paradedb.all() AND price < -1e-41 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price = 1.2300000000000000000000000000000000000000000000001
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
 (0 rows)
@@ -134,6 +145,7 @@ ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price > 1.2300000000000000000000000000000000000000000000001
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   5 |  1.24
@@ -142,6 +154,7 @@ ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price <= 1.2300000000000000000000000000000000000000000000001
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   1 | -0.01
@@ -175,6 +188,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price > 92233720368547758.075
 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                    QUERY PLAN                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -193,6 +207,7 @@ ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price > 92233720368547758.075 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
 (0 rows)
@@ -200,6 +215,7 @@ WHERE id @@@ paradedb.all() AND price > 92233720368547758.075 ORDER BY id;
 INSERT INTO numeric64_high_precision (price) VALUES ('NaN'), (NULL);
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price > 92233720368547758.075 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   6 |   NaN
@@ -207,6 +223,7 @@ WHERE id @@@ paradedb.all() AND price > 92233720368547758.075 ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price >= 92233720368547758.075 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   6 |   NaN
@@ -214,6 +231,7 @@ WHERE id @@@ paradedb.all() AND price >= 92233720368547758.075 ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price < 92233720368547758.075 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   1 | -0.01
@@ -225,6 +243,7 @@ WHERE id @@@ paradedb.all() AND price < 92233720368547758.075 ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price <= 92233720368547758.075 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   1 | -0.01
@@ -236,12 +255,14 @@ WHERE id @@@ paradedb.all() AND price <= 92233720368547758.075 ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price = 92233720368547758.075 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
 (0 rows)
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price <> 92233720368547758.075 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   1 | -0.01
@@ -255,6 +276,7 @@ WHERE id @@@ paradedb.all() AND price <> 92233720368547758.075 ORDER BY id;
 -- An exact grid point at i64::MAX must not be mistaken for the NaN sentinel.
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price = 92233720368547758.07 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
 (0 rows)
@@ -262,6 +284,7 @@ WHERE id @@@ paradedb.all() AND price = 92233720368547758.07 ORDER BY id;
 -- Check both sides near i64::MIN as well.
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price > -92233720368547758.075 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   1 | -0.01
@@ -274,6 +297,7 @@ WHERE id @@@ paradedb.all() AND price > -92233720368547758.075 ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price >= -92233720368547758.075 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   1 | -0.01
@@ -286,12 +310,14 @@ WHERE id @@@ paradedb.all() AND price >= -92233720368547758.075 ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price < -92233720368547758.075 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
 (0 rows)
 
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price <= -92233720368547758.075 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
 (0 rows)
@@ -324,6 +350,7 @@ CREATE INDEX numeric64_high_precision_idx ON numeric64_high_precision USING para
 ) WITH (partition_by = 'price');
 SELECT id, price FROM numeric64_high_precision
 WHERE id @@@ paradedb.all() AND price <> 1e-41 ORDER BY id;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   8 |  0.00
@@ -369,6 +396,8 @@ WHERE id @@@ paradedb.term_set(ARRAY[
     paradedb.term('price', 12.345::numeric),
     paradedb.term('price', 12.34::numeric)
 ]) ORDER BY id;
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term_set() uses the deprecated ParadeDB V1 API
  id | price 
 ----+-------
   1 | 12.34

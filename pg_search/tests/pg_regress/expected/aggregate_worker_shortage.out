@@ -23,9 +23,11 @@ BEGIN
     ASSERT plan::text LIKE '%InitPlan%';
 END
 $$;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 SELECT count(*) FROM aggregate_worker_shortage
 WHERE body @@@ paradedb.all()
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
@@ -34,6 +36,7 @@ WHERE body @@@ paradedb.all()
 SELECT count(*) FROM aggregate_worker_shortage
 WHERE body @@@ paradedb.all()
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
@@ -42,6 +45,7 @@ WHERE body @@@ paradedb.all()
 SELECT count(*) FROM aggregate_worker_shortage
 WHERE body @@@ paradedb.all()
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
@@ -50,6 +54,7 @@ WHERE body @@@ paradedb.all()
 SELECT count(*) FROM aggregate_worker_shortage
 WHERE body @@@ paradedb.all()
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5
@@ -58,6 +63,7 @@ WHERE body @@@ paradedb.all()
 SELECT count(*) FROM aggregate_worker_shortage
 WHERE body @@@ paradedb.all()
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
      5

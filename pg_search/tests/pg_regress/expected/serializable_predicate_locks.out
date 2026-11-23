@@ -11,6 +11,8 @@ SELECT g, 'doc' || g, CASE WHEN g <= 2 THEN 'oncall' ELSE 'offcall' END
 FROM generate_series(1, 10) g;
 CREATE INDEX ssi_doctors_idx ON ssi_doctors USING bm25 (id, name, status)
 WITH (text_fields = '{"status": {"tokenizer": {"type": "keyword"}, "fast": true}, "name": {"fast": true}}');
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 -- Until the table has row stats, the base scan reports its worker selection as the row
 -- heuristic, and whether the build left stats behind varies by cluster.
 ANALYZE ssi_doctors;
@@ -19,6 +21,8 @@ CREATE TABLE ssi_shifts (id int PRIMARY KEY, doctor_id int, ward text);
 INSERT INTO ssi_shifts SELECT g, g, 'ward' || g FROM generate_series(1, 10) g;
 CREATE INDEX ssi_shifts_idx ON ssi_shifts USING bm25 (id, doctor_id, ward)
 WITH (text_fields = '{"ward": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
 ANALYZE ssi_shifts;
 -- Which scan ran is the point, and for the aggregate scan which backend, because each one
 -- takes its lock in another place. The rest of a plan (worker selection, exec method, the
@@ -195,6 +199,8 @@ BEGIN ISOLATION LEVEL SERIALIZABLE;
 SELECT * FROM paradedb.aggregate(index=>'ssi_doctors_idx',
                                  query=>paradedb.term('status', 'oncall'),
                                  agg=>'{"matches": {"value_count": {"field": "id"}}}');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
           aggregate          
 -----------------------------
  {"matches": {"value": 2.0}}

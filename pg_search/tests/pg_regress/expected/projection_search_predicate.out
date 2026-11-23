@@ -133,6 +133,8 @@ SELECT id, paradedb.score(id)
 FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.score(...) with the same arguments.
 WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: projection_search_predicate)
  id | score 
 ----+-------
@@ -144,6 +146,8 @@ SELECT id, paradedb.snippet(body)
 FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.snippet(...) with the same arguments. For multiple snippets, use pdb.snippets(...).
 WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: projection_search_predicate)
  id | snippet 
 ----+---------
@@ -155,6 +159,8 @@ SELECT id, paradedb.snippets(body)
 FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
+WARNING:  paradedb.snippets() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.snippets(...) with the same arguments.
 WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: projection_search_predicate)
  id | snippets 
 ----+----------
@@ -166,6 +172,8 @@ SELECT id, paradedb.snippet_positions(body)
 FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
+WARNING:  paradedb.snippet_positions() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.snippet_positions(...) with the same arguments.
 WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: projection_search_predicate)
  id | snippet_positions 
 ----+-------------------
@@ -656,6 +664,14 @@ SELECT id, paradedb.score(id) > 0 AS has_score,
 FROM projection_search_predicate
 WHERE body @@@ 'keyboard'
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.score(...) with the same arguments.
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.snippet(...) with the same arguments. For multiple snippets, use pdb.snippets(...).
+WARNING:  paradedb.snippet_positions() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.snippet_positions(...) with the same arguments.
+WARNING:  paradedb.snippets() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.snippets(...) with the same arguments.
                                                                                                                                                            QUERY PLAN                                                                                                                                                           
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -676,6 +692,14 @@ SELECT id, paradedb.score(id) > 0 AS has_score,
 FROM projection_search_predicate
 WHERE body @@@ 'keyboard'
 ORDER BY id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.score(...) with the same arguments.
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.snippet(...) with the same arguments. For multiple snippets, use pdb.snippets(...).
+WARNING:  paradedb.snippet_positions() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.snippet_positions(...) with the same arguments.
+WARNING:  paradedb.snippets() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.snippets(...) with the same arguments.
  id | has_score |          snippet           |            snippets            | snippet_positions 
 ----+-----------+----------------------------+--------------------------------+-------------------
   1 | t         | mechanical <b>keyboard</b> | {"mechanical <b>keyboard</b>"} | {{11,19}}

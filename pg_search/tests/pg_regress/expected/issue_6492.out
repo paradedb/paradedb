@@ -14,6 +14,7 @@ SET paradedb.enable_columnar_exec = true;
 SET paradedb.enable_columnar_exec = false;
 CREATE TABLE issue_6492 (id int PRIMARY KEY, body text, lib text);
 CREATE INDEX issue_6492_idx ON issue_6492 USING bm25 (id, body);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 -- each insert adds a segment
 INSERT INTO issue_6492
 SELECT g,
@@ -91,6 +92,7 @@ BEGIN
 END $$ LANGUAGE plpgsql;
 SET plan_cache_mode = force_generic_plan;
 EXPLAIN (COSTS OFF) EXECUTE scored('contrato', 'lib1');
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                                            QUERY PLAN                                                                                                                                                            
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -184,6 +186,8 @@ EXECUTE scored('contrato', 'lib1');
 (75 rows)
 
 EXECUTE snippets('contrato', 'lib1');
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
   id  | has_snippet | scored 
 ------+-------------+--------
    16 | t           | t
@@ -312,6 +316,8 @@ SELECT issue_6492_wrapped_summary($$EXECUTE wrapped('servicos OR prestacao', 'li
 -- the same results from custom plans
 SET plan_cache_mode = force_custom_plan;
 EXECUTE snippets('contrato', 'lib1');
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
   id  | has_snippet | scored 
 ------+-------------+--------
    16 | t           | t
@@ -434,6 +440,8 @@ LEFT JOIN LATERAL (
     OFFSET 0
 ) x ON true
 GROUP BY l.lib ORDER BY l.lib$$);
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
                     issue_6492_explain_analyze                    
 ------------------------------------------------------------------
                ->  Custom Scan (ParadeDB Base Scan) on issue_6492
@@ -448,6 +456,8 @@ LEFT JOIN LATERAL (
     OFFSET 0
 ) x ON true
 GROUP BY l.lib ORDER BY l.lib;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
   lib  | total | snippets | scored 
 -------+-------+----------+--------
  lib1  |    75 |       75 |     75
@@ -485,6 +495,7 @@ CROSS JOIN LATERAL (
 -- for every segment it claims. Without workers, the leader claims them all.
 CREATE TABLE issue_6492_parallel (id int PRIMARY KEY, body text, lib text);
 CREATE INDEX issue_6492_parallel_idx ON issue_6492_parallel USING bm25 (id, body);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 INSERT INTO issue_6492_parallel SELECT * FROM issue_6492;
 INSERT INTO issue_6492_parallel
 SELECT g,
@@ -512,6 +523,8 @@ FROM issue_6492_parallel WHERE body @@@ $1 AND lib = $2;
 SET plan_cache_mode = force_generic_plan;
 -- the scan line only: the worker count follows the segment count
 SELECT * FROM issue_6492_explain_analyze($$EXECUTE parallel_snippets('contrato', 'lib1')$$);
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
                           issue_6492_explain_analyze                          
 ------------------------------------------------------------------------------
          ->  Parallel Custom Scan (ParadeDB Base Scan) on issue_6492_parallel
@@ -532,12 +545,16 @@ EXECUTE parallel_snippets('contrato', 'lib3');
 -- the same results from custom plans
 SET plan_cache_mode = force_custom_plan;
 EXECUTE parallel_snippets('contrato', 'lib1');
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
  total | snippets | scored | id_sum 
 -------+----------+--------+--------
    150 |      150 |    150 | 225900
 (1 row)
 
 EXECUTE parallel_snippets('contrato', 'lib3');
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
  total | snippets | scored | id_sum 
 -------+----------+--------+--------
    150 |      150 |    150 | 224700

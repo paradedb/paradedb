@@ -139,6 +139,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*) as count
 FROM places 
 WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.places
@@ -152,6 +153,7 @@ WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all
 SELECT COUNT(*) as count
 FROM places 
 WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
  40000
@@ -164,6 +166,7 @@ WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all
 SELECT 
     (SELECT COUNT(*) FROM places WHERE name &&& 'assist wireless' AND country_code = 'us') as custom_scan_count,
     (SELECT COUNT(*) FROM places WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all()) as workaround_count;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  custom_scan_count | workaround_count 
 -------------------+------------------
              40000 |            40000

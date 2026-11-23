@@ -110,6 +110,10 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -137,6 +141,9 @@ WHERE tenant_id = 'tenant-1'
   AND (NOT id @@@ paradedb.exists('removed_at'))
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -159,6 +166,7 @@ FROM records
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 25;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                       QUERY PLAN                       
 -------------------------------------------------------
  Limit
@@ -182,6 +190,7 @@ FROM records
 WHERE NOT id @@@ paradedb.exists('removed_at')
 ORDER BY id
 LIMIT 25;
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
                                                          QUERY PLAN                                                          
 -----------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -228,6 +237,7 @@ WHERE tenant_id = 'tenant-1'
   AND id @@@ paradedb.match('notes', 'check')
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
                                                                                                                                                       QUERY PLAN                                                                                                                                                       
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -250,6 +260,8 @@ FROM records
 WHERE id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
        tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false))
 LIMIT 25;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
                                                                                                                                           QUERY PLAN                                                                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -284,6 +296,10 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.exists() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.tokenizer() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -308,6 +324,7 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.match('notes', 'check'))
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  paradedb.match() uses the deprecated ParadeDB V1 API
                                                                                                                                                       QUERY PLAN                                                                                                                                                       
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -331,6 +348,7 @@ WHERE id @@@ paradedb.all()
   AND state IS NULL
 ORDER BY state, id
 LIMIT 10000;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=2500.00 loops=1)
@@ -358,6 +376,7 @@ FROM records
 WHERE id @@@ paradedb.all()
 ORDER BY state, flow_type, currency_code, id
     LIMIT 25;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                   QUERY PLAN                                   
 -------------------------------------------------------------------------------
  Limit
@@ -381,6 +400,7 @@ FROM records
 WHERE id @@@ paradedb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, id
     LIMIT 25;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                           QUERY PLAN                                          
 ----------------------------------------------------------------------------------------------
  Limit
@@ -404,6 +424,7 @@ FROM records
 WHERE id @@@ paradedb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, source_id, id
     LIMIT 25;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY has 6 columns but Top K supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: records)
                                  QUERY PLAN                                  
 -----------------------------------------------------------------------------

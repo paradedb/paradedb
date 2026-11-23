@@ -113,6 +113,8 @@ ORDER BY 1;
 
 SET ROLE permission_access_reader;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS no_grant_denials;
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  no_grant_denials 
 ------------------
                25
@@ -206,6 +208,8 @@ SELECT * FROM pdb.index_segments('permission_access.docs_idx');
 ERROR:  direct index reads are not supported when row-level security applies to table permission_access.docs
 ROLLBACK TO SAVEPOINT named_rls_error;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS rls_denials;
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  rls_denials 
 -------------
           25

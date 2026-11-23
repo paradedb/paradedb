@@ -12,12 +12,16 @@ CREATE INDEX idxpr2625 ON pr2625 USING paradedb (id, k, v) WITH (target_segment_
 INSERT INTO pr2625(k, v) SELECT paradedb.random_words(1), x::float8 from generate_series(1, 1000) x;
 SET parallel_leader_participation = true;
 SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'transaction');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
            aggregate           
 -------------------------------
  {"average": {"value": 500.5}}
 (1 row)
 
 SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'raw');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
            aggregate           
 -------------------------------
  {"average": {"value": 500.5}}
@@ -25,6 +29,8 @@ SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=
 
 SET parallel_leader_participation = false;
 SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'transaction');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
            aggregate           
 -------------------------------
  {"average": {"value": 500.5}}
@@ -41,12 +47,16 @@ INSERT INTO pr2625(k, v) SELECT paradedb.random_words(1), x::float8 from generat
 INSERT INTO pr2625(k, v) SELECT paradedb.random_words(1), x::float8 from generate_series(1, 1000) x;
 SET parallel_leader_participation = true;
 SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'transaction');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
            aggregate           
 -------------------------------
  {"average": {"value": 500.5}}
 (1 row)
 
 SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'raw');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
            aggregate           
 -------------------------------
  {"average": {"value": 500.5}}
@@ -54,6 +64,8 @@ SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=
 
 SET parallel_leader_participation = false;
 SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'transaction');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
            aggregate           
 -------------------------------
  {"average": {"value": 500.5}}
@@ -65,6 +77,8 @@ SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=
 SET parallel_leader_participation = false;
 SET max_parallel_workers = 0;
 SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'transaction');
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
            aggregate           
 -------------------------------
  {"average": {"value": 500.5}}

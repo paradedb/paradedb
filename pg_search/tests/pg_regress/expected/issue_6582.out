@@ -31,6 +31,7 @@ INSERT INTO issue_6582_terms (term_id, chunk_id)
 SELECT 1 + g % 2, g FROM generate_series(21, 2000, 21) AS g;
 CREATE INDEX issue_6582_chunks_idx ON issue_6582_chunks
 USING bm25 (id, name, kind, body);
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 ANALYZE issue_6582_chunks;
 ANALYZE issue_6582_terms;
 -- 1) The reported shape: a hashed `SubPlan` in the `ORDER BY` of a scan with a
@@ -47,6 +48,8 @@ ORDER BY (id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = ANY(ARRAY
          paradedb.score(id) DESC,
          id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -79,6 +82,8 @@ ORDER BY (id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = ANY(ARRAY
          paradedb.score(id) DESC,
          id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
   id  |  name   |   kind   |            snip            |  score   
 ------+---------+----------+----------------------------+----------
    84 | fn_84   | function | fred swing number 84       | 0.000196
@@ -107,6 +112,8 @@ SELECT issue_6582_subplan_loops($$
     ORDER BY (id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = ANY(ARRAY[1]))) DESC,
              score DESC
 $$) AS subplan_loops;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
  subplan_loops 
 ---------------
  1
@@ -122,6 +129,7 @@ FROM (
     WHERE c.body @@@ 'swing'
     OFFSET 0
 ) s;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -150,6 +158,7 @@ FROM (
     WHERE c.body @@@ 'swing'
     OFFSET 0
 ) s;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  count | sum | scored 
 -------+-----+--------
   2000 |  95 |   2000
@@ -162,6 +171,7 @@ FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY above DESC, id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                         QUERY PLAN                                                                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -189,6 +199,7 @@ FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY above DESC, id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id | above 
 ----+-------
   1 | t
@@ -206,6 +217,7 @@ FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY score DESC, id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                      QUERY PLAN                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -232,6 +244,7 @@ FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY score DESC, id
 LIMIT 5;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  id |   score   | tagged 
 ----+-----------+--------
  17 | 1.0003437 | t
@@ -255,6 +268,7 @@ FROM generate_series(1, 2) AS k,
          LIMIT 3
      ) x
 ORDER BY k, x.id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                                                QUERY PLAN                                                                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -296,6 +310,7 @@ FROM generate_series(1, 2) AS k,
          LIMIT 3
      ) x
 ORDER BY k, x.id;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  k | id |   score   
 ---+----+-----------
  1 | 17 | 1.0003437
@@ -360,6 +375,7 @@ SELECT 'error ' || g, 'c' || (g % 500)
 FROM generate_series(1, 1200) AS g;
 CREATE INDEX issue_6582_logs_idx ON issue_6582_logs
 USING bm25 (id, description, (category::pdb.literal));
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
 ANALYZE issue_6582_logs;
 SET paradedb.enable_aggregate_custom_scan = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

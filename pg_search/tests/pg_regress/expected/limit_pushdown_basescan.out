@@ -83,6 +83,7 @@ SELECT count(*) FROM (
     ORDER BY paradedb.score(id) DESC
     LIMIT 50
 ) sub;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  count 
 -------
     50
@@ -98,6 +99,7 @@ WHERE description ||| 'searchable'
            WHERE name = 'rare_category'))
 ORDER BY paradedb.score(id) DESC
 LIMIT 50;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                      QUERY PLAN                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -164,6 +166,7 @@ WHERE description ||| 'searchable'
 ORDER BY paradedb.score(id) DESC
 LIMIT $1;
 CREATE TEMP TABLE lp_q_result AS EXECUTE lp_q(100);
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
 SELECT count(*) FROM lp_q_result;
  count 
 -------
@@ -330,6 +333,7 @@ SELECT 'nullable_rhs' AS shape, count(matched_item_id) AS cnt FROM (
     ) lat ON true
     LIMIT 50
 ) sub;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
       shape      | cnt 
 -----------------+-----
  anti_is_null    |  50
@@ -350,6 +354,7 @@ WHERE i.description ||| 'searchable'
   )
 ORDER BY paradedb.score(i.id) DESC
 LIMIT 50;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                            QUERY PLAN                                                                                                           
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -406,6 +411,7 @@ SELECT count(*) FROM (
     ORDER BY paradedb.score(id) DESC
     LIMIT 100
 ) sub;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
  count 
 -------
    100
@@ -416,6 +422,7 @@ SELECT id FROM lp_items
 WHERE description ||| 'searchable'
 ORDER BY paradedb.score(id) DESC
 LIMIT 100;
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
                                                                                                      QUERY PLAN                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

@@ -94,6 +94,7 @@ FROM partial_test
 WHERE category = 'Electronics' AND rating >= 4
 AND id @@@ paradedb.all()
 ORDER BY rating DESC;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -112,6 +113,7 @@ FROM partial_test
 WHERE category = 'Electronics' AND rating >= 4
 AND id @@@ paradedb.all()
 ORDER BY rating DESC;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  id |  description   |  category   | rating 
 ----+----------------+-------------+--------
   1 | Apple iPhone   | Electronics |      5

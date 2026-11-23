@@ -17,6 +17,7 @@ WHERE id @@@ '{
             "slop": 2
         }
     }'::jsonb ORDER BY id;
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
         flavour        
 -----------------------
  apple, with, banana
@@ -32,6 +33,7 @@ WHERE id @@@ '{
             "phrases": []
         }
     }'::jsonb ORDER BY id;
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
  flavour 
 ---------
 (0 rows)

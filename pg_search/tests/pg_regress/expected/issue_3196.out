@@ -13,6 +13,7 @@ CREATE INDEX on mock_items USING paradedb (id, description, rating, category, (m
 INSERT INTO mock_items (rating, metadata) VALUES (null, null), (null, null);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                            QUERY PLAN                            
 -----------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
@@ -23,6 +24,7 @@ SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
 (5 rows)
 
 SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
     43
@@ -30,6 +32,7 @@ SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(rating) FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
@@ -40,6 +43,7 @@ SELECT COUNT(rating) FROM mock_items WHERE id @@@ paradedb.all();
 (5 rows)
 
 SELECT COUNT(rating) FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
     41
@@ -47,6 +51,7 @@ SELECT COUNT(rating) FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
@@ -57,6 +62,7 @@ SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
 (5 rows)
 
 SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
     41
@@ -64,6 +70,7 @@ SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
                            QUERY PLAN                            
 -----------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
@@ -74,6 +81,7 @@ SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();
 (5 rows)
 
 SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  count 
 -------
     43
@@ -81,6 +89,7 @@ SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: unsupported constant type in COALESCE default value. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
                               QUERY PLAN                               
 -----------------------------------------------------------------------
@@ -95,6 +104,7 @@ WARNING:  Aggregate Scan not used: unsupported constant type in COALESCE default
 (8 rows)
 
 SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
 WARNING:  Aggregate Scan not used: unsupported constant type in COALESCE default value. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
  count 
 -------

@@ -168,6 +168,8 @@ FROM pdb.indexes() WHERE schemaname = 'permission_monitoring';
 (1 row)
 
 SELECT permission_monitoring.assert_denied(permission_monitoring.content_queries()) AS content_denials;
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  content_denials 
 -----------------
                7
@@ -221,6 +223,8 @@ SELECT sum(num_docs) AS inherited_rls_docs FROM pdb.index_segments('permission_m
 (1 row)
 
 SELECT permission_monitoring.assert_denied(permission_monitoring.content_queries()) AS inherited_content_denials;
+WARNING:  paradedb.aggregate() uses the deprecated ParadeDB V1 API
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
  inherited_content_denials 
 ---------------------------
                          7

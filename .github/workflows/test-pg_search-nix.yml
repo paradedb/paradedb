@@ -1,30 +1,17 @@
-# workflows/test-pg_search-nix.yml
-#
-# Test pg_search (Nix)
-# Check the Nix Cargo dependency hash.
+# Release preparation refreshes the hash via scripts/release.sh set-version.
+# Run this check manually to diagnose a stale hash on a specific ref.
 
 name: Test pg_search (Nix)
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - ".github/workflows/test-pg_search-nix.yml"
-      - "nix/**"
-      - "tokenizers/Cargo.toml"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "flake.lock"
-      - "flake.nix"
-      - "rust-toolchain.toml"
   workflow_dispatch:
 
 concurrency:
-  group: test-pg_search-nix-${{ github.head_ref || github.ref }}
+  group: test-pg_search-nix-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   nix-cargo-hash-check:
@@ -34,80 +21,13 @@ jobs:
       PG_MAJOR_VERSION: "18"
 
     steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.2.0; Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
-        with:
-          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-
       - name: Checkout Git Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Check out the PR head's repo and ref so this works for fork PRs too;
-          # the branch only exists on the fork, not on the base repo. For
-          # same-repo PRs and workflow_dispatch this resolves to the base repo,
-          # which keeps the auto-push-a-fix path (below) targeting origin.
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
-          token: ${{ steps.app-token.outputs.token || github.token }}
+          persist-credentials: false
 
       - name: Install Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3.24.1
 
-      # Build only cargo deps to surface cargoHash mismatches quickly, without
-      # compiling pg_search for every Postgres variant. If the hash is stale,
-      # compute the correct one and push a fix commit to the PR branch.
-      # The commit uses a GitHub App token so GitHub signs it and fires a
-      # synchronize event, which re-triggers all CI workflows on the new HEAD.
-      # Pushes made with the default GITHUB_TOKEN do not fire events.
       - name: Verify Nix Cargo Hash
-        id: cargo-hash
-        run: |
-          if ! nix build --no-link ".#pg_search-pg${{ env.PG_MAJOR_VERSION }}.cargoDeps" 2>/dev/null; then
-            echo "cargoHash mismatch detected, computing correct hash..."
-            chmod +x scripts/update-nix-cargo-hash.sh
-            scripts/update-nix-cargo-hash.sh "${{ env.PG_MAJOR_VERSION }}"
-
-            if [ "${{ github.event.pull_request.head.repo.fork }}" = "true" ]; then
-              echo "::error::cargoHash is outdated and this PR is from a fork, so CI cannot push a fix. Please run the following locally and push the result:"
-              echo ""
-              echo "  scripts/update-nix-cargo-hash.sh ${{ env.PG_MAJOR_VERSION }}"
-              echo "  git add nix/pg_search.nix"
-              echo "  git commit -m \"fix: update nix cargoHash for changed Cargo.lock\""
-              echo "  git push"
-              echo ""
-              echo "Computed nix/pg_search.nix diff:"
-              git --no-pager diff nix/pg_search.nix
-              exit 1
-            fi
-
-            if git diff --quiet -- nix/pg_search.nix; then
-              echo "::error::cargoHash build failed, but the update script did not change nix/pg_search.nix."
-              exit 1
-            fi
-
-            git add nix/pg_search.nix
-            echo "needs_fix=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "cargoHash is correct"
-          fi
-
-      - name: Commit Nix Cargo Hash
-        if: steps.cargo-hash.outputs.needs_fix == 'true'
-        uses: ./.github/actions/commit-with-paradedb-github-app
-        with:
-          github-token: ${{ steps.app-token.outputs.token }}
-          message: "fix: update nix cargoHash for changed Cargo.lock"
-
-      - name: Push Nix Cargo Hash
-        if: steps.cargo-hash.outputs.needs_fix == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
-        run: |
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${TARGET_BRANCH}" \
-            -f sha="$(git rev-parse HEAD)" -F force=false
-          echo "::error::cargoHash was outdated and has been auto-fixed. CI will re-run on the updated commit."
-          exit 1
+        run: nix build --no-link ".#pg_search-pg${PG_MAJOR_VERSION}.cargoDeps"

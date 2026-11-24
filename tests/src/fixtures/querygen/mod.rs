@@ -1259,7 +1259,7 @@ where
     Ok(())
 }
 
-/// Panic-based comparison kept for the non-Antithesis generator tests (`json_pushdown`,
+/// Panic-based comparison kept for the generator tests that run outside DST (`json_pushdown`,
 /// `scalar_array_pushdown`), whose `run_query` closures panic on DB errors. Thin wrapper over
 /// [`compare_outcome`].
 pub fn compare<R, F>(

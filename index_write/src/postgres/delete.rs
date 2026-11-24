@@ -33,6 +33,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::vacuum_delay_point;
+use common::dst;
 
 use anyhow::Result;
 use pgrx::pg_sys;

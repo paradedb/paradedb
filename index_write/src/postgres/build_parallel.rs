@@ -28,6 +28,7 @@ use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     WorkerStyle, chunk_range,
 };
+use crate::postgres::build::BuildPhase;
 use crate::postgres::build_partitioning::{
     BuildPartitioning, PartitionRouter, plan_partition_boundaries,
 };
@@ -35,7 +36,7 @@ use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState, PrefetchWindow};
 use crate::postgres::locks::Spinlock;
 use crate::postgres::ps_status::{
-    COMMITTING, FINALIZING, INDEXING, MERGING, set_ps_display_remove_suffix, set_ps_display_suffix,
+    COMMITTING, FINALIZING, INDEXING, set_ps_display_remove_suffix, set_ps_display_suffix,
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
@@ -986,7 +987,19 @@ impl<'a> WorkerBuildState<'a> {
     }
 
     fn persist_segments(&mut self, segments: &[SegmentMeta]) -> anyhow::Result<()> {
-        unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
+        let writer = self.writer.as_ref().expect("writer should be set");
+        let phase = if writer.schema().has_vector_field()
+            && segments
+                .iter()
+                .map(|meta| meta.num_docs() as usize)
+                .sum::<usize>()
+                >= writer.index.settings().vector_clustering_threshold()
+        {
+            BuildPhase::Clustering
+        } else {
+            BuildPhase::Merging
+        };
+        phase.report(self.is_leader);
         let meta = match self
             .writer
             .as_mut()
@@ -1003,6 +1016,7 @@ impl<'a> WorkerBuildState<'a> {
             self.on_segment_flushed();
             self.nmerges += usize::from(segments.len() > 1);
         }
+        BuildPhase::Indexing.report(self.is_leader);
         Ok(())
     }
 
@@ -1397,6 +1411,7 @@ pub(super) fn build_index(
         snapshot.0,
         plan::adjusted_target_segment_count(&heaprel, &indexrel),
     )?;
+    BuildPhase::Indexing.report(true);
     let target_segment_count = partitioning.as_ref().map_or_else(
         || plan::adjusted_target_segment_count(&heaprel, &indexrel),
         BuildPartitioning::partition_count,
@@ -1494,6 +1509,7 @@ pub(super) fn build_index(
         };
 
         // wait for the workers to finish by collecting all their response messages
+        BuildPhase::Waiting.report(true);
         for (_, message) in process {
             check_for_interrupts();
             let worker_response = serde_json::from_slice::<WorkerResponse>(&message)?;

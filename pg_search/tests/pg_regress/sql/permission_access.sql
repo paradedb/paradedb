@@ -54,8 +54,7 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
   'SELECT * FROM paradedb.validate_checksum(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.storage_info(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.page_info(''permission_access.docs_idx'', 0)',
-  'SELECT * FROM pdb.verify_index(''permission_access.docs_idx'')',
-  'SELECT paradedb.aggregate(''permission_access.docs_idx'', paradedb.all(), ''{"a":{"terms":{"field":"email"}}}'')'
+  'SELECT * FROM pdb.verify_index(''permission_access.docs_idx'')'
 ] $$;
 
 -- Audit every regclass overload, including functions that do not read an index.

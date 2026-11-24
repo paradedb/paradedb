@@ -31,6 +31,7 @@ use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::{MergePins, MetaPage};
 use crate::postgres::{IsLogicalWorker, PgSearchRelation};
+use common::dst;
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;

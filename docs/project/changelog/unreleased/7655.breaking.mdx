@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+- Removed the standalone `paradedb.aggregate()` function. Use `pdb.agg()` in a `SELECT` over the indexed table, with the search predicate in `WHERE`. Update any database objects that depend on the old function before upgrading.

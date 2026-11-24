@@ -8,4 +8,4 @@ The `Preserve SQL Files` step skips the legacy regex, key-field tokenizer, and v
 
 After upgrading, we also assert that the upgraded schema is byte-for-byte identical to a fresh `CREATE EXTENSION` of the new version (the "Verify Upgraded Schema Matches Fresh Install" step, using `schema_snapshot.sql`). This catches migrations that are incomplete on the `ALTER EXTENSION ... UPDATE` path -- e.g. when an object's DDL is emitted into an already-shipped migration file, so it reaches fresh installs but never reaches users upgrading from a later version. This is independent of the per-case `queries.sql`, which only catches drift in objects a query happens to touch.
 
-We also run the integration tests after upgrading. This verifies that the extension symbols are upgraded properly but does not give any validation that the on-disk changes are correct because the tests don't use DBs created on the old version.
+A SQL smoke test creates a new index in the upgraded database, inserts another row, and checks that search finds rows from both the initial build and the subsequent insert. The main PostgreSQL workflow runs the full Rust integration suite.

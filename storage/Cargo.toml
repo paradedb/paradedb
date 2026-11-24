@@ -24,7 +24,6 @@ anyhow.workspace = true
 bincode.workspace = true
 bitpacking.workspace = true
 bytemuck.workspace = true
-dst = { path = "../dst" }
 parking_lot.workspace = true
 pgrx.workspace = true
 rustc-hash.workspace = true

@@ -38,7 +38,7 @@ postgresql:
 
 ## Manifests
 
-`manifests/cnpg.yaml` is the CloudNativePG operator, rendered from the upstream Helm chart with default values and bundled into the Antithesis config images. To upgrade the operator, re-render it with the chart version whose `appVersion` is the CNPG release you want ([chart index](https://github.com/cloudnative-pg/charts)):
+`manifests/cnpg.yaml` is the CloudNativePG operator, rendered from the upstream Helm chart with default values and bundled into the DST config images. To upgrade the operator, re-render it with the chart version whose `appVersion` is the CNPG release you want ([chart index](https://github.com/cloudnative-pg/charts)):
 
 ```bash
 helm repo add cnpg https://cloudnative-pg.github.io/charts

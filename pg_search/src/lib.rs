@@ -18,7 +18,7 @@
 // Direct dep, not just via `dst`: a cdylib drops the transitively-referenced shim, so reference it
 // here to keep its `.init_array` constructor.
 #[cfg(feature = "dst")]
-use antithesis_instrumentation as _;
+use dst_instrumentation as _;
 
 pub use common::{
     DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, DEFAULT_STARTUP_COST, EXPENSIVE_QUERY_COST_FACTOR,
@@ -158,7 +158,8 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     }
 
     // Register the DST assertion catalog for this process (a no-op outside `--features dst`)
-    dst::init();
+    #[cfg(feature = "dst")]
+    common::dst::init();
 
     postgres::options::init();
     postgres::build_logging::init();

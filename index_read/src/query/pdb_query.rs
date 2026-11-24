@@ -1039,7 +1039,8 @@ fn term_set(
             index_created_by_version,
         )
         .expect("could not convert argument to search term")
-    })))
+    }))
+    .with_exact_fast_field(search_field.exact_fast_field_for_term_set()))
 }
 
 fn term(

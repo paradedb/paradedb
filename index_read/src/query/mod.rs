@@ -1921,12 +1921,19 @@ impl SearchQueryInput {
                 let term_count = termset.values().map(|s| s.len()).sum();
                 check_term_set_size(term_count);
                 let mut terms = Vec::with_capacity(term_count);
+                let mut saw_str_field = false;
+                let mut all_str_fields_exact = true;
                 for (field, values) in termset.iter() {
                     let search_field = schema
                         .search_field(field.root())
                         .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
 
                     let field_type = search_field.field_entry().field_type();
+                    if matches!(field_type, tantivy::schema::FieldType::Str(_)) {
+                        saw_str_field = true;
+                        all_str_fields_exact &= search_field.exact_fast_field_for_term_set()
+                            == tantivy::query::ExactFastField::Available;
+                    }
                     for value in values {
                         // A number that no integer of the field equals matches nothing, so it is
                         // left out.
@@ -1953,7 +1960,14 @@ impl SearchQueryInput {
                         terms.push(term);
                     }
                 }
-                let query = Box::new(SharedTermSetQuery(Arc::new(TermSetQuery::new(terms))));
+                let exact_fast_field = if saw_str_field && all_str_fields_exact {
+                    tantivy::query::ExactFastField::Available
+                } else {
+                    tantivy::query::ExactFastField::Infer
+                };
+                let query = Box::new(SharedTermSetQuery(Arc::new(
+                    TermSetQuery::new(terms).with_exact_fast_field(exact_fast_field),
+                )));
 
                 Ok(builder.build_leaf(query, || "TermSet Query".to_string(), cloned_for_estimate))
             }

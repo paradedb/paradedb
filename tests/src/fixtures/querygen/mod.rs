@@ -519,7 +519,7 @@ where
         })
 }
 
-/// Controls `paradedb.hash_join_inlist_pushdown_max_distinct_values`, switching DataFusion's
+/// Controls `paradedb.hash_join_inlist_max_distinct_values`, switching DataFusion's
 /// `HashJoinExec` dynamic filter between `InListExpr` and `HashTableLookupExpr`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum InListPushdownThreshold {
@@ -875,7 +875,7 @@ impl PgGucs {
         };
         writeln!(
             gucs,
-            "{verb} paradedb.hash_join_inlist_pushdown_max_distinct_values TO {inlist_max_distinct};"
+            "{verb} paradedb.hash_join_inlist_max_distinct_values TO {inlist_max_distinct};"
         )
         .unwrap();
         let bitset_density = match term_set_density {

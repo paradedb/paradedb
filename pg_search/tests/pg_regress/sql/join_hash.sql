@@ -130,15 +130,15 @@ ORDER BY t1.id ASC
 LIMIT 10;
 
 -- =============================================================================
--- TEST 3: paradedb.hash_join_inlist_pushdown_max_distinct_values = 0 forces
+-- TEST 3: paradedb.hash_join_inlist_max_distinct_values = 0 forces
 --         HashTableLookupExpr pushdown (dynamic_filter_pushdown_hash_*)
 -- =============================================================================
--- Setting `hash_join_inlist_pushdown_max_distinct_values = 0` causes DataFusion's
+-- Setting `hash_join_inlist_max_distinct_values = 0` causes DataFusion's
 -- HashJoinExec (`num_of_distinct_key > max_distinct_values`) to emit a
 -- `HashTableLookupExpr` instead of an `InListExpr`. That `HashTableLookupExpr`
 -- is pushed down into Tantivy via `TermPredicateQuery` and surfaces as
 -- `dynamic_filter_pushdown_hash_<strategy>=1` in EXPLAIN ANALYZE.
-SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
+SET paradedb.hash_join_inlist_max_distinct_values = 0;
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.val, t2.val
@@ -273,7 +273,7 @@ WHERE b.body ||| 'doc' AND b.id <= 200
 ORDER BY b.id ASC, p.id ASC
 LIMIT 100;
 
-RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+RESET paradedb.hash_join_inlist_max_distinct_values;
 
 CREATE TEMP TABLE res_inlist AS
 SELECT b.id AS bid, p.id AS pid
@@ -288,6 +288,36 @@ SELECT count(*) AS diff_rows FROM (
     UNION ALL
     (SELECT * FROM res_inlist EXCEPT ALL SELECT * FROM res_hash)
 ) d;
+
+-- 4f: `paradedb.hash_join_filter_pushdown` mode overrides ('hash', 'inlist', 'off')
+SET paradedb.hash_join_filter_pushdown = 'hash';
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.id, p.id
+FROM hash_str_build b
+JOIN hash_str_probe_unsorted p ON b.k = p.fk_lit
+WHERE b.body ||| 'doc' AND b.id <= 5
+ORDER BY b.id ASC, p.id ASC
+LIMIT 10;
+
+SET paradedb.hash_join_filter_pushdown = 'inlist';
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.id, p.id
+FROM hash_str_build b
+JOIN hash_str_probe_unsorted p ON b.k = p.fk_tok
+WHERE b.body ||| 'doc' AND b.id <= 5
+ORDER BY b.id ASC, p.id ASC
+LIMIT 10;
+
+SET paradedb.hash_join_filter_pushdown = 'off';
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.id, p.id
+FROM hash_str_build b
+JOIN hash_str_probe_unsorted p ON b.k = p.fk_lit
+WHERE b.body ||| 'doc' AND b.id <= 5
+ORDER BY b.id ASC, p.id ASC
+LIMIT 10;
+
+RESET paradedb.hash_join_filter_pushdown;
 
 DROP TABLE res_hash;
 DROP TABLE res_inlist;

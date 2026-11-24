@@ -199,15 +199,15 @@ LIMIT 10;
 (10 rows)
 
 -- =============================================================================
--- TEST 3: paradedb.hash_join_inlist_pushdown_max_distinct_values = 0 forces
+-- TEST 3: paradedb.hash_join_inlist_max_distinct_values = 0 forces
 --         HashTableLookupExpr pushdown (dynamic_filter_pushdown_hash_*)
 -- =============================================================================
--- Setting `hash_join_inlist_pushdown_max_distinct_values = 0` causes DataFusion's
+-- Setting `hash_join_inlist_max_distinct_values = 0` causes DataFusion's
 -- HashJoinExec (`num_of_distinct_key > max_distinct_values`) to emit a
 -- `HashTableLookupExpr` instead of an `InListExpr`. That `HashTableLookupExpr`
 -- is pushed down into Tantivy via `TermPredicateQuery` and surfaces as
 -- `dynamic_filter_pushdown_hash_<strategy>=1` in EXPLAIN ANALYZE.
-SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
+SET paradedb.hash_join_inlist_max_distinct_values = 0;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.val, t2.val
 FROM hash_sorted_t1 t1
@@ -413,7 +413,7 @@ JOIN hash_str_probe_unsorted p ON b.k = p.fk_lit
 WHERE b.body ||| 'doc' AND b.id <= 200
 ORDER BY b.id ASC, p.id ASC
 LIMIT 100;
-RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+RESET paradedb.hash_join_inlist_max_distinct_values;
 CREATE TEMP TABLE res_inlist AS
 SELECT b.id AS bid, p.id AS pid
 FROM hash_str_build b
@@ -431,6 +431,86 @@ SELECT count(*) AS diff_rows FROM (
          0
 (1 row)
 
+-- 4f: `paradedb.hash_join_filter_pushdown` mode overrides ('hash', 'inlist', 'off')
+SET paradedb.hash_join_filter_pushdown = 'hash';
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.id, p.id
+FROM hash_str_build b
+JOIN hash_str_probe_unsorted p ON b.k = p.fk_lit
+WHERE b.body ||| 'doc' AND b.id <= 5
+ORDER BY b.id ASC, p.id ASC
+LIMIT 10;
+                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: b INNER p
+   Join Cond: b.k = p.fk_lit
+   Limit: 10
+   Order By: b.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 5 OR id@1 = 5 AND id@3 < 2505], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
+     :     VisibilityFilterExec: tables=[b, p], metrics=[output_rows=10, output_bytes=128.2 KB, output_batches=1, ctids_fetched=20, ctids_lazy=0]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(k@1, fk_lit@1)], projection=[ctid_0@0, id@2, ctid_1@3, id@5], metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1, build_mem_used=456.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=10, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":5}}}]}}, metrics=[output_rows=5, output_bytes=264.0 B, output_batches=1]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=10, output_bytes=424.0 B, output_batches=1, dynamic_filter_pushdown_hash_bitset_from_postings=1, rows_pruned=0, rows_scanned=10]
+(14 rows)
+
+SET paradedb.hash_join_filter_pushdown = 'inlist';
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.id, p.id
+FROM hash_str_build b
+JOIN hash_str_probe_unsorted p ON b.k = p.fk_tok
+WHERE b.body ||| 'doc' AND b.id <= 5
+ORDER BY b.id ASC, p.id ASC
+LIMIT 10;
+                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: b INNER p
+   Join Cond: b.k = p.fk_tok
+   Limit: 10
+   Order By: b.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 5 OR id@1 = 5 AND id@3 < 2505], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
+     :     VisibilityFilterExec: tables=[b, p], metrics=[output_rows=10, output_bytes=128.2 KB, output_batches=1, ctids_fetched=20, ctids_lazy=0]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(k@1, fk_tok@1)], projection=[ctid_0@0, id@2, ctid_1@3, id@5], metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1, build_mem_used=456.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=10, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":5}}}]}}, metrics=[output_rows=5, output_bytes=264.0 B, output_batches=1]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=10, output_bytes=424.0 B, output_batches=1, rows_pruned=4.99 K, rows_scanned=5.00 K]
+(14 rows)
+
+SET paradedb.hash_join_filter_pushdown = 'off';
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.id, p.id
+FROM hash_str_build b
+JOIN hash_str_probe_unsorted p ON b.k = p.fk_lit
+WHERE b.body ||| 'doc' AND b.id <= 5
+ORDER BY b.id ASC, p.id ASC
+LIMIT 10;
+                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: b INNER p
+   Join Cond: b.k = p.fk_lit
+   Limit: 10
+   Order By: b.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 5 OR id@1 = 5 AND id@3 < 2505], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
+     :     VisibilityFilterExec: tables=[b, p], metrics=[output_rows=10, output_bytes=128.2 KB, output_batches=1, ctids_fetched=20, ctids_lazy=0]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(k@1, fk_lit@1)], projection=[ctid_0@0, id@2, ctid_1@3, id@5], metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1, build_mem_used=456.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=10, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":5}}}]}}, metrics=[output_rows=5, output_bytes=264.0 B, output_batches=1]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=10, output_bytes=424.0 B, output_batches=1, rows_pruned=4.99 K, rows_scanned=5.00 K]
+(14 rows)
+
+RESET paradedb.hash_join_filter_pushdown;
 DROP TABLE res_hash;
 DROP TABLE res_inlist;
 DROP TABLE IF EXISTS hash_str_build CASCADE;

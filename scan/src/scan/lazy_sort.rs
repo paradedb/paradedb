@@ -794,7 +794,7 @@ impl LazySortStreamState {
             &mut dynamic_filters,
             InListLinearFallback::PushToIndex,
         );
-        let any_pushed = filter_metrics.outcome.any_pushed();
+        let any_pushed = filter_metrics.any_pushed();
         if any_pushed
             && let (Some(field), Some(base_reader)) = (&vector_order_field, pre_push_reader)
         {

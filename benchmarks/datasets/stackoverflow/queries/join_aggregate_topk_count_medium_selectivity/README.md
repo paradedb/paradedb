@@ -12,7 +12,7 @@
 
 - 'regex' selectivity on stackoverflow_posts.body: ~0.90% (~179K matches).
   At 20M scale, per-partition build-side cardinality (~11K-32K rows) exceeds
-  `paradedb.hash_join_inlist_pushdown_max_distinct_values` (`5,000`), avoiding `InListExpr`
+  `paradedb.hash_join_inlist_max_distinct_values` (`5,000`), avoiding `InListExpr`
   literal materialization in favor of `HashJoinExec`'s zero-copy `HashTableLookupExpr`
   (`TermPredicateQuery`).
 

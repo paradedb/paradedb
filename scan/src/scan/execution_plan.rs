@@ -2135,12 +2135,6 @@ pub(super) struct ScanStreamContext {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PushdownKind {
-    InList = 0,
-    Hash = 1,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PushdownMetricState {
     NotPushed,
     PendingRecord,
@@ -2148,13 +2142,15 @@ enum PushdownMetricState {
 }
 
 struct PushdownMetricChannel {
+    metric_prefix: &'static str,
     sink: Arc<AtomicU8>,
     state: PushdownMetricState,
 }
 
 impl PushdownMetricChannel {
-    fn new(pushed: bool, sink: Arc<AtomicU8>) -> Self {
+    fn new(metric_prefix: &'static str, pushed: bool, sink: Arc<AtomicU8>) -> Self {
         Self {
+            metric_prefix,
             sink,
             state: if pushed {
                 PushdownMetricState::PendingRecord
@@ -2164,9 +2160,26 @@ impl PushdownMetricChannel {
         }
     }
 
+    fn is_pushed(&self) -> bool {
+        self.state != PushdownMetricState::NotPushed
+    }
+
+    fn record(&mut self, plan_metrics: &ExecutionPlanMetricsSet, target_partition: usize, tag: u8) {
+        let strategy =
+            tantivy::query::StrategyTag::try_from(tag).unwrap_or(tantivy::query::StrategyTag::None);
+        let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
+            self.metric_prefix.to_string()
+        } else {
+            format!("{}_{}", self.metric_prefix, strategy_name(strategy))
+        };
+        MetricBuilder::new(plan_metrics)
+            .counter(metric_name, target_partition)
+            .add(1);
+        self.state = PushdownMetricState::Recorded;
+    }
+
     fn flush(
         &mut self,
-        kind: PushdownKind,
         plan_metrics: &ExecutionPlanMetricsSet,
         target_partition: usize,
         exhausted: bool,
@@ -2176,53 +2189,24 @@ impl PushdownMetricChannel {
         }
         let tag = self.sink.load(Ordering::Relaxed);
         if tag > 0 || exhausted {
-            record_strategy_counter(kind, plan_metrics, target_partition, tag);
-            self.state = PushdownMetricState::Recorded;
+            self.record(plan_metrics, target_partition, tag);
         }
     }
 
-    fn flush_ra(
-        &mut self,
-        kind: PushdownKind,
-        plan_metrics: &ExecutionPlanMetricsSet,
-        target_partition: usize,
-    ) {
+    fn flush_ra(&mut self, plan_metrics: &ExecutionPlanMetricsSet, target_partition: usize) {
         if self.state == PushdownMetricState::Recorded {
             return;
         }
         let tag = self.sink.load(Ordering::Relaxed);
         if tag > 0 {
-            record_strategy_counter(kind, plan_metrics, target_partition, tag);
-            self.state = PushdownMetricState::Recorded;
+            self.record(plan_metrics, target_partition, tag);
         }
     }
 }
 
-fn record_strategy_counter(
-    kind: PushdownKind,
-    plan_metrics: &ExecutionPlanMetricsSet,
-    target_partition: usize,
-    tag: u8,
-) {
-    let strategy =
-        tantivy::query::StrategyTag::try_from(tag).unwrap_or(tantivy::query::StrategyTag::None);
-    let prefix = match kind {
-        PushdownKind::InList => "dynamic_filter_pushdown",
-        PushdownKind::Hash => "dynamic_filter_pushdown_hash",
-    };
-    let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
-        prefix.to_string()
-    } else {
-        format!("{prefix}_{}", strategy_name(strategy))
-    };
-    MetricBuilder::new(plan_metrics)
-        .counter(metric_name, target_partition)
-        .add(1);
-}
-
 pub(super) struct FilterStepMetrics {
-    channels: [PushdownMetricChannel; 2],
-    pub(super) outcome: DynamicFilterPushdownOutcome,
+    inlist: PushdownMetricChannel,
+    hash: PushdownMetricChannel,
     score_pushdown_metric_recorded: bool,
     flushed_rows_scanned: usize,
     flushed_rows_pruned: usize,
@@ -2250,22 +2234,31 @@ impl FilterStepMetrics {
                 linear_fallback,
             )
         } else {
-            DynamicFilterPushdownOutcome::None
+            DynamicFilterPushdownOutcome::default()
         };
         Self {
-            channels: [
-                PushdownMetricChannel::new(outcome.inlist_pushed(), inlist_sink),
-                PushdownMetricChannel::new(outcome.hash_pushed(), hash_sink),
-            ],
-            outcome,
+            inlist: PushdownMetricChannel::new(
+                "dynamic_filter_pushdown",
+                outcome.inlist,
+                inlist_sink,
+            ),
+            hash: PushdownMetricChannel::new(
+                "dynamic_filter_pushdown_hash",
+                outcome.hash,
+                hash_sink,
+            ),
             score_pushdown_metric_recorded: false,
             flushed_rows_scanned: 0,
             flushed_rows_pruned: 0,
         }
     }
 
+    pub(super) fn any_pushed(&self) -> bool {
+        self.inlist.is_pushed() || self.hash.is_pushed()
+    }
+
     pub(super) fn inlist_sink(&self) -> Arc<AtomicU8> {
-        Arc::clone(&self.channels[PushdownKind::InList as usize].sink)
+        Arc::clone(&self.inlist.sink)
     }
 
     pub(super) fn flush(
@@ -2277,18 +2270,8 @@ impl FilterStepMetrics {
         rows_pruned: &Option<Count>,
         exhausted: bool,
     ) {
-        self.channels[PushdownKind::InList as usize].flush(
-            PushdownKind::InList,
-            plan_metrics,
-            target_partition,
-            exhausted,
-        );
-        self.channels[PushdownKind::Hash as usize].flush(
-            PushdownKind::Hash,
-            plan_metrics,
-            target_partition,
-            exhausted,
-        );
+        self.inlist.flush(plan_metrics, target_partition, exhausted);
+        self.hash.flush(plan_metrics, target_partition, exhausted);
 
         if scanner.score_threshold_pushed && !self.score_pushdown_metric_recorded {
             self.record_score_metric(plan_metrics, target_partition);
@@ -2319,11 +2302,7 @@ impl FilterStepMetrics {
         rows_pruned: &Option<Count>,
         ra_score_pushed: bool,
     ) {
-        self.channels[PushdownKind::InList as usize].flush_ra(
-            PushdownKind::InList,
-            plan_metrics,
-            target_partition,
-        );
+        self.inlist.flush_ra(plan_metrics, target_partition);
         if ra_score_pushed && !self.score_pushdown_metric_recorded {
             self.record_score_metric(plan_metrics, target_partition);
         }

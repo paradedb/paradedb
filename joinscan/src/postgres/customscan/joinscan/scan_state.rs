@@ -579,15 +579,16 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
     builder
 }
 
-/// Applies ParadeDB's optimizer GUC settings (`hash_join_inlist_pushdown_max_size`,
-/// `hash_join_inlist_pushdown_max_distinct_values`, `hash_join_single_partition_threshold_rows`,
-/// `hash_join_single_partition_threshold`, `enable_topk_dynamic_filter_pushdown`, and
-/// `enable_round_robin_repartition = false`) to a DataFusion [`SessionConfig`].
+/// Applies ParadeDB's optimizer GUC settings (`hash_join_filter_pushdown`,
+/// `hash_join_inlist_max_size`, `hash_join_inlist_max_distinct_values`,
+/// `hash_join_single_partition_threshold_rows`, `hash_join_single_partition_threshold`,
+/// `enable_topk_dynamic_filter_pushdown`, and `enable_round_robin_repartition = false`) to a
+/// DataFusion [`SessionConfig`].
 ///
 /// Called both when constructing the leader's session context and when initializing each MPP
 /// worker's base `SessionState` in `worker::worker_base_session_state`, because operators such as
-/// `HashJoinExec` read `hash_join_inlist_pushdown_max_*` from `TaskContext::session_config()` at
-/// execution time.
+/// `HashJoinExec` read DataFusion's `optimizer.hash_join_inlist_pushdown_max_*` from
+/// `TaskContext::session_config()` at execution time.
 pub fn apply_paradedb_session_config(config: &mut SessionConfig) {
     // Disable round-robin repartitioning: ParadeDB uses partitioning exclusively for MPP task
     // distribution across worker processes, never for intra-task round-robin repartitioning.
@@ -600,16 +601,17 @@ pub fn apply_paradedb_session_config(config: &mut SessionConfig) {
     config
         .options_mut()
         .optimizer
-        .hash_join_inlist_pushdown_max_size =
-        crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
-    // 0 is DataFusion's kill switch: HashJoinExec rejects InList
-    // materialization when num_of_distinct_key() > max_distinct_values, and
-    // any non-empty build side has at least one distinct key.
+        .hash_join_inlist_pushdown_max_size = crate::gucs::hash_join_inlist_max_size() as usize;
+    // Setting `hash_join_inlist_pushdown_max_distinct_values = 0` in DataFusion forces
+    // `HashJoinExec` to emit `HashTableLookupExpr` for every non-empty build side.
     config
         .options_mut()
         .optimizer
         .hash_join_inlist_pushdown_max_distinct_values =
-        crate::gucs::hash_join_inlist_pushdown_max_distinct_values().max(0) as usize;
+        match crate::gucs::hash_join_filter_pushdown() {
+            crate::gucs::HashJoinFilterPushdown::Hash => 0,
+            _ => crate::gucs::hash_join_inlist_max_distinct_values().max(0) as usize,
+        };
     config
         .options_mut()
         .optimizer

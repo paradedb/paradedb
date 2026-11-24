@@ -84,8 +84,8 @@
 //! # Observability
 //!
 //! `EXPLAIN (ANALYZE)` on a `PgSearchScan` node reports query-time pushdown via
-//! `dynamic_filter_pushdown_<strategy>` (`InList`) and
-//! `dynamic_filter_pushdown_hash_<strategy>` (`HashTableLookupExpr`), and batch-level
+//! `dynamic_filter_pushdown_<strategy>` (`TermSetQuery`) and
+//! `dynamic_filter_pushdown_hash_<strategy>` (`TermPredicateQuery`), and batch-level
 //! pre-filtering via `rows_pruned` and `rows_scanned` (`rows_pruned > 0` confirms
 //! pre-filtering ran). The `dynamic_filters=N` annotation in the non-ANALYZE plan shows
 //! how many dynamic filters were attached to the scan.
@@ -95,9 +95,8 @@ use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use datafusion::arrow::array::{
-    Array, ArrayRef, BinaryViewArray, BooleanArray, Float32Array, Float64Array, Int8Array,
-    Int16Array, Int32Array, Int64Array, NullArray, StringViewArray, TimestampMicrosecondArray,
-    UInt8Array, UInt16Array, UInt32Array, UInt64Array,
+    Array, ArrayRef, BinaryViewArray, BooleanArray, Float64Array, Int64Array, NullArray,
+    StringViewArray, TimestampMicrosecondArray, UInt64Array,
 };
 use datafusion::arrow::compute::cast;
 use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
@@ -107,7 +106,7 @@ use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, Tr
 use datafusion::logical_expr::Operator;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::expressions::{
-    BinaryExpr, CastExpr, Column, DynamicFilterPhysicalExpr, IsNullExpr, Literal, NotExpr,
+    BinaryExpr, Column, DynamicFilterPhysicalExpr, IsNullExpr, Literal, NotExpr,
 };
 use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::joins::HashTableLookupExpr;
@@ -390,32 +389,28 @@ pub fn supports_ra_lookup_column(
 }
 
 /// Returns `true` if `col_name` with Arrow `data_type` can push down a single-column dynamic join
-/// filter (`InListExpr` and/or `HashTableLookupExpr`) into Tantivy via [`try_dynamic_filter_pushdown`]
-/// regardless of build-side cardinality.
+/// filter (`InListExpr` or `HashTableLookupExpr`) into Tantivy via [`try_dynamic_filter_pushdown`]
+/// regardless of build-side cardinality, taking `paradedb.hash_join_filter_pushdown` into account.
 pub fn supports_probe_dynamic_filter_column(
     col_name: &str,
     data_type: &DataType,
     schema: &crate::schema::SearchIndexSchema,
 ) -> bool {
+    match crate::gucs::hash_join_filter_pushdown() {
+        crate::gucs::HashJoinFilterPushdown::Auto | crate::gucs::HashJoinFilterPushdown::Hash => {}
+        crate::gucs::HashJoinFilterPushdown::InList | crate::gucs::HashJoinFilterPushdown::Off => {
+            return false;
+        }
+    }
     let Some(search_field) = schema.search_field(col_name) else {
         return false;
     };
-    // When `InListExpr` materialization is enabled (`max_distinct_values > 0`), small build sides
-    // emit `InListExpr`, which `try_convert_in_list_to_query` rejects on tokenized non-keyword
-    // text fields; only when `max_distinct_values == 0` do all cardinalities route through
-    // `HashTableLookupExpr` (`TermPredicateQuery`) over raw fast fields.
-    if search_field.is_text()
-        && !search_field.is_keyword()
-        && crate::gucs::hash_join_inlist_pushdown_max_distinct_values() > 0
-    {
-        return false;
-    }
     let tantivy_schema = schema.tantivy_schema();
     let Ok(tantivy_field) = tantivy_schema.get_field(col_name) else {
         return false;
     };
     let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
-    resolve_hash_lookup_exact_postings(data_type, &search_field, tantivy_field_type).is_some()
+    resolve_predicate_exact_postings(data_type, &search_field, tantivy_field_type).is_some()
 }
 
 /// Convert a [`RankLookupPhysicalExpr`] into a zero-scoring Tantivy query (`ConstScoreQuery(..., 0.0)`)
@@ -939,10 +934,11 @@ fn is_supported(
             return Ok(TreeNodeRecursion::Jump);
         } else if node.is::<HashTableLookupExpr>() {
             // Eligible single-column `HashTableLookupExpr`s are already converted to
-            // `TermPredicateQuery` and replaced with `lit(true)` by `try_dynamic_filter_pushdown`.
-            // Remaining lookups (e.g. multi-column composite keys, or lookups nested under `OR`)
-            // can only run in `PreFilter` on non-string columns because string fast fields carry
-            // segment-local `UInt64` ordinals rather than `Utf8View` values here.
+            // `TermPredicateQuery` and replaced with `lit(true)` by `try_dynamic_filter_pushdown`
+            // (unless disabled by `paradedb.hash_join_filter_pushdown`). Remaining lookups (e.g.
+            // multi-column composite keys, lookups nested under `OR`, or when predicate pushdown is
+            // disabled) can only run in `PreFilter` on non-string columns because string fast
+            // fields carry segment-local `UInt64` ordinals rather than `Utf8View` values here.
             let mut is_numeric = true;
             let mut lookup_columns = Vec::new();
 
@@ -1265,42 +1261,35 @@ fn extract_pushdown_candidates<'a>(
     }
 }
 
-/// Tantivy [`TermPredicate`] adapter around a single-column DataFusion [`HashTableLookupExpr`].
+/// Tantivy [`TermPredicate`] adapter around a single-column DataFusion membership expression
+/// ([`HashTableLookupExpr`] or fallback [`InListExpr`]).
 ///
-/// Evaluates the remapped `HashTableLookupExpr` over a 1-column `RecordBatch` carrying the
-/// scan schema's exact Arrow `DataType` so DataFusion's type-sensitive hashing (`Utf8View`
-/// inlined views vs `Utf8`, integer widths, `ArrayMap` integer offsets) matches `HashJoinExec`.
-struct HashTableLookupPredicate {
+/// Evaluates the remapped expression over a 1-column `RecordBatch` carrying the scan schema's
+/// exact Arrow `DataType` so DataFusion's type-sensitive hashing (`Utf8View` inlined views vs
+/// `Utf8`, `ArrayMap` integer offsets) matches `HashJoinExec`.
+struct ExprTermPredicate {
     expr: Arc<dyn PhysicalExpr>,
     batch_schema: SchemaRef,
     probe_data_type: DataType,
 }
 
-impl std::fmt::Debug for HashTableLookupPredicate {
+impl std::fmt::Debug for ExprTermPredicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HashTableLookupPredicate")
+        f.debug_struct("ExprTermPredicate")
             .field("expr", &self.expr)
             .field("probe_data_type", &self.probe_data_type)
             .finish()
     }
 }
 
-impl HashTableLookupPredicate {
+impl ExprTermPredicate {
     fn evaluate_array(
         &self,
-        mut array: ArrayRef,
+        array: ArrayRef,
         num_rows: usize,
         out: &mut [TinySet],
     ) -> tantivy::Result<()> {
-        if array.data_type() != &self.probe_data_type {
-            array = cast(&array, &self.probe_data_type).map_err(|e| {
-                tantivy::TantivyError::InternalError(format!(
-                    "Failed to cast predicate batch from {:?} to {:?}: {e}",
-                    array.data_type(),
-                    self.probe_data_type
-                ))
-            })?;
-        }
+        debug_assert_eq!(array.data_type(), &self.probe_data_type);
         let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
         let batch = RecordBatch::try_new_with_options(
             Arc::clone(&self.batch_schema),
@@ -1317,7 +1306,7 @@ impl HashTableLookupPredicate {
             .and_then(|cv| cv.into_array(num_rows))
             .map_err(|e| {
                 tantivy::TantivyError::InternalError(format!(
-                    "Failed to evaluate HashTableLookupExpr: {e}"
+                    "Failed to evaluate TermPredicate expression: {e}"
                 ))
             })?;
 
@@ -1326,7 +1315,7 @@ impl HashTableLookupPredicate {
             .downcast_ref::<BooleanArray>()
             .ok_or_else(|| {
                 tantivy::TantivyError::InternalError(
-                    "HashTableLookupExpr did not produce a BooleanArray".to_string(),
+                    "TermPredicate expression did not produce a BooleanArray".to_string(),
                 )
             })?;
 
@@ -1350,7 +1339,7 @@ impl HashTableLookupPredicate {
     }
 }
 
-impl TermPredicate for HashTableLookupPredicate {
+impl TermPredicate for ExprTermPredicate {
     fn filter_bytes(
         &self,
         data: &[u8],
@@ -1361,11 +1350,9 @@ impl TermPredicate for HashTableLookupPredicate {
         if num_rows == 0 {
             return Ok(());
         }
-        let is_binary = matches!(
-            self.probe_data_type,
-            DataType::Binary | DataType::LargeBinary | DataType::BinaryView
-        );
-        let array: ArrayRef = if is_binary {
+        // `resolve_predicate_exact_postings` restricts bytes/string columns to the view types
+        // emitted by `SearchFieldType::arrow_data_type` (`BinaryView` and `Utf8View`).
+        let array: ArrayRef = if matches!(self.probe_data_type, DataType::BinaryView) {
             Arc::new(BinaryViewArray::from_iter_values(
                 (0..num_rows).map(|i| &data[offsets[i] as usize..offsets[i + 1] as usize]),
             ))
@@ -1395,22 +1382,11 @@ impl TermPredicate for HashTableLookupPredicate {
         if num_rows == 0 {
             return Ok(());
         }
+        // `WhichFastField::arrow_data_type` / `SearchFieldType::arrow_data_type` widens all
+        // integer and float scan columns to 64-bit (`Int64`, `UInt64`, `Float64`) and all
+        // datetime columns to `Timestamp(Microsecond, None)`, so narrow numeric types never
+        // appear in `self.probe_data_type`.
         let array: ArrayRef = match (col_type, &self.probe_data_type) {
-            (ColumnType::I64, DataType::Int8) => {
-                Arc::new(Int8Array::from_iter_values(values.iter().map(|&v| {
-                    <i64 as MonotonicallyMappableToU64>::from_u64(v) as i8
-                })))
-            }
-            (ColumnType::I64, DataType::Int16) => {
-                Arc::new(Int16Array::from_iter_values(values.iter().map(|&v| {
-                    <i64 as MonotonicallyMappableToU64>::from_u64(v) as i16
-                })))
-            }
-            (ColumnType::I64, DataType::Int32) => {
-                Arc::new(Int32Array::from_iter_values(values.iter().map(|&v| {
-                    <i64 as MonotonicallyMappableToU64>::from_u64(v) as i32
-                })))
-            }
             (ColumnType::I64, DataType::Timestamp(TimeUnit::Microsecond, None)) => {
                 Arc::new(TimestampMicrosecondArray::from_iter_values(
                     values
@@ -1418,46 +1394,34 @@ impl TermPredicate for HashTableLookupPredicate {
                         .map(|&v| <i64 as MonotonicallyMappableToU64>::from_u64(v)),
                 ))
             }
-            (ColumnType::I64, _) => Arc::new(Int64Array::from_iter_values(
+            (ColumnType::I64, DataType::Int64) => Arc::new(Int64Array::from_iter_values(
                 values
                     .iter()
                     .map(|&v| <i64 as MonotonicallyMappableToU64>::from_u64(v)),
             )),
-            (ColumnType::U64, DataType::UInt8) => Arc::new(UInt8Array::from_iter_values(
-                values.iter().map(|&v| v as u8),
-            )),
-            (ColumnType::U64, DataType::UInt16) => Arc::new(UInt16Array::from_iter_values(
-                values.iter().map(|&v| v as u16),
-            )),
-            (ColumnType::U64, DataType::UInt32) => Arc::new(UInt32Array::from_iter_values(
-                values.iter().map(|&v| v as u32),
-            )),
-            (ColumnType::U64, _) => Arc::new(UInt64Array::from_iter_values(values.iter().copied())),
-            (ColumnType::F64, DataType::Float32) => {
-                Arc::new(Float32Array::from_iter_values(values.iter().map(|&v| {
-                    <f64 as MonotonicallyMappableToU64>::from_u64(v) as f32
-                })))
+            (ColumnType::U64, DataType::UInt64) => {
+                Arc::new(UInt64Array::from_iter_values(values.iter().copied()))
             }
-            (ColumnType::F64, _) => Arc::new(Float64Array::from_iter_values(
+            (ColumnType::F64, DataType::Float64) => Arc::new(Float64Array::from_iter_values(
                 values
                     .iter()
                     .map(|&v| <f64 as MonotonicallyMappableToU64>::from_u64(v)),
             )),
-            (ColumnType::Bool, _) => {
+            (ColumnType::Bool, DataType::Boolean) => {
                 Arc::new(BooleanArray::from_iter(values.iter().map(|&v| {
                     Some(<bool as MonotonicallyMappableToU64>::from_u64(v))
                 })))
             }
-            (ColumnType::DateTime, _) => Arc::new(TimestampMicrosecondArray::from_iter_values(
-                values.iter().map(|&v| {
+            (ColumnType::DateTime, DataType::Timestamp(TimeUnit::Microsecond, None)) => Arc::new(
+                TimestampMicrosecondArray::from_iter_values(values.iter().map(|&v| {
                     datetime_to_pg_micros(
                         <tantivy::DateTime as MonotonicallyMappableToU64>::from_u64(v),
                     )
-                }),
-            )),
-            (other, _) => {
+                })),
+            ),
+            (other_col, other_probe) => {
                 return Err(tantivy::TantivyError::InvalidArgument(format!(
-                    "Unsupported ColumnType {other:?} in HashTableLookupPredicate"
+                    "Unsupported ({other_col:?}, {other_probe:?}) in ExprTermPredicate"
                 )));
             }
         };
@@ -1609,8 +1573,13 @@ fn extract_conjunct_term_bounds(
 /// Checks whether `probe_data_type`, `search_field`, and `tantivy_field_type` store identical
 /// raw values in Tantivy (without lossy normalization, facet `\0` encoding, IPv6 mapping, or
 /// JSON path prefixes) and returns [`ExactPostings`] when at least one of the fast field or
-/// exact inverted index postings can evaluate [`HashTableLookupPredicate`].
-fn resolve_hash_lookup_exact_postings(
+/// exact inverted index postings can evaluate [`ExprTermPredicate`].
+///
+/// Only the 7 scalar Arrow types emitted by `SearchFieldType::arrow_data_type` (`Int64`,
+/// `UInt64`, `Float64`, `Boolean`, `Timestamp(Microsecond, None)`, `Utf8View`, `BinaryView`)
+/// are matched here because eager named scan columns never carry narrower numeric or non-view
+/// string/binary Arrow types.
+fn resolve_predicate_exact_postings(
     probe_data_type: &DataType,
     search_field: &crate::schema::SearchField,
     tantivy_field_type: &FieldType,
@@ -1624,11 +1593,7 @@ fn resolve_hash_lookup_exact_postings(
                 SearchFieldType::I64(_) | SearchFieldType::Numeric64(..)
             ) && matches!(
                 probe_data_type,
-                DataType::Int8
-                    | DataType::Int16
-                    | DataType::Int32
-                    | DataType::Int64
-                    | DataType::Timestamp(TimeUnit::Microsecond, None)
+                DataType::Int64 | DataType::Timestamp(TimeUnit::Microsecond, None)
             ) =>
         {
             (
@@ -1642,10 +1607,7 @@ fn resolve_hash_lookup_exact_postings(
         }
         FieldType::U64(opts)
             if matches!(search_field.field_type(), SearchFieldType::U64(_))
-                && matches!(
-                    probe_data_type,
-                    DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64
-                ) =>
+                && matches!(probe_data_type, DataType::UInt64) =>
         {
             (
                 opts.is_fast(),
@@ -1658,7 +1620,7 @@ fn resolve_hash_lookup_exact_postings(
         }
         FieldType::F64(opts)
             if matches!(search_field.field_type(), SearchFieldType::F64(_))
-                && matches!(probe_data_type, DataType::Float32 | DataType::Float64) =>
+                && matches!(probe_data_type, DataType::Float64) =>
         {
             (
                 opts.is_fast(),
@@ -1700,10 +1662,7 @@ fn resolve_hash_lookup_exact_postings(
         }
         FieldType::Bytes(opts)
             if search_field.is_numeric_bytes()
-                && matches!(
-                    probe_data_type,
-                    DataType::Binary | DataType::LargeBinary | DataType::BinaryView
-                ) =>
+                && matches!(probe_data_type, DataType::BinaryView) =>
         {
             (
                 opts.is_fast(),
@@ -1721,10 +1680,7 @@ fn resolve_hash_lookup_exact_postings(
                 SearchFieldType::Text(_)
                     | SearchFieldType::Tokenized(..)
                     | SearchFieldType::Uuid(_)
-            ) && matches!(
-                probe_data_type,
-                DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
-            ) =>
+            ) && matches!(probe_data_type, DataType::Utf8View) =>
         {
             // Reject normalized fast fields (e.g. `citext` or `normalizer=lowercase`):
             // `TermSetWeight` reads the `StrColumn` dictionary directly, which would
@@ -1749,35 +1705,49 @@ fn resolve_hash_lookup_exact_postings(
     Some(exact_postings)
 }
 
-fn try_convert_hash_lookup_to_query(
-    lookup_arc: &Arc<dyn PhysicalExpr>,
+/// Extracts the single probe [`Column`] from a [`HashTableLookupExpr`] or non-negated
+/// [`InListExpr`] and remaps that column to index `0` for [`ExprTermPredicate`]'s 1-column batch.
+///
+/// Only bare `Column` probes are accepted (matching `try_convert_in_list_to_query` and
+/// `RankJoinRule::leaf_supports_probe_pushdown`): same-family integer joins (`int4 = int8`)
+/// already share `DataType::Int64`, while cross-type Postgres join keys (such as `float8 = int4`)
+/// are projected through `pdb_eval_expr_*` rather than a DataFusion `CastExpr` over a scan column.
+fn remap_predicate_expr_to_zero(
+    expr_arc: &Arc<dyn PhysicalExpr>,
+) -> Option<(&Column, Arc<dyn PhysicalExpr>)> {
+    let children = expr_arc.children();
+    let (probe_expr, rest_children): (&Arc<dyn PhysicalExpr>, &[&Arc<dyn PhysicalExpr>]) =
+        if let Some(in_list) = expr_arc.downcast_ref::<InListExpr>() {
+            if in_list.negated() || children.is_empty() {
+                return None;
+            }
+            (children[0], &children[1..])
+        } else if children.len() == 1 {
+            (children[0], &[])
+        } else {
+            // TODO: Support multi-column composite HashTableLookupExpr pushdown.
+            return None;
+        };
+
+    let col = probe_expr.downcast_ref::<Column>()?;
+    let zero_col: Arc<dyn PhysicalExpr> = Arc::new(Column::new(col.name(), 0));
+
+    let mut new_children = Vec::with_capacity(1 + rest_children.len());
+    new_children.push(zero_col);
+    new_children.extend(rest_children.iter().map(|c| Arc::clone(c)));
+    let remapped_expr = Arc::clone(expr_arc).with_new_children(new_children).ok()?;
+    Some((col, remapped_expr))
+}
+
+fn try_convert_predicate_to_query(
+    expr_arc: &Arc<dyn PhysicalExpr>,
     root_expr: &Arc<dyn PhysicalExpr>,
     scan_schema: &Schema,
     schema: &crate::schema::SearchIndexSchema,
     index_created_by_version: Option<crate::api::version::Version>,
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
 ) -> Option<Box<dyn Query>> {
-    let children = lookup_arc.children();
-    if children.len() != 1 {
-        // TODO: Support multi-column composite HashTableLookupExpr pushdown.
-        return None;
-    }
-
-    let (col, remapped_child, is_direct_col) =
-        if let Some(col) = children[0].downcast_ref::<Column>() {
-            let zero_col: Arc<dyn PhysicalExpr> = Arc::new(Column::new(col.name(), 0));
-            (col, zero_col, true)
-        } else if let Some(cast_expr) = children[0].downcast_ref::<CastExpr>()
-            && let Some(col) = cast_expr.expr().downcast_ref::<Column>()
-        {
-            let zero_col: Arc<dyn PhysicalExpr> = Arc::new(Column::new(col.name(), 0));
-            let remapped_cast = Arc::clone(children[0])
-                .with_new_children(vec![zero_col])
-                .ok()?;
-            (col, remapped_cast, false)
-        } else {
-            return None;
-        };
+    let (col, remapped_expr) = remap_predicate_expr_to_zero(expr_arc)?;
 
     let scan_field = scan_schema.fields().get(col.index())?;
     if scan_field.name() != col.name()
@@ -1796,11 +1766,8 @@ fn try_convert_hash_lookup_to_query(
     let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
     let probe_data_type = scan_field.data_type().clone();
     let exact_postings =
-        resolve_hash_lookup_exact_postings(&probe_data_type, &search_field, tantivy_field_type)?;
+        resolve_predicate_exact_postings(&probe_data_type, &search_field, tantivy_field_type)?;
 
-    let remapped_lookup = Arc::clone(lookup_arc)
-        .with_new_children(vec![remapped_child])
-        .ok()?;
     let batch_schema = Arc::new(Schema::new(vec![Field::new(
         col.name(),
         probe_data_type.clone(),
@@ -1808,7 +1775,7 @@ fn try_convert_hash_lookup_to_query(
     )]));
 
     let field_type = search_field.field_type();
-    let bounds = if is_direct_col && search_field.stats_order_matches_values() {
+    let bounds = if search_field.stats_order_matches_values() {
         extract_conjunct_term_bounds(
             root_expr,
             col,
@@ -1829,8 +1796,8 @@ fn try_convert_hash_lookup_to_query(
         ..TermSetStrategyConfig::default()
     };
 
-    let predicate = Arc::new(HashTableLookupPredicate {
-        expr: remapped_lookup,
+    let predicate = Arc::new(ExprTermPredicate {
+        expr: remapped_expr,
         batch_schema,
         probe_data_type,
     });
@@ -1853,12 +1820,15 @@ pub enum InListLinearFallback {
     PushToIndex,
 }
 
-/// Outcome of trying to convert one join-derived `InList` predicate.
+/// Outcome of trying to convert one join-derived `InList` predicate into a `TermSetQuery`.
 enum InListPushdown {
-    /// AND the converted term-set query into the tantivy search.
+    /// AND the converted `TermSetQuery` into the tantivy search.
     Query(Box<dyn Query>),
-    /// Not convertible (or faster as a vectorized batch pre-filter than Tantivy
-    /// `LinearScan`); keep it as a batch-level pre-filter.
+    /// Not convertible to a `TermSetQuery` (e.g. tokenized text, datetime, or `NumericBytes`);
+    /// fall back to [`try_convert_predicate_to_query`] (`TermPredicateQuery`).
+    FallbackToPredicate,
+    /// Intentionally keep as a batch-level pre-filter (negated, empty, or high-density numeric
+    /// `InList` deferred by `InListLinearFallback::KeepAsPreFilter`).
     Keep,
 }
 
@@ -1871,7 +1841,7 @@ fn try_convert_in_list_to_query(
     sorted_by_field: Option<&str>,
     linear_fallback: InListLinearFallback,
 ) -> InListPushdown {
-    if in_list.negated() {
+    if in_list.negated() || in_list.list().is_empty() {
         return InListPushdown::Keep;
     }
 
@@ -1881,12 +1851,6 @@ fn try_convert_in_list_to_query(
     let Some(field) = schema.search_field(col.name()) else {
         return InListPushdown::Keep;
     };
-
-    if field.is_text() && !field.is_keyword() {
-        return InListPushdown::Keep;
-    }
-
-    let field_type = field.field_type();
 
     // On standard unsorted scans (`InListLinearFallback::KeepAsPreFilter`), integrating a
     // numeric `InList` into the Tantivy query only pays when the segments admit an index-driven
@@ -1911,6 +1875,11 @@ fn try_convert_in_list_to_query(
         }
     }
 
+    if field.is_text() && !field.is_keyword() {
+        return InListPushdown::FallbackToPredicate;
+    }
+
+    let field_type = field.field_type();
     let tantivy_schema = schema.tantivy_schema();
     let Ok(tantivy_field) = tantivy_schema.get_field(col.name()) else {
         return InListPushdown::Keep;
@@ -1939,7 +1908,7 @@ fn try_convert_in_list_to_query(
         .collect();
 
     let Some(terms) = terms else {
-        return InListPushdown::Keep;
+        return InListPushdown::FallbackToPredicate;
     };
     if terms.is_empty() {
         return InListPushdown::Keep;
@@ -1985,34 +1954,20 @@ impl DynamicFilterStrategySinks {
 
 /// Which dynamic-filter flavors were pushed down into the Tantivy query by
 /// [`try_dynamic_filter_pushdown`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DynamicFilterPushdownOutcome {
-    None,
-    InListOnly,
-    HashOnly,
-    Both,
-}
-
-impl DynamicFilterPushdownOutcome {
-    pub fn any_pushed(self) -> bool {
-        !matches!(self, Self::None)
-    }
-
-    pub fn inlist_pushed(self) -> bool {
-        matches!(self, Self::InListOnly | Self::Both)
-    }
-
-    pub fn hash_pushed(self) -> bool {
-        matches!(self, Self::HashOnly | Self::Both)
-    }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DynamicFilterPushdownOutcome {
+    pub inlist: bool,
+    pub hash: bool,
 }
 
 /// Try to push down `InList` and `HashTableLookupExpr` expressions from `dynamic_filters`
-/// into the search query.
+/// into the search query, gated by `paradedb.hash_join_filter_pushdown`.
 ///
 /// This is called during the first `poll_next` of the scan stream to convert eligible
 /// build-side predicates from `HashJoinExec` into native Tantivy `TermSetQuery` or
-/// `TermPredicateQuery` filters.
+/// `TermPredicateQuery` filters (`InListExpr`s that cannot build a `TermSetQuery`, such as
+/// tokenized text, datetimes, or `NumericBytes`, fall back to `TermPredicateQuery` under
+/// `auto` mode).
 ///
 /// If any expressions are successfully pushed down, this function:
 /// 1. Combines them into a `BooleanQuery` and `AND`s it into the `reader`'s query.
@@ -2026,10 +1981,14 @@ pub fn try_dynamic_filter_pushdown(
     sinks: DynamicFilterStrategySinks,
     linear_fallback: InListLinearFallback,
 ) -> DynamicFilterPushdownOutcome {
+    let pushdown_mode = crate::gucs::hash_join_filter_pushdown();
+    if pushdown_mode == crate::gucs::HashJoinFilterPushdown::Off {
+        return DynamicFilterPushdownOutcome::default();
+    }
+
     let mut pushed_down_queries: Vec<Box<dyn Query>> = Vec::new();
     let mut pushed_down_pointers = HashSet::default();
-    let mut saw_inlist_pushdown = false;
-    let mut saw_hash_pushdown = false;
+    let mut outcome = DynamicFilterPushdownOutcome::default();
     let schema = reader.schema();
     let index_created_by_version = reader.index_created_by_version();
     let max_segment_docs = reader
@@ -2056,39 +2015,50 @@ pub fn try_dynamic_filter_pushdown(
             &mut extracted_hash_lookups,
         );
 
-        for in_list_arc in extracted_in_lists {
-            let in_list = in_list_arc.downcast_ref::<InListExpr>().unwrap();
+        if pushdown_mode == crate::gucs::HashJoinFilterPushdown::Hash {
+            extracted_hash_lookups.extend(extracted_in_lists);
+        } else {
+            for in_list_arc in extracted_in_lists {
+                let in_list = in_list_arc.downcast_ref::<InListExpr>().unwrap();
 
-            match try_convert_in_list_to_query(
-                in_list,
-                schema,
-                index_created_by_version,
-                sinks.inlist.clone(),
-                max_segment_docs,
-                sorted_by_field.as_deref(),
-                linear_fallback,
-            ) {
-                InListPushdown::Query(query) => {
-                    pushed_down_queries.push(query);
-                    pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
-                    saw_inlist_pushdown = true;
+                match try_convert_in_list_to_query(
+                    in_list,
+                    schema,
+                    index_created_by_version,
+                    sinks.inlist.clone(),
+                    max_segment_docs,
+                    sorted_by_field.as_deref(),
+                    linear_fallback,
+                ) {
+                    InListPushdown::Query(query) => {
+                        pushed_down_queries.push(query);
+                        pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
+                        outcome.inlist = true;
+                    }
+                    InListPushdown::FallbackToPredicate
+                        if pushdown_mode == crate::gucs::HashJoinFilterPushdown::Auto =>
+                    {
+                        extracted_hash_lookups.push(in_list_arc);
+                    }
+                    InListPushdown::FallbackToPredicate | InListPushdown::Keep => {}
                 }
-                InListPushdown::Keep => {}
             }
         }
 
-        for hash_lookup_arc in extracted_hash_lookups {
-            if let Some(query) = try_convert_hash_lookup_to_query(
-                hash_lookup_arc,
-                &current_expr,
-                scan_schema,
-                schema,
-                index_created_by_version,
-                sinks.hash.clone(),
-            ) {
-                pushed_down_queries.push(query);
-                pushed_down_pointers.insert(Arc::as_ptr(hash_lookup_arc) as *const () as usize);
-                saw_hash_pushdown = true;
+        if pushdown_mode != crate::gucs::HashJoinFilterPushdown::InList {
+            for predicate_arc in extracted_hash_lookups {
+                if let Some(query) = try_convert_predicate_to_query(
+                    predicate_arc,
+                    &current_expr,
+                    scan_schema,
+                    schema,
+                    index_created_by_version,
+                    sinks.hash.clone(),
+                ) {
+                    pushed_down_queries.push(query);
+                    pushed_down_pointers.insert(Arc::as_ptr(predicate_arc) as *const () as usize);
+                    outcome.hash = true;
+                }
             }
         }
 
@@ -2129,12 +2099,7 @@ pub fn try_dynamic_filter_pushdown(
         reader.inject_and_query(Box::new(boolean_query));
     }
 
-    match (saw_inlist_pushdown, saw_hash_pushdown) {
-        (false, false) => DynamicFilterPushdownOutcome::None,
-        (true, false) => DynamicFilterPushdownOutcome::InListOnly,
-        (false, true) => DynamicFilterPushdownOutcome::HashOnly,
-        (true, true) => DynamicFilterPushdownOutcome::Both,
-    }
+    outcome
 }
 
 #[cfg(test)]
@@ -2329,5 +2294,79 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn expr_term_predicate_remaps_and_evaluates_in_list() {
+        use super::{ExprTermPredicate, remap_predicate_expr_to_zero};
+        use datafusion::arrow::array::{StringViewArray, TimestampMicrosecondArray};
+        use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+        use datafusion::physical_plan::expressions::InListExpr;
+        use tantivy::columnar::{ColumnType, MonotonicallyMappableToU64};
+        use tantivy::query::{TermPredicate, TinySet};
+
+        // Timestamp InList on column index 1 (non-zero) remapped to 0 and evaluated via
+        // `filter_monotonic_u64s`.
+        let ts_type = DataType::Timestamp(TimeUnit::Microsecond, None);
+        let ts_schema = Arc::new(Schema::new(vec![
+            Field::new("pad", DataType::Int64, true),
+            Field::new("ts", ts_type.clone(), true),
+        ]));
+        let ts_col = Arc::new(Column::new("ts", 1)) as Arc<dyn PhysicalExpr>;
+        let ts_vals = Arc::new(TimestampMicrosecondArray::from(vec![100_i64, 300_i64]));
+        let ts_in_list =
+            Arc::new(InListExpr::try_new_from_array(ts_col, ts_vals, false, &ts_schema).unwrap())
+                as Arc<dyn PhysicalExpr>;
+
+        let (col, remapped) = remap_predicate_expr_to_zero(&ts_in_list).unwrap();
+        assert_eq!(col.index(), 1);
+        let pred = ExprTermPredicate {
+            expr: remapped,
+            batch_schema: Arc::new(Schema::new(vec![Field::new("ts", ts_type.clone(), true)])),
+            probe_data_type: ts_type,
+        };
+        let encoded: Vec<u64> = [50_i64, 100, 200, 300]
+            .into_iter()
+            .map(MonotonicallyMappableToU64::to_u64)
+            .collect();
+        let mut out = [TinySet::empty()];
+        pred.filter_monotonic_u64s(ColumnType::I64, &encoded, &mut out)
+            .unwrap();
+        assert_eq!(out[0].into_iter().collect::<Vec<_>>(), vec![1, 3]);
+
+        // StringView InList on column index 1 evaluated via `filter_bytes`.
+        let str_schema = Arc::new(Schema::new(vec![
+            Field::new("pad", DataType::Int64, true),
+            Field::new("body", DataType::Utf8View, true),
+        ]));
+        let str_col = Arc::new(Column::new("body", 1)) as Arc<dyn PhysicalExpr>;
+        let str_vals = Arc::new(StringViewArray::from(vec!["alpha", "gamma"]));
+        let str_in_list = Arc::new(
+            InListExpr::try_new_from_array(str_col, str_vals, false, &str_schema).unwrap(),
+        ) as Arc<dyn PhysicalExpr>;
+
+        let (_, remapped_str) = remap_predicate_expr_to_zero(&str_in_list).unwrap();
+        let str_pred = ExprTermPredicate {
+            expr: remapped_str,
+            batch_schema: Arc::new(Schema::new(vec![Field::new(
+                "body",
+                DataType::Utf8View,
+                true,
+            )])),
+            probe_data_type: DataType::Utf8View,
+        };
+        let data = b"alphabeta_gammadelta";
+        let offsets = [0u32, 5, 10, 15, 20];
+        let mut out = [TinySet::empty()];
+        str_pred.filter_bytes(data, &offsets, &mut out).unwrap();
+        assert_eq!(out[0].into_iter().collect::<Vec<_>>(), vec![0, 2]);
+
+        // Negated InList must be rejected.
+        let neg_col = Arc::new(Column::new("body", 1)) as Arc<dyn PhysicalExpr>;
+        let neg_vals = Arc::new(StringViewArray::from(vec!["alpha"]));
+        let neg_in_list =
+            Arc::new(InListExpr::try_new_from_array(neg_col, neg_vals, true, &str_schema).unwrap())
+                as Arc<dyn PhysicalExpr>;
+        assert!(remap_predicate_expr_to_zero(&neg_in_list).is_none());
     }
 }

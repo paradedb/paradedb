@@ -300,10 +300,34 @@ static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
 /// chunks, so the size bounds backpressure granularity and launch cost, not what a query can carry.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
 
+/// Controls which hash-join dynamic filter expressions ParadeDB pushes into Tantivy.
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum HashJoinFilterPushdown {
+    /// Push `InListExpr` as `TermSetQuery` (falling back to `TermPredicateQuery`) up to
+    /// `paradedb.hash_join_inlist_max_distinct_values`, and single-column `HashTableLookupExpr`
+    /// as `TermPredicateQuery`.
+    #[default]
+    #[name = c"auto"]
+    Auto,
+    /// Push `InListExpr` as `TermSetQuery` only; disable `TermPredicateQuery` pushdown.
+    #[name = c"inlist"]
+    InList,
+    /// Skip `InListExpr` materialization and push all single-column join filters as
+    /// `TermPredicateQuery`.
+    #[name = c"hash"]
+    Hash,
+    /// Disable Tantivy pushdown of hash-join dynamic filters (keep them in `PreFilter` /
+    /// `HashJoinExec`). TopK dynamic filters are unaffected.
+    #[name = c"off"]
+    Off,
+}
+
+static HASH_JOIN_FILTER_PUSHDOWN: GucSetting<HashJoinFilterPushdown> =
+    GucSetting::<HashJoinFilterPushdown>::new(HashJoinFilterPushdown::Auto);
+
 /// Maximum byte size of a build-side `InListExpr` dynamic filter materialized by DataFusion's
 /// `HashJoinExec` before falling back to `HashTableLookupExpr`.
-static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
-    GucSetting::<i32>::new(16 * 1024 * 1024);
+static HASH_JOIN_INLIST_MAX_SIZE: GucSetting<i32> = GucSetting::<i32>::new(16 * 1024 * 1024);
 
 /// Maximum number of distinct keys in a build-side `InListExpr` dynamic filter materialized by
 /// DataFusion's `HashJoinExec` before switching to `HashTableLookupExpr`.
@@ -311,11 +335,11 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
 /// Above this K, `HashJoinExec` emits a zero-copy `HashTableLookupExpr` (`ArrayMap` or
 /// `JoinHashMap`) instead of allocating `K` `Literal` expressions and a duplicate `StaticFilter`
 /// hash set. Single-column `HashTableLookupExpr`s push into Tantivy as `TermPredicateQuery`s on
-/// compatible indexed or fast fields, so `InListExpr` is reserved for the sparse point-lookup
-/// regime (`BitsetFromPostings` / `Gallop`, matching `0.005 * 1M = 5,000` on a 1M-doc segment).
-/// Set to 0 to disable join `InListExpr` materialization and always emit `HashTableLookupExpr`.
-static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
-    GucSetting::<i32>::new(5_000);
+/// compatible indexed or fast fields (unless `paradedb.hash_join_filter_pushdown` disables them),
+/// so `InListExpr` is reserved for the sparse point-lookup regime (`BitsetFromPostings` /
+/// `Gallop`, matching `0.005 * 1M = 5,000` on a 1M-doc segment). Set to 0 to always emit
+/// `HashTableLookupExpr`.
+static HASH_JOIN_INLIST_MAX_DISTINCT_VALUES: GucSetting<i32> = GucSetting::<i32>::new(5_000);
 
 /// Row count threshold below which DataFusion converts a partitioned HashJoinExec
 /// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
@@ -1040,11 +1064,20 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_enum_guc(
+        c"paradedb.hash_join_filter_pushdown",
+        c"Controls Tantivy pushdown of hash-join dynamic filters ('auto', 'inlist', 'hash', 'off').",
+        c"'auto' (default) pushes InList filters up to paradedb.hash_join_inlist_max_distinct_values and hash-table lookup filters above it; 'inlist' pushes InList filters only; 'hash' always uses hash-table lookup filters; 'off' disables Tantivy pushdown of hash-join dynamic filters.",
+        &HASH_JOIN_FILTER_PUSHDOWN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
-        c"paradedb.hash_join_inlist_pushdown_max_size",
+        c"paradedb.hash_join_inlist_max_size",
         c"Maximum byte size of a join-derived InList dynamic filter materialized by DataFusion.",
         c"Maximum byte size of a build-side InList dynamic filter materialized by DataFusion before falling back to HashTableLookupExpr.",
-        &HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE,
+        &HASH_JOIN_INLIST_MAX_SIZE,
         0,
         i32::MAX,
         GucContext::Userset,
@@ -1052,10 +1085,10 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.hash_join_inlist_pushdown_max_distinct_values",
+        c"paradedb.hash_join_inlist_max_distinct_values",
         c"Maximum number of distinct values in a join-derived InList dynamic filter before switching to HashTableLookupExpr. Set to 0 to always emit HashTableLookupExpr.",
-        c"Maximum number of distinct build-side keys materialized as an InList dynamic filter by DataFusion before switching to zero-copy HashTableLookupExpr (pushed into Tantivy as TermPredicateQuery on single-column joins). Set to 0 to always emit HashTableLookupExpr.",
-        &HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
+        c"Maximum number of distinct build-side keys materialized as an InList dynamic filter by DataFusion before switching to zero-copy HashTableLookupExpr. Set to 0 to always emit HashTableLookupExpr; use paradedb.hash_join_filter_pushdown = 'off' to disable Tantivy pushdown.",
+        &HASH_JOIN_INLIST_MAX_DISTINCT_VALUES,
         0,
         i32::MAX,
         GucContext::Userset,
@@ -1552,12 +1585,16 @@ pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
 }
 
-pub fn hash_join_inlist_pushdown_max_size() -> i32 {
-    HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE.get()
+pub fn hash_join_filter_pushdown() -> HashJoinFilterPushdown {
+    HASH_JOIN_FILTER_PUSHDOWN.get()
 }
 
-pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
-    HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+pub fn hash_join_inlist_max_size() -> i32 {
+    HASH_JOIN_INLIST_MAX_SIZE.get()
+}
+
+pub fn hash_join_inlist_max_distinct_values() -> i32 {
+    HASH_JOIN_INLIST_MAX_DISTINCT_VALUES.get()
 }
 
 pub fn hash_join_single_partition_threshold_rows() -> i32 {

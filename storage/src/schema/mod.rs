@@ -972,7 +972,7 @@ mod tests {
                 let opts: NumericOptions = field_config.clone().into();
                 builder.add_i64_field("f", opts)
             }
-            other => unreachable!("unexpected config in test: {other:?}"),
+            _ => unreachable!("unexpected SearchFieldConfig variant in test"),
         };
         let schema = builder.build();
         let sf = super::SearchField::for_testing(field, &schema, field_type, field_config);

@@ -159,7 +159,7 @@ LIMIT 3;
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=f, segments=1, fetch=[title], dynamic_filters=2, query="all", metrics=[output_rows=50, output_bytes=1632.0 B, output_batches=1, dynamic_filter_pushdown_automaton=1, rows_pruned=0, rows_scanned=50]
+     :             PgSearchScan: table=f, segments=1, fetch=[title], dynamic_filters=2, query="all", metrics=[output_rows=50, output_bytes=1632.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, rows_pruned=0, rows_scanned=50]
 (15 rows)
 
 -- =============================================================================

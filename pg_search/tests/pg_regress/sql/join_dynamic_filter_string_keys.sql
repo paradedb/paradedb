@@ -100,7 +100,7 @@ LIMIT 10;
 -- TEST 3: InList materialization disabled, so HashTableLookupExpr pushdown still gives the same rows
 -- =============================================================================
 
-SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
+SET paradedb.hash_join_inlist_max_distinct_values = 0;
 
 SELECT b.ordinal
 FROM strkey_build b
@@ -109,7 +109,7 @@ WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
 
-RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+RESET paradedb.hash_join_inlist_max_distinct_values;
 
 DROP TABLE strkey_probe;
 DROP TABLE strkey_build;

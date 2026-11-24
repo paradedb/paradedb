@@ -2083,8 +2083,9 @@ fn advance_probe_join_context(
 /// `OrderByFeature::Score`, or `OrderByFeature::Field` plus any secondary tie-breakers).
 ///
 /// Single-column equi-join keys on supported probe leaf columns push down into Tantivy at any
-/// build cardinality (`TermSetQuery` for `InListExpr`, `TermPredicateQuery` for
-/// `HashTableLookupExpr`). Unpushable joins (such as composite join keys or residual
+/// build cardinality when `paradedb.hash_join_filter_pushdown` allows `TermPredicateQuery`
+/// (`auto` or `hash`: `TermSetQuery` for convertible `InListExpr`, `TermPredicateQuery` for
+/// `HashTableLookupExpr` and fallback `InListExpr`). Unpushable joins (such as composite join keys or residual
 /// `JoinFilter`s) fall through to `HashJoinExec` + `SortExec(TopK)` on `Score`/`Field` joins, keep
 /// `RankJoinExec` on vector joins when `RankJoinExec` was otherwise eligible
 /// ([`ProbePushdownState::RequireAll`]), and fall back to selectivity-scaled `lazy_sort` windows

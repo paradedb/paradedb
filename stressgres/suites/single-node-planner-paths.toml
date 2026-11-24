@@ -40,13 +40,10 @@ CREATE INDEX idxtest ON test USING paradedb (
     message,
     category_id,
     (category::pdb.literal)
-) WITH (
-    numeric_fields = '{"category_id": {"fast": true}}'
 );
 
-CREATE INDEX idxcategories ON categories USING paradedb (id, name) WITH (
-    text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}'
-);
+CREATE INDEX idxcategories ON categories USING paradedb
+    (id, (name::pdb.literal_normalized('columnar=true')));
 
 -- Initialize visibility and statistics for the mutable workload table.
 VACUUM (ANALYZE) test;
@@ -187,7 +184,7 @@ title = "Score-ordered Top K Base Scan"
 log_tps = true
 sql_plan_contains = "TopKScanExecState"
 sql = """
-SELECT id FROM test WHERE message ||| 'beer' ORDER BY paradedb.score(id) DESC LIMIT 10;
+SELECT id FROM test WHERE message ||| 'beer' ORDER BY pdb.score(id) DESC LIMIT 10;
 """
 
 [[jobs]]

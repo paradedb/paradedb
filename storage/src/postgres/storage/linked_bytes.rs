@@ -627,7 +627,8 @@ mod tests {
     #[pg_test]
     unsafe fn test_linked_bytes_directory_compatibility() {
         Spi::run("CREATE TABLE directory_compat (id SERIAL, data TEXT)").unwrap();
-        Spi::run("CREATE INDEX directory_compat_idx ON directory_compat USING bm25 (id, data) WITH (key_field='id')").unwrap();
+        Spi::run("CREATE INDEX directory_compat_idx ON directory_compat USING paradedb (id, data)")
+            .unwrap();
         let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'directory_compat_idx'::regclass::oid")
             .unwrap()
             .unwrap();

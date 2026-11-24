@@ -7205,6 +7205,7 @@ dependencies = [
  "parking_lot 0.13.0",
  "pgrx",
  "pgrx-tests",
+ "postgres",
  "proptest 1.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.10.3",
  "rstest",

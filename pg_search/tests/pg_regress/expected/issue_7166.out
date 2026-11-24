@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 CREATE EXTENSION IF NOT EXISTS pg_search;
 CREATE TABLE issue_7166 (id integer PRIMARY KEY, payload jsonb);
 INSERT INTO issue_7166 VALUES

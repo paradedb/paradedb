@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 \i common/common_setup.sql
 
 CALL paradedb.create_paradedb_test_table(

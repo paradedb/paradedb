@@ -6,14 +6,11 @@ USING paradedb (
   rating,
   in_stock,
   created_at,
-  metadata,
+  (metadata::pdb.unicode_words('columnar=true')),
   weight_range,
   embedding vector_cosine_ops,
   (description::pdb.simple('alias=description_simple')),
   (lower(description)::pdb.literal('alias=literal_description'))
-)
-WITH (
-  json_fields = '{"metadata":{"fast":true}}'
 );
 
 CREATE INDEX orders_idx ON orders

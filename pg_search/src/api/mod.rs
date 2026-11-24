@@ -35,6 +35,7 @@ pub mod operator;
 mod synonyms;
 pub mod tokenize;
 pub mod tokenizers;
+pub(crate) mod v1;
 mod vector;
 pub mod window_aggregate;
 

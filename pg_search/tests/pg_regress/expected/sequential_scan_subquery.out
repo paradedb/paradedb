@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 BEGIN;
 CREATE SCHEMA sequential_scan_subquery;
 SET search_path = sequential_scan_subquery, public;

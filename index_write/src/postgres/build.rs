@@ -235,15 +235,8 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         });
     }
 
-    let datetime_configs = options.datetime_config();
-    if created_by_version.stores_datetimes_in_i64() {
-        if datetime_configs.iter().flatten().next().is_some() {
-            warning!(
-                "As of v0.24.1, \"datetime_fields\" is deprecated and should be removed. It no longer has any effect. The performance improvement options it provided are now on by default."
-            );
-        }
-    } else {
-        for (field_name, config) in datetime_configs.iter().flatten() {
+    if !created_by_version.stores_datetimes_in_i64() {
+        for (field_name, config) in options.datetime_config().iter().flatten() {
             validate_field_config(field_name, config, options, |t| {
                 matches!(t, SearchFieldType::Date(_))
             });

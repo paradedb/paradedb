@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 -- Test case for issue #2530: BM25 scores return null when not all predicates are indexed
 -- This test demonstrates the problem where score functions return null/zero results
 -- when search predicates are handled by join filters instead of custom scan filters

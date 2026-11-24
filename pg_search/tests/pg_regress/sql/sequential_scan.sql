@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 \i common/common_setup.sql
 
 CREATE EXTENSION pageinspect;

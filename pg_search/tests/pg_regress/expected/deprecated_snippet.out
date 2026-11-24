@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS snippet_test;
 CREATE TABLE snippet_test (

@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 -- test stopwords and stopwords_language
 
 \echo 'Test: Stopwords processing'

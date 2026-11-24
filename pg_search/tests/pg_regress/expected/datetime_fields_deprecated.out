@@ -19,7 +19,7 @@ USING paradedb (id, ts, tstz)
 WITH (
     datetime_fields = '{"ts": {"fast": true}, "tstz": {"fast": true}}'
 );
-WARNING:  As of v0.24.1, "datetime_fields" is deprecated and should be removed. It no longer has any effect. The performance improvement options it provided are now on by default.
+WARNING:  datetime_fields uses the deprecated ParadeDB V1 API
 -- The index must behave as if the option had not been specified
 SELECT id, ts, tstz
 FROM deprecated_dt

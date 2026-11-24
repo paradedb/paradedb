@@ -1,0 +1,146 @@
+-- Check V1 diagnostics before planner rewrites.
+\set VERBOSITY default
+\pset format unaligned
+SET paradedb.planner_warnings = 'off';
+SHOW paradedb.v1api_warnings;
+paradedb.v1api_warnings
+Warning
+(1 row)
+CREATE TABLE v1_api_items (id integer PRIMARY KEY, body text);
+INSERT INTO v1_api_items VALUES (1, 'running shoes'), (2, 'walking boots');
+CREATE INDEX v1_api_idx ON v1_api_items USING bm25 (id, body)
+WITH (key_field = 'id', text_fields = '{"body": {"tokenizer": {"type": "default"}}}');
+WARNING:  USING bm25 uses the deprecated ParadeDB V1 API
+HINT:  Use USING paradedb.
+WARNING:  key_field uses the deprecated ParadeDB V1 API
+HINT:  Remove key_field and put the indexed key column first in the CREATE INDEX column list.
+WARNING:  text_fields uses the deprecated ParadeDB V1 API
+HINT:  Configure text columns using tokenizer casts, such as field::pdb.simple. Use alias and columnar for aliases and columnar storage. Custom stopword lists and arbitrary record modes have no direct V2 equivalent. To request V2 support, open a GitHub issue with your SQL and index definition at https://github.com/paradedb/paradedb/issues/new?template=feature_request.yml
+SELECT id, pdb.score(id) = paradedb.score(id) AS same_score,
+       paradedb.snippet(body) AS snippet
+FROM v1_api_items WHERE id @@@ paradedb.term('body', 'shoes');
+WARNING:  paradedb.score() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.score(...) with the same arguments.
+WARNING:  paradedb.snippet() uses the deprecated ParadeDB V1 API
+HINT:  Use pdb.snippet(...) with the same arguments. For multiple snippets, use pdb.snippets(...).
+WARNING:  paradedb.term() uses the deprecated ParadeDB V1 API
+HINT:  Use field @@@ pdb.term(value), or use field === value for text tokens.
+id|same_score|snippet
+1|t|running <b>shoes</b>
+(1 row)
+WITH matches AS (
+    SELECT id FROM v1_api_items WHERE body @@@ pdb.match('shoes')
+)
+SELECT id FROM matches;
+id
+1
+(1 row)
+SELECT id FROM v1_api_items WHERE id @@@ paradedb.term_with_operator('body', '=', 'shoes'::text);
+WARNING:  paradedb.term_with_operator() uses the deprecated ParadeDB V1 API
+HINT:  Use SQL operators for column-value comparisons. To match an indexed text token, use field @@@ pdb.term(value).
+id
+1
+(1 row)
+-- Check V1 literals and builders.
+SELECT '{"all":null}'::paradedb.searchqueryinput;
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
+HINT:  Use pdb query builders or the V2 search operators. V2 has no equivalent for arbitrary searchqueryinput JSON. To request V2 support, open a GitHub issue with your SQL and index definition at https://github.com/paradedb/paradedb/issues/new?template=feature_request.yml
+searchqueryinput
+"all"
+(1 row)
+SELECT '{"all":null}'::jsonb::paradedb.searchqueryinput;
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
+HINT:  Use pdb query builders or the V2 search operators. V2 has no equivalent for arbitrary searchqueryinput JSON. To request V2 support, open a GitHub issue with your SQL and index definition at https://github.com/paradedb/paradedb/issues/new?template=feature_request.yml
+searchqueryinput
+"all"
+(1 row)
+SELECT paradedb.searchqueryinput_in('"all"');
+WARNING:  paradedb.searchqueryinput uses the deprecated ParadeDB V1 API
+HINT:  Use pdb query builders or the V2 search operators. V2 has no equivalent for arbitrary searchqueryinput JSON. To request V2 support, open a GitHub issue with your SQL and index definition at https://github.com/paradedb/paradedb/issues/new?template=feature_request.yml
+searchqueryinput_in
+"all"
+(1 row)
+SELECT paradedb.disjunction_max(ARRAY[paradedb.all()]);
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+HINT:  Use table_alias @@@ pdb.all()::pdb.const(0) to preserve the V1 score of zero.
+WARNING:  paradedb.disjunction_max() uses the deprecated ParadeDB V1 API
+HINT:  V2 has no equivalent for DisMax scoring or its tie_breaker. SQL OR can match the same rows with different scores. To request V2 support, open a GitHub issue with your SQL and index definition at https://github.com/paradedb/paradedb/issues/new?template=feature_request.yml
+disjunction_max
+{"disjunction_max":{"disjuncts":["all"],"tie_breaker":null}}
+(1 row)
+-- Legacy indexes remain usable in error mode.
+SET paradedb.v1api_warnings = 'off';
+SELECT id FROM v1_api_items WHERE id @@@ paradedb.term('body', 'shoes');
+id
+1
+(1 row)
+SET plan_cache_mode = force_generic_plan;
+PREPARE v1_api_search(text) AS
+SELECT id FROM v1_api_items WHERE id @@@ paradedb.term('body', $1);
+EXECUTE v1_api_search('shoes');
+id
+1
+(1 row)
+SET paradedb.v1api_warnings = 'error';
+EXECUTE v1_api_search('shoes');
+ERROR:  paradedb.term() uses the deprecated ParadeDB V1 API
+HINT:  Use field @@@ pdb.term(value), or use field === value for text tokens.
+PREPARE v1_api_literal AS SELECT paradedb.all();
+EXPLAIN (COSTS OFF) EXECUTE v1_api_literal;
+WARNING:  paradedb.all() uses the deprecated ParadeDB V1 API
+HINT:  Use table_alias @@@ pdb.all()::pdb.const(0) to preserve the V1 score of zero.
+QUERY PLAN
+Result
+(1 row)
+EXECUTE v1_api_literal;
+ERROR:  paradedb.all() uses the deprecated ParadeDB V1 API
+HINT:  Use table_alias @@@ pdb.all()::pdb.const(0) to preserve the V1 score of zero.
+DEALLOCATE v1_api_literal;
+EXPLAIN (ANALYZE, COSTS OFF) SELECT paradedb.all();
+ERROR:  paradedb.all() uses the deprecated ParadeDB V1 API
+HINT:  Use table_alias @@@ pdb.all()::pdb.const(0) to preserve the V1 score of zero.
+ALTER INDEX v1_api_idx SET (text_fields = '{}');
+ERROR:  text_fields uses the deprecated ParadeDB V1 API
+HINT:  Configure text columns using tokenizer casts, such as field::pdb.simple. Use alias and columnar for aliases and columnar storage. Custom stopword lists and arbitrary record modes have no direct V2 equivalent. To request V2 support, open a GitHub issue with your SQL and index definition at https://github.com/paradedb/paradedb/issues/new?template=feature_request.yml
+ALTER INDEX v1_api_idx SET (mutable_segment_rows = 0);
+REINDEX INDEX v1_api_idx;
+SELECT id FROM v1_api_items WHERE body ||| 'shoes' AND id = 1;
+id
+1
+(1 row)
+SELECT id FROM v1_api_items WHERE v1_api_items @@@ pdb.parse('body:shoes');
+id
+1
+(1 row)
+SELECT id, pdb.score(id) FROM v1_api_items
+WHERE v1_api_items @@@ pdb.all()::pdb.const(0) ORDER BY id;
+id|score
+1|0
+2|0
+(2 rows)
+SELECT pdb.more_like_this(document => '{"body": "running shoes"}') IS NOT NULL AS has_query;
+has_query
+t
+(1 row)
+SELECT paradedb.index_fields('v1_api_idx') IS NOT NULL AS has_fields;
+has_fields
+t
+(1 row)
+CREATE FUNCTION public.all() RETURNS integer LANGUAGE sql IMMUTABLE RETURN 1;
+SELECT public.all();
+all
+1
+(1 row)
+DROP FUNCTION public.all();
+SET paradedb.v1api_warnings = 'off';
+SET paradedb.planner_warnings = 'error';
+ALTER INDEX v1_api_idx SET (key_field = 'id');
+SELECT paradedb.all();
+all
+"all"
+(1 row)
+DEALLOCATE v1_api_search;
+DROP TABLE v1_api_items;
+RESET plan_cache_mode;
+RESET paradedb.planner_warnings;
+RESET paradedb.v1api_warnings;

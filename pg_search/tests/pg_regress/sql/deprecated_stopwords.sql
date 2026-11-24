@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 -- Custom stopword lists do not yet have a working tokenizer cast equivalent.
 \i common/common_setup.sql
 

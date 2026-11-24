@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 -- Tests for minimum_should_match parameter in paradedb.boolean()
 
 CREATE EXTENSION IF NOT EXISTS pg_search;

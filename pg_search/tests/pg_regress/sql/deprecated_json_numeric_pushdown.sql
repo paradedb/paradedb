@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 -- Legacy JSON configuration preserves numeric filter pushdown until tokenizer casts support it.
 \i common/common_setup.sql
 

@@ -84,15 +84,6 @@ pub const DEFAULT_REPLICATION: i32 = 2;
 pub const MAX_REPLICATION: i32 = 2;
 
 #[pg_guard]
-extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
-    if !value.is_null() {
-        warning!(
-            "key_field is deprecated as of 0.26.0 and is a no-op; it no longer needs to be provided"
-        );
-    }
-}
-
-#[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
@@ -1176,7 +1167,7 @@ pub unsafe fn init() {
         "key_field".as_pg_cstr(),
         "Deprecated compatibility option; ignored".as_pg_cstr(),
         std::ptr::null(),
-        Some(validate_key_field),
+        None,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

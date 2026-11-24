@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 -- Recursive Estimates Feature Tests
 -- Tests recursive cost estimation in EXPLAIN VERBOSE output
 -- Organized by complexity: Simple → Complex → Nested

@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 BEGIN;
 SET LOCAL client_min_messages = error;
 CREATE TABLE sequential_scan_unplanned (id int NOT NULL, body text NOT NULL);

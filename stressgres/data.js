@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795507823135,
+  "lastUpdate": 1795507850756,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -113470,6 +113470,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14799663189-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795507846920,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1482.4938396710809,
+            "unit": "median tps",
+            "extra": "avg tps: 1503.5713098102708, max tps: 1725.8027000998536, count: 59270"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.88679152184839,
+            "unit": "median tps",
+            "extra": "avg tps: 5.932563980752777, max tps: 7.075999936528281, count: 59270"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1809.052881772539,
+            "unit": "median tps",
+            "extra": "avg tps: 1799.1992673016427, max tps: 1821.367056737791, count: 59270"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2586.4911528356215,
+            "unit": "median tps",
+            "extra": "avg tps: 2520.188966474329, max tps: 2908.7227680288656, count: 59270"
+          }
+        ],
+        "publication_id": "14900204656-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -159550,6 +159597,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14799663189-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795507850643,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 1.0593386198751475, max background_merging: 3.0, count: 59270"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.608704195134362, max cpu: 9.831029, count: 59270"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.636859195735617, max mem: 28.62890625, count: 59270"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.868312682272864, max cpu: 14.723927, count: 59270"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 43.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.805728353825714, max mem: 45.81640625, count: 59270"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 40429,
+            "unit": "median block_count",
+            "extra": "avg block_count: 40272.65604859119, max block_count: 40429.0, count: 59270"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.72274337776278, max segment_count: 20.0, count: 59270"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.222061,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.963537915007496, max cpu: 33.61681, count: 59270"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 36.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 36.79981190420955, max mem: 36.8203125, count: 59270"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6176047,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.526349559359164, max cpu: 9.736308, count: 59270"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 44.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.670293387253245, max mem: 44.69140625, count: 59270"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.602981635195245, max cpu: 9.790923, count: 59270"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 43.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.75001687194196, max mem: 45.75390625, count: 59270"
+          }
+        ],
+        "publication_id": "14900204656-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

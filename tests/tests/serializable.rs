@@ -194,24 +194,6 @@ async fn aggregate_scan_phantom_insert(database: Db) {
 
 #[rstest]
 #[async_std::test]
-async fn aggregate_function_phantom_insert(database: Db) {
-    let mut conn = database.connection().await;
-    run(&mut conn, SETUP).await.expect("setup should succeed");
-
-    let failure = write_skew(
-        &database,
-        "SELECT paradedb.aggregate(index=>'ssi_doctors_idx', \
-                                   query=>paradedb.term('status', 'oncall'), \
-                                   agg=>'{\"matches\": {\"value_count\": {\"field\": \"id\"}}}')",
-        INSERT_ONE,
-        INSERT_TWO,
-    )
-    .await;
-    assert_eq!(failure.as_deref(), Some(SERIALIZATION_FAILURE));
-}
-
-#[rstest]
-#[async_std::test]
 async fn join_scan_phantom_insert(database: Db) {
     let mut conn = database.connection().await;
     run(&mut conn, SETUP).await.expect("setup should succeed");

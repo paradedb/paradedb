@@ -89,8 +89,7 @@ runs:
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-      run: |
-        RUST_BACKTRACE=1 cargo pgrx start "pg${INPUTS_PG_VERSION}"
+      run: RUST_BACKTRACE=1 cargo pgrx start "pg${INPUTS_PG_VERSION}"
 
     - name: Create pg_search Extension
       working-directory: pg_search/
@@ -181,8 +180,7 @@ runs:
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-      run: |
-        RUST_BACKTRACE=1 cargo pgrx start "pg${INPUTS_PG_VERSION}"
+      run: RUST_BACKTRACE=1 cargo pgrx start "pg${INPUTS_PG_VERSION}"
 
     - name: Alter pg_search extension to the latest version
       working-directory: pg_search/

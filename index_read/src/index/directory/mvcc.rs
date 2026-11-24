@@ -21,7 +21,12 @@ use crate::api::{HashMap, HashSet};
 use crate::index::reader::io_stats::Trace;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
+<<<<<<< HEAD
 use crate::postgres::buffile::{self, BufFileReleaseGuard, TempFileOwner};
+=======
+use crate::postgres::buffile::{self, TempFileOwner};
+use crate::postgres::customscan::mpp::run_on_main_thread;
+>>>>>>> 3db6345 (fix: Synchronize resource cleanup on abort (#7609))
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
@@ -74,10 +79,9 @@ pub(super) struct PgTempFile {
 
 impl PgTempFile {
     pub(super) fn create() -> Self {
-        let release_guard = BufFileReleaseGuard::register();
         let file = unsafe { buffile::create_temp_buffile() };
         Self {
-            file: TempFileOwner::new(file, release_guard),
+            file: TempFileOwner::new(file),
         }
     }
 }

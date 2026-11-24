@@ -17,8 +17,8 @@
 
 pub use common::postgres::{
     IsLogicalWorker, buffile, catalog, composite, condition_variable, datetime, jsonb_support,
-    locks, node, pdb_owned_value, planner_warnings, ps_status, range, sequentialscan, tuplesort,
-    types, types_arrow, validate,
+    locks, node, pdb_owned_value, planner_warnings, ps_status, range, resowner, sequentialscan,
+    tuplesort, types, types_arrow, validate,
 };
 
 pub mod customscan {

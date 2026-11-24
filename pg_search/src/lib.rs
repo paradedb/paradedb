@@ -128,9 +128,15 @@ extension_sql!(
     finalize
 );
 
-/// Initializes option parsing
+/// Services Postgres interrupts from Tantivy callbacks when executing on the Postgres main thread.
 fn check_for_interrupts() {
-    pgrx::check_for_interrupts();
+    debug_assert!(
+        common::postgres::customscan::mpp::interrupt::is_main_thread(),
+        "Tantivy interrupt callback invoked off the Postgres main thread"
+    );
+    if common::postgres::customscan::mpp::interrupt::is_main_thread() {
+        pgrx::check_for_interrupts();
+    }
 }
 
 #[allow(clippy::missing_safety_doc)]

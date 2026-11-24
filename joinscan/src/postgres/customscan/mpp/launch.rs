@@ -49,8 +49,7 @@ use pgrx::{check_for_interrupts, pg_sys};
 
 use crate::parallel_worker::builder::ParallelProcessBuilder;
 use crate::parallel_worker::{
-    ParallelProcess, ParallelState, ParallelStateManager, WorkerStyle,
-    generic_parallel_worker_entry_point,
+    ParallelProcess, ParallelState, ParallelStateManager, WorkerStyle, run_parallel_worker,
 };
 use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::{
@@ -58,7 +57,7 @@ use crate::postgres::customscan::mpp::glue::{
     debug_parallel_query_is_active, estimate_dsm_size, leader_setup, max_producer_task_count,
     worker_setup,
 };
-use crate::postgres::customscan::mpp::interrupt::PgTokioRuntime;
+use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, PgTokioRuntimeShutdownHandle};
 use crate::postgres::customscan::mpp::wakeup::{has_available_wakeup_slots, reserve_wakeup_slots};
 use crate::postgres::customscan::mpp::worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::customscan::parallel::RelParallelWorkers;
@@ -149,10 +148,9 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker(
     seg: *mut pg_sys::dsm_segment,
     toc: *mut pg_sys::shm_toc,
 ) {
-    let (state_manager, _mq_sender) = generic_parallel_worker_entry_point(seg, toc, MPP_MQ_SIZE);
-    run_launched_worker(seg, state_manager);
-    // `_mq_sender` drops here, detaching the completion queue so the leader's `wait_for_finish`
-    // recv loop terminates.
+    run_parallel_worker(seg, toc, MPP_MQ_SIZE, |state_manager, _mq_sender| {
+        run_launched_worker(seg, state_manager);
+    });
 }
 
 /// Shared worker body: wait for the leader's go signal, attach to the SPSC ring mesh, reconstruct
@@ -349,6 +347,7 @@ pub unsafe fn launch_mpp(
     budget: MppBudget,
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
+    runtime_shutdown: PgTokioRuntimeShutdownHandle,
 ) -> Option<MppLeaderState> {
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
 
@@ -501,7 +500,7 @@ pub unsafe fn launch_mpp(
 
     // Registered here (not in `leader_setup`) because this is the first point with both the segment
     // (`finish`) and the leader streams (`leader`) in hand.
-    unsafe { leader.register_streams_on_dsm_detach(finish.dsm_segment()) };
+    unsafe { leader.register_streams_on_dsm_detach(finish.dsm_segment(), runtime_shutdown) };
 
     // Release the workers into ring attach + plan wait.
     go.store(GO_RUN, Ordering::Release);

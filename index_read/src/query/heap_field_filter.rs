@@ -49,16 +49,17 @@ pub struct HeapFieldFilter {
 struct HeapFieldFilterState {
     initialized_expression: Option<(*mut pg_sys::ExprState, Option<NonNull<pg_sys::PlanState>>)>,
     heap_fetch_state: Option<HeapFetchState>,
-    scratch_context: Option<pg_sys::MemoryContext>,
+    scratch_context: Option<(
+        pg_sys::MemoryContext,
+        crate::postgres::resowner::ResourceOwnerStamp,
+    )>,
 }
 
 crate::impl_safe_drop!(HeapFieldFilterState, |self| {
-    if let Some(context) = self.scratch_context.take() {
-        unsafe {
-            if crate::postgres::utils::IsTransactionState() {
-                pg_sys::MemoryContextDelete(context);
-            }
-        }
+    if let Some((context, owner)) = self.scratch_context.take() {
+        owner.run_if_live(|| unsafe {
+            pg_sys::MemoryContextDelete(context);
+        });
     }
 });
 
@@ -163,14 +164,16 @@ impl HeapFieldFilterState {
                 return false;
             }
 
-            let scratch_context = self.scratch_context.get_or_insert_with(|| {
-                pg_sys::AllocSetContextCreateExtended(
+            let (scratch_context, _) = self.scratch_context.get_or_insert_with(|| {
+                let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
+                let ctx = pg_sys::AllocSetContextCreateExtended(
                     (*econtext).ecxt_per_query_memory,
                     c"HeapFieldFilter scratch context".as_ptr(),
                     pg_sys::ALLOCSET_SMALL_MINSIZE as usize,
                     pg_sys::ALLOCSET_SMALL_INITSIZE as usize,
                     pg_sys::ALLOCSET_SMALL_MAXSIZE as usize,
-                )
+                );
+                (ctx, owner)
             });
 
             let mut scratch = PgMemoryContexts::For(*scratch_context);

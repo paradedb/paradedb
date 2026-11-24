@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 \i common/common_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
@@ -880,6 +881,23 @@ WHERE id @@@ pdb.parse('"-100"') ORDER BY id;
 (1 row)
 
 DROP TABLE unfielded_numeric_scales;
+-- Unindexed NUMERIC fields must not turn a discarded literal into an empty equality.
+CREATE TABLE unfielded_numeric_unindexed (id INT PRIMARY KEY, amount NUMERIC(10,2));
+INSERT INTO unfielded_numeric_unindexed VALUES (1, 1.23);
+CREATE INDEX ON unfielded_numeric_unindexed USING paradedb (id, amount)
+WITH (numeric_fields = '{"amount":{"indexed":false,"fast":true}}');
+SELECT id FROM unfielded_numeric_unindexed
+WHERE id @@@ pdb.parse('1.234 AND id:1', lenient => true) ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM unfielded_numeric_unindexed
+WHERE id @@@ pdb.parse('1.234') ORDER BY id;
+ERROR:  could not parse query string '1.234'.
+           make sure to use column:term pairs, and to capitalize AND/OR.
+DROP TABLE unfielded_numeric_unindexed;
 -- Expansion preserves aliased tokenizers, stopword removal, and score boosts.
 CREATE TABLE unfielded_numeric_tokenizer (id INT PRIMARY KEY, amount NUMERIC(10,2), title TEXT);
 INSERT INTO unfielded_numeric_tokenizer VALUES (1, 1.23, 'the alpha'), (2, 123, 'the beta');

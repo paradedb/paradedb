@@ -623,7 +623,7 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ pdb.all()::pdb.const(0))
+  (products.id @@@ pdb.all())
   AND (products.name ILIKE ANY (array['%Socks%']))
   AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 1978) OR products.id < 1978 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 1978))
 ORDER BY products.created_at DESC, products.id DESC
@@ -634,7 +634,7 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ pdb.all()::pdb.const(0))
+  (products.id @@@ pdb.all())
   AND (products.name ILIKE ANY (array['%Socks%']))
   AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 7) OR products.id < 7 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 7))
 ORDER BY products.created_at DESC, products.id DESC
@@ -646,7 +646,7 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ pdb.all()::pdb.const(0))
+  (products.id @@@ pdb.all())
   AND (products.name ILIKE ANY (array['%Nike%', '%Adidas%']))
   AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 8) OR products.id < 8 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 8))
 ORDER BY products.created_at DESC, products.id DESC
@@ -657,7 +657,7 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ pdb.all()::pdb.const(0))
+  (products.id @@@ pdb.all())
   AND (products.name ILIKE ANY (array['%Apple%', '%Samsung%']))
   AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 8) OR products.id < 8 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 8))
 ORDER BY products.created_at DESC, products.id DESC
@@ -669,7 +669,7 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ pdb.all()::pdb.const(0))
+  (products.id @@@ pdb.all())
   AND (products.name ILIKE ANY (array['%Apple%', '%Samsung%']))
   AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 99999) OR products.id < 5)
 ORDER BY products.created_at DESC, products.id DESC
@@ -681,7 +681,7 @@ SELECT
   products.id
 FROM products
 WHERE
-  (products.id @@@ pdb.all()::pdb.const(0))
+  (products.id @@@ pdb.all())
   AND (products.category_id = (SELECT category_id FROM products WHERE products.id = 8))
   AND (products.description NOT LIKE (SELECT description FROM products WHERE products.id = 88888))
 ORDER BY products.created_at DESC, products.id DESC

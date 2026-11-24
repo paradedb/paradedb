@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 BEGIN;
 CREATE SCHEMA sequential_scan_subquery;
 SET search_path = sequential_scan_subquery, public;
@@ -111,6 +112,27 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (1 row)
 
 DEALLOCATE lookup;
+-- Rebinding must not discard a user-supplied index expression with side effects.
+CREATE SEQUENCE index_lookup_calls;
+SELECT count(*) FROM products
+WHERE id @@@ paradedb.with_index(
+    CASE WHEN nextval('index_lookup_calls') > 0
+         THEN 'products_search'::regclass ELSE 'orders_search'::regclass END,
+    paradedb.term('color', 'blue')
+);
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ count 
+-------
+     1
+(1 row)
+
+SELECT is_called FROM index_lookup_calls;
+ is_called 
+-----------
+ t
+(1 row)
+
 CREATE VIEW saved_exists AS
 SELECT products.id FROM products
 WHERE EXISTS (SELECT 1 FROM orders

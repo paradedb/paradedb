@@ -112,11 +112,11 @@ RESET paradedb.enable_custom_scan;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*) as count
 FROM places 
-WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ pdb.all()::pdb.const(0);
+WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ pdb.all();
 
 SELECT COUNT(*) as count
 FROM places 
-WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ pdb.all()::pdb.const(0);
+WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ pdb.all();
 
 -- ============================================================
 -- VERIFICATION: All three methods should return the same count
@@ -124,7 +124,7 @@ WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ pdb.all()::p
 -- ============================================================
 SELECT 
     (SELECT COUNT(*) FROM places WHERE name &&& 'assist wireless' AND country_code = 'us') as custom_scan_count,
-    (SELECT COUNT(*) FROM places WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ pdb.all()::pdb.const(0)) as workaround_count;
+    (SELECT COUNT(*) FROM places WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ pdb.all()) as workaround_count;
 
 SET paradedb.enable_custom_scan = off;
 SELECT 

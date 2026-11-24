@@ -106,11 +106,11 @@ WHERE tenant_id = 'tenant-1'
   AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
   AND (notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true'))
   AND (NOT removed_at @@@ pdb.exists())
-  AND (id @@@ pdb.all()::pdb.const(0))
+  AND (id @@@ pdb.all())
 ORDER BY time_period DESC
 LIMIT 25;
-                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -119,7 +119,7 @@ LIMIT 25;
          Scores: false
             TopK Order By: time_period desc
             TopK Limit: 25
-         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"term_set":{"field":"source_id","terms":["source-1","source-2","source-3"]}}]}}}},{"with_index":{"query":{"match_array":{"field":"notes","tokens":["che","hec","eck"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"term_set":{"field":"source_id","terms":["source-1","source-2","source-3"]}}]}}}},{"with_index":{"query":{"match_array":{"field":"notes","tokens":["che","hec","eck"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
 -- Test 3: Same query without pdb.all() operator
@@ -154,11 +154,11 @@ Test 4: Testing pdb.all() by itself
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, notes
 FROM records
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 25;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -168,7 +168,7 @@ LIMIT 25;
             TopK Order By: id asc
             TopK Limit: 25
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 -- Test 5: Testing NOT with pdb.exists
@@ -277,11 +277,11 @@ WHERE tenant_id = 'tenant-1'
   AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
   AND (notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true'))
   AND (NOT removed_at @@@ pdb.exists())
-  AND (id @@@ pdb.all()::pdb.const(0))
+  AND (id @@@ pdb.all())
 ORDER BY time_period DESC
 LIMIT 25;
-                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -290,7 +290,7 @@ LIMIT 25;
          Scores: false
             TopK Order By: time_period desc
             TopK Limit: 25
-         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"term_set":{"field":"source_id","terms":["source-1","source-2","source-3"]}}]}}}},{"with_index":{"query":{"match_array":{"field":"notes","tokens":["che","hec","eck"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true}},{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"source_id"}},"score":0.0}}],"must_not":[{"term_set":{"field":"source_id","terms":["source-1","source-2","source-3"]}}]}}}},{"with_index":{"query":{"match_array":{"field":"notes","tokens":["che","hec","eck"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"removed_at"}}]}}}},{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"tenant_id","value":"tenant-1"}}]}}
 (9 rows)
 
 -- Test 10: Fast-field only solution - selecting only indexed fast fields
@@ -323,12 +323,12 @@ Test 11: ORDER BY on column containing NULL.
 EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
 SELECT state, id
 FROM records
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND state IS NULL
 ORDER BY state, id
 LIMIT 10000;
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=2500.00 loops=1)
    ->  Custom Scan (ParadeDB Base Scan) on records (actual rows=2500.00 loops=1)
          Table: records
@@ -342,7 +342,7 @@ LIMIT 10000;
             TopK Order By: state asc, id asc
             TopK Limit: 10000
             Queries: 1
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"state"}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"state"}}]}}]}}
 (14 rows)
 
 -- Test 12: 4-column ORDER BY uses Top K (issue #3148)
@@ -351,11 +351,11 @@ Test 12: 4-column ORDER BY uses Top K
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code
 FROM records
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY state, flow_type, currency_code, id
     LIMIT 25;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -365,7 +365,7 @@ ORDER BY state, flow_type, currency_code, id
             TopK Order By: state asc, flow_type asc, currency_code asc, id asc
             TopK Limit: 25
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 -- Test 13: 5-column ORDER BY uses Top K (issue #3148)
@@ -374,11 +374,11 @@ Test 13: 5-column ORDER BY uses Top K
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code, tenant_id
 FROM records
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, id
     LIMIT 25;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
@@ -388,7 +388,7 @@ ORDER BY state, flow_type, currency_code, tenant_id, id
             TopK Order By: state asc, flow_type asc, currency_code asc, tenant_id asc, id asc
             TopK Limit: 25
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 -- Test 14: 6-column ORDER BY exceeds MAX_TOPK_FEATURES, falls back to NormalScan
@@ -397,12 +397,12 @@ Test 14: 6-column ORDER BY falls back to NormalScan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code, tenant_id, source_id
 FROM records
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, source_id, id
     LIMIT 25;
 WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY has 6 columns but Top K supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: records)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: state, flow_type, currency_code, tenant_id, source_id, id
@@ -412,7 +412,7 @@ WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead).
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 -- Cleanup

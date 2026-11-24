@@ -1012,11 +1012,11 @@ ANALYZE dist_cast;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT n::text
 FROM dist_cast
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY 1;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_cast)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Unique
    ->  Sort
          Sort Key: ((n)::text)
@@ -1026,12 +1026,12 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expressi
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 SELECT DISTINCT n::text
 FROM dist_cast
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY 1;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_cast)
  n 
@@ -1044,7 +1044,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expressi
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT DISTINCT n::text
 FROM dist_cast
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY 1;
  n 
 ---
@@ -1075,11 +1075,11 @@ ANALYZE dist_json;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT meta->'tags'
 FROM dist_json
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY 1;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_json)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Unique
    ->  Sort
          Sort Key: ((meta -> 'tags'::text))
@@ -1089,12 +1089,12 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expressi
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 SELECT DISTINCT meta->'tags'
 FROM dist_json
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY 1;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_json)
   ?column?  
@@ -1107,7 +1107,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expressi
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT DISTINCT meta->'tags'
 FROM dist_json
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY 1;
   ?column?  
 ------------
@@ -1145,10 +1145,10 @@ ANALYZE dist_ci;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT value
 FROM dist_ci
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: dist_ci)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Unique
    ->  Sort
          Sort Key: value COLLATE dist_ci_coll
@@ -1159,13 +1159,13 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic c
                Columnar: value
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 
 SELECT COUNT(*) FROM (
     SELECT DISTINCT value
     FROM dist_ci
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
 ) t;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: dist_ci)
  count 
@@ -1178,7 +1178,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*) FROM (
     SELECT DISTINCT value
     FROM dist_ci
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
 ) t;
  count 
 -------
@@ -1205,11 +1205,11 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT c.value
 FROM dist_ci c
 JOIN dist_ci_join j ON c.join_id = j.id
-WHERE c.id @@@ pdb.all()::pdb.const(0)
+WHERE c.id @@@ pdb.all()
 LIMIT 10;
 WARNING:  JoinScan not used: DISTINCT on a nondeterministic collation is not supported (tables: c, j)
-                                                           QUERY PLAN                                                           
---------------------------------------------------------------------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -1222,7 +1222,7 @@ WARNING:  JoinScan not used: DISTINCT on a nondeterministic collation is not sup
                            Exec Method: NormalScanExecState
                            Scores: false
                            Full Index Scan: true
-                           Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+                           Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
                      ->  Materialize
                            ->  Seq Scan on dist_ci_join j
 (15 rows)
@@ -1231,7 +1231,7 @@ SELECT COUNT(*) FROM (
     SELECT DISTINCT c.value
     FROM dist_ci c
     JOIN dist_ci_join j ON c.join_id = j.id
-    WHERE c.id @@@ pdb.all()::pdb.const(0)
+    WHERE c.id @@@ pdb.all()
     LIMIT 10
 ) t;
 WARNING:  JoinScan not used: DISTINCT on a nondeterministic collation is not supported (tables: c, j)
@@ -1247,7 +1247,7 @@ SELECT COUNT(*) FROM (
     SELECT DISTINCT c.value
     FROM dist_ci c
     JOIN dist_ci_join j ON c.join_id = j.id
-    WHERE c.id @@@ pdb.all()::pdb.const(0)
+    WHERE c.id @@@ pdb.all()
     LIMIT 10
 ) t;
  count 
@@ -1370,10 +1370,10 @@ CREATE INDEX dist_arrays_idx ON dist_arrays
 USING paradedb (id, ia, (ta::pdb.literal), da, dates);
 \pset null '<NULL>'
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY id;
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ pdb.all() ORDER BY id;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, which is not read from the index (table: dist_arrays)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Unique
    ->  Sort
          Sort Key: id, ia
@@ -1383,10 +1383,10 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, 
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
-SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY id;
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ pdb.all() ORDER BY id;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, which is not read from the index (table: dist_arrays)
  id |    ia     
 ----+-----------
@@ -1400,7 +1400,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, 
   8 | {{3,1,1}}
 (8 rows)
 
-SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY ia;
+SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ pdb.all() ORDER BY ia;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, which is not read from the index (table: dist_arrays)
     ia     
 -----------
@@ -1414,7 +1414,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ia is an array, 
  <NULL>
 (8 rows)
 
-SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY ta;
+SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ pdb.all() ORDER BY ta;
 WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ta is an array, which is not read from the index (table: dist_arrays)
     ta     
 -----------
@@ -1431,10 +1431,10 @@ WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column ta is an array, 
 -- Exceed the bucket cap, and also check a functionally dependent array output.
 SET paradedb.max_term_agg_buckets TO 2;
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia ORDER BY ia;
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY ia ORDER BY ia;
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  GroupAggregate
    Group Key: ia
    ->  Sort
@@ -1445,10 +1445,10 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, 
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 
-SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia ORDER BY ia;
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY ia ORDER BY ia;
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
     ia     | count 
 -----------+-------
@@ -1462,7 +1462,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, 
  <NULL>    |     1
 (8 rows)
 
-SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ta ORDER BY ta;
+SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY ta ORDER BY ta;
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ta is an array, which is not read from the index (table: dist_arrays)
     ta     | count 
 -----------+-------
@@ -1476,7 +1476,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ta is an array, 
  <NULL>    |     1
 (8 rows)
 
-SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY id ORDER BY id;
+SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
 WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column ia is an array, which is not read from the index (table: dist_arrays)
  id |    ia     | count 
 ----+-----------+-------
@@ -1493,10 +1493,10 @@ WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output co
 -- Array expressions must also fall back, including scalar subscripts and
 -- binary-compatible domain casts. Date slices must not reach Arrow projection.
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia[1:2] ORDER BY 1;
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY ia[1:2] ORDER BY 1;
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  GroupAggregate
    Group Key: (ia[1:2])
    ->  Sort
@@ -1507,10 +1507,10 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, 
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 
-SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia[1:2] ORDER BY 1;
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY ia[1:2] ORDER BY 1;
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
     ia     | count 
 -----------+-------
@@ -1523,7 +1523,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, 
  <NULL>    |     1
 (7 rows)
 
-SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia[1] ORDER BY 1;
+SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY ia[1] ORDER BY 1;
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, which is not read from the index (table: dist_arrays)
    ia   | count 
 --------+-------
@@ -1532,7 +1532,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column ia is an array, 
  <NULL> |     6
 (3 rows)
 
-SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY da::int[] ORDER BY 1;
+SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY da::int[] ORDER BY 1;
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column da is an array, which is not read from the index (table: dist_arrays)
     da     | count 
 -----------+-------
@@ -1546,7 +1546,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column da is an array, 
  <NULL>    |     1
 (8 rows)
 
-SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY dates[1:2] ORDER BY 1;
+SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY dates[1:2] ORDER BY 1;
 WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column dates is an array, which is not read from the index (table: dist_arrays)
           dates          | count 
 -------------------------+-------
@@ -1558,7 +1558,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column dates is an arra
 
 -- Compare with PostgreSQL aggregation.
 SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY id;
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ pdb.all() ORDER BY id;
  id |    ia     
 ----+-----------
   1 | {3,1,1}
@@ -1571,7 +1571,7 @@ SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORD
   8 | {{3,1,1}}
 (8 rows)
 
-SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY ia;
+SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ pdb.all() ORDER BY ia;
     ia     
 -----------
  {}
@@ -1584,7 +1584,7 @@ SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER B
  <NULL>
 (8 rows)
 
-SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER BY ta;
+SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ pdb.all() ORDER BY ta;
     ta     
 -----------
  {}
@@ -1597,7 +1597,7 @@ SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) ORDER B
  <NULL>
 (8 rows)
 
-SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia ORDER BY ia;
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY ia ORDER BY ia;
     ia     | count 
 -----------+-------
  {}        |     1
@@ -1610,7 +1610,7 @@ SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP 
  <NULL>    |     1
 (8 rows)
 
-SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ta ORDER BY ta;
+SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY ta ORDER BY ta;
     ta     | count 
 -----------+-------
  {}        |     1
@@ -1623,7 +1623,7 @@ SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP 
  <NULL>    |     1
 (8 rows)
 
-SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY id ORDER BY id;
+SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
  id |    ia     | count 
 ----+-----------+-------
   1 | {3,1,1}   |     1
@@ -1636,7 +1636,7 @@ SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GR
   8 | {{3,1,1}} |     1
 (8 rows)
 
-SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia[1:2] ORDER BY 1;
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY ia[1:2] ORDER BY 1;
     ia     | count 
 -----------+-------
  {}        |     2
@@ -1648,7 +1648,7 @@ SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) G
  <NULL>    |     1
 (7 rows)
 
-SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY ia[1] ORDER BY 1;
+SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY ia[1] ORDER BY 1;
    ia   | count 
 --------+-------
       3 |     1
@@ -1656,7 +1656,7 @@ SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GRO
  <NULL> |     6
 (3 rows)
 
-SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY da::int[] ORDER BY 1;
+SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY da::int[] ORDER BY 1;
     da     | count 
 -----------+-------
  {}        |     1
@@ -1669,7 +1669,7 @@ SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0)
  <NULL>    |     1
 (8 rows)
 
-SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY dates[1:2] ORDER BY 1;
+SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ pdb.all() GROUP BY dates[1:2] ORDER BY 1;
           dates          | count 
 -------------------------+-------
  {}                      |     1

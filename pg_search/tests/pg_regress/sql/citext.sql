@@ -1,3 +1,4 @@
+SET paradedb.v1api_warnings = 'off';
 \i common/common_setup.sql
 
 -- Install citext extension required for all tests in this file
@@ -266,6 +267,30 @@ SELECT id FROM citext_rhs WHERE name ||| 'hello' ORDER BY id;
 SELECT id FROM citext_rhs WHERE name ||| 'HELLO' ORDER BY id;
 
 DROP TABLE citext_rhs;
+
+-- ============================================================
+-- Test 10: paradedb.term_with_operator with citext value
+-- (covers builder_fns/paradedb.rs: term_with_operator citext branch)
+-- ============================================================
+CREATE TABLE citext_term_op (
+    id   INT PRIMARY KEY,
+    name CITEXT
+);
+
+INSERT INTO citext_term_op (id, name) VALUES
+    (1, 'hello'),
+    (2, 'world'),
+    (3, 'postgres');
+
+CREATE INDEX ON citext_term_op
+USING paradedb (id, name);
+
+-- Passes a citext AnyElement to term_with_operator — hits the citext branch
+SELECT id FROM citext_term_op
+WHERE id @@@ paradedb.term_with_operator('name', '=', 'hello'::citext)
+ORDER BY id;
+
+DROP TABLE citext_term_op;
 
 -- ============================================================
 -- Test 11: Columnar execution returning citext fast-field values

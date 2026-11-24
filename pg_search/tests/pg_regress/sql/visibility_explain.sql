@@ -85,7 +85,7 @@ BEGIN
                 WHERE title === 'missing';
             ASSERT actual_count = 0;
             SELECT count(*) INTO actual_count FROM visibility_stats_docs
-                WHERE id @@@ pdb.all()::pdb.const(0);
+                WHERE id @@@ pdb.all();
             SELECT count(*) INTO expected_count FROM visibility_stats_docs;
             ASSERT actual_count = expected_count;
             visibility := plan #> '{0,Plan,Visibility}';

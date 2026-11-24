@@ -535,20 +535,20 @@ INSERT INTO products (description, rating, category, price, in_stock) VALUES
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
                                                                                        QUERY PLAN                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*), AVG(price), MIN(rating), MAX(rating)
      Aggregate Definition: {"0":{"filter":"*"},"1":{"avg":{"field":"price","missing":null}},"2":{"min":{"field":"rating","missing":null}},"3":{"max":{"field":"rating","missing":null}}}
 (6 rows)
 
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
  count |  avg   | min | max 
 -------+--------+-----+-----
      9 | 413.74 |   3 |   5
@@ -557,20 +557,20 @@ WHERE id @@@ pdb.all()::pdb.const(0);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*), AVG(price), MIN(rating), MAX(rating)
      Aggregate Definition: {"0":{"filter":"*"},"1":{"avg":{"field":"price","missing":0.0}},"2":{"min":{"field":"rating","missing":0.0}},"3":{"max":{"field":"rating","missing":0.0}}}
 (6 rows)
 
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
  count |        avg        | min | max 
 -------+-------------------+-----+-----
      9 | 367.7688888888889 |   0 |   5
@@ -586,20 +586,20 @@ FROM products;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*), AVG(price), MIN(rating), MAX(rating)
      Aggregate Definition: {"0":{"filter":"*"},"1":{"avg":{"field":"price","missing":1.0}},"2":{"min":{"field":"rating","missing":1.0}},"3":{"max":{"field":"rating","missing":1.0}}}
 (6 rows)
 
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
  count |  avg   | min | max 
 -------+--------+-----+-----
      9 | 367.88 |   1 |   5

@@ -31,7 +31,7 @@ SET plan_cache_mode = force_generic_plan;
 PREPARE issue_5574_page AS
 SELECT p.id
 FROM issue_5574_parent p JOIN issue_5574_child c ON c.parent_id = p.id
-WHERE p.kind === 'manga' AND c.id @@@ pdb.all()
+WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
 ORDER BY p.id
 LIMIT $1;
 
@@ -42,7 +42,7 @@ EXECUTE issue_5574_page(5);
 -- Same rows as with a literal LIMIT
 SELECT p.id
 FROM issue_5574_parent p JOIN issue_5574_child c ON c.parent_id = p.id
-WHERE p.kind === 'manga' AND c.id @@@ pdb.all()
+WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
 ORDER BY p.id
 LIMIT 5;
 
@@ -50,7 +50,7 @@ LIMIT 5;
 PREPARE issue_5574_page_offset AS
 SELECT p.id
 FROM issue_5574_parent p JOIN issue_5574_child c ON c.parent_id = p.id
-WHERE p.kind === 'manga' AND c.id @@@ pdb.all()
+WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
 ORDER BY p.id
 LIMIT $1 OFFSET $2;
 
@@ -58,7 +58,7 @@ EXECUTE issue_5574_page_offset(4, 3);
 
 SELECT p.id
 FROM issue_5574_parent p JOIN issue_5574_child c ON c.parent_id = p.id
-WHERE p.kind === 'manga' AND c.id @@@ pdb.all()
+WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
 ORDER BY p.id
 LIMIT 4 OFFSET 3;
 

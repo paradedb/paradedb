@@ -39,84 +39,84 @@ CREATE INDEX numeric64_idx ON numeric64_test USING paradedb (
 -- Test 1.1: Equality on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND price = 100.50
 ORDER BY id;
 
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND price = 100.50
 ORDER BY id;
 
 -- Test 1.2: Range on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND price > 200.00
 ORDER BY id;
 
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND price > 200.00
 ORDER BY id;
 
 -- Test 1.3: BETWEEN on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND price BETWEEN 100.00 AND 500.00
 ORDER BY id;
 
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND price BETWEEN 100.00 AND 500.00
 ORDER BY id;
 
 -- Test 1.4: Equality on NUMERIC(5,0) (integer-like)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND quantity = 30
 ORDER BY id;
 
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND quantity = 30
 ORDER BY id;
 
 -- Test 1.5: Range on NUMERIC(18,6) (high precision)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND rate >= 2.0 AND rate <= 5.0
 ORDER BY id;
 
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND rate >= 2.0 AND rate <= 5.0
 ORDER BY id;
 
 -- Test 1.6: Less than on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND price < 150.00
 ORDER BY id;
 
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND price < 150.00
 ORDER BY id;
 
 -- Test 1.7: Boundary value (smallest positive)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND price = 0.01
 ORDER BY id;
 
 SELECT * FROM numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND price = 0.01
 ORDER BY id;
 
@@ -149,60 +149,60 @@ CREATE INDEX numeric_bytes_idx ON numeric_bytes_test USING paradedb (
 -- Test 2.1: Equality on unlimited NUMERIC
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND big_value = 1.0
 ORDER BY id;
 
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND big_value = 1.0
 ORDER BY id;
 
 -- Test 2.2: Range on unlimited NUMERIC
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND big_value > 100.0
 ORDER BY id;
 
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND big_value > 100.0
 ORDER BY id;
 
 -- Test 2.3: Equality on high-precision NUMERIC(30,10)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND huge_precision = 1.0000000000
 ORDER BY id;
 
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND huge_precision = 1.0000000000
 ORDER BY id;
 
 -- Test 2.4: Range on high-precision NUMERIC(30,10)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND huge_precision >= 0.0 AND huge_precision <= 200.0
 ORDER BY id;
 
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND huge_precision >= 0.0 AND huge_precision <= 200.0
 ORDER BY id;
 
 -- Test 2.5: Negative values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND big_value < 0
 ORDER BY id;
 
 SELECT * FROM numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND big_value < 0
 ORDER BY id;
 
@@ -231,37 +231,37 @@ CREATE INDEX numeric_mixed_idx ON numeric_mixed_test USING paradedb (
 -- Test 3.1: Query on small NUMERIC (Numeric64)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND small_numeric = 100.00
 ORDER BY id;
 
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND small_numeric = 100.00
 ORDER BY id;
 
 -- Test 3.2: Query on large NUMERIC (NumericBytes)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
 
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
 
 -- Test 3.3: Combined query on both column types
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND small_numeric > 50.00
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
 
 SELECT * FROM numeric_mixed_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND small_numeric > 50.00
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
@@ -291,48 +291,48 @@ CREATE INDEX numeric_edge_idx ON numeric_edge_test USING paradedb (
 -- Test 4.1: Zero value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_edge_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 0.00
 ORDER BY id;
 
 SELECT * FROM numeric_edge_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 0.00
 ORDER BY id;
 
 -- Test 4.2: Maximum positive value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_edge_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 99999999.99
 ORDER BY id;
 
 SELECT * FROM numeric_edge_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 99999999.99
 ORDER BY id;
 
 -- Test 4.3: Negative value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_edge_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = -99999999.99
 ORDER BY id;
 
 SELECT * FROM numeric_edge_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = -99999999.99
 ORDER BY id;
 
 -- Test 4.4: Range across zero
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_edge_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val >= -0.01 AND val <= 0.01
 ORDER BY id;
 
 SELECT * FROM numeric_edge_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val >= -0.01 AND val <= 0.01
 ORDER BY id;
 
@@ -367,12 +367,12 @@ CREATE INDEX numeric_precision_idx ON numeric_precision_test USING paradedb (
 -- If f64 conversion loses precision, this might return wrong results
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND big_int = 123456789012345678
 ORDER BY id;
 
 SELECT * FROM numeric_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND big_int = 123456789012345678
 ORDER BY id;
 
@@ -384,12 +384,12 @@ WHERE big_int = 123456789012345678;
 -- This should find exactly 2 rows (the first two values)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND big_int >= 123456789012345678 AND big_int <= 123456789012345679
 ORDER BY id;
 
 SELECT * FROM numeric_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND big_int >= 123456789012345678 AND big_int <= 123456789012345679
 ORDER BY id;
 
@@ -417,12 +417,12 @@ CREATE INDEX numeric_bytes_precision_idx ON numeric_bytes_precision_test USING p
 -- This should find exactly 1 row
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND precise_value = 12345678901234567890.123456789012345678901234567890
 ORDER BY id;
 
 SELECT * FROM numeric_bytes_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND precise_value = 12345678901234567890.123456789012345678901234567890
 ORDER BY id;
 
@@ -798,24 +798,24 @@ CREATE INDEX numeric_large_precision_idx ON numeric_large_precision_test USING p
 -- Exact match on large precision
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_large_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 1.0
 ORDER BY id;
 
 SELECT * FROM numeric_large_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 1.0
 ORDER BY id;
 
 -- Range query on large precision
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_large_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 0 AND val < 2
 ORDER BY id;
 
 SELECT * FROM numeric_large_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 0 AND val < 2
 ORDER BY id;
 
@@ -826,7 +826,7 @@ ORDER BY id;
 
 -- Test negative range
 SELECT * FROM numeric_large_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val < 0
 ORDER BY id;
 
@@ -852,18 +852,18 @@ CREATE INDEX numeric_very_large_idx ON numeric_very_large_test USING paradedb (
 -- Query on very large precision
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_very_large_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 42.1234567890
 ORDER BY id;
 
 SELECT * FROM numeric_very_large_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 42.1234567890
 ORDER BY id;
 
 -- Range query spanning positive and negative
 SELECT * FROM numeric_very_large_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val >= -100 AND val <= 100
 ORDER BY id;
 
@@ -892,24 +892,24 @@ CREATE INDEX numeric_unbounded_idx ON numeric_unbounded_test USING paradedb (
 -- Query exact match on unbounded
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_unbounded_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 1
 ORDER BY id;
 
 SELECT * FROM numeric_unbounded_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 1
 ORDER BY id;
 
 -- Range query on unbounded
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_unbounded_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val >= -2 AND val <= 5
 ORDER BY id;
 
 SELECT * FROM numeric_unbounded_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val >= -2 AND val <= 5
 ORDER BY id;
 
@@ -920,7 +920,7 @@ ORDER BY id;
 
 -- Test pi approximation range
 SELECT * FROM numeric_unbounded_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 3.14 AND val < 3.15
 ORDER BY id;
 
@@ -946,12 +946,12 @@ CREATE INDEX numeric_high_scale_idx ON numeric_high_scale_test USING paradedb (
 -- Query on high-scale numeric
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_high_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 0 AND val < 3
 ORDER BY id;
 
 SELECT * FROM numeric_high_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 0 AND val < 3
 ORDER BY id;
 
@@ -984,13 +984,13 @@ CREATE INDEX numeric_unbounded_agg_idx ON numeric_unbounded_agg_test USING parad
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, SUM(amount) as total
 FROM numeric_unbounded_agg_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY category
 ORDER BY category;
 
 SELECT category, SUM(amount) as total
 FROM numeric_unbounded_agg_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY category
 ORDER BY category;
 
@@ -1022,30 +1022,30 @@ CREATE INDEX numeric_mixed_precision_idx ON numeric_mixed_precision_test USING p
 -- Query on bounded high-precision
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND bounded_high = 100.0
 ORDER BY id;
 
 SELECT * FROM numeric_mixed_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND bounded_high = 100.0
 ORDER BY id;
 
 -- Query on unbounded
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND unbounded = 100.0
 ORDER BY id;
 
 SELECT * FROM numeric_mixed_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND unbounded = 100.0
 ORDER BY id;
 
 -- Combined query
 SELECT * FROM numeric_mixed_precision_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND bounded_high > 0 AND unbounded > 0
 ORDER BY id;
 
@@ -1109,24 +1109,24 @@ CREATE INDEX float8_idx ON float8_test USING paradedb (
 -- Equality query on F64 field
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM float8_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND value = 100.5
 ORDER BY id;
 
 SELECT * FROM float8_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND value = 100.5
 ORDER BY id;
 
 -- Range query on F64 field
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM float8_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND value > 200.0 AND value < 500.0
 ORDER BY id;
 
 SELECT * FROM float8_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND value > 200.0 AND value < 500.0
 ORDER BY id;
 
@@ -1160,24 +1160,24 @@ CREATE INDEX sci_notation_idx ON sci_notation_test USING paradedb (
 -- Query with scientific notation comparison
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM sci_notation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 1e6
 ORDER BY id;
 
 SELECT * FROM sci_notation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 1e6
 ORDER BY id;
 
 -- Query for exact match (scientific notation input)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM sci_notation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 2.5e3
 ORDER BY id;
 
 SELECT * FROM sci_notation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 2.5e3
 ORDER BY id;
 
@@ -1206,24 +1206,24 @@ CREATE INDEX small_decimal_idx ON small_decimal_test USING paradedb (
 -- Exact match on very small value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM small_decimal_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 0.0000000000000001
 ORDER BY id;
 
 SELECT * FROM small_decimal_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 0.0000000000000001
 ORDER BY id;
 
 -- Range query on very small values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM small_decimal_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 0.0000000000000001 AND val < 0.0000000000000100
 ORDER BY id;
 
 SELECT * FROM small_decimal_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 0.0000000000000001 AND val < 0.0000000000000100
 ORDER BY id;
 
@@ -1252,24 +1252,24 @@ CREATE INDEX max_scale_idx ON max_scale_test USING paradedb (
 -- Exact match
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM max_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 0.123456789012345678
 ORDER BY id;
 
 SELECT * FROM max_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 0.123456789012345678
 ORDER BY id;
 
 -- Range query on max scale values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM max_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 0.0 AND val < 0.5
 ORDER BY id;
 
 SELECT * FROM max_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 0.0 AND val < 0.5
 ORDER BY id;
 
@@ -1277,11 +1277,11 @@ ORDER BY id;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM max_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM max_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 DROP TABLE max_scale_test;
 
@@ -1314,30 +1314,30 @@ CREATE INDEX negative_scale_idx ON negative_scale_test USING paradedb (
 -- Exact match
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM negative_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 12000
 ORDER BY id;
 
 SELECT * FROM negative_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 12000
 ORDER BY id;
 
 -- Range query
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM negative_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 10000 AND val < 20000
 ORDER BY id;
 
 SELECT * FROM negative_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 10000 AND val < 20000
 ORDER BY id;
 
 -- Negative value query
 SELECT * FROM negative_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = -12000
 ORDER BY id;
 
@@ -1345,15 +1345,15 @@ ORDER BY id;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM negative_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM negative_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 -- Verify all rows
 SELECT * FROM negative_scale_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id;
 
 DROP TABLE negative_scale_test;
@@ -1398,13 +1398,13 @@ CREATE INDEX nan_numeric64_idx ON nan_numeric64_test USING paradedb (
 
 -- Query for NaN in Numeric64 storage
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 'NaN'::numeric
 ORDER BY id;
 
 -- Verify all rows
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id;
 
 -- Range query tests for NaN ordering in Numeric64 (I64 storage)
@@ -1413,60 +1413,60 @@ ORDER BY id;
 -- Test: val > 200 should include NaN (since NaN > all real numbers)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 200.00
 ORDER BY id;
 
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 200.00
 ORDER BY id;
 
 -- Test: val < 200 should NOT include NaN
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val < 200.00
 ORDER BY id;
 
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val < 200.00
 ORDER BY id;
 
 -- Test: val >= 300 should include NaN (since NaN > 300)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val >= 300.00
 ORDER BY id;
 
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val >= 300.00
 ORDER BY id;
 
 -- Test: val <= 300 should NOT include NaN
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val <= 300.00
 ORDER BY id;
 
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val <= 300.00
 ORDER BY id;
 
 -- Test: val BETWEEN should NOT include NaN (NaN is outside any finite range)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val BETWEEN 100.00 AND 300.00
 ORDER BY id;
 
 SELECT * FROM nan_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val BETWEEN 100.00 AND 300.00
 ORDER BY id;
 
@@ -1496,13 +1496,13 @@ CREATE INDEX nan_numeric_bytes_idx ON nan_numeric_bytes_test USING paradedb (
 
 -- Query for NaN in NumericBytes storage
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 'NaN'::numeric
 ORDER BY id;
 
 -- Verify all rows
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id;
 
 -- Range query tests for NaN ordering in NumericBytes (hex-encoded string storage)
@@ -1512,36 +1512,36 @@ ORDER BY id;
 -- Test: val > 200 should include NaN (CORRECT - NaN is greater than all real numbers)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 200.0000000000
 ORDER BY id;
 
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 200.0000000000
 ORDER BY id;
 
 -- Test: val < 200 should NOT include NaN (CORRECT)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val < 200.0000000000
 ORDER BY id;
 
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val < 200.0000000000
 ORDER BY id;
 
 -- Test: val BETWEEN should NOT include NaN (CORRECT - NaN is outside finite ranges)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val BETWEEN 100.0000000000 AND 300.0000000000
 ORDER BY id;
 
 SELECT * FROM nan_numeric_bytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val BETWEEN 100.0000000000 AND 300.0000000000
 ORDER BY id;
 
@@ -1576,48 +1576,48 @@ CREATE INDEX special_values_idx ON special_values_test USING paradedb (
 -- Query for regular value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 100
 ORDER BY id;
 
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 100
 ORDER BY id;
 
 -- Query for NaN
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 'NaN'::numeric
 ORDER BY id;
 
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 'NaN'::numeric
 ORDER BY id;
 
 -- Query for Infinity
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 'Infinity'::numeric
 ORDER BY id;
 
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 'Infinity'::numeric
 ORDER BY id;
 
 -- Query for -Infinity
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = '-Infinity'::numeric
 ORDER BY id;
 
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = '-Infinity'::numeric
 ORDER BY id;
 
@@ -1625,12 +1625,12 @@ ORDER BY id;
 -- Per PostgreSQL: NaN is greater than all non-NaN values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 50 AND val < 250
 ORDER BY id;
 
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 50 AND val < 250
 ORDER BY id;
 
@@ -1638,42 +1638,42 @@ ORDER BY id;
 -- NaN should also appear (PostgreSQL: NaN > all non-NaN)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 250
 ORDER BY id;
 
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val > 250
 ORDER BY id;
 
 -- Less than query - -Infinity should be less than finite values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val < -50
 ORDER BY id;
 
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val < -50
 ORDER BY id;
 
 -- Query for zero
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = 0
 ORDER BY id;
 
 -- Query for negative value
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val = -100
 ORDER BY id;
 
 -- Verify all rows can be retrieved
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id;
 
 -- ----------------------------------------------------------------------------
@@ -1684,48 +1684,48 @@ ORDER BY id;
 -- Test: val >= 300 should include NaN and Infinity (NaN > Infinity > 300)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val >= 300
 ORDER BY id;
 
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val >= 300
 ORDER BY id;
 
 -- Test: val <= 200 should NOT include NaN or Infinity
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val <= 200
 ORDER BY id;
 
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val <= 200
 ORDER BY id;
 
 -- Test: val >= -Infinity should include everything (all values >= -Infinity)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val >= '-Infinity'::numeric
 ORDER BY id;
 
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val >= '-Infinity'::numeric
 ORDER BY id;
 
 -- Test: val <= Infinity should include everything EXCEPT NaN (NaN > Infinity)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val <= 'Infinity'::numeric
 ORDER BY id;
 
 SELECT * FROM special_values_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val <= 'Infinity'::numeric
 ORDER BY id;
 
@@ -1772,24 +1772,24 @@ CREATE INDEX numeric_prec_only_idx ON numeric_precision_only_test USING paradedb
 -- Test: Exact match on NUMERIC(5) - should use Numeric64 storage with scale=0
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_precision_only_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val_small = 100
 ORDER BY id;
 
 SELECT * FROM numeric_precision_only_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val_small = 100
 ORDER BY id;
 
 -- Test: Range query on NUMERIC(15) - also Numeric64 with scale=0
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_precision_only_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val_large > 100000000000 AND val_large < 1500000000000
 ORDER BY id;
 
 SELECT * FROM numeric_precision_only_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND val_large > 100000000000 AND val_large < 1500000000000
 ORDER BY id;
 
@@ -1797,19 +1797,19 @@ ORDER BY id;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
 FROM numeric_precision_only_test
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
 FROM numeric_precision_only_test
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT SUM(val_large), AVG(val_large), MIN(val_large), MAX(val_large)
 FROM numeric_precision_only_test
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 -- Verify all rows
 SELECT * FROM numeric_precision_only_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id;
 
 DROP TABLE numeric_precision_only_test;
@@ -1837,19 +1837,19 @@ CREATE INDEX numeric_scale_zero_idx ON numeric_explicit_scale_zero USING paraded
 
 -- Both columns should produce identical results
 SELECT * FROM numeric_explicit_scale_zero
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND implicit_scale = 12345
 ORDER BY id;
 
 SELECT * FROM numeric_explicit_scale_zero
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 AND explicit_scale = 12345
 ORDER BY id;
 
 -- Aggregates should also be identical
 SELECT SUM(implicit_scale), SUM(explicit_scale)
 FROM numeric_explicit_scale_zero
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 DROP TABLE numeric_explicit_scale_zero;
 
@@ -1927,14 +1927,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category, price,
        SUM(price) OVER () as total_price
 FROM window_agg_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 10;
 
 SELECT id, category, price,
        SUM(price) OVER () as total_price
 FROM window_agg_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 10;
 
@@ -1942,7 +1942,7 @@ LIMIT 10;
 SELECT id, category, price,
        AVG(price) OVER () as avg_price
 FROM window_agg_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 10;
 
@@ -1951,7 +1951,7 @@ SELECT id, category, price,
        MIN(price) OVER () as min_price,
        MAX(price) OVER () as max_price
 FROM window_agg_numeric64_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 10;
 
@@ -1982,7 +1982,7 @@ CREATE INDEX window_agg_numericbytes_idx ON window_agg_numericbytes_test USING p
 SELECT id, category, amount,
         SUM(amount) OVER () as total
 FROM window_agg_numericbytes_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 10;
 
@@ -2012,7 +2012,7 @@ CREATE INDEX window_agg_highprec_idx ON window_agg_highprec_test USING paradedb 
 SELECT id, category, value,
         AVG(value) OVER () as avg_val
 FROM window_agg_highprec_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 10;
 

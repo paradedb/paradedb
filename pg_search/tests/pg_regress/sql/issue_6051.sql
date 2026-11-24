@@ -93,11 +93,11 @@ ORDER BY amt_scaled ASC;
 
 -- Whole-table ordering across the sign boundary.
 SELECT amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0)
+WHERE discarded_at IS NULL AND id @@@ pdb.all()
 ORDER BY amt_78 ASC LIMIT 4;
 
 SELECT amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0)
+WHERE discarded_at IS NULL AND id @@@ pdb.all()
 ORDER BY amt_78 DESC LIMIT 4;
 
 -- Range pushdown must not return rows outside the requested range.
@@ -121,13 +121,13 @@ ORDER BY amt_78;
 -- Heap-filter pushdown on the fast field.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*) FROM amounts
-WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_78 > -20500 AND amt_78 < -20300;
+WHERE discarded_at IS NULL AND id @@@ pdb.all() AND amt_78 > -20500 AND amt_78 < -20300;
 
 SELECT count(*) FROM amounts
-WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_78 > -20500 AND amt_78 < -20300;
+WHERE discarded_at IS NULL AND id @@@ pdb.all() AND amt_78 > -20500 AND amt_78 < -20300;
 
 SELECT count(*) FROM amounts
-WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_18 > -20500 AND amt_18 < -20300;
+WHERE discarded_at IS NULL AND id @@@ pdb.all() AND amt_18 > -20500 AND amt_18 < -20300;
 
 -- Equality on values with shared digit prefixes.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -150,15 +150,15 @@ ORDER BY id;
 -- IN (...) is pushed down as a term set and has to use the same term conversion.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_78 IN (-49999, -49990, 5)
+WHERE discarded_at IS NULL AND id @@@ pdb.all() AND amt_78 IN (-49999, -49990, 5)
 ORDER BY id;
 
 SELECT id, amt_78 FROM amounts
-WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_78 IN (-49999, -49990, 5)
+WHERE discarded_at IS NULL AND id @@@ pdb.all() AND amt_78 IN (-49999, -49990, 5)
 ORDER BY id;
 
 SELECT id, amt_scaled FROM amounts
-WHERE discarded_at IS NULL AND id @@@ pdb.all()::pdb.const(0) AND amt_scaled IN (-0.5, -0.50001)
+WHERE discarded_at IS NULL AND id @@@ pdb.all() AND amt_scaled IN (-0.5, -0.50001)
 ORDER BY id;
 
 -- A term that can't be parsed as a number is an error, not an empty match.
@@ -191,11 +191,11 @@ CREATE INDEX prices_idx ON prices USING paradedb (id, price);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM prices
-WHERE id @@@ pdb.all()::pdb.const(0) AND price IN (1.23, 4.56, -1.23)
+WHERE id @@@ pdb.all() AND price IN (1.23, 4.56, -1.23)
 ORDER BY id;
 
 SELECT id, price FROM prices
-WHERE id @@@ pdb.all()::pdb.const(0) AND price IN (1.23, 4.56, -1.23)
+WHERE id @@@ pdb.all() AND price IN (1.23, 4.56, -1.23)
 ORDER BY id;
 
 DROP TABLE prices;

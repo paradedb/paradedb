@@ -245,20 +245,20 @@ INSERT INTO products (description, rating, category, price, in_stock) VALUES
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products;
@@ -266,11 +266,11 @@ FROM products;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
 FROM products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
 FROM products;

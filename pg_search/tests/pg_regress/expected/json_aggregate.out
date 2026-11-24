@@ -478,20 +478,20 @@ WHERE (metadata -> 'nonexistent') === 'value';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ pdb.all()::pdb.const(0);
-                                               QUERY PLAN                                               
---------------------------------------------------------------------------------------------------------
+WHERE id @@@ pdb.all();
+                            QUERY PLAN                            
+------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_agg
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
  count 
 -------
      8

@@ -51,7 +51,7 @@ USING paradedb (dwf_doid, author);
 -- Running this repeatedly with pauses is the best way to repro the issue
 -- At some point, Postgres decides that all the results are visible/don't need to be heap checked
 -- which is what leads us down the code path where null values get returned in the target list
-SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
+SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
  dwf_doid | ?column? 
 ----------+----------
         1 | 1
@@ -64,7 +64,7 @@ SELECT pg_sleep(0.5);
  
 (1 row)
 
-SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
+SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
  dwf_doid | ?column? 
 ----------+----------
         1 | 1
@@ -77,7 +77,7 @@ SELECT pg_sleep(0.5);
  
 (1 row)
 
-SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
+SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
  dwf_doid | ?column? 
 ----------+----------
         1 | 1
@@ -90,7 +90,7 @@ SELECT pg_sleep(0.5);
  
 (1 row)
 
-SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
+SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
  dwf_doid | ?column? 
 ----------+----------
         1 | 1
@@ -103,7 +103,7 @@ SELECT pg_sleep(0.5);
  
 (1 row)
 
-SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
+SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
  dwf_doid | ?column? 
 ----------+----------
         1 | 1
@@ -116,7 +116,7 @@ SELECT pg_sleep(0.5);
  
 (1 row)
 
-SELECT dwf_doid, '1' FROM testcore WHERE author === 'brian';
+SELECT dwf_doid, '1' FROM testcore WHERE author @@@ pdb.term('brian');
  dwf_doid | ?column? 
 ----------+----------
         1 | 1
@@ -129,14 +129,14 @@ SELECT pg_sleep(0.5);
  
 (1 row)
 
-SELECT dwf_doid, 2 + 2 FROM testcore WHERE author === 'brian';
+SELECT dwf_doid, 2 + 2 FROM testcore WHERE author @@@ pdb.term('brian');
  dwf_doid | ?column? 
 ----------+----------
         1 |        4
     14208 |        4
 (2 rows)
 
-SELECT dwf_doid, NULL FROM testcore WHERE author === 'brian';
+SELECT dwf_doid, NULL FROM testcore WHERE author @@@ pdb.term('brian');
  dwf_doid | ?column? 
 ----------+----------
         1 | 

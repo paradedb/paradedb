@@ -12,78 +12,78 @@ CALL paradedb.create_paradedb_test_table(
 CREATE INDEX on mock_items USING paradedb (id, description, rating, category, (metadata::pdb.literal));
 INSERT INTO mock_items (rating, metadata) VALUES (null, null), (null, null);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
-                                               QUERY PLAN                                               
---------------------------------------------------------------------------------------------------------
+SELECT COUNT(*) FROM mock_items WHERE id @@@ pdb.all();
+                            QUERY PLAN                            
+------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
    Index: mock_items_id_description_rating_category_metadata_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(*) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(*) FROM mock_items WHERE id @@@ pdb.all();
  count 
 -------
     43
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(rating) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
-                                               QUERY PLAN                                               
---------------------------------------------------------------------------------------------------------
+SELECT COUNT(rating) FROM mock_items WHERE id @@@ pdb.all();
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
    Index: mock_items_id_description_rating_category_metadata_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(rating)
      Aggregate Definition: {"0":{"value_count":{"field":"rating","missing":null}}}
 (5 rows)
 
-SELECT COUNT(rating) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(rating) FROM mock_items WHERE id @@@ pdb.all();
  count 
 -------
     41
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
-                                               QUERY PLAN                                               
---------------------------------------------------------------------------------------------------------
+SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ pdb.all();
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
    Index: mock_items_id_description_rating_category_metadata_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(metadata.color)
      Aggregate Definition: {"0":{"value_count":{"field":"metadata.color","missing":null}}}
 (5 rows)
 
-SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ pdb.all();
  count 
 -------
     41
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
-                                               QUERY PLAN                                               
---------------------------------------------------------------------------------------------------------
+SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ pdb.all();
+                            QUERY PLAN                            
+------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
    Index: mock_items_id_description_rating_category_metadata_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
-SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ pdb.all();
  count 
 -------
     43
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ pdb.all();
 WARNING:  Aggregate Scan not used: unsupported constant type in COALESCE default value. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -91,10 +91,10 @@ WARNING:  Aggregate Scan not used: unsupported constant type in COALESCE default
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (8 rows)
 
-SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ pdb.all();
 WARNING:  Aggregate Scan not used: unsupported constant type in COALESCE default value. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
  count 
 -------

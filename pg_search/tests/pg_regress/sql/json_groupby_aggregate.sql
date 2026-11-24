@@ -234,13 +234,13 @@ USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_nulls
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY metadata->>'category'
 ORDER BY category NULLS FIRST;
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_nulls
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY metadata->>'category'
 ORDER BY category NULLS FIRST;
 

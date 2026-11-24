@@ -81,12 +81,12 @@ SET paradedb.min_rows_per_worker = 300000;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items
-WHERE name ||| 'item'
+WHERE name @@@ pdb.match('item')
 ORDER BY pdb.score(id) DESC, id
 LIMIT 10;
 
 SELECT id, name FROM items
-WHERE name ||| 'item'
+WHERE name @@@ pdb.match('item')
 ORDER BY pdb.score(id) DESC, id
 LIMIT 10;
 

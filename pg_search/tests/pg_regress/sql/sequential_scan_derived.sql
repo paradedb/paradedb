@@ -84,10 +84,10 @@ FROM (SELECT other, body, id FROM sequential_scan_derived OFFSET 0) s
 WHERE (body || other) === 'betaalpha';
 
 SELECT id, body === 'alpha' AS matches, NOT (body === 'alpha') AS inverted,
-       id @@@ pdb.all()::pdb.const(0) AS all_match
+       id @@@ pdb.all() AS all_match
 FROM (SELECT body, id FROM sequential_scan_derived OFFSET 0) s ORDER BY id;
 
-SELECT v.id, s.body === 'alpha' AS matches, s.id @@@ pdb.all()::pdb.const(0) AS all_match
+SELECT v.id, s.body === 'alpha' AS matches, s.id @@@ pdb.all() AS all_match
 FROM (VALUES (1), (3), (4)) v(id)
 LEFT JOIN (SELECT body, id FROM sequential_scan_derived OFFSET 0) s USING (id)
 ORDER BY v.id;

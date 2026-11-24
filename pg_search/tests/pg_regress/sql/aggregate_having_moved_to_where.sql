@@ -23,14 +23,14 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id, kind
 HAVING account_id > 1
 ORDER BY account_id, kind;
 
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id, kind
 HAVING account_id > 1
 ORDER BY account_id, kind;
@@ -41,7 +41,7 @@ SELECT *
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
     GROUP BY account_id, kind
 ) AS grouped
 WHERE account_id > 1
@@ -51,7 +51,7 @@ SELECT *
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
     GROUP BY account_id, kind
 ) AS grouped
 WHERE account_id > 1
@@ -62,7 +62,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 WITH grouped AS (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
@@ -70,7 +70,7 @@ SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
 WITH grouped AS (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
@@ -79,14 +79,14 @@ SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 HAVING COUNT(*) > 10
 ORDER BY account_id;
 
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 HAVING COUNT(*) > 10
 ORDER BY account_id;
@@ -97,7 +97,7 @@ SELECT *
 FROM (
     SELECT account_id, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
     GROUP BY account_id
 ) AS grouped
 WHERE n > 10
@@ -107,7 +107,7 @@ SELECT *
 FROM (
     SELECT account_id, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
     GROUP BY account_id
 ) AS grouped
 WHERE n > 10
@@ -115,27 +115,27 @@ ORDER BY account_id;
 
 \echo 'Test 6: a constant true HAVING on an aggregate without GROUP BY'
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all()::pdb.const(0) HAVING 1 = 1;
+SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all() HAVING 1 = 1;
 
-SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all()::pdb.const(0) HAVING 1 = 1;
+SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all() HAVING 1 = 1;
 
 \echo 'Test 7: a constant false HAVING on an aggregate without GROUP BY stays in HAVING -> declined'
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all()::pdb.const(0) HAVING 1 = 2;
+SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all() HAVING 1 = 2;
 
-SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all()::pdb.const(0) HAVING 1 = 2;
+SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all() HAVING 1 = 2;
 
 \echo 'Test 8: a constant false HAVING with GROUP BY moves to WHERE'
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 HAVING 1 = 2;
 
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 HAVING 1 = 2;
 
@@ -143,14 +143,14 @@ HAVING 1 = 2;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 HAVING account_id > random() * 0
 ORDER BY account_id;
 
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 HAVING account_id > random() * 0
 ORDER BY account_id;
@@ -159,14 +159,14 @@ ORDER BY account_id;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id, kind
 HAVING length(kind) = 1 AND kind <> 'b'
 ORDER BY account_id, kind;
 
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id, kind
 HAVING length(kind) = 1 AND kind <> 'b'
 ORDER BY account_id, kind;
@@ -175,7 +175,7 @@ ORDER BY account_id, kind;
 PREPARE having_param(BIGINT) AS
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id, kind
 HAVING account_id > $1
 ORDER BY account_id, kind;
@@ -191,14 +191,14 @@ DEALLOCATE having_param;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, pdb.agg('{"terms": {"field": "kind"}}'::jsonb)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 HAVING account_id > 1
 ORDER BY account_id;
 
 SELECT account_id, pdb.agg('{"terms": {"field": "kind"}}'::jsonb)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 HAVING account_id > 1
 ORDER BY account_id;
@@ -206,7 +206,7 @@ ORDER BY account_id;
 \echo 'Test 13: pdb.agg() with a condition on an aggregate -> error'
 SELECT account_id, pdb.agg('{"terms": {"field": "kind"}}'::jsonb)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 HAVING COUNT(*) > 10
 ORDER BY account_id;
@@ -216,7 +216,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id, kind
 HAVING account_id > 1
 ORDER BY account_id, kind;
@@ -225,7 +225,7 @@ SELECT *
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
     GROUP BY account_id, kind
 ) AS grouped
 WHERE account_id > 1
@@ -234,29 +234,29 @@ ORDER BY account_id, kind;
 WITH grouped AS (
     SELECT account_id, kind, COUNT(*) AS n
     FROM having_items
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
 
-SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all()::pdb.const(0) HAVING 1 = 1;
+SELECT COUNT(*) FROM having_items WHERE id @@@ pdb.all() HAVING 1 = 1;
 
 SELECT account_id, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 HAVING 1 = 2;
 
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id, kind
 HAVING length(kind) = 1 AND kind <> 'b'
 ORDER BY account_id, kind;
 
 SELECT account_id, kind, COUNT(*)
 FROM having_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id, kind
 HAVING account_id > 2
 ORDER BY account_id, kind;

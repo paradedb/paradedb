@@ -23,7 +23,7 @@ FROM t
 WHERE t.col_b = '11111111-1111-1111-1111-111111111111'
   AND t.col_c = TRUE
   AND 1 = 1
-  AND (t.col_a @@@ pdb.all()::pdb.const(0))
+  AND (t.col_a @@@ pdb.all())
   AND t.col_d >= '2025-07-01'
   AND t.col_d <= '2025-08-31'
   AND t.col_f IS NULL
@@ -49,7 +49,7 @@ FROM t
 WHERE t.col_b = '11111111-1111-1111-1111-111111111111'
   AND t.col_c = TRUE
   AND 1 = 1
-  AND (t.col_a @@@ pdb.all()::pdb.const(0))
+  AND (t.col_a @@@ pdb.all())
   AND t.col_d >= '2025-07-01'
   AND t.col_d <= '2025-08-31'
   AND t.col_f IS NULL

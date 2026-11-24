@@ -34,7 +34,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 -- =========================================
 SELECT text_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY text_col
 ORDER BY text_col ASC;
 
@@ -43,7 +43,7 @@ ORDER BY text_col ASC;
 -- =========================================
 SELECT text_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY text_col
 ORDER BY text_col ASC NULLS FIRST;
 
@@ -52,7 +52,7 @@ ORDER BY text_col ASC NULLS FIRST;
 -- =========================================
 SELECT text_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY text_col
 ORDER BY text_col DESC;
 
@@ -61,7 +61,7 @@ ORDER BY text_col DESC;
 -- =========================================
 SELECT text_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY text_col
 ORDER BY text_col DESC NULLS LAST;
 
@@ -70,7 +70,7 @@ ORDER BY text_col DESC NULLS LAST;
 -- =========================================
 SELECT int_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY int_col
 ORDER BY int_col ASC;
 
@@ -79,7 +79,7 @@ ORDER BY int_col ASC;
 -- =========================================
 SELECT int_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY int_col
 ORDER BY int_col ASC NULLS FIRST;
 
@@ -88,7 +88,7 @@ ORDER BY int_col ASC NULLS FIRST;
 -- =========================================
 SELECT int_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY int_col
 ORDER BY int_col DESC;
 
@@ -97,7 +97,7 @@ ORDER BY int_col DESC;
 -- =========================================
 SELECT int_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY int_col
 ORDER BY int_col DESC NULLS LAST;
 
@@ -106,7 +106,7 @@ ORDER BY int_col DESC NULLS LAST;
 -- =========================================
 SELECT float_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY float_col
 ORDER BY float_col ASC;
 
@@ -115,7 +115,7 @@ ORDER BY float_col ASC;
 -- =========================================
 SELECT float_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY float_col
 ORDER BY float_col ASC NULLS FIRST;
 
@@ -124,7 +124,7 @@ ORDER BY float_col ASC NULLS FIRST;
 -- =========================================
 SELECT float_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY float_col
 ORDER BY float_col DESC;
 
@@ -133,7 +133,7 @@ ORDER BY float_col DESC;
 -- =========================================
 SELECT float_col, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY float_col
 ORDER BY float_col DESC NULLS LAST;
 
@@ -142,7 +142,7 @@ ORDER BY float_col DESC NULLS LAST;
 -- =========================================
 SELECT json_col->>'category' AS category, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY json_col->>'category'
 ORDER BY category ASC;
 
@@ -151,7 +151,7 @@ ORDER BY category ASC;
 -- =========================================
 SELECT json_col->>'category' AS category, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY json_col->>'category'
 ORDER BY category ASC NULLS FIRST;
 
@@ -160,7 +160,7 @@ ORDER BY category ASC NULLS FIRST;
 -- =========================================
 SELECT json_col->>'category' AS category, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY json_col->>'category'
 ORDER BY category DESC;
 
@@ -169,7 +169,7 @@ ORDER BY category DESC;
 -- =========================================
 SELECT json_col->>'category' AS category, COUNT(*) AS count
 FROM nulls_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY json_col->>'category'
 ORDER BY category DESC NULLS LAST;
 

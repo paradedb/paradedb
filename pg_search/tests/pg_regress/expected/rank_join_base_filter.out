@@ -495,7 +495,7 @@ LIMIT 10;
 SELECT explain_redact_oid($$
 SELECT j.id, c.id
 FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
-WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.body === 'crossing'
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.body @@@ pdb.term('crossing')
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);

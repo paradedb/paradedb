@@ -43,13 +43,13 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT price, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY price, kind
 ORDER BY price, kind;
 
 SELECT price, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY price, kind
 ORDER BY price, kind;
 
@@ -57,13 +57,13 @@ ORDER BY price, kind;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT region, kind, COUNT(*)
 FROM dependent_col_items
-WHERE region = 2 AND id @@@ pdb.all()::pdb.const(0)
+WHERE region = 2 AND id @@@ pdb.all()
 GROUP BY region, kind
 ORDER BY kind;
 
 SELECT region, kind, COUNT(*)
 FROM dependent_col_items
-WHERE region = 2 AND id @@@ pdb.all()::pdb.const(0)
+WHERE region = 2 AND id @@@ pdb.all()
 GROUP BY region, kind
 ORDER BY kind;
 
@@ -71,14 +71,14 @@ ORDER BY kind;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id, kind
 ORDER BY id, kind
 LIMIT 6;
 
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id, kind
 ORDER BY id, kind
 LIMIT 6;
@@ -87,14 +87,14 @@ LIMIT 6;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, kind, account_id, price, created, COUNT(*), SUM(price)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 8;
 
 SELECT id, kind, account_id, price, created, COUNT(*), SUM(price)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 8;
@@ -103,14 +103,14 @@ LIMIT 8;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, created, created::text AS created_text, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
 
 SELECT id, created, created::text AS created_text, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
@@ -119,7 +119,7 @@ LIMIT 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 HAVING kind <> 'a'
 ORDER BY kind DESC, id
@@ -127,7 +127,7 @@ LIMIT 5;
 
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 HAVING kind <> 'a'
 ORDER BY kind DESC, id
@@ -137,7 +137,7 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 LIMIT 3;
 
@@ -149,7 +149,7 @@ SELECT limited.kind IS NOT DISTINCT FROM (
 FROM (
     SELECT id, kind, COUNT(*)
     FROM dependent_col_items
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
     GROUP BY id
     LIMIT 3
 ) AS limited;
@@ -158,31 +158,31 @@ FROM (
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, kind, account_id, COUNT(*)
 FROM dependent_col_items
-WHERE id = 8 AND id @@@ pdb.all()::pdb.const(0)
+WHERE id = 8 AND id @@@ pdb.all()
 GROUP BY id;
 
 SELECT id, kind, account_id, COUNT(*)
 FROM dependent_col_items
-WHERE id = 8 AND id @@@ pdb.all()::pdb.const(0)
+WHERE id = 8 AND id @@@ pdb.all()
 GROUP BY id;
 
 SELECT id, kind, account_id, COUNT(*)
 FROM dependent_col_items
-WHERE id = 999 AND id @@@ pdb.all()::pdb.const(0)
+WHERE id = 999 AND id @@@ pdb.all()
 GROUP BY id;
 
 \echo 'Test 8: the column is pinned to one value, and it is not a key'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, account_id, COUNT(*)
 FROM dependent_col_items
-WHERE account_id = 2 AND id @@@ pdb.all()::pdb.const(0)
+WHERE account_id = 2 AND id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
 
 SELECT id, account_id, COUNT(*)
 FROM dependent_col_items
-WHERE account_id = 2 AND id @@@ pdb.all()::pdb.const(0)
+WHERE account_id = 2 AND id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
@@ -192,14 +192,14 @@ LIMIT 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price, COUNT(*)
 FROM dependent_col_items
-WHERE price = 2 AND id @@@ pdb.all()::pdb.const(0)
+WHERE price = 2 AND id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
 
 SELECT id, price, COUNT(*)
 FROM dependent_col_items
-WHERE price = 2 AND id @@@ pdb.all()::pdb.const(0)
+WHERE price = 2 AND id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
@@ -208,14 +208,14 @@ LIMIT 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, kind, pdb.agg('{"value_count": {"field": "price"}}'::jsonb)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 6;
 
 SELECT id, kind, pdb.agg('{"value_count": {"field": "price"}}'::jsonb)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 6;
@@ -225,7 +225,7 @@ SET plan_cache_mode TO force_generic_plan;
 PREPARE dependent_col_by_id(int) AS
 SELECT id, kind, created, COUNT(*)
 FROM dependent_col_items
-WHERE id = $1 AND id @@@ pdb.all()::pdb.const(0)
+WHERE id = $1 AND id @@@ pdb.all()
 GROUP BY id;
 
 EXECUTE dependent_col_by_id(3);
@@ -239,14 +239,14 @@ RESET plan_cache_mode;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id, tags, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
 
 SELECT id, tags, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
@@ -255,14 +255,14 @@ LIMIT 4;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id, created::text
 ORDER BY id
 LIMIT 3;
 
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id, created::text
 ORDER BY id
 LIMIT 3;
@@ -271,13 +271,13 @@ LIMIT 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT price::text || '!' AS label, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY price::text
 ORDER BY 1;
 
 SELECT price::text || '!' AS label, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY price::text
 ORDER BY 1;
 
@@ -285,14 +285,14 @@ ORDER BY 1;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id, meta, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
 
 SELECT id, meta, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
@@ -301,14 +301,14 @@ LIMIT 3;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id, note, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
 
 SELECT id, note, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
@@ -322,13 +322,13 @@ CREATE INDEX dependent_col_days_idx ON dependent_col_days USING paradedb (id, ts
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT date(ts)::text AS d, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
 FROM dependent_col_days
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY date(ts)
 ORDER BY 1;
 
 SELECT date(ts)::text AS d, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
 FROM dependent_col_days
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY date(ts)
 ORDER BY 1;
 
@@ -338,13 +338,13 @@ SET paradedb.max_term_agg_buckets TO 2;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id::text AS account, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id::text
 ORDER BY 1;
 
 SELECT account_id::text AS account, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id::text
 ORDER BY 1;
 
@@ -360,13 +360,13 @@ USING paradedb ((code::pdb.literal), (title::pdb.literal));
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT code::text AS code, title, COUNT(*)
 FROM dependent_col_codes
-WHERE code @@@ pdb.all()::pdb.const(0) AND title = 'x'
+WHERE code @@@ pdb.all() AND title = 'x'
 GROUP BY code::text, title
 ORDER BY 1;
 
 SELECT code::text AS code, title, COUNT(*)
 FROM dependent_col_codes
-WHERE code @@@ pdb.all()::pdb.const(0) AND title = 'x'
+WHERE code @@@ pdb.all() AND title = 'x'
 GROUP BY code::text, title
 ORDER BY 1;
 
@@ -375,40 +375,40 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT price, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY price, kind
 ORDER BY price, kind;
 
 SELECT region, kind, COUNT(*)
 FROM dependent_col_items
-WHERE region = 2 AND id @@@ pdb.all()::pdb.const(0)
+WHERE region = 2 AND id @@@ pdb.all()
 GROUP BY region, kind
 ORDER BY kind;
 
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id, kind
 ORDER BY id, kind
 LIMIT 6;
 
 SELECT id, kind, account_id, price, created, COUNT(*), SUM(price)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 8;
 
 SELECT id, created, created::text AS created_text, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
 
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 HAVING kind <> 'a'
 ORDER BY kind DESC, id
@@ -416,30 +416,30 @@ LIMIT 5;
 
 SELECT price::text || '!' AS label, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY price::text
 ORDER BY 1;
 
 SELECT id, kind, account_id, COUNT(*)
 FROM dependent_col_items
-WHERE id = 8 AND id @@@ pdb.all()::pdb.const(0)
+WHERE id = 8 AND id @@@ pdb.all()
 GROUP BY id;
 
 SELECT id, kind, account_id, COUNT(*)
 FROM dependent_col_items
-WHERE id = 999 AND id @@@ pdb.all()::pdb.const(0)
+WHERE id = 999 AND id @@@ pdb.all()
 GROUP BY id;
 
 SELECT id, account_id, COUNT(*)
 FROM dependent_col_items
-WHERE account_id = 2 AND id @@@ pdb.all()::pdb.const(0)
+WHERE account_id = 2 AND id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
 
 SELECT id, price, COUNT(*)
 FROM dependent_col_items
-WHERE price = 2 AND id @@@ pdb.all()::pdb.const(0)
+WHERE price = 2 AND id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 4;
@@ -447,7 +447,7 @@ LIMIT 4;
 -- `pdb.agg()` needs the scan, so `COUNT` is its twin.
 SELECT id, kind, COUNT(price)
 FROM dependent_col_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 6;
@@ -456,7 +456,7 @@ SET plan_cache_mode TO force_generic_plan;
 PREPARE dependent_col_by_id(int) AS
 SELECT id, kind, created, COUNT(*)
 FROM dependent_col_items
-WHERE id = $1 AND id @@@ pdb.all()::pdb.const(0)
+WHERE id = $1 AND id @@@ pdb.all()
 GROUP BY id;
 
 EXECUTE dependent_col_by_id(3);
@@ -468,13 +468,13 @@ RESET plan_cache_mode;
 
 SELECT date(ts)::text AS d, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
 FROM dependent_col_days
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY date(ts)
 ORDER BY 1;
 
 SELECT code::text AS code, title, COUNT(*)
 FROM dependent_col_codes
-WHERE code @@@ pdb.all()::pdb.const(0) AND title = 'x'
+WHERE code @@@ pdb.all() AND title = 'x'
 GROUP BY code::text, title
 ORDER BY 1;
 

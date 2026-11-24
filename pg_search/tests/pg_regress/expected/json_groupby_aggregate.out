@@ -322,7 +322,7 @@ USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_nulls
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY metadata->>'category'
 ORDER BY category NULLS FIRST;
                                                                QUERY PLAN                                                               
@@ -330,7 +330,7 @@ ORDER BY category NULLS FIRST;
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_nulls
    Output: (metadata ->> 'category'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_nulls
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: metadata.category
      Aggregate Definition: {"grouped":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -338,7 +338,7 @@ ORDER BY category NULLS FIRST;
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_nulls
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY metadata->>'category'
 ORDER BY category NULLS FIRST;
   category   | count 

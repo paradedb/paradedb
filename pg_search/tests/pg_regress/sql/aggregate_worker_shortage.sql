@@ -15,7 +15,7 @@ DECLARE
     plan jsonb;
 BEGIN
     EXECUTE 'EXPLAIN (FORMAT JSON) SELECT count(*) FROM aggregate_worker_shortage
-             WHERE body @@@ pdb.all()::pdb.const(0)
+             WHERE body @@@ pdb.all()
                AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5))'
     INTO plan;
     ASSERT jsonb_path_exists(plan, '$.**."Workers Planned" ? (@ > 0)');
@@ -24,19 +24,19 @@ BEGIN
 END
 $$;
 SELECT count(*) FROM aggregate_worker_shortage
-WHERE body @@@ pdb.all()::pdb.const(0)
+WHERE body @@@ pdb.all()
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
 SELECT count(*) FROM aggregate_worker_shortage
-WHERE body @@@ pdb.all()::pdb.const(0)
+WHERE body @@@ pdb.all()
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
 SELECT count(*) FROM aggregate_worker_shortage
-WHERE body @@@ pdb.all()::pdb.const(0)
+WHERE body @@@ pdb.all()
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
 SELECT count(*) FROM aggregate_worker_shortage
-WHERE body @@@ pdb.all()::pdb.const(0)
+WHERE body @@@ pdb.all()
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
 SELECT count(*) FROM aggregate_worker_shortage
-WHERE body @@@ pdb.all()::pdb.const(0)
+WHERE body @@@ pdb.all()
   AND hash = ANY(ARRAY(SELECT hash FROM aggregate_worker_shortage LIMIT 5));
 DROP TABLE aggregate_worker_shortage;
 RESET max_parallel_workers;

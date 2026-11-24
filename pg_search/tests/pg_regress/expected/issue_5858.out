@@ -54,11 +54,11 @@ ANALYZE issue_5858_products;
 Test 1.1: = is a heap filter, not a Tantivy term
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_ci = 'Electronics'
 ORDER BY id;
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -68,7 +68,7 @@ ORDER BY id;
          Columnar: id
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}]}},"always_filters":[{"heap_filter":"(name_ci = 'Electronics'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(name_ci = 'Electronics'::text)"}]}}]}}
 (10 rows)
 
 \echo 'Test 1.2: rows match native PostgreSQL, which equates the two spellings'
@@ -83,7 +83,7 @@ ORDER BY id;
 (2 rows)
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_ci = 'Electronics'
 ORDER BY id;
  id 
@@ -96,11 +96,11 @@ ORDER BY id;
 Test 1.3: <> is a heap filter too
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_ci <> 'Electronics'
 ORDER BY id;
-                                                                                                                             QUERY PLAN                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -110,7 +110,7 @@ ORDER BY id;
          Columnar: id
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}]}},"always_filters":[{"heap_filter":"(name_ci <> 'Electronics'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(name_ci <> 'Electronics'::text)"}]}}]}}
 (10 rows)
 
 SELECT id FROM issue_5858_products
@@ -122,7 +122,7 @@ ORDER BY id;
 (1 row)
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_ci <> 'Electronics'
 ORDER BY id;
  id 
@@ -136,11 +136,11 @@ ORDER BY id;
 Test 2.1: IN (...) is a heap filter, not a Tantivy term_set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_ci IN ('Electronics', 'Books')
 ORDER BY id;
-                                                                                                                                    QUERY PLAN                                                                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -150,7 +150,7 @@ ORDER BY id;
          Columnar: id
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}]}},"always_filters":[{"heap_filter":"(name_ci = ANY ('{Electronics,Books}'::text[]))"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(name_ci = ANY ('{Electronics,Books}'::text[]))"}]}}]}}
 (10 rows)
 
 \echo 'Test 2.2: rows match native PostgreSQL'
@@ -166,7 +166,7 @@ ORDER BY id;
 (3 rows)
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_ci IN ('Electronics', 'Books')
 ORDER BY id;
  id 
@@ -182,11 +182,11 @@ ORDER BY id;
 Test 3.1: equality still pushes down, deterministic equality is byte equality
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_icu = 'Banana'
 ORDER BY id;
-                                                                                     QUERY PLAN                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -195,7 +195,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"name_icu","value":"Banana"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"name_icu","value":"Banana"}}]}}
 (9 rows)
 
 SELECT id FROM issue_5858_products
@@ -207,7 +207,7 @@ ORDER BY id;
 (1 row)
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_icu = 'Banana'
 ORDER BY id;
  id 
@@ -219,11 +219,11 @@ ORDER BY id;
 Test 3.2: IN (...) still pushes down as a term_set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_icu IN ('apple', 'cherry')
 ORDER BY id;
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -232,11 +232,11 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term_set":{"termset":{"name_icu":["apple","cherry"]}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"name_icu":["apple","cherry"]}}}]}}
 (9 rows)
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_icu IN ('apple', 'cherry')
 ORDER BY id;
  id 
@@ -249,11 +249,11 @@ ORDER BY id;
 Test 3.3: a range is a heap filter, en-US is not byte-ordered
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_icu > 'B'
 ORDER BY id;
-                                                                                                                        QUERY PLAN                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -263,7 +263,7 @@ ORDER BY id;
          Columnar: id
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}]}},"always_filters":[{"heap_filter":"(name_icu > 'B'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(name_icu > 'B'::text)"}]}}]}}
 (10 rows)
 
 \echo 'Test 3.4: en-US orders apple before B, byte order does not'
@@ -278,7 +278,7 @@ ORDER BY id;
 (2 rows)
 
 SELECT id, name_icu FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_icu > 'B'
 ORDER BY id;
  id | name_icu 
@@ -293,11 +293,11 @@ ORDER BY id;
 Test 4.1: a range still pushes down, C is byte-ordered
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_c > 'B'
 ORDER BY id;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -306,7 +306,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"name_c","lower_bound":{"excluded":"B"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"name_c","lower_bound":{"excluded":"B"},"upper_bound":null}}]}}
 (9 rows)
 
 \echo 'Test 4.2: the pushed range returns the same rows PostgreSQL would'
@@ -322,7 +322,7 @@ ORDER BY id;
 (3 rows)
 
 SELECT id, name_c FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_c > 'B'
 ORDER BY id;
  id | name_c 
@@ -336,11 +336,11 @@ ORDER BY id;
 Test 4.3: COLLATE "C" on the ICU column restores range pushdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_icu COLLATE "C" > 'B'
 ORDER BY id;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -349,7 +349,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"name_icu","lower_bound":{"excluded":"B"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"name_icu","lower_bound":{"excluded":"B"},"upper_bound":null}}]}}
 (9 rows)
 
 \echo 'Test 4.4: the same column and predicate, three rows under C against two under en-US'
@@ -365,7 +365,7 @@ ORDER BY id;
 (3 rows)
 
 SELECT id, name_icu FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_icu COLLATE "C" > 'B'
 ORDER BY id;
  id | name_icu 
@@ -381,11 +381,11 @@ ORDER BY id;
 Test 5.1: equality pushes down under the default collation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_default = 'Banana'
 ORDER BY id;
-                                                                                       QUERY PLAN                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -394,11 +394,11 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"term":{"field":"name_default","value":"Banana"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"name_default","value":"Banana"}}]}}
 (9 rows)
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_default = 'Banana'
 ORDER BY id;
  id 
@@ -410,11 +410,11 @@ ORDER BY id;
 Test 5.2: a range pushes down too, the default is byte-ordered here
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_default > 'B'
 ORDER BY id;
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -423,7 +423,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"name_default","lower_bound":{"excluded":"B"},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"name_default","lower_bound":{"excluded":"B"},"upper_bound":null}}]}}
 (9 rows)
 
 SELECT id, name_default FROM issue_5858_products
@@ -437,7 +437,7 @@ ORDER BY id;
 (3 rows)
 
 SELECT id, name_default FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND name_default > 'B'
 ORDER BY id;
  id | name_default 
@@ -453,11 +453,11 @@ ORDER BY id;
 Test 6.1: an integer range pushes down, its collation is InvalidOid
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND id > 1
 ORDER BY id;
-                                                                                                  QUERY PLAN                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
@@ -466,11 +466,11 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"range":{"field":"id","lower_bound":{"excluded":1},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"id","lower_bound":{"excluded":1},"upper_bound":null}}]}}
 (9 rows)
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND id > 1
 ORDER BY id;
  id 
@@ -490,9 +490,9 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT count(*) FILTER (WHERE name_icu > 'B') AS range_count,
        count(*) FILTER (WHERE name_ci = 'Books') AS equality_count
 FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0);
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+WHERE id @@@ pdb.all();
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Base Scan) on issue_5858_products
          Table: issue_5858_products
@@ -501,13 +501,13 @@ WHERE id @@@ pdb.all()::pdb.const(0);
          Columnar: name_ci, name_icu
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
 SELECT count(*) FILTER (WHERE name_icu > 'B') AS range_count,
        count(*) FILTER (WHERE name_ci = 'Books') AS equality_count
 FROM issue_5858_products
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
  range_count | equality_count 
 -------------+----------------
            2 |              1

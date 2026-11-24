@@ -36,4 +36,4 @@ jobs:
         uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3.24.1
 
       - name: Build pg_search with Nix
-        run: nix build --no-link ".#pg_search-pg${PG_MAJOR_VERSION}"
+        run: nix build --print-build-logs --no-link ".#pg_search-pg${PG_MAJOR_VERSION}"

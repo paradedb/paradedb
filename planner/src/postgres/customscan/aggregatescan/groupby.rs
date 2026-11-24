@@ -59,7 +59,7 @@ pub fn can_decode_group_key_cast(
     expected_typoid == pg_sys::TEXTOID
         && (matches!(
             original_typoid,
-            pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID
+            pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID | pg_sys::UUIDOID
         ) || is_ltree_oid(original_typoid))
 }
 
@@ -320,32 +320,73 @@ fn unresolved_reason(
 /// all of these from one row of the group. The Tantivy backend has no row to
 /// read, so such a query goes to the DataFusion backend.
 pub unsafe fn has_ungrouped_column(args: &CreateUpperPathsHookArgs) -> bool {
-    let parse = (*args.root).parse;
-    if parse.is_null() || (*parse).groupClause.is_null() {
+    let Some(keys) = group_keys(args) else {
         return false;
-    }
-    let keys: Vec<*mut pg_sys::Node> = args
-        .group_by_pathkeys()
-        .into_iter()
-        .filter(|pathkey| !(**pathkey).pk_eclass.is_null())
-        .flat_map(|pathkey| {
-            PgList::<pg_sys::EquivalenceMember>::from_pg((*(*pathkey).pk_eclass).ec_members)
-                .iter_ptr()
-                .map(|member| strip_relabel((*member).em_expr.cast()))
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    };
     if keys.is_empty() {
         return true;
     }
+    output_exprs(args)
+        .into_iter()
+        .any(|expr| has_ungrouped_var(expr, &keys))
+}
 
+/// Returns true if an output column is a cast of a GROUP BY key that the
+/// Tantivy backend cannot write into its slot, such as `d::text` over
+/// `GROUP BY d`. The DataFusion backend returns the key, and PostgreSQL
+/// evaluates the cast above the scan.
+///
+/// A key of a domain type stays on the Tantivy backend, which declines it:
+/// the DataFusion backend cannot read a domain type.
+pub unsafe fn has_undecodable_key_cast(args: &CreateUpperPathsHookArgs) -> bool {
+    let Some(keys) = group_keys(args) else {
+        return false;
+    };
+    output_exprs(args).into_iter().any(|expr| {
+        let (stripped, is_unnest) = strip_unnest_and_relabel(expr);
+        !stripped.is_null()
+            && !is_unnest
+            && keys
+                .iter()
+                .any(|key| pg_sys::equal((*key).cast(), stripped.cast()))
+            && !is_domain_type(pg_sys::exprType(stripped))
+            && validate_grouping_casts(expr, stripped, can_decode_group_key_cast).is_err()
+    })
+}
+
+/// Returns the GROUP BY keys, or `None` if the query has no GROUP BY.
+unsafe fn group_keys(args: &CreateUpperPathsHookArgs) -> Option<Vec<*mut pg_sys::Node>> {
+    let parse = (*args.root).parse;
+    if parse.is_null() || (*parse).groupClause.is_null() {
+        return None;
+    }
+    Some(
+        args.group_by_pathkeys()
+            .into_iter()
+            .filter(|pathkey| !(**pathkey).pk_eclass.is_null())
+            .flat_map(|pathkey| {
+                PgList::<pg_sys::EquivalenceMember>::from_pg((*(*pathkey).pk_eclass).ec_members)
+                    .iter_ptr()
+                    .map(|member| strip_relabel((*member).em_expr.cast()))
+                    .collect::<Vec<_>>()
+            })
+            .collect(),
+    )
+}
+
+/// Returns the output expressions of the grouped relation.
+unsafe fn output_exprs(args: &CreateUpperPathsHookArgs) -> Vec<*mut pg_sys::Node> {
     let reltarget = args.output_rel().reltarget;
     if reltarget.is_null() {
-        return false;
+        return Vec::new();
     }
     PgList::<pg_sys::Node>::from_pg((*reltarget).exprs)
         .iter_ptr()
-        .any(|expr| has_ungrouped_var(expr, &keys))
+        .collect()
+}
+
+unsafe fn is_domain_type(typoid: pg_sys::Oid) -> bool {
+    pg_sys::getBaseType(typoid) != typoid
 }
 
 /// Returns true if `expr` reads a column outside of the GROUP BY keys and the

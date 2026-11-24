@@ -14,6 +14,8 @@ INSERT INTO cast_groups VALUES
 CREATE INDEX cast_groups_idx ON cast_groups USING paradedb (id, d, ts, (label::pdb.literal));
 ANALYZE cast_groups;
 
+-- The Tantivy backend writes only the key into its slot. A cast of a key in
+-- the target list goes to DataFusion, and PostgreSQL evaluates the cast above.
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT d::text AS dt, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
@@ -50,15 +52,6 @@ WHERE id @@@ pdb.all() GROUP BY label ORDER BY 1;
 SELECT label::text AS label, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY label ORDER BY 1;
 
--- DataFusion projects target-list casts over plain grouping keys in PostgreSQL.
-SET paradedb.max_term_agg_buckets = 1;
-EXPLAIN (COSTS OFF, VERBOSE)
-SELECT d::text AS dt, COUNT(*) FROM cast_groups
-WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
-SELECT d::text AS dt, COUNT(*) FROM cast_groups
-WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
-RESET paradedb.max_term_agg_buckets;
-
 -- Dropping a domain coercion would also skip its constraint.
 CREATE DOMAIN cast_group_domain AS TEXT CHECK (VALUE <> '01');
 SELECT label::cast_group_domain, COUNT(*) FROM cast_groups
@@ -68,6 +61,17 @@ WHERE id @@@ pdb.all() GROUP BY label::cast_group_domain ORDER BY 1;
 DROP DOMAIN cast_group_domain;
 
 DROP TABLE cast_groups;
+
+-- DataFusion cannot read a key of a domain type, so a cast of that key stays
+-- on the Tantivy backend, which declines it.
+CREATE DOMAIN cast_group_int AS INT CHECK (VALUE > 0);
+CREATE TABLE cast_domains (id INT PRIMARY KEY, p cast_group_int);
+INSERT INTO cast_domains VALUES (1, 1), (2, 1), (3, 2);
+CREATE INDEX cast_domains_idx ON cast_domains USING paradedb (id, p);
+SELECT p::text AS p, COUNT(*) FROM cast_domains
+WHERE id @@@ pdb.all() GROUP BY p ORDER BY 1;
+DROP TABLE cast_domains;
+DROP DOMAIN cast_group_int;
 
 CREATE TABLE cast_json (id INT PRIMARY KEY, meta JSONB);
 INSERT INTO cast_json VALUES
@@ -104,11 +108,14 @@ WHERE id @@@ pdb.all() GROUP BY meta->>'n' ORDER BY 1, 2;
 RESET paradedb.max_term_agg_buckets;
 DROP TABLE cast_json;
 
--- Integer keys print the same text as PostgreSQL.
-CREATE TABLE cast_ints (id INT PRIMARY KEY, i INT4, n BIGINT);
+-- Integer and uuid keys print the same text as PostgreSQL.
+CREATE TABLE cast_ints (id INT PRIMARY KEY, i INT4, n BIGINT, u UUID);
 INSERT INTO cast_ints VALUES
-    (1, -5, -5000000000), (2, 10, 10), (3, -5, -5000000000), (4, NULL, NULL);
-CREATE INDEX cast_ints_idx ON cast_ints USING paradedb (id, i, n);
+    (1, -5, -5000000000, 'A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11'),
+    (2, 10, 10, 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
+    (3, -5, -5000000000, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
+    (4, NULL, NULL, NULL);
+CREATE INDEX cast_ints_idx ON cast_ints USING paradedb (id, i, n, u);
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT i::text AS i, COUNT(*) FROM cast_ints
 WHERE id @@@ pdb.all() GROUP BY i::text ORDER BY 1;
@@ -116,6 +123,11 @@ SELECT i::text AS i, COUNT(*) FROM cast_ints
 WHERE id @@@ pdb.all() GROUP BY i::text ORDER BY 1;
 SELECT n::text AS n, COUNT(*) FROM cast_ints
 WHERE id @@@ pdb.all() GROUP BY n ORDER BY n;
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT u::text AS u, COUNT(*) FROM cast_ints
+WHERE id @@@ pdb.all() GROUP BY u::text ORDER BY 1;
+SELECT u::text AS u, COUNT(*) FROM cast_ints
+WHERE id @@@ pdb.all() GROUP BY u::text ORDER BY 1;
 DROP TABLE cast_ints;
 
 -- PostgreSQL evaluates a cast above unnest() on the element value.
@@ -129,19 +141,33 @@ WHERE id @@@ pdb.all() GROUP BY unnest(a) ORDER BY 1;
 DROP TABLE cast_arrays;
 
 -- An indexed cast already stores the grouping expression's value.
-CREATE TABLE cast_indexed (id INT PRIMARY KEY, u UUID);
+CREATE TABLE cast_indexed (id INT PRIMARY KEY, label TEXT, meta JSONB);
 INSERT INTO cast_indexed VALUES
-    (1, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
-    (2, 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
-    (3, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
-    (4, NULL);
-CREATE INDEX cast_indexed_idx ON cast_indexed
-USING paradedb (id, u, ((u::text)::pdb.literal('alias=u_text')));
+    (1, '01', '{"n":"01"}'), (2, '1', '{"n":"1"}'), (3, '7', '{"n":"7"}'), (4, NULL, NULL);
+CREATE INDEX cast_indexed_idx ON cast_indexed USING paradedb (
+    id, (label::pdb.literal), meta,
+    ((label::int)::pdb.alias('label_int')),
+    (((meta->>'n')::int)::pdb.alias('n_int')));
+ANALYZE cast_indexed;
 EXPLAIN (COSTS OFF)
-SELECT u::text AS u, COUNT(*) FROM cast_indexed
-WHERE id @@@ pdb.all() GROUP BY u::text ORDER BY 1;
-SELECT u::text AS u, COUNT(*) FROM cast_indexed
-WHERE id @@@ pdb.all() GROUP BY u::text ORDER BY 1;
+SELECT label::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY label::int ORDER BY 1;
+SELECT label::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY label::int ORDER BY 1;
+SET paradedb.max_term_agg_buckets = 1;
+-- DataFusion also groups on an indexed cast of a JSON path.
+EXPLAIN (COSTS OFF)
+SELECT (meta->>'n')::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY (meta->>'n')::int ORDER BY 1;
+SELECT (meta->>'n')::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY (meta->>'n')::int ORDER BY 1;
+-- DataFusion reads the column for a cast directly over it, so it declines.
+EXPLAIN (COSTS OFF)
+SELECT label::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY label::int ORDER BY 1;
+SELECT label::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY label::int ORDER BY 1;
+RESET paradedb.max_term_agg_buckets;
 DROP TABLE cast_indexed;
 
 -- The existing ltree-to-text decoder remains usable.

@@ -2,4 +2,4 @@
 header: stability
 ---
 
-- Fixed incorrect results when casting a `GROUP BY` key by falling back to PostgreSQL for casts that Aggregate Scan cannot evaluate.
+- Fixed incorrect results when casting a `GROUP BY` key. Aggregate Scan now uses the DataFusion backend or falls back to PostgreSQL for casts that the Tantivy backend cannot evaluate.

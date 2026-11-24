@@ -990,13 +990,20 @@ unsafe fn extract_raw_group_column(
                 !context.shape.is_distinct(),
                 "DISTINCT group expressions are plain columns by construction"
             );
-            // The field holds the column's value, not the value of a cast of it.
+            // The field holds the column's value, not the value of a cast of it. Only an
+            // indexed expression holds the value of the cast. A cast directly over a column
+            // declines before the lookup, because the scan reads the column, not the
+            // indexed expression.
             let (stripped, _) = strip_unnest_and_relabel(expr);
-            if validate_grouping_casts(expr, stripped, |_, _| false).is_err() {
-                return Err(format!(
+            let is_cast = validate_grouping_casts(expr, stripped, |_, _| false).is_err();
+            let cast = || {
+                format!(
                     "GROUP BY item {position} is a cast; only plain columns and indexed \
                  expressions are pushed down"
-                ));
+                )
+            };
+            if is_cast && nodecast!(Var, stripped).is_some() {
+                return Err(cast());
             }
             let unsupported = || {
                 format!(
@@ -1019,11 +1026,14 @@ unsafe fn extract_raw_group_column(
                 })?;
 
             if let Ok(source) = find_source_by_rti(context.sources, rti, "GROUP BY expression") {
-                let field_name = source
-                    .resolve_fast_field(ResTarget::Expr(expr), Access::Scalar)
-                    .map(|r| r.field.name())
-                    .or_else(|| find_one_fieldname(var_context, expr).map(|f| f.into_inner()))
-                    .ok_or_else(unsupported)?;
+                let field_name =
+                    match source.resolve_fast_field(ResTarget::Expr(expr), Access::Scalar) {
+                        Some(resolved) => resolved.field.name(),
+                        None if is_cast => return Err(cast()),
+                        None => find_one_fieldname(var_context, expr)
+                            .map(|f| f.into_inner())
+                            .ok_or_else(unsupported)?,
+                    };
                 (
                     var,
                     attno,
@@ -1032,6 +1042,9 @@ unsafe fn extract_raw_group_column(
                     find_source_by_rti(context.sources, rti, "GROUP BY expression").ok(),
                 )
             } else {
+                if is_cast {
+                    return Err(cast());
+                }
                 let field_name = find_one_fieldname(var_context, expr)
                     .map(|f| f.into_inner())
                     .ok_or_else(unsupported)?;

@@ -17,35 +17,30 @@ INSERT INTO cast_groups VALUES
     (4, NULL, NULL, NULL);
 CREATE INDEX cast_groups_idx ON cast_groups USING paradedb (id, d, ts, (label::pdb.literal));
 ANALYZE cast_groups;
+-- The Tantivy backend writes only the key into its slot. A cast of a key in
+-- the target list goes to DataFusion, and PostgreSQL evaluates the cast above.
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT d::text AS dt, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
-WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cast_groups)
-                                     QUERY PLAN                                     
-------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((d)::text), (count(*)), d
    Sort Key: ((cast_groups.d)::text)
-   ->  GroupAggregate
-         Output: (d)::text, count(*), d
-         Group Key: cast_groups.d
-         ->  Sort
-               Output: d
-               Sort Key: cast_groups.d
-               ->  Custom Scan (ParadeDB Base Scan) on public.cast_groups
-                     Output: d
-                     Table: cast_groups
-                     Index: cast_groups_idx
-                     Worker Selection: Cost model
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Full Index Scan: true
-                     Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(18 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: (d)::text, (count(*)), d
+         Backend: DataFusion
+         Indexes: cast_groups_idx (cast_groups)
+         Group By: d
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[d@0 as d], aggr=[count(1) as agg_0]
+           :   CooperativeExec
+           :     PgSearchScan: table=cast_groups, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(13 rows)
 
 SELECT d::text AS dt, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
-WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cast_groups)
      dt     | count 
 ------------+-------
  2024-01-01 |     1
@@ -55,7 +50,6 @@ WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation.
 
 SELECT d, d::text AS dt, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY d ORDER BY d;
-WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cast_groups)
      d      |     dt     | count 
 ------------+------------+-------
  2024-01-01 | 2024-01-01 |     1
@@ -65,7 +59,6 @@ WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation.
 
 SELECT ts::text AS ts, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY ts ORDER BY 1;
-WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cast_groups)
            ts           | count 
 ------------------------+-------
  2024-01-01 00:00:00+00 |     1
@@ -76,7 +69,6 @@ WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation.
 SET timezone = 'Asia/Kolkata';
 SELECT ts::text AS ts, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY ts ORDER BY 1;
-WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cast_groups)
             ts             | count 
 ---------------------------+-------
  2024-01-01 05:30:00+05:30 |     1
@@ -87,7 +79,6 @@ WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation.
 SET datestyle = 'SQL, DMY';
 SELECT d::text AS dt, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
-WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cast_groups)
      dt     | count 
 ------------+-------
  01/01/2024 |     1
@@ -109,7 +100,6 @@ WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation.
 
 SELECT label::int AS n, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY label ORDER BY label;
-WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cast_groups)
  n | count 
 ---+-------
  1 |     1
@@ -150,43 +140,10 @@ WHERE id @@@ pdb.all() GROUP BY label ORDER BY 1;
        |     1
 (3 rows)
 
--- DataFusion projects target-list casts over plain grouping keys in PostgreSQL.
-SET paradedb.max_term_agg_buckets = 1;
-EXPLAIN (COSTS OFF, VERBOSE)
-SELECT d::text AS dt, COUNT(*) FROM cast_groups
-WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Output: ((d)::text), (count(*)), d
-   Sort Key: ((cast_groups.d)::text)
-   ->  Custom Scan (ParadeDB Aggregate Scan)
-         Output: (d)::text, (count(*)), d
-         Backend: DataFusion
-         Indexes: cast_groups_idx (cast_groups)
-         Group By: d
-         Aggregates: COUNT(*)
-         DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[d@0 as d], aggr=[count(1) as agg_0]
-           :   CooperativeExec
-           :     PgSearchScan: table=cast_groups, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(13 rows)
-
-SELECT d::text AS dt, COUNT(*) FROM cast_groups
-WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
-     dt     | count 
-------------+-------
- 2024-01-01 |     1
- 2024-02-02 |     2
-            |     1
-(3 rows)
-
-RESET paradedb.max_term_agg_buckets;
 -- Dropping a domain coercion would also skip its constraint.
 CREATE DOMAIN cast_group_domain AS TEXT CHECK (VALUE <> '01');
 SELECT label::cast_group_domain, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY label ORDER BY label;
-WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cast_groups)
 ERROR:  value for domain cast_group_domain violates check constraint "cast_group_domain_check"
 SELECT label::cast_group_domain, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY label::cast_group_domain ORDER BY 1;
@@ -194,6 +151,23 @@ WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation.
 ERROR:  value for domain cast_group_domain violates check constraint "cast_group_domain_check"
 DROP DOMAIN cast_group_domain;
 DROP TABLE cast_groups;
+-- DataFusion cannot read a key of a domain type, so a cast of that key stays
+-- on the Tantivy backend, which declines it.
+CREATE DOMAIN cast_group_int AS INT CHECK (VALUE > 0);
+CREATE TABLE cast_domains (id INT PRIMARY KEY, p cast_group_int);
+INSERT INTO cast_domains VALUES (1, 1), (2, 1), (3, 2);
+CREATE INDEX cast_domains_idx ON cast_domains USING paradedb (id, p);
+SELECT p::text AS p, COUNT(*) FROM cast_domains
+WHERE id @@@ pdb.all() GROUP BY p ORDER BY 1;
+WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cast_domains)
+ p | count 
+---+-------
+ 1 |     2
+ 2 |     1
+(2 rows)
+
+DROP TABLE cast_domains;
+DROP DOMAIN cast_group_int;
 CREATE TABLE cast_json (id INT PRIMARY KEY, meta JSONB);
 INSERT INTO cast_json VALUES
     (1, '{"k":"a", "n":"01"}'),
@@ -305,11 +279,14 @@ WHERE id @@@ pdb.all() GROUP BY meta->>'n' ORDER BY 1, 2;
 
 RESET paradedb.max_term_agg_buckets;
 DROP TABLE cast_json;
--- Integer keys print the same text as PostgreSQL.
-CREATE TABLE cast_ints (id INT PRIMARY KEY, i INT4, n BIGINT);
+-- Integer and uuid keys print the same text as PostgreSQL.
+CREATE TABLE cast_ints (id INT PRIMARY KEY, i INT4, n BIGINT, u UUID);
 INSERT INTO cast_ints VALUES
-    (1, -5, -5000000000), (2, 10, 10), (3, -5, -5000000000), (4, NULL, NULL);
-CREATE INDEX cast_ints_idx ON cast_ints USING paradedb (id, i, n);
+    (1, -5, -5000000000, 'A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11'),
+    (2, 10, 10, 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
+    (3, -5, -5000000000, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
+    (4, NULL, NULL, NULL);
+CREATE INDEX cast_ints_idx ON cast_ints USING paradedb (id, i, n, u);
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT i::text AS i, COUNT(*) FROM cast_ints
 WHERE id @@@ pdb.all() GROUP BY i::text ORDER BY 1;
@@ -345,6 +322,32 @@ WHERE id @@@ pdb.all() GROUP BY n ORDER BY n;
              |     1
 (3 rows)
 
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT u::text AS u, COUNT(*) FROM cast_ints
+WHERE id @@@ pdb.all() GROUP BY u::text ORDER BY 1;
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((u)::text), (pdb.agg_fn('COUNT(*)'::text))
+   Sort Key: ((cast_ints.u)::text)
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.cast_ints
+         Output: (u)::text, pdb.agg_fn('COUNT(*)'::text)
+         Index: cast_ints_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: u
+           Aggregate Definition: {"grouped":{"terms":{"field":"u","segment_size":65000,"size":65000}}}
+(10 rows)
+
+SELECT u::text AS u, COUNT(*) FROM cast_ints
+WHERE id @@@ pdb.all() GROUP BY u::text ORDER BY 1;
+                  u                   | count 
+--------------------------------------+-------
+ a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11 |     2
+ b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11 |     1
+                                      |     1
+(3 rows)
+
 DROP TABLE cast_ints;
 -- PostgreSQL evaluates a cast above unnest() on the element value.
 CREATE TABLE cast_arrays (id INT PRIMARY KEY, a INT4[]);
@@ -372,38 +375,99 @@ WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation.
 
 DROP TABLE cast_arrays;
 -- An indexed cast already stores the grouping expression's value.
-CREATE TABLE cast_indexed (id INT PRIMARY KEY, u UUID);
+CREATE TABLE cast_indexed (id INT PRIMARY KEY, label TEXT, meta JSONB);
 INSERT INTO cast_indexed VALUES
-    (1, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
-    (2, 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
-    (3, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
-    (4, NULL);
-CREATE INDEX cast_indexed_idx ON cast_indexed
-USING paradedb (id, u, ((u::text)::pdb.literal('alias=u_text')));
+    (1, '01', '{"n":"01"}'), (2, '1', '{"n":"1"}'), (3, '7', '{"n":"7"}'), (4, NULL, NULL);
+CREATE INDEX cast_indexed_idx ON cast_indexed USING paradedb (
+    id, (label::pdb.literal), meta,
+    ((label::int)::pdb.alias('label_int')),
+    (((meta->>'n')::int)::pdb.alias('n_int')));
+ANALYZE cast_indexed;
 EXPLAIN (COSTS OFF)
-SELECT u::text AS u, COUNT(*) FROM cast_indexed
-WHERE id @@@ pdb.all() GROUP BY u::text ORDER BY 1;
-                                                 QUERY PLAN                                                 
-------------------------------------------------------------------------------------------------------------
+SELECT label::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY label::int ORDER BY 1;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: ((u)::text)
+   Sort Key: ((label)::integer)
    ->  Custom Scan (ParadeDB Aggregate Scan) on cast_indexed
          Index: cast_indexed_idx
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
            Applies to Aggregates: COUNT(*)
-           Group By: u_text
-           Aggregate Definition: {"grouped":{"terms":{"field":"u_text","segment_size":65000,"size":65000}}}
+           Group By: label_int
+           Aggregate Definition: {"grouped":{"terms":{"field":"label_int","segment_size":65000,"size":65000}}}
 (8 rows)
 
-SELECT u::text AS u, COUNT(*) FROM cast_indexed
-WHERE id @@@ pdb.all() GROUP BY u::text ORDER BY 1;
-                  u                   | count 
---------------------------------------+-------
- a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11 |     2
- b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11 |     1
-                                      |     1
+SELECT label::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY label::int ORDER BY 1;
+ n | count 
+---+-------
+ 1 |     2
+ 7 |     1
+   |     1
 (3 rows)
 
+SET paradedb.max_term_agg_buckets = 1;
+-- DataFusion also groups on an indexed cast of a JSON path.
+EXPLAIN (COSTS OFF)
+SELECT (meta->>'n')::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY (meta->>'n')::int ORDER BY 1;
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (((meta ->> 'n'::text))::integer)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: cast_indexed_idx (cast_indexed)
+         Group By: n_int
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[n_int@0 as n_int], aggr=[count(1) as agg_0]
+           :   CooperativeExec
+           :     PgSearchScan: table=cast_indexed, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+SELECT (meta->>'n')::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY (meta->>'n')::int ORDER BY 1;
+ n | count 
+---+-------
+ 1 |     2
+ 7 |     1
+   |     1
+(3 rows)
+
+-- DataFusion reads the column for a cast directly over it, so it declines.
+EXPLAIN (COSTS OFF)
+SELECT label::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY label::int ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast; only plain columns and indexed expressions are pushed down (table: cast_indexed)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: ((label)::integer)
+   ->  Sort
+         Sort Key: ((label)::integer)
+         ->  Custom Scan (ParadeDB Base Scan) on cast_indexed
+               Table: cast_indexed
+               Index: cast_indexed_idx
+               Exec Method: ColumnarExecState
+               Columnar: label, label_int
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(12 rows)
+
+SELECT label::int AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY label::int ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast; only plain columns and indexed expressions are pushed down (table: cast_indexed)
+ n | count 
+---+-------
+ 1 |     2
+ 7 |     1
+   |     1
+(3 rows)
+
+RESET paradedb.max_term_agg_buckets;
 DROP TABLE cast_indexed;
 -- The existing ltree-to-text decoder remains usable.
 CREATE TABLE cast_paths (id INT PRIMARY KEY, path LTREE);

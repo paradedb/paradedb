@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Fault tolerance for qgen under Antithesis.
+//! Fault tolerance for qgen under DST.
 //!
 //! Retries are unbounded by default: any finite window is one the fault injector can outlast, so
 //! a transient fault must never fail the run on its own. Liveness is asserted from the outside —
@@ -24,7 +24,7 @@
 //! force can failing to make progress fail the run, which no fault schedule can fake.
 //!
 //! The unpause deadline also makes a server-side `statement_timeout` (57014) attributable:
-//! Antithesis pauses threads, so any fixed timeout can be exceeded while faults are active. Only
+//! The DST runner can pause threads, so any fixed timeout can be exceeded while faults are active. Only
 //! when an attempt ran start to finish inside one declared pause is "the query could not finish
 //! in time on a healthy database" a real finding.
 

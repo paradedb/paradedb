@@ -12,7 +12,7 @@ workspace = true
 crate-type = ["rlib"]
 
 [features]
-# Antithesis build (docker/Dockerfile.proptests): proptest draws entropy from the SDK and the dst
+# DST build (docker/Dockerfile.proptests): proptest draws entropy from the SDK and the dst
 # assert macros go live. Off for normal `cargo test`.
 dst = ["proptest/antithesis", "dst/enabled"]
 
@@ -23,7 +23,7 @@ bigdecimal = { version = "0.4.11", features = ["serde"] }
 bytes = "1.11.1"
 chrono = { version = "0.4.44", features = ["clock", "alloc"] }
 dotenvy = "0.15.7"
-# Antithesis hooks; the macros are type-checked no-ops until `dst/enabled`.
+# DST hooks; the macros are type-checked no-ops until `dst/enabled`.
 dst = { path = "../dst" }
 env_logger = "0.11.10"
 futures = "0.3.34"

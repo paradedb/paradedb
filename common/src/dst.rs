@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Local extension assertions when the Antithesis SDK is disabled.
+//! Local extension assertions when the DST SDK is disabled.
 
 pub use crate::dst_observe as observe;
 pub use crate::{

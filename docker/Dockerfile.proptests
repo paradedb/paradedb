@@ -62,7 +62,7 @@ RUN cargo fetch --locked --manifest-path /home/app/Cargo.toml && \
     QGEN_BIN=$(jq -r 'select(.profile.test == true and .target.name == "qgen") | .executable' /tmp/build.json | tail -n 1) && \
     test -x "$QGEN_BIN" && \
     cp "$QGEN_BIN" /home/app/qgen && \
-    /home/app/qgen --exact antithesis_sdk_initializes && \
+    /home/app/qgen --exact dst_sdk_initializes && \
     rm /tmp/build.json
 
 CMD ["sleep", "infinity"]

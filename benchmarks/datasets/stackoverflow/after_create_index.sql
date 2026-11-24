@@ -16,3 +16,13 @@ $$ BEGIN
     EXECUTE 'CREATE INDEX bench_synonyms_idx ON bench_synonyms USING paradedb ((rule::pdb.unicode_words))'; --
   END IF; --
 END $$;
+
+-- The native Postgres side of the synonyms_* queries. With a stored tsvector, `ts_rank` does not
+-- parse the body of every match again. The `simple` configuration does not stem and keeps the
+-- stop words, as `pdb.unicode_words` does.
+CREATE TABLE IF NOT EXISTS stackoverflow_posts_fts AS SELECT id, to_tsvector('simple', body) AS body_tsv FROM stackoverflow_posts;
+CREATE INDEX IF NOT EXISTS stackoverflow_posts_fts_body_tsv_idx ON stackoverflow_posts_fts USING gin (body_tsv);
+
+-- The rule of bench_synonyms as a target and a substitute for `ts_rewrite`.
+CREATE TABLE IF NOT EXISTS bench_synonyms_tsquery (target tsquery PRIMARY KEY, substitute tsquery NOT NULL);
+INSERT INTO bench_synonyms_tsquery VALUES ('exception', 'exception | failure | bug | crash | fault | problem | issue | fail | warning | mistake') ON CONFLICT DO NOTHING;

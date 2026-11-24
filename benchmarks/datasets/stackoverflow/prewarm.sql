@@ -18,3 +18,4 @@ SELECT pg_prewarm('users_reputation_idx');
 SELECT pg_prewarm('users_display_name_idx');
 SELECT pg_prewarm('comments_score_idx');
 SELECT pg_prewarm('comments_creation_date_id_idx');
+SELECT pg_prewarm('stackoverflow_posts_fts_body_tsv_idx');

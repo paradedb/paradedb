@@ -398,7 +398,7 @@ impl VisibilityChecker {
             let nblocks =
                 pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), heaprel.fork_number());
             Self {
-                scan: pg_sys::table_index_fetch_begin(heaprel.as_ptr()),
+                scan: utils::table_index_fetch_begin(heaprel.as_ptr()),
                 snapshot,
                 tid: pg_sys::ItemPointerData::default(),
                 heaprel: Clone::clone(heaprel),
@@ -1379,9 +1379,9 @@ impl HeapFetchState {
     /// Create a HeapFetchState which will fetch the entire content of the given relation.
     pub fn new(heaprel: &PgSearchRelation) -> Self {
         unsafe {
-            let scan = pg_sys::table_index_fetch_begin(heaprel.as_ptr());
-            let slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
-            let virtual_slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsVirtual);
+            let scan = utils::table_index_fetch_begin(heaprel.as_ptr());
+            let slot = utils::make_tuple_table_slot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
+            let virtual_slot = utils::make_tuple_table_slot(heaprel.rd_att, &pg_sys::TTSOpsVirtual);
             let nblocks =
                 pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), heaprel.fork_number());
             Self {
@@ -1790,7 +1790,7 @@ impl<'a> HeapDocFetcher<'a> {
                             (*tuple).t_data,
                             &mut self.snapshot_conflict_horizon,
                         );
-                        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                        #[cfg(not(feature = "pg15"))]
                         pg_sys::HeapTupleHeaderAdvanceConflictHorizon(
                             (*tuple).t_data,
                             &mut self.snapshot_conflict_horizon,

@@ -376,7 +376,7 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
 
                 // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been
                 // initialized as a stack-allocated ItemPointerData
-                pg_sys::tbm_add_tuples(tbm, &mut ipd, 1, false);
+                pg_sys::tbm_add_tuples(tbm, &raw mut ipd as _, 1, false);
 
                 cnt += 1;
             }
@@ -425,7 +425,7 @@ unsafe fn get_parallel_scan_state(scan: IndexScanDesc) -> Option<&'static mut Pa
         {
             (*ps).ps_offset
         }
-        #[cfg(feature = "pg18")]
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
         {
             (*ps).ps_offset_am
         }

@@ -65,7 +65,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     ParallelScanState::size_of(&[u16::MAX as usize], false, false)
 }
 
-#[cfg(feature = "pg18")]
+#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
 #[pg_guard]
 pub extern "C-unwind" fn amestimateparallelscan(
     rel: *mut pg_sys::RelationData,
@@ -95,7 +95,7 @@ unsafe fn bm25_shared_state(
                 {
                     (*scan.parallel_scan).ps_offset
                 }
-                #[cfg(feature = "pg18")]
+                #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
                 {
                     (*scan.parallel_scan).ps_offset_am
                 }

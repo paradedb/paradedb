@@ -1053,7 +1053,7 @@ impl CustomScan for BaseScan {
 
             #[cfg(feature = "pg15")]
             let baserels = (*builder.args().root).all_baserels;
-            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            #[cfg(not(feature = "pg15"))]
             let baserels = (*builder.args().root).all_query_rels;
 
             // Detect if we are in a join context (more than 1 base relation in the query)
@@ -1832,7 +1832,7 @@ impl CustomScan for BaseScan {
         // (matching what begin_custom_scan will use via table_slot_callbacks).
         // This ensures ExecInitQual compiles plan.qual expressions for the
         // correct slot type, avoiding TTS_IS_VIRTUAL assertion failures.
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(feature = "pg15"))]
         unsafe {
             (*state).csstate.slotOps =
                 pg_sys::table_slot_callbacks((*state).custom_state().heaprel().as_ptr());
@@ -2122,6 +2122,13 @@ impl CustomScan for BaseScan {
                 addr_of_mut!(state.csstate.ss),
                 tupdesc,
                 pg_sys::table_slot_callbacks(state.custom_state().heaprel().as_ptr()),
+                #[cfg(not(any(
+                    feature = "pg15",
+                    feature = "pg16",
+                    feature = "pg17",
+                    feature = "pg18"
+                )))]
+                0,
             );
 
             // On PG15, ExecInitCustomScan hardcodes &TTSOpsVirtual for the scan slot

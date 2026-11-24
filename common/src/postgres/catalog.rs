@@ -354,7 +354,7 @@ pub fn facet_encoded_str_to_ltree_text(s: &str) -> String {
 }
 
 pub enum CollationProvider {
-    #[cfg(any(feature = "pg17", feature = "pg18"))]
+    #[cfg(not(any(feature = "pg15", feature = "pg16")))]
     Builtin,
     Icu,
     Libc,
@@ -364,7 +364,7 @@ pub enum CollationProvider {
 impl From<u8> for CollationProvider {
     fn from(c: u8) -> Self {
         match c {
-            #[cfg(any(feature = "pg17", feature = "pg18"))]
+            #[cfg(not(any(feature = "pg15", feature = "pg16")))]
             pg_sys::COLLPROVIDER_BUILTIN => Self::Builtin,
             pg_sys::COLLPROVIDER_ICU => Self::Icu,
             pg_sys::COLLPROVIDER_LIBC => Self::Libc,
@@ -419,12 +419,25 @@ mod tests {
     use super::*;
     use pgrx::{PgTryBuilder, Spi, pg_guard, pg_test};
 
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
     #[pg_guard]
     unsafe extern "C-unwind" fn reject_planning(
         _parse: *mut pg_sys::Query,
         _query: *const std::ffi::c_char,
         _options: std::ffi::c_int,
         _params: pg_sys::ParamListInfo,
+    ) -> *mut pg_sys::PlannedStmt {
+        pgrx::error!("catalog discovery must not invoke planner hooks");
+    }
+
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+    #[pg_guard]
+    unsafe extern "C-unwind" fn reject_planning(
+        _parse: *mut pg_sys::Query,
+        _query: *const std::ffi::c_char,
+        _options: std::ffi::c_int,
+        _params: pg_sys::ParamListInfo,
+        _es: *mut pg_sys::ExplainState,
     ) -> *mut pg_sys::PlannedStmt {
         pgrx::error!("catalog discovery must not invoke planner hooks");
     }

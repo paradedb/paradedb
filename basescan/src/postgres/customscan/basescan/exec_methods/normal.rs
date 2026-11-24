@@ -203,7 +203,10 @@ impl ExecMethod for NormalScanExecState {
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
         let cstate_ref = unsafe { &*cstate };
         self.slot = unsafe {
-            pg_sys::MakeTupleTableSlot(cstate_ref.ss.ps.ps_ResultTupleDesc, &pg_sys::TTSOpsVirtual)
+            crate::postgres::utils::make_tuple_table_slot(
+                cstate_ref.ss.ps.ps_ResultTupleDesc,
+                &pg_sys::TTSOpsVirtual,
+            )
         };
         // Use the visibility map only when we have no columns to project AND no
         // executor-level quals (e.g. RLS SubPlan expressions). Virtual slots lack

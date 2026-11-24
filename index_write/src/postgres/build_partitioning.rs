@@ -717,7 +717,10 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     let mut rng = StdRng::seed_from_u64(SAMPLE_SEED as u64);
     let mut per_block_context = PgMemoryContexts::new("pg_search partition sampling");
     let slot = unsafe {
-        pg_sys::MakeTupleTableSlot(heaprel.rd_att, &raw const pg_sys::TTSOpsBufferHeapTuple)
+        crate::postgres::utils::make_tuple_table_slot(
+            heaprel.rd_att,
+            &raw const pg_sys::TTSOpsBufferHeapTuple,
+        )
     };
     let natts = unsafe { (*heaprel.rd_att).natts as usize };
     let created_by_version = indexrel.created_by_version();

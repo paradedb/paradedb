@@ -833,8 +833,12 @@ mod tests {
 
         state.reset();
 
-        let slot =
-            unsafe { pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple) };
+        let slot = unsafe {
+            crate::postgres::utils::make_tuple_table_slot(
+                heaprel.rd_att,
+                &pg_sys::TTSOpsBufferHeapTuple,
+            )
+        };
         let visible = state
             .visibility_checker()
             .exec_if_visible(stale_ctid, slot, |_| true);

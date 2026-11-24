@@ -315,7 +315,7 @@ pub unsafe fn register() {
     {
         pg_sys::ExecutorRun_hook = Some(executor_run_hook_pg15_17);
     }
-    #[cfg(feature = "pg18")]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     {
         pg_sys::ExecutorRun_hook = Some(executor_run_hook_pg18);
     }
@@ -382,7 +382,7 @@ pub unsafe fn register() {
         // _frame drops here → FrameGuard::drop → insertcleanup for all accumulated states.
     }
 
-    #[cfg(feature = "pg18")]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     #[pg_guard]
     unsafe extern "C-unwind" fn executor_run_hook_pg18(
         query_desc: *mut QueryDesc,

@@ -8,11 +8,12 @@ license = { workspace = true }
 workspace = true
 
 [features]
-default = ["pg18"]
+default = ["pg19"]
 pg15 = ["pgrx/pg15", "index_read/pg15"]
 pg16 = ["pgrx/pg16", "index_read/pg16"]
 pg17 = ["pgrx/pg17", "index_read/pg17"]
 pg18 = ["pgrx/pg18", "index_read/pg18"]
+pg19 = ["pgrx/pg19", "index_read/pg19"]
 pg_test = ["index_read/pg_test"]
 
 # Keep this crate focused on Tantivy index building, merging, and vacuum/cleanup. Do NOT add

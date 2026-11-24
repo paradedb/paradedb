@@ -8,11 +8,12 @@ license = { workspace = true }
 workspace = true
 
 [features]
-default = ["pg18"]
+default = ["pg19"]
 pg15 = ["pgrx/pg15", "scan/pg15", "planner/pg15"]
 pg16 = ["pgrx/pg16", "scan/pg16", "planner/pg16"]
 pg17 = ["pgrx/pg17", "scan/pg17", "planner/pg17"]
 pg18 = ["pgrx/pg18", "scan/pg18", "planner/pg18"]
+pg19 = ["pgrx/pg19", "scan/pg19", "planner/pg19"]
 pg_test = ["dep:proptest", "scan/pg_test", "planner/pg_test"]
 
 # Leaf crate for multi-table `JoinScan`, `AggregateScan`, DataFusion plan translation, and MPP

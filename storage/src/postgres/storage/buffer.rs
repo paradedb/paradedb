@@ -589,7 +589,7 @@ impl BorrowedBuffer {
     /// This will acquire a share lock on the buffer, and release it on Drop.
     pub unsafe fn from_pg(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
-        pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+        pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_SHARE as _);
         Self { pg_buffer }
     }
 }
@@ -598,7 +598,7 @@ crate::impl_safe_drop!(BorrowedBuffer, |self| {
     unsafe {
         if crate::postgres::utils::IsTransactionState() {
             // Only unlock, don't release
-            pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
+            pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
         }
     }
 });
@@ -709,6 +709,12 @@ pub struct PageMut<'a> {
     pg_page: pg_sys::Page,
 }
 
+/// The item pointer `PageAddItemExtended` takes. PG19 removed the `Item` typedef.
+#[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+pub type Item = pg_sys::Item;
+#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+pub type Item = *const std::ffi::c_void;
+
 impl<'a> PageMut<'a> {
     pub fn max_offset_number(&self) -> pg_sys::OffsetNumber {
         unsafe { pgrx::PageGetMaxOffsetNumber!(Pointer::from(self.pg_page)).get_as() }
@@ -758,7 +764,7 @@ impl<'a> PageMut<'a> {
     #[track_caller]
     pub fn append_item(
         &mut self,
-        item: pg_sys::Item,
+        item: Item,
         size: pg_sys::Size,
         flags: i32,
     ) -> pg_sys::OffsetNumber {
@@ -782,7 +788,7 @@ impl<'a> PageMut<'a> {
     pub fn replace_item(
         &mut self,
         offno: pg_sys::OffsetNumber,
-        item: pg_sys::Item,
+        item: Item,
         size: pg_sys::Size,
     ) -> bool {
         self.buffer.assert_mutable();

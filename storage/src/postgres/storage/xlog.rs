@@ -151,7 +151,7 @@ pub unsafe fn log_snapshot_conflict(indexrel: &PgSearchRelation, horizon: pg_sys
     {
         return;
     }
-    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    #[cfg(not(feature = "pg15"))]
     let heaprel = indexrel
         .heap_relation()
         .expect("Should have a heap relation.");
@@ -170,7 +170,7 @@ pub unsafe fn log_snapshot_conflict(indexrel: &PgSearchRelation, horizon: pg_sys
     // It registers no buffer and does not read or modify any index page.
     #[cfg(feature = "pg15")]
     pg_sys::gistXLogPageReuse(indexrel.as_ptr(), pg_sys::InvalidBlockNumber, full_xid);
-    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    #[cfg(not(feature = "pg15"))]
     pg_sys::gistXLogPageReuse(
         indexrel.as_ptr(),
         heaprel.as_ptr(),

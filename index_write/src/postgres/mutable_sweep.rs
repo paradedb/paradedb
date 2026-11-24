@@ -78,8 +78,12 @@ pub fn init() {
 
 unsafe fn connect(database: Option<pg_sys::Oid>) {
     unsafe extern "C-unwind" {
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
         #[link_name = "die"]
         fn worker_sigterm(signal: i32);
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+        #[link_name = "die"]
+        fn worker_sigterm(signal: i32, info: *const pg_sys::pg_signal_info);
     }
     #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
     pg_sys::pqsignal(pg_sys::SIGTERM as i32, Some(worker_sigterm));

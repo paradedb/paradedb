@@ -71,11 +71,11 @@ impl MaybeInlineRow {
         };
 
         let whole_row = pg_sys::makeWholeRowVar(rte, (*base_var).varno, 0, false);
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(feature = "pg15"))]
         {
             (*whole_row).varnullingrels = pg_sys::bms_copy((*base_var).varnullingrels);
         }
-        #[cfg(feature = "pg18")]
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
         {
             (*whole_row).varreturningtype = (*base_var).varreturningtype;
         }
@@ -221,14 +221,14 @@ impl MaybeInlineRow {
         let predicate = pg_sys::RelationGetIndexPredicate(indexrel.as_ptr());
         if !predicate.is_null() {
             pg_sys::ChangeVarNodes(predicate.cast(), 1, (*base_var).varno, 0);
-            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            #[cfg(not(feature = "pg15"))]
             let predicate = pg_sys::add_nulling_relids(
                 predicate.cast(),
                 std::ptr::null_mut(),
                 (*base_var).varnullingrels,
             )
             .cast::<pg_sys::List>();
-            #[cfg(feature = "pg18")]
+            #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
             for var in predicate.collect_nodes::<pg_sys::Var>() {
                 (*var).varreturningtype = (*base_var).varreturningtype;
             }
@@ -377,14 +377,14 @@ impl RowMatcher {
         let tuple_desc = pg_sys::CreateTupleDescCopy(heap_relation.rd_att);
         for attribute in 0..(*tuple_desc).natts as usize {
             if !required_attributes.contains(&attribute) {
-                #[cfg(not(feature = "pg18"))]
+                #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
                 {
                     (*tuple_desc)
                         .attrs
                         .as_mut_slice((*tuple_desc).natts as usize)[attribute]
                         .attisdropped = true;
                 }
-                #[cfg(feature = "pg18")]
+                #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
                 {
                     (*pg_sys::TupleDescAttr(tuple_desc, attribute as _)).attisdropped = true;
                     pg_sys::populate_compact_attribute(tuple_desc, attribute as _);

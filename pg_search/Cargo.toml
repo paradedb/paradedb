@@ -43,7 +43,7 @@ files = [
 ]
 
 [features]
-default = ["pg18"]
+default = ["pg19"]
 pg15 = [
   "pgrx/pg15",
   "pgrx-tests/pg15",
@@ -83,6 +83,16 @@ pg18 = [
   "planner/pg18",
   "basescan/pg18",
   "joinscan/pg18",
+]
+pg19 = [
+  "pgrx/pg19",
+  "pgrx-tests/pg19",
+  "common/pg19",
+  "index_read/pg19",
+  "index_write/pg19",
+  "planner/pg19",
+  "basescan/pg19",
+  "joinscan/pg19",
 ]
 pg_test = [
   "common/pg_test",

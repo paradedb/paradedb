@@ -80,6 +80,37 @@ pub fn vacuum_delay_point() {
     }
 }
 
+/// `MakeTupleTableSlot` with no slot flags; PG19 added the flags argument.
+///
+/// # Safety
+///
+/// `desc` and `ops` must be valid for `MakeTupleTableSlot`.
+pub unsafe fn make_tuple_table_slot(
+    desc: pg_sys::TupleDesc,
+    ops: *const pg_sys::TupleTableSlotOps,
+) -> *mut pg_sys::TupleTableSlot {
+    unsafe {
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+        return pg_sys::MakeTupleTableSlot(desc, ops);
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+        return pg_sys::MakeTupleTableSlot(desc, ops, 0);
+    }
+}
+
+/// `table_index_fetch_begin` with no scan options; PG19 added the flags argument.
+///
+/// # Safety
+///
+/// `rel` must be an open heap relation.
+pub unsafe fn table_index_fetch_begin(rel: pg_sys::Relation) -> *mut pg_sys::IndexFetchTableData {
+    unsafe {
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+        return pg_sys::table_index_fetch_begin(rel);
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+        return pg_sys::table_index_fetch_begin(rel, pg_sys::ScanOptions::SO_NONE);
+    }
+}
+
 /// Implements `Drop` for a Postgres resource that must be cleaned up on the Postgres main thread,
 /// skipping cleanup during panic unwinding or process exit.
 ///
@@ -1295,12 +1326,12 @@ pub unsafe fn strip_placeholder_vars_deep(node: *mut pg_sys::Node) -> *mut pg_sy
             return strip_phv_mutator((*phv).phexpr.cast(), context);
         }
 
-        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        #[cfg(feature = "pg15")]
         {
             pg_sys::expression_tree_mutator(node, Some(strip_phv_mutator), context)
         }
 
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(feature = "pg15"))]
         {
             pg_sys::expression_tree_mutator_impl(node, Some(strip_phv_mutator), context)
         }

@@ -663,9 +663,9 @@ fn verify_heap_references(
     segment_filter: &Option<HashSet<usize>>,
 ) -> HeapCheckResult {
     // Set up heap fetch state
-    let scan = unsafe { pg_sys::table_index_fetch_begin(heap_rel.as_ptr()) };
+    let scan = unsafe { crate::postgres::utils::table_index_fetch_begin(heap_rel.as_ptr()) };
     let slot = unsafe {
-        pg_sys::MakeTupleTableSlot(
+        crate::postgres::utils::make_tuple_table_slot(
             pg_sys::CreateTupleDesc(0, std::ptr::null_mut()),
             &pg_sys::TTSOpsBufferHeapTuple,
         )

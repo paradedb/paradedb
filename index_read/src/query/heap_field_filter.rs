@@ -251,7 +251,7 @@ impl HeapFieldFilter {
                 return;
             }
 
-            #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+            #[cfg(feature = "pg15")]
             let new_node = {
                 pg_sys::expression_tree_mutator(
                     expr_node,
@@ -260,7 +260,7 @@ impl HeapFieldFilter {
                 )
             };
 
-            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            #[cfg(not(feature = "pg15"))]
             let new_node = pg_sys::expression_tree_mutator_impl(
                 expr_node,
                 Some(param_resolver_mutator),
@@ -312,12 +312,12 @@ unsafe extern "C-unwind" fn param_resolver_mutator(
         return const_node.cast();
     }
 
-    #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+    #[cfg(feature = "pg15")]
     {
         pg_sys::expression_tree_mutator(node, Some(param_resolver_mutator), context)
     }
 
-    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    #[cfg(not(feature = "pg15"))]
     {
         pg_sys::expression_tree_mutator_impl(node, Some(param_resolver_mutator), context)
     }

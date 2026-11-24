@@ -8,11 +8,12 @@ license = { workspace = true }
 workspace = true
 
 [features]
-default = ["pg18"]
+default = ["pg19"]
 pg15 = ["pgrx/pg15"]
 pg16 = ["pgrx/pg16"]
 pg17 = ["pgrx/pg17"]
 pg18 = ["pgrx/pg18"]
+pg19 = ["pgrx/pg19"]
 pg_test = ["dep:proptest"]
 
 # Keep this crate's dependency list minimal: every workspace crate depends on `common`, so

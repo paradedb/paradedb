@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg_version: [18]
+        pg_version: [19]
 
     steps:
       - name: Checkout Git Repository

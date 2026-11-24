@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795500664724,
+  "lastUpdate": 1795523297211,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -24128,6 +24128,224 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14816743628-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795523294979,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.034,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.733,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 271,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p50 latency",
+            "value": 53.622,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p95 latency",
+            "value": 131.406,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p99 latency",
+            "value": 203.611,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p50 latency",
+            "value": 0.366,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p95 latency",
+            "value": 0.424,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p99 latency",
+            "value": 0.467,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 29.66,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 113.458,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 202.792,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p50 latency",
+            "value": 94.9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p95 latency",
+            "value": 207.985,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p99 latency",
+            "value": 253.911,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p50 latency",
+            "value": 0.364,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p95 latency",
+            "value": 0.421,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p99 latency",
+            "value": 0.481,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 62.052,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 172.001,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 213.341,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p50 latency",
+            "value": 66.416,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p95 latency",
+            "value": 174.46,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p99 latency",
+            "value": 240.839,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p50 latency",
+            "value": 0.355,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p95 latency",
+            "value": 0.413,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p99 latency",
+            "value": 0.472,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 26.977,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 127.846,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 218.3,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p50 latency",
+            "value": 59.478,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p95 latency",
+            "value": 126.019,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p99 latency",
+            "value": 296.059,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p50 latency",
+            "value": 0.356,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p95 latency",
+            "value": 0.408,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p99 latency",
+            "value": 0.46,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 20.421,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 105.063,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 277.055,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14918659969-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -53365,6 +53583,94 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14816743628-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795523297196,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 21.16,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) QPS",
+            "value": 15.32,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) updates/sec",
+            "value": 997.64,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 23.08,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) QPS",
+            "value": 9,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) updates/sec",
+            "value": 997.68,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 13.4,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) QPS",
+            "value": 12.16,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) updates/sec",
+            "value": 997.28,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 23.32,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) QPS",
+            "value": 14.76,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) updates/sec",
+            "value": 996.52,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 27.72,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14918659969-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

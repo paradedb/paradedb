@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795561056788,
+  "lastUpdate": 1795561085145,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -185379,6 +185379,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14899882835-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1e573192047a29e25b1aa92051bbade2aeae980c",
+          "message": "perf: Cache the content of mutable segments (#6525)\n\n# Ticket(s) Closed\n\n- Closes #5356\n\n## What\n\nCache indexed mutable segments in PostgreSQL shared memory so repeated\nqueries and parallel workers can reuse them instead of rebuilding\nunchanged segments from the heap.\n\n## Why\n\nRe-indexing mutable rows on every read adds latency, especially during\nconcurrent updates. Sharing completed segments avoids repeated indexing\nwhile retaining normal snapshot visibility checks.\n\n## How\n\nEntries are keyed by database, index, segment UUID, and\ndocument/deletion bounds. A single backend builds each cacheable entry;\nreaders pin its storage, and invalidation and clock-sweep eviction\nreclaim unreferenced entries. A buddy allocator manages the fixed memory\narena. Oversized entries bypass admission without evicting cached\nsegments; waiters build privately in parallel when shared admission\nfails.\n\nThe cache defaults to 64MB and can hold up to 256 segments.\n`paradedb.enable_mutable_segment_cache` controls use per session;\n`paradedb.mutable_segment_cache_size` sets the arena size at startup.\nBoth settings are documented in the configuration reference.\n\nTOAST corruption remains an error for live rows and recently-dead rows\nneeded by older snapshots. If a recently-dead row loses its TOAST chunks\nduring VACUUM, the reader refreshes the visibility horizon and skips it\nonly after confirming its deleter is removable. Temporary resource\nownership releases pins and locks on error, and the existing dead-row\npath preserves HOT retries and standby conflict tracking. Expression\nevaluation uses the already-detoasted values, avoiding a second TOAST\nfetch racing with VACUUM. Last-reader reclamation rechecks slot state\nunder the cache lock.\n\n## Tests\n\n- Eleven PostgreSQL cache/TOAST tests, including oversized-admission\npreservation and actual missing-chunk errors for both removable and\nstill-needed rows, resource-owner restoration, and relation-reference\ncleanup.\n- Six backend tests covering reader/builder cancellation and\ntermination, live/recently-dead corruption with an older snapshot held\nopen, and merge visibility.\n- Three slab allocator tests and ten SQL regressions covering toasted\nmutable rows, VACUUM, HOT updates, indexed expressions, aggregate\nexpressions, and arithmetic MPP plans. The plan regression also passes\nwith either leader-participation startup default.\n- Workspace Clippy, Rustdoc with warnings denied, formatting, and `cargo\naudit` (zero vulnerabilities).\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-24T20:05:17Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1e573192047a29e25b1aa92051bbade2aeae980c"
+        },
+        "date": 1795561082262,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 164.72729797546336,
+            "unit": "median tps",
+            "extra": "avg tps: 161.37921247946267, max tps: 178.86530943440553, count: 59090"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 545.6525670216049,
+            "unit": "median tps",
+            "extra": "avg tps: 559.6552949349576, max tps: 4647.980283549333, count: 59090"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3040.344913326425,
+            "unit": "median tps",
+            "extra": "avg tps: 3046.429611466189, max tps: 3189.710934595759, count: 59090"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 183.6074198119956,
+            "unit": "median tps",
+            "extra": "avg tps: 179.05695316284604, max tps: 201.867151621715, count: 59090"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 271.24430922212014,
+            "unit": "median tps",
+            "extra": "avg tps: 376.2957254302241, max tps: 2609.3901351581153, count: 118180"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 30.259676424704804,
+            "unit": "median tps",
+            "extra": "avg tps: 29.499636005949796, max tps: 45.89909909248301, count: 59090"
+          }
+        ],
+        "publication_id": "14972075735-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -236454,6 +236513,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14899882835-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1e573192047a29e25b1aa92051bbade2aeae980c",
+          "message": "perf: Cache the content of mutable segments (#6525)\n\n# Ticket(s) Closed\n\n- Closes #5356\n\n## What\n\nCache indexed mutable segments in PostgreSQL shared memory so repeated\nqueries and parallel workers can reuse them instead of rebuilding\nunchanged segments from the heap.\n\n## Why\n\nRe-indexing mutable rows on every read adds latency, especially during\nconcurrent updates. Sharing completed segments avoids repeated indexing\nwhile retaining normal snapshot visibility checks.\n\n## How\n\nEntries are keyed by database, index, segment UUID, and\ndocument/deletion bounds. A single backend builds each cacheable entry;\nreaders pin its storage, and invalidation and clock-sweep eviction\nreclaim unreferenced entries. A buddy allocator manages the fixed memory\narena. Oversized entries bypass admission without evicting cached\nsegments; waiters build privately in parallel when shared admission\nfails.\n\nThe cache defaults to 64MB and can hold up to 256 segments.\n`paradedb.enable_mutable_segment_cache` controls use per session;\n`paradedb.mutable_segment_cache_size` sets the arena size at startup.\nBoth settings are documented in the configuration reference.\n\nTOAST corruption remains an error for live rows and recently-dead rows\nneeded by older snapshots. If a recently-dead row loses its TOAST chunks\nduring VACUUM, the reader refreshes the visibility horizon and skips it\nonly after confirming its deleter is removable. Temporary resource\nownership releases pins and locks on error, and the existing dead-row\npath preserves HOT retries and standby conflict tracking. Expression\nevaluation uses the already-detoasted values, avoiding a second TOAST\nfetch racing with VACUUM. Last-reader reclamation rechecks slot state\nunder the cache lock.\n\n## Tests\n\n- Eleven PostgreSQL cache/TOAST tests, including oversized-admission\npreservation and actual missing-chunk errors for both removable and\nstill-needed rows, resource-owner restoration, and relation-reference\ncleanup.\n- Six backend tests covering reader/builder cancellation and\ntermination, live/recently-dead corruption with an older snapshot held\nopen, and merge visibility.\n- Three slab allocator tests and ten SQL regressions covering toasted\nmutable rows, VACUUM, HOT updates, indexed expressions, aggregate\nexpressions, and arithmetic MPP plans. The plan regression also passes\nwith either leader-participation startup default.\n- Workspace Clippy, Rustdoc with warnings denied, formatting, and `cargo\naudit` (zero vulnerabilities).\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-24T20:05:17Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1e573192047a29e25b1aa92051bbade2aeae980c"
+        },
+        "date": 1795561085003,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.155937,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.5305196429891, max cpu: 28.543112, count: 59090"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 50.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.88388547924776, max mem: 50.88671875, count: 59090"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.315101339222423, max cpu: 42.12579, count: 59090"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 32.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 32.13345558681672, max mem: 32.13671875, count: 59090"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.816975647010863, max cpu: 18.233618, count: 59090"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.91242913352513, max mem: 49.2265625, count: 59090"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2535,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2529.068641056016, max block_count: 2535.0, count: 59090"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.599904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.389097771672296, max cpu: 4.599904, count: 59090"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 30.875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.846262057877812, max mem: 30.875, count: 59090"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.402335420544933, max segment_count: 35.0, count: 59090"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.208633,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.35343186289776, max cpu: 38.03863, count: 59090"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 60.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 60.95618673580555, max mem: 60.96484375, count: 59090"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6966734,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.469126924081296, max cpu: 37.44515, count: 118180"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.11888194914537, max mem: 56.78125, count: 118180"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 6.3074903,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.312468109140588, max cpu: 18.417267, count: 59090"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 48.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.159731646111865, max mem: 50.8515625, count: 59090"
+          }
+        ],
+        "publication_id": "14972075735-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

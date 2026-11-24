@@ -1,5 +1,0 @@
----
-header: stability
----
-
-- Fixed backend crashes and resource-owner errors when parallel queries or cursors abort mid-execution (such as on `work_mem` exhaustion, mid-stream errors, or `SAVEPOINT` / PL/pgSQL `EXCEPTION` rollbacks).

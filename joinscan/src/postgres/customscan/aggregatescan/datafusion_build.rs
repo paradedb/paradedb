@@ -1674,6 +1674,11 @@ fn walk_path_restrictinfo(
         return;
     }
 
+    if let Some(subpath) = unsafe { semijoin_unique_subpath(cx.root, path) } {
+        walk_path_restrictinfo(cx, subpath, behind_transparent_wrapper, info);
+        return;
+    }
+
     let tag = unsafe { (*path).type_ };
     let is_join_path = matches!(
         tag,
@@ -1719,6 +1724,44 @@ fn walk_path_restrictinfo(
         behind_transparent_wrapper,
         info,
     );
+}
+
+/// Returns the input of a path that makes a semijoin's right-hand side unique,
+/// so the planner can run the semijoin as an inner join.
+///
+/// The node carries no predicate, and the join type comes from the parse tree,
+/// so the inventory can continue below it. Any other deduplicating path over a
+/// join relation stays opaque.
+#[cfg(not(pg19_plus))]
+unsafe fn semijoin_unique_subpath(
+    _root: *mut pg_sys::PlannerInfo,
+    path: *mut pg_sys::Path,
+) -> Option<*mut pg_sys::Path> {
+    // Before PostgreSQL 19 `UniquePath` exists only for this; DISTINCT uses
+    // `UpperUniquePath`.
+    ((*path).type_ == pg_sys::NodeTag::T_UniquePath)
+        .then(|| (*(path as *mut pg_sys::UniquePath)).subpath)
+}
+
+#[cfg(pg19_plus)]
+unsafe fn semijoin_unique_subpath(
+    root: *mut pg_sys::PlannerInfo,
+    path: *mut pg_sys::Path,
+) -> Option<*mut pg_sys::Path> {
+    let subpath = match (*path).type_ {
+        pg_sys::NodeTag::T_UniquePath => (*(path as *mut pg_sys::UniquePath)).subpath,
+        pg_sys::NodeTag::T_AggPath => (*(path as *mut pg_sys::AggPath)).subpath,
+        _ => return None,
+    };
+    // `create_unique_paths` puts these paths on a copy of the join relation
+    // and caches the copy in `unique_rel`. DISTINCT and eager aggregation use
+    // the same path types on other relations.
+    let parent = (*path).parent;
+    if parent.is_null() || pg_sys::bms_num_members((*parent).relids) < 2 {
+        return None;
+    }
+    let join_rel = pg_sys::find_join_rel(root, (*parent).relids);
+    (!join_rel.is_null() && (*join_rel).unique_rel == parent).then_some(subpath)
 }
 
 /// Validate that the selected lower path has complete, supported

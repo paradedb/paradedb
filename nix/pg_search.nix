@@ -70,6 +70,8 @@ buildPgrxExtension (finalAttrs: {
     lockFile = ../Cargo.lock;
     # Use the Git revisions pinned in Cargo.lock alongside registry checksums.
     allowBuiltinFetchGit = true;
+    # The locked OpenCC commit is available by SHA but is no longer on an advertised ref.
+    outputHashes."opencc-jieba-rs-0.9.0" = lib.fakeHash;
   };
 
   inherit postgresql;

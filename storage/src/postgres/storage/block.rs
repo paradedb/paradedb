@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
 
+use common::dst;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::mem::{offset_of, size_of};

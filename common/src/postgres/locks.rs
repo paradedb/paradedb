@@ -172,6 +172,10 @@ crate::impl_safe_drop!(AdvisoryLock, |self| {
 /// implementation checks `InterruptHoldoffCount` and skips the release when
 /// it is zero — PostgreSQL releases all held LWLocks on (sub)transaction
 /// abort anyway.
+///
+/// Code called while holding this lock must not raise a PostgreSQL ERROR.
+/// A destructor that reacquires the lock during that unwind would deadlock
+/// before PostgreSQL gets a chance to release it.
 #[derive(Copy, Clone, Debug)]
 pub struct LWLock {
     lock: *mut pg_sys::LWLock,

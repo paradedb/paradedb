@@ -1483,6 +1483,7 @@ dependencies = [
  "bytemuck",
  "chrono",
  "decimal-bytes",
+ "dst",
  "futures",
  "libc",
  "once_cell",
@@ -3234,9 +3235,9 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -4015,7 +4016,6 @@ dependencies = [
  "bytemuck",
  "common",
  "decimal-bytes",
- "dst",
  "parking_lot 0.13.0",
  "pgrx",
  "pgrx-tests",
@@ -4041,12 +4041,13 @@ version = "0.27.0"
 dependencies = [
  "anyhow",
  "bytemuck",
- "dst",
+ "common",
  "index_read",
  "log",
  "pgrx",
  "pgrx-tests",
  "postcard",
+ "proptest 1.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.10.3",
  "serde",
  "serde_json",
@@ -5336,7 +5337,6 @@ dependencies = [
  "anyhow",
  "basescan",
  "common",
- "dst",
  "env_logger",
  "half 2.7.1",
  "index_read",
@@ -5362,9 +5362,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37147008ecfda0aedd64a924afed86ce6bca805bc2c103c8097583b530ab9505"
+checksum = "7a5eeb31982060535c8db4728ae2ee22cad62c07431a5cb5659be36b465ee488"
 dependencies = [
  "bitflags 2.13.2",
  "libc",
@@ -5380,9 +5380,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-bindgen"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f451dab19ad85a36a6f7a1da385846aca2262c84c36d4e705b2aebd52cd6f0f0"
+checksum = "f478cd6ba4eb717b861db04d8eb135f41ed6b4772c987c0c8784df0aadaf6961"
 dependencies = [
  "bindgen 0.73.2",
  "eyre",
@@ -5401,9 +5401,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-c-macros"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "202a94c98efda3d8a7c920a3a7dfbd8bc1ac8d416b7b79646c2710e3a682f553"
+checksum = "c38ac789f798b2f770dffbcbb530057adc4f28e1edd639dcaf22e1e72da1a27a"
 dependencies = [
  "clang",
  "clang-sys",
@@ -5421,9 +5421,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-macros"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2349537da01f5e58ed79975cb2a38b20d6d82967243dcf7bc0ef5c12035c7b83"
+checksum = "ed96a72dae6d00413757dec35ad97d91732e851d45f9bb88186aac95c48292d5"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -5433,9 +5433,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-config"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea50fe9e10100f83192e0a4d268daf13bf3bceece31b3afca3bcf844f72d51c5"
+checksum = "7b203569e020020019631f260e6087a226fca84e11eed852a55e0842e12bdc59"
 dependencies = [
  "codepage",
  "encoding_rs",
@@ -5450,9 +5450,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-sys"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d3dbceaedddb417f56d79d3261d73dc402f443b28889e73bba3917a83f8ec60"
+checksum = "13c20b908caf1794a32306756e7a5a38a5a9c586efdec6d0a6bcbe6eb0782ad9"
 dependencies = [
  "cee-scape",
  "libc",
@@ -5464,9 +5464,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-sql-entity-graph"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6260a2e9163c79cdcf9d002da74fa0dbff6e43e187e0a2385d3effe040db0bf"
+checksum = "72c5a236d90b23b2c37cbdfd4a11eef10d43e740470e350e8d324207f9f6c93e"
 dependencies = [
  "eyre",
  "proc-macro2",
@@ -5477,9 +5477,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-tests"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84b427923bb10d0cd655bf866afb47f77a70bc3cef8c925be593b7f370875eae"
+checksum = "874dcd6a0c87bc41cf9756b4137b62618a4f1756077c5c362cf2159fed559887"
 dependencies = [
  "eyre",
  "libc",
@@ -5995,7 +5995,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "once_cell",
@@ -6015,7 +6015,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -6028,7 +6028,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -7202,7 +7202,6 @@ dependencies = [
  "bitpacking",
  "bytemuck",
  "common",
- "dst",
  "parking_lot 0.13.0",
  "pgrx",
  "pgrx-tests",
@@ -7617,7 +7616,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.61.2",
@@ -8220,9 +8219,9 @@ dependencies = [
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",

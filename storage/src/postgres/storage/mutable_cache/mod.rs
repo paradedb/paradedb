@@ -60,20 +60,19 @@
 //! - Slabs are power-of-two multiples of a base slab size (typically 256KB), scaling up to the entire cache
 //!   capacity (e.g. 64MB or 1GB).
 //! - The tree is maintained entirely in a flat array in shared memory without pointers or linked lists.
-//! - Slabs automatically coalesce with adjacent buddies in $O(\log N)$ steps upon deallocation.
+//! - Slabs automatically coalesce with adjacent buddies in `O(log N)` steps upon deallocation.
 //!
-//! ### Eager Reclamation & Table Isolation (Eliminating the Noisy Neighbor)
+//! ### Eager Reclamation
 //!
-//! In a global FIFO ring buffer, high write churn on one relation continually advances a shared tail,
-//! evicting hot segments belonging to unrelated read-heavy relations.
-//!
-//! The slab pool eliminates this noisy-neighbor problem via eager out-of-order reclamation:
 //! - When a longer range with the same start is cached, shorter ranges transition to [`SlotState::Superseded`].
 //! - Any superseded slot whose active reader count has dropped to zero is immediately freed back to the
 //!   [`SlabPool`], recycling the memory block for the next write commit.
 //! - When in-flight queries reading a superseded bound finish, [`ActiveReaderGuard::drop`] immediately
 //!   returns the slab to the pool.
 //! - Disjoint chunks remain reusable until invalidation or clock-sweep eviction.
+//!
+//! Reclaiming superseded slabs reduces eviction pressure on other tables. When memory or slots
+//! run out, the clock sweep can still evict unpinned entries belonging to any table.
 //!
 //! ### Clock Sweep Cache Eviction
 //!
@@ -90,9 +89,9 @@
 //! ### Invalidation Lifecycle
 //!
 //! - Segment merges: When background merge workers consolidate mutable segments into immutable segments
-//!   (`pg_search/src/postgres/merge.rs`), [`invalidate_segment`] eagerly frees matching slots if they have
+//!   (`index_write/src/postgres/merge.rs`), [`invalidate_segment`] eagerly frees matching slots if they have
 //!   zero active readers, or marks them as superseded.
-//! - Relation lifecycle: `build_empty` (`pg_search/src/postgres/build.rs`) and `object_access_hook`
+//! - Relation lifecycle: `build_empty` (`index_write/src/postgres/build.rs`) and `object_access_hook`
 //!   (`OAT_DROP` on `pg_class`) call [`invalidate_index`] to evict all cached slots for dropped, reindexed,
 //!   or truncated relations.
 
@@ -205,6 +204,8 @@ pub struct InflightBuild {
     pub key: MutableCacheKey,
     /// PID of the backend process currently building the segment, or 0 if inactive.
     pub builder_pid: pg_sys::pid_t,
+    /// Distinguishes successive attempts for the same key and backend.
+    pub attempt: u64,
 }
 
 impl InflightBuild {
@@ -222,6 +223,7 @@ impl InflightBuild {
                 },
             },
             builder_pid: 0,
+            attempt: 0,
         }
     }
 
@@ -257,9 +259,10 @@ pub enum SlotState {
 impl SlotState {
     pub const fn from_u32(val: u32) -> Self {
         match val {
+            0 => SlotState::Empty,
             1 => SlotState::Ready,
             2 => SlotState::Superseded,
-            _ => SlotState::Empty,
+            _ => panic!("invalid mutable cache slot state"),
         }
     }
 }
@@ -349,7 +352,7 @@ impl Drop for ReleaseActiveReader {
             if self.0 < slots.len() {
                 BACKEND_READERS[self.0].fetch_sub(1, Ordering::Relaxed);
                 let prev = slots[self.0].active_readers.fetch_sub(1, Ordering::Release);
-                if prev == 1 && slots[self.0].state() == SlotState::Superseded {
+                if prev == 1 {
                     cache.reclaim_superseded_slot(self.0);
                 }
             }
@@ -409,6 +412,7 @@ pub struct MutableCacheHeader {
     pub generation: AtomicU64,
     /// Clock hand for eviction sweep across slots.
     pub clock_hand: AtomicU32,
+    next_build_attempt: AtomicU64,
     slab_pool: UnsafeCell<SlabPool>,
     inflight_builds: UnsafeCell<[InflightBuild; MAX_INFLIGHT_BUILDS]>,
     slots: UnsafeCell<[CacheSlot; MAX_SLOTS]>,
@@ -434,6 +438,7 @@ impl MutableCacheHeader {
         (*ptr).cv.init();
         (*ptr).generation.store(0, Ordering::Relaxed);
         (*ptr).clock_hand.store(0, Ordering::Relaxed);
+        (*ptr).next_build_attempt.store(0, Ordering::Relaxed);
         (*(*ptr).slab_pool.get()).init(arena_capacity as usize);
         for build in &mut *(*ptr).inflight_builds.get() {
             *build = InflightBuild::empty();
@@ -498,6 +503,9 @@ impl MutableCacheHeader {
         needed_bytes: usize,
         guard: &LWLockExclusiveGuard<'_>,
     ) -> Option<ArenaSpan> {
+        if needed_bytes > self.arena_capacity as usize {
+            return None;
+        }
         let slab_pool = unsafe { self.slab_pool_mut(guard) };
         if let Some(span) = slab_pool.allocate(needed_bytes) {
             return Some(span);
@@ -908,6 +916,7 @@ pub fn get_or_build(
         let my_pid = unsafe { pg_sys::MyProcPid };
         inflights[build_idx].key = *key;
         inflights[build_idx].builder_pid = my_pid;
+        inflights[build_idx].attempt = cache.next_build_attempt.fetch_add(1, Ordering::Relaxed);
 
         drop(guard);
 
@@ -926,19 +935,11 @@ pub fn get_or_build(
             end: key.bound.max_doc,
         }
         .map_segment_id(SegmentId::from_bytes(key.segment_id));
-        let packed_bytes = match pack::pack_segment(&ram_dir, &segment_id) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                build_guard.completed = true;
-                let guard = cache.lock.acquire_exclusive();
-                let inflights = unsafe { cache.inflight_builds_mut(&guard) };
-                if inflights[build_idx].key == *key && inflights[build_idx].builder_pid == my_pid {
-                    inflights[build_idx] = InflightBuild::empty();
-                    cache.cv.broadcast();
-                }
-                return Ok(Arc::new(ram_dir));
-            }
-        };
+        let packed_bytes =
+            match pack::pack_segment(&ram_dir, &segment_id, cache.arena_capacity as usize) {
+                Ok(Some(bytes)) => bytes,
+                Ok(None) | Err(_) => return Ok(Arc::new(ram_dir)),
+            };
 
         let guard = cache.lock.acquire_exclusive();
 
@@ -1036,9 +1037,8 @@ pub fn get_or_build(
         let slice_ptr = unsafe { arena_start.add(span.offset as usize) as *const u8 };
         let slice_len = span.len as usize;
         let slice = unsafe { std::slice::from_raw_parts(slice_ptr, slice_len) };
-        let toc = pack::unpack_toc(slice).expect("packed segment must unpack valid TOC");
-
         drop(guard);
+        let toc = pack::unpack_toc(slice).expect("packed segment must unpack valid TOC");
 
         Ok(Arc::new(SharedMemoryDirectory::new(
             slice_ptr,

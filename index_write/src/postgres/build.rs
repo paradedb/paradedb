@@ -26,6 +26,7 @@ use crate::postgres::build_partitioning::{
     check_fast_dims, normalized_dims, partition_vector_field,
 };
 use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::ps_status::{set_ps_display_remove_suffix, set_ps_display_suffix};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
 use crate::postgres::storage::metadata::MetaPage;
@@ -33,9 +34,71 @@ use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{MIN_QUANTIZATION_DIMENSIONS, SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
+use std::ffi::CStr;
+use std::os::raw::c_char;
+use std::ptr::null_mut;
 use tantivy::Index;
 use tantivy::schema::Schema;
 use tantivy::schema::VectorOptions;
+
+#[derive(Clone, Copy)]
+#[repr(i64)]
+pub(super) enum BuildPhase {
+    Indexing = pg_sys::PROGRESS_CREATEIDX_SUBPHASE_INITIALIZE as i64 + 1,
+    Sampling,
+    Training,
+    Clustering,
+    Merging,
+    Waiting,
+    Finalizing,
+}
+
+impl BuildPhase {
+    const ALL: [Self; 7] = [
+        Self::Indexing,
+        Self::Sampling,
+        Self::Training,
+        Self::Clustering,
+        Self::Merging,
+        Self::Waiting,
+        Self::Finalizing,
+    ];
+
+    fn name(self) -> &'static CStr {
+        match self {
+            Self::Indexing => c"indexing tuples",
+            Self::Sampling => c"sampling partition boundaries",
+            Self::Training => c"training vector partitions",
+            Self::Clustering => c"clustering/training vectors",
+            Self::Merging => c"merging segments",
+            Self::Waiting => c"waiting for workers to finish indexing/clustering",
+            Self::Finalizing => c"finalizing index",
+        }
+    }
+
+    pub(super) fn report(self, is_leader: bool) {
+        unsafe {
+            if is_leader {
+                pg_sys::pgstat_progress_update_param(
+                    pg_sys::PROGRESS_CREATEIDX_SUBPHASE as i32,
+                    self as i64,
+                );
+            }
+            set_ps_display_suffix(self.name().as_ptr());
+        }
+    }
+}
+
+#[pg_guard]
+pub extern "C-unwind" fn ambuildphasename(phase: i64) -> *mut c_char {
+    if phase == pg_sys::PROGRESS_CREATEIDX_SUBPHASE_INITIALIZE as i64 {
+        return c"initializing".as_ptr().cast_mut();
+    }
+    BuildPhase::ALL
+        .into_iter()
+        .find(|candidate| *candidate as i64 == phase)
+        .map_or(null_mut(), |phase| phase.name().as_ptr().cast_mut())
+}
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(
@@ -71,6 +134,7 @@ pub extern "C-unwind" fn ambuild(
     let heap_tuples = build_index(heap_relation, index_relation.clone(), is_concurrent)
         .unwrap_or_else(|e| panic!("{e}"));
 
+    BuildPhase::Finalizing.report(true);
     pgrx::debug1!("build_index: flushing buffers");
 
     // At the conclusion of the build, log all pages to the WAL if required.
@@ -92,6 +156,7 @@ pub extern "C-unwind" fn ambuild(
     // `emit_init_record` checks `need_wal`; restore the flag suppressed above.
     index_relation.set_need_wal(needs_wal);
     custom_rmgr::emit_init_record(&index_relation);
+    unsafe { set_ps_display_remove_suffix() };
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = heap_tuples;

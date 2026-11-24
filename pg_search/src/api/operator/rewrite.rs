@@ -71,46 +71,49 @@ impl SearchOperator {
     }
 
     pub(crate) fn classify_query(self, query: pdb::Query) -> pdb::Query {
-        let (query, score) = match query {
-            pdb::Query::ScoreAdjusted { query, score } => (*query, Some(score)),
-            query => (query, None),
-        };
-        let (mut query, fuzzy_data, slop_data, synonyms) = match query {
+        match query {
+            pdb::Query::ScoreAdjusted { query, score } => pdb::Query::ScoreAdjusted {
+                query: Box::new(self.classify_query(*query)),
+                score,
+            },
             pdb::Query::UnclassifiedString {
                 string,
                 fuzzy_data,
                 slop_data,
                 synonyms,
-            } => (self.text_query(string), fuzzy_data, slop_data, synonyms),
+            } => {
+                let mut query = self.text_query(string);
+                if let Some(rules) = synonyms {
+                    let (pdb::Query::Match { synonyms, .. }
+                    | pdb::Query::TokenizedPhrase { synonyms, .. }
+                    | pdb::Query::ParseWithField { synonyms, .. }) = &mut query
+                    else {
+                        panic!(
+                            "`pdb.expand` expands the `|||`, `&&&`, `###` and `@@@` operators, not `{}`",
+                            self.name()
+                        );
+                    };
+                    *synonyms = Some(rules);
+                }
+                if self != Self::Phrase {
+                    query.apply_fuzzy_data(fuzzy_data);
+                }
+                query.apply_slop_data(slop_data);
+                query
+            }
             pdb::Query::UnclassifiedArray {
                 array,
                 fuzzy_data,
                 slop_data,
-            } => (self.array_query(array), fuzzy_data, slop_data, None),
-            query => (query, None, None, None),
-        };
-        if let Some(rules) = synonyms {
-            let (pdb::Query::Match { synonyms, .. }
-            | pdb::Query::TokenizedPhrase { synonyms, .. }
-            | pdb::Query::ParseWithField { synonyms, .. }) = &mut query
-            else {
-                panic!(
-                    "`pdb.expand` expands the `|||`, `&&&`, `###` and `@@@` operators, not `{}`",
-                    self.name()
-                );
-            };
-            *synonyms = Some(rules);
-        }
-        if self != Self::Phrase {
-            query.apply_fuzzy_data(fuzzy_data);
-        }
-        query.apply_slop_data(slop_data);
-        match score {
-            Some(score) => pdb::Query::ScoreAdjusted {
-                query: Box::new(query),
-                score,
-            },
-            None => query,
+            } => {
+                let mut query = self.array_query(array);
+                if self != Self::Phrase {
+                    query.apply_fuzzy_data(fuzzy_data);
+                }
+                query.apply_slop_data(slop_data);
+                query
+            }
+            query => query,
         }
     }
 

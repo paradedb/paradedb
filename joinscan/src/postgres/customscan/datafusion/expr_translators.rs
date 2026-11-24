@@ -25,21 +25,118 @@
 //! MinMaxExpr, ScalarArrayOpExpr, and CoerceViaIO — plus a UDF fallback hook
 //! (`try_wrap_as_udf`) for opaque expressions.
 
+use datafusion::arrow::datatypes::DataType;
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::expr::{Case, InList, ScalarFunction};
-use datafusion::logical_expr::{BinaryExpr, Expr, Operator, ScalarUDF, col, lit};
+use datafusion::logical_expr::{BinaryExpr, Expr, Operator, ScalarUDF, cast, col, lit};
 use pgrx::{PgList, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
+use crate::postgres::customscan::datafusion::int_arith::{IntOp, int_arith_udf};
 use crate::postgres::customscan::datafusion::translator::{
     PredicateTranslator, node_tag_debug, type_name,
 };
 use crate::postgres::customscan::expr_eval::InputVarInfo;
 use crate::postgres::customscan::pg_expr_udf::{InputDecode, PgExprUdf};
 use crate::postgres::node::NodeExt;
+
+/// Arrow type of a PostgreSQL integer type, `None` for any other type.
+fn int_arrow_type(type_oid: pg_sys::Oid) -> Option<DataType> {
+    match type_oid {
+        pg_sys::INT2OID => Some(DataType::Int16),
+        pg_sys::INT4OID => Some(DataType::Int32),
+        pg_sys::INT8OID => Some(DataType::Int64),
+        _ => None,
+    }
+}
+
+/// The checked integer operation PostgreSQL's integer `+`, `-` or `*` function
+/// `funcid` performs, at any operand widths. Keyed by function rather than
+/// operator symbol, so a user operator named `-` over `int4pl` still adds.
+fn int_arith_op(funcid: pg_sys::Oid) -> Option<IntOp> {
+    match funcid.to_u32() {
+        pg_sys::F_INT2PL
+        | pg_sys::F_INT4PL
+        | pg_sys::F_INT8PL
+        | pg_sys::F_INT24PL
+        | pg_sys::F_INT42PL
+        | pg_sys::F_INT28PL
+        | pg_sys::F_INT82PL
+        | pg_sys::F_INT48PL
+        | pg_sys::F_INT84PL => Some(IntOp::Add),
+        pg_sys::F_INT2MI
+        | pg_sys::F_INT4MI
+        | pg_sys::F_INT8MI
+        | pg_sys::F_INT24MI
+        | pg_sys::F_INT42MI
+        | pg_sys::F_INT28MI
+        | pg_sys::F_INT82MI
+        | pg_sys::F_INT48MI
+        | pg_sys::F_INT84MI => Some(IntOp::Sub),
+        pg_sys::F_INT2MUL
+        | pg_sys::F_INT4MUL
+        | pg_sys::F_INT8MUL
+        | pg_sys::F_INT24MUL
+        | pg_sys::F_INT42MUL
+        | pg_sys::F_INT28MUL
+        | pg_sys::F_INT82MUL
+        | pg_sys::F_INT48MUL
+        | pg_sys::F_INT84MUL => Some(IntOp::Mul),
+        _ => None,
+    }
+}
+
+/// Deepest chain of integer `+`, `-` and `*` evaluated natively. Each nested
+/// `pdb_int_*` call adds two protobuf levels to the serialized plan, which prost
+/// decodes only up to 100 deep and encodes by unbounded recursion on the backend
+/// stack. A deeper chain falls back as one PostgreSQL call of constant depth.
+/// 16 calls take about 40 levels, leaving the rest for the surrounding plan.
+const MAX_NATIVE_INT_ARITH_DEPTH: u32 = 16;
+
+/// Depth of `node` as a tree of integer `+`, `-` and `*` over columns and
+/// constants, or `None` if it contains anything else or is deeper than `budget`.
+///
+/// Only those translate natively with exactly PostgreSQL's results and errors,
+/// so only those may feed the native checked integer UDFs. Other native
+/// translations differ from PostgreSQL in edge cases (integer `/` by zero,
+/// `abs(INT_MIN)`, `ln(0)`, float `-0.0 = 0.0`, `oid::int4` above 2^31), which
+/// the UDF fallback avoids by evaluating the whole expression.
+unsafe fn plain_int_arith_depth(node: *mut pg_sys::Node, budget: u32) -> Option<u32> {
+    if node.is_null() {
+        return None;
+    }
+    match (*node).type_ {
+        pg_sys::NodeTag::T_Var | pg_sys::NodeTag::T_Const => Some(0),
+        pg_sys::NodeTag::T_OpExpr => {
+            let op = node as *mut pg_sys::OpExpr;
+            int_arith_op(pg_sys::get_opcode((*op).opno))?;
+            let child_budget = budget.checked_sub(1)?;
+            let mut depth = 0;
+            for arg in PgList::<pg_sys::Node>::from_pg((*op).args).iter_ptr() {
+                depth = depth.max(plain_int_arith_depth(arg, child_budget)?);
+            }
+            Some(depth + 1)
+        }
+        _ => None,
+    }
+}
+
+/// `operand` cast to `result_type` for a `pdb_int_*` call, except a nested
+/// integer `+`, `-` or `*` already returning that type, which skips the cast and
+/// its two plan levels. Columns keep it: integer fast fields arrive as `Int64`.
+unsafe fn int_arith_operand(arg: *mut pg_sys::Node, operand: Expr, result_type: &DataType) -> Expr {
+    let is_same_width_int_arith = (*arg).type_ == pg_sys::NodeTag::T_OpExpr
+        && int_arrow_type((*(arg as *mut pg_sys::OpExpr)).opresulttype).as_ref()
+            == Some(result_type);
+    if is_same_width_int_arith {
+        operand
+    } else {
+        cast(operand, result_type.clone())
+    }
+}
 
 const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
     | pg_sys::PVC_RECURSE_WINDOWFUNCS
@@ -538,6 +635,29 @@ impl<'a> PredicateTranslator<'a> {
         let left_type = pg_sys::exprType(left_arg);
         let right_type = pg_sys::exprType(right_arg);
 
+        // Arrow's `BinaryExpr` wraps on integer overflow, so integer +, - and * use
+        // the checked UDFs at the `opresulttype` width, where PostgreSQL's cross-width
+        // operators (int24pl, int48mul, ...) check. Decided before translating the
+        // operands, so a chain over the depth limit falls back as one call.
+        if let Some(int_op) = int_arith_op(pg_sys::get_opcode((*op_expr).opno))
+            && let Some(result_type) = int_arrow_type((*op_expr).opresulttype)
+        {
+            if plain_int_arith_depth(node, MAX_NATIVE_INT_ARITH_DEPTH).is_none() {
+                pgrx::debug1!(
+                    "PredicateTranslator: integer arithmetic over other expressions or deeper than {} left to PostgreSQL [OpExpr] | {}",
+                    MAX_NATIVE_INT_ARITH_DEPTH,
+                    self.deparse_for_debug(node)
+                );
+                return None;
+            }
+            let left = self.translate(left_arg)?;
+            let right = self.translate(right_arg)?;
+            return Some(int_arith_udf(int_op).call(vec![
+                int_arith_operand(left_arg, left, &result_type),
+                int_arith_operand(right_arg, right, &result_type),
+            ]));
+        }
+
         let left = self.translate(left_arg)?;
         let right = self.translate(right_arg)?;
 
@@ -599,16 +719,13 @@ impl<'a> PredicateTranslator<'a> {
             }
         };
 
-        // Arrow wraps integer overflow where PostgreSQL raises an error, so let the
-        // UDF fallback evaluate integer arithmetic.
+        // Other +, - and * with an integer result, such as `date - date`, have no
+        // native equivalent; keep them on the UDF fallback.
         if matches!(op, Operator::Plus | Operator::Minus | Operator::Multiply)
-            && matches!(
-                (*op_expr).opresulttype,
-                pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID
-            )
+            && int_arrow_type((*op_expr).opresulttype).is_some()
         {
             pgrx::debug1!(
-                "PredicateTranslator: integer arithmetic left to PostgreSQL [OpExpr] op=\"{}\", types=({}, {}) | {}",
+                "PredicateTranslator: non-integer operands with integer result left to PostgreSQL [OpExpr] op=\"{}\", types=({}, {}) | {}",
                 op_str,
                 type_name(left_type),
                 type_name(right_type),
@@ -1016,7 +1133,7 @@ mod tests {
             Just("length(e.pattern) > 3".to_string()),
             Just("upper(e.pattern) = upper(i.name)".to_string()),
             Just("COALESCE(e.pattern, '') = i.name".to_string()),
-            // Arithmetic operators. Integer +, - and * go through the UDF fallback.
+            // Arithmetic operators. Integer +, - and * use the checked int_arith UDFs.
             Just("e.threshold + 10 > i.value".to_string()),
             Just("e.threshold * 2 > 50".to_string()),
             Just("i.value - e.threshold > 0".to_string()),
@@ -1029,9 +1146,9 @@ mod tests {
             "SELECT i.id FROM prop_items i \
              WHERE NOT EXISTS ( \
                  SELECT 1 FROM prop_exclusions e \
-                 WHERE e.id @@@ paradedb.all() AND ({expr}) \
+                 WHERE e.id @@@ pdb.all()::pdb.const(0) AND ({expr}) \
              ) \
-             AND i.id @@@ paradedb.all() \
+             AND i.id @@@ pdb.all()::pdb.const(0) \
              ORDER BY i.id LIMIT 10"
         )
     }
@@ -1074,7 +1191,7 @@ mod tests {
             Just("e.pattern = i.name OR length(e.pattern) > 100".to_string()),
             Just("e.pattern = i.name OR e.pattern IS NULL".to_string()),
             Just("upper(e.pattern) = i.name OR e.threshold > i.value".to_string()),
-            // Arithmetic cross-table predicates, absorbed via the UDF fallback.
+            // Arithmetic cross-table predicates, native via the checked int_arith UDFs.
             Just("e.threshold * 2 > i.value".to_string()),
             Just("e.threshold + i.value > 100".to_string()),
         ]

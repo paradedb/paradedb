@@ -698,9 +698,10 @@ impl SolvePostgresExpressions for BaseScanState {
     }
 
     /// Install the late-bound source cell. Workers attach the published claim
-    /// table immediately; the leader's (or a serial scan's) cell is filled after
-    /// its reader opens (serial: privately in `init_search_reader`; parallel:
-    /// with the shared view at DSM initialization).
+    /// table immediately; the leader's (or a serial scan's) cell is filled once
+    /// its reader opens (parallel with attached DSM: with the shared view at
+    /// DSM initialization; serial or local fallback without attached DSM:
+    /// privately in `exec_custom_scan`).
     fn bitmap_source_cell(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<BitmapCell> {
         self.bitmap_exec.as_ref()?;
         let cell = self

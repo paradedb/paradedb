@@ -45,12 +45,12 @@ use sqlx::{PgConnection, Row};
 
 #[cfg(feature = "dst")]
 #[test]
-fn antithesis_sdk_initializes() {
+fn dst_sdk_initializes() {
     ensure_dst_init();
 }
 
 /// Proptest configuration shared by every generator test in this file. Under `dst`, proptest
-/// draws its randomness from the Antithesis SDK, so the platform controls and branches the
+/// draws its randomness from the DST SDK, so the platform controls and branches the
 /// entropy stream; otherwise this is just `Config::default()`.
 fn qgen_proptest_config() -> proptest::test_runner::Config {
     #[allow(unused_mut)]
@@ -58,7 +58,7 @@ fn qgen_proptest_config() -> proptest::test_runner::Config {
     #[cfg(feature = "dst")]
     {
         config.rng_algorithm = proptest::test_runner::RngAlgorithm::Antithesis;
-        // No shrinking: Antithesis controls the entropy stream and fault schedule, so a replay
+        // No shrinking: DST controls the entropy stream and fault schedule, so a replay
         // sees a different history and the minimized input is meaningless.
         config.max_shrink_iters = 0;
         config.source_file = Some("tests/tests/qgen.rs");
@@ -66,7 +66,7 @@ fn qgen_proptest_config() -> proptest::test_runner::Config {
     config
 }
 
-/// Report one case outcome as a per-test Antithesis property, then collapse it to a proptest
+/// Report one case outcome as a per-test DST property, then collapse it to a proptest
 /// result. The single `Always` assertion doubles as a reachability check: cataloged, it fails as
 /// unreached if the generator never produces a case. No-op under a plain `cargo test`.
 macro_rules! qgen_oracle {

@@ -35,6 +35,7 @@ use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::mutable_cache::{self, MutableCacheKey};
 use crate::postgres::utils::ActiveSnapshotGuard;
+use common::dst;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use std::any::Any;
@@ -264,8 +265,8 @@ impl SegmentView {
     }
 
     /// A view that only pins the segment set. Ordinal order is the iterator's (arbitrary for a
-    /// set), and it carries no replay data, so it is only for readers that use physical segment IDs and whose addresses never
-    /// leave the process.
+    /// set), and it carries no replay data, so it is only for readers whose addresses never
+    /// leave the process (an aggregation worker).
     pub fn from_unordered_ids(ids: impl IntoIterator<Item = SegmentId>) -> Self {
         Self::new(
             ids.into_iter()
@@ -800,14 +801,14 @@ impl Directory for MVCCDirectory {
 
     /// atomic_read is used by Tantivy to read from managed.json and meta.json
     /// This function should never be called by our Tantivy fork because we read from them ourselves
-    fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        unimplemented!("atomic_read should not be called for {:?}", path);
+    fn atomic_read(&self, _path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
+        unimplemented!("atomic_read should not be called");
     }
 
     /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
     /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
-    fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
-        unimplemented!("atomic_write should not be called for {:?}", path);
+    fn atomic_write(&self, _path: &Path, _data: &[u8]) -> io::Result<()> {
+        unimplemented!("atomic_write should not be called");
     }
 
     /// Postgres block storage handles flushing to disk for us
@@ -1375,7 +1376,7 @@ mod tests {
                     CASE WHEN i % 3 = 0 THEN 'b' END, CASE WHEN i % 7 = 0 THEN 'c' END, 'all')
                 FROM generate_series(0, 2302) i;
             CREATE INDEX bitmap_counts_idx ON bitmap_counts USING paradedb
-                (id, (data::pdb.simple)) WITH (key_field='id');",
+                (id, (data::pdb.simple));",
         )
         .unwrap();
         let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'bitmap_counts_idx'::regclass::oid")

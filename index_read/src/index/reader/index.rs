@@ -5234,13 +5234,13 @@ mod tests {
             ("", 2, false),
             ("AND category = 'keep'", 2, false),
             (
-                "AND id @@@ paradedb.parse_with_field('category', current_setting('vector_parallelism.filter'))",
+                "AND category @@@ pdb.parse_with_field(current_setting('vector_parallelism.filter'))",
                 2,
                 false,
             ),
             ("AND id > 1", 2, true),
             (
-                "AND id @@@ paradedb.parse_with_field('id', current_setting('vector_parallelism.range'))",
+                "AND id @@@ pdb.parse_with_field(current_setting('vector_parallelism.range'))",
                 2,
                 true,
             ),

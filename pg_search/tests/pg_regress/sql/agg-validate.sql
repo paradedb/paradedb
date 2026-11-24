@@ -155,20 +155,6 @@ SELECT sort_agg_buckets(agg) FROM (
 ) sub;
 
 -- =====================================================================
--- SECTION 5: paradedb.aggregate() direct API - field validation
--- This path bypasses the planner, so field validation happens in aggregate_impl()
--- =====================================================================
-
--- Test 13: Valid field via paradedb.aggregate() - should succeed
-SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"avg_rating": {"avg": {"field": "rating"}}}');
-
--- Test 14: Invalid field via paradedb.aggregate() - should error
-SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"avg_bad": {"avg": {"field": "nonexistent_field"}}}');
-
--- Test 15: Invalid nested field via paradedb.aggregate() - should error
-SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"by_rating": {"terms": {"field": "rating"}, "aggs": {"bad_avg": {"avg": {"field": "no_such_field"}}}}}');
-
--- =====================================================================
 -- SECTION 6: Single-value metrics on datetime fields
 -- These should attach a `key_as_string` ISO timestamp next to the raw
 -- i64 micros `value`, mirroring the bucket key_as_string convention.
@@ -207,9 +193,6 @@ SELECT sort_agg_buckets(agg) FROM (
     FROM mock_items
     WHERE id @@@ pdb.all()
 ) sub;
-
--- Test 22: same key_as_string behavior via paradedb.aggregate() direct API
-SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"first_seen": {"min": {"field": "created_at"}}}');
 
 -- Cleanup
 DROP TABLE mock_items CASCADE;

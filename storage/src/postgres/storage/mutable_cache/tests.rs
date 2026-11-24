@@ -81,6 +81,36 @@ mod tests {
         directory.atomic_read(&path).unwrap() == [1, 2, 3]
     }
 
+    #[pg_test]
+    fn test_oversized_allocation_preserves_cached_segments() {
+        let cache = load_cache().unwrap();
+        let key = lifecycle_key(65255);
+        assert!(test_mutable_cache_access(65255, false, false));
+        let guard = cache.lock.acquire_exclusive();
+        let slot = unsafe { cache.slots() }
+            .iter()
+            .find(|slot| slot.key == key)
+            .unwrap();
+        let clock_hand = cache.clock_hand.load(Ordering::Relaxed);
+        let usage = slot.usage_count.load(Ordering::Relaxed);
+        assert!(
+            cache
+                .allocate(cache.arena_capacity as usize + 1, &guard)
+                .is_none()
+        );
+        assert_eq!(slot.state(), SlotState::Ready);
+        assert_eq!(slot.usage_count.load(Ordering::Relaxed), usage);
+        assert_eq!(cache.clock_hand.load(Ordering::Relaxed), clock_hand);
+        drop(guard);
+        drop(
+            get_or_build(&key, || {
+                panic!("oversized allocation evicted cached segment")
+            })
+            .unwrap(),
+        );
+        cache.invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
+    }
+
     #[pg_extern]
     fn test_mutable_cache_readers(id: i32, invalidate: bool) -> i64 {
         let key = lifecycle_key(id);
@@ -113,7 +143,20 @@ mod tests {
         ram_dir.atomic_write(&term_name, &term_data).unwrap();
         ram_dir.atomic_write(&idx_name, &idx_data).unwrap();
 
-        let packed = pack_segment(&ram_dir, &segment_id).expect("packing must succeed");
+        let packed = pack_segment(&ram_dir, &segment_id, usize::MAX)
+            .expect("packing must succeed")
+            .unwrap();
+        assert!(
+            pack_segment(&ram_dir, &segment_id, packed.len() - 1)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            pack_segment(&ram_dir, &segment_id, packed.len())
+                .unwrap()
+                .unwrap(),
+            packed
+        );
         assert!(packed.len() >= fast_data.len() + term_data.len() + idx_data.len());
 
         let toc = unpack_toc(&packed).expect("TOC unpacking must succeed");
@@ -577,6 +620,7 @@ mod tests {
 
 #[cfg(test)]
 mod backend {
+    use postgres::error::SqlState;
     use postgres::{Client, NoTls};
     use rstest::rstest;
     use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
@@ -726,6 +770,89 @@ mod backend {
             control.query_one("SELECT 1", &[]).unwrap().get::<_, i32>(0),
             1
         );
+    }
+
+    #[test]
+    fn live_toast_corruption_is_not_cached() {
+        let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+        let mut client = connect();
+        client
+            .batch_execute(
+                "CREATE EXTENSION IF NOT EXISTS pg_surgery;
+                 SET max_parallel_workers_per_gather=0;
+                 DROP TABLE IF EXISTS cache_corrupt_toast;
+                 CREATE TABLE cache_corrupt_toast(id bigint PRIMARY KEY, body text)
+                     WITH(autovacuum_enabled=false);
+                 ALTER TABLE cache_corrupt_toast ALTER COLUMN body SET STORAGE EXTERNAL;
+                 CREATE INDEX cache_corrupt_toast_idx ON cache_corrupt_toast USING paradedb(id, body)
+                     WITH(mutable_segment_rows=1000, layer_sizes='0', background_layer_sizes='0');
+                 INSERT INTO cache_corrupt_toast VALUES
+                     (1, 'marker'), (2, 'marker ' || repeat(md5('2') || ' ', 200)), (3, 'marker');
+                 DO $$
+                 DECLARE toast_relation regclass;
+                 BEGIN
+                     SELECT reltoastrelid INTO toast_relation FROM pg_class
+                     WHERE oid='cache_corrupt_toast'::regclass;
+                     EXECUTE format('SELECT heap_force_kill(%L::regclass, array_agg(ctid)) FROM %s',
+                                    toast_relation, toast_relation);
+                 END $$;",
+            )
+            .unwrap();
+        let error = client
+            .query(
+                "SELECT length(body) FROM cache_corrupt_toast WHERE id=2",
+                &[],
+            )
+            .unwrap_err();
+        assert_eq!(error.code(), Some(&SqlState::DATA_CORRUPTED));
+
+        let query = "SELECT id FROM cache_corrupt_toast WHERE body ||| 'marker' ORDER BY id";
+        for enabled in [false, true] {
+            client
+                .batch_execute(&format!(
+                    "SET paradedb.enable_mutable_segment_cache={enabled}"
+                ))
+                .unwrap();
+            for _ in 0..2 {
+                let error = client.query(query, &[]).unwrap_err();
+                assert_eq!(error.code(), Some(&SqlState::DATA_CORRUPTED));
+            }
+        }
+
+        let mut snapshot = connect();
+        snapshot
+            .batch_execute(
+                "BEGIN ISOLATION LEVEL REPEATABLE READ;
+                 SELECT id FROM cache_corrupt_toast;",
+            )
+            .unwrap();
+        client
+            .execute("DELETE FROM cache_corrupt_toast WHERE id=2", &[])
+            .unwrap();
+        for _ in 0..2 {
+            let error = client.query(query, &[]).unwrap_err();
+            assert_eq!(error.code(), Some(&SqlState::DATA_CORRUPTED));
+        }
+        snapshot.batch_execute("COMMIT").unwrap();
+
+        client
+            .batch_execute(
+                "TRUNCATE cache_corrupt_toast;
+                 INSERT INTO cache_corrupt_toast VALUES (1, 'marker'), (3, 'marker');",
+            )
+            .unwrap();
+        for _ in 0..2 {
+            let ids: Vec<i64> = client
+                .query(query, &[])
+                .unwrap()
+                .iter()
+                .map(|row| row.get(0))
+                .collect();
+            assert_eq!(ids, [1, 3]);
+        }
+        client
+            .batch_execute("DROP TABLE cache_corrupt_toast")
+            .unwrap();
     }
 
     #[test]

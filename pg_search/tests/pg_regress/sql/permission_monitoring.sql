@@ -89,7 +89,6 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
  'SELECT * FROM permission_monitoring.docs',
  'SELECT * FROM permission_monitoring.rls_docs',
  'SELECT paradedb.find_ctid(''permission_monitoring.docs_idx'', ''(0,1)''::tid)',
- 'SELECT paradedb.aggregate(''permission_monitoring.docs_idx'', paradedb.all(), ''{"a":{"terms":{"field":"body"}}}'')',
  'SELECT * FROM pdb.verify_index(''permission_monitoring.docs_idx'')',
  'SELECT * FROM paradedb.merge_lock_garbage_collect(''permission_monitoring.docs_idx'')',
  'SELECT * FROM paradedb.vector_estimator_info(''permission_monitoring.docs_idx'', ''missing'')'

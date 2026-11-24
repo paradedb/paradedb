@@ -206,18 +206,18 @@ impl SlabPool {
     ///      the buddies coalesce into a single block of the parent's order (`curr_val + 1`).
     ///    - Otherwise, parent is updated to `max(tree[l], tree[r])`.
     pub fn free(&mut self, offset: u32, order: u8) {
-        if order > self.max_order {
-            return;
-        }
+        assert!(order <= self.max_order, "slab order exceeds pool capacity");
 
         let depth = self.max_order - order;
         let block_size = (1 << self.base_shift) << order;
         let index_in_level = offset as usize / block_size;
         let node = (1 << depth) + index_in_level;
 
-        if node >= MAX_TREE_NODES {
-            return;
-        }
+        assert!(
+            index_in_level < 1 << depth,
+            "slab offset exceeds pool capacity"
+        );
+        assert_eq!(offset as usize % block_size, 0, "misaligned slab offset");
 
         let mut curr_val = order + 1;
         self.tree[node] = curr_val;

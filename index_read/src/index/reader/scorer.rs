@@ -249,7 +249,7 @@ mod tests {
     use tantivy::columnar::ColumnType;
     use tantivy::query::{TermPredicate, TermPredicateQuery, TermQuery, TinySet};
     use tantivy::schema::{FAST, IndexRecordOption, STRING, Schema, TEXT};
-    use tantivy::{Index, Term, doc};
+    use tantivy::{Index, ProbeCost, Term, doc};
 
     #[derive(Debug)]
     struct CountingMatchAllPredicate {
@@ -257,18 +257,12 @@ mod tests {
     }
 
     impl TermPredicate for CountingMatchAllPredicate {
-        fn filter_bytes(
-            &self,
-            _data: &[u8],
-            offsets: &[u32],
-            out: &mut [TinySet],
-        ) -> tantivy::Result<()> {
+        fn filter_bytes(&self, _data: &[u8], offsets: &[u32], out: &mut [TinySet]) {
             self.calls.fetch_add(1, Ordering::Relaxed);
             let count = offsets.len().saturating_sub(1);
             for i in 0..count {
                 out[i / 64].insert_mut((i % 64) as u32);
             }
-            Ok(())
         }
 
         fn filter_monotonic_u64s(
@@ -276,12 +270,15 @@ mod tests {
             _col_type: ColumnType,
             values: &[u64],
             out: &mut [TinySet],
-        ) -> tantivy::Result<()> {
+        ) {
             self.calls.fetch_add(1, Ordering::Relaxed);
             for i in 0..values.len() {
                 out[i / 64].insert_mut((i % 64) as u32);
             }
-            Ok(())
+        }
+
+        fn probe_cost(&self) -> ProbeCost {
+            ProbeCost::per_doc(5)
         }
     }
 

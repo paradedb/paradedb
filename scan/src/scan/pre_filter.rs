@@ -112,7 +112,7 @@ use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::joins::HashTableLookupExpr;
 use parking_lot::Mutex;
 use tantivy::columnar::{ColumnType, MonotonicallyMappableToU64};
-use tantivy::{Score, SegmentOrdinal};
+use tantivy::{ProbeCost, ProbePerDocCost, ProbeSetupCost, Score, SegmentOrdinal};
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
@@ -122,8 +122,8 @@ use crate::query::value_to_term;
 use crate::scan::deferred_encode::is_deferred_field;
 use tantivy::Term;
 use tantivy::query::{
-    BooleanQuery, BoundsRange, ConstScoreQuery, ExactPostings, Occur, Query, TermPredicate,
-    TermPredicateQuery, TermQuery, TermSetQuery, TermSetStrategyConfig, TinySet,
+    BooleanQuery, BoundsRange, ConstScoreQuery, ExactFastField, ExactPostings, Occur, Query,
+    TermPredicate, TermPredicateQuery, TermQuery, TermSetQuery, TermSetStrategyConfig, TinySet,
 };
 use tantivy::schema::{DATE_TIME_PRECISION_INDEXED, FieldType, IndexRecordOption};
 
@@ -1283,12 +1283,7 @@ impl std::fmt::Debug for ExprTermPredicate {
 }
 
 impl ExprTermPredicate {
-    fn evaluate_array(
-        &self,
-        array: ArrayRef,
-        num_rows: usize,
-        out: &mut [TinySet],
-    ) -> tantivy::Result<()> {
+    fn evaluate_array(&self, array: ArrayRef, num_rows: usize, out: &mut [TinySet]) {
         debug_assert_eq!(array.data_type(), &self.probe_data_type);
         let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
         let batch = RecordBatch::try_new_with_options(
@@ -1296,28 +1291,18 @@ impl ExprTermPredicate {
             vec![array],
             &options,
         )
-        .map_err(|e| {
-            tantivy::TantivyError::InternalError(format!("Failed to build predicate batch: {e}"))
-        })?;
+        .expect("ExprTermPredicate batch schema must match array type and row count");
 
         let result = self
             .expr
             .evaluate(&batch)
             .and_then(|cv| cv.into_array(num_rows))
-            .map_err(|e| {
-                tantivy::TantivyError::InternalError(format!(
-                    "Failed to evaluate TermPredicate expression: {e}"
-                ))
-            })?;
+            .expect("ExprTermPredicate expression evaluation must succeed");
 
         let bool_arr = result
             .as_any()
             .downcast_ref::<BooleanArray>()
-            .ok_or_else(|| {
-                tantivy::TantivyError::InternalError(
-                    "TermPredicate expression did not produce a BooleanArray".to_string(),
-                )
-            })?;
+            .expect("ExprTermPredicate expression must produce a BooleanArray");
 
         if bool_arr.null_count() == 0 {
             let chunks = bool_arr.values().bit_chunks();
@@ -1335,20 +1320,14 @@ impl ExprTermPredicate {
                 }
             }
         }
-        Ok(())
     }
 }
 
 impl TermPredicate for ExprTermPredicate {
-    fn filter_bytes(
-        &self,
-        data: &[u8],
-        offsets: &[u32],
-        out: &mut [TinySet],
-    ) -> tantivy::Result<()> {
+    fn filter_bytes(&self, data: &[u8], offsets: &[u32], out: &mut [TinySet]) {
         let num_rows = offsets.len().saturating_sub(1);
         if num_rows == 0 {
-            return Ok(());
+            return;
         }
         // `resolve_predicate_exact_postings` restricts bytes/string columns to the view types
         // emitted by `SearchFieldType::arrow_data_type` (`BinaryView` and `Utf8View`).
@@ -1360,27 +1339,19 @@ impl TermPredicate for ExprTermPredicate {
             let mut views = Vec::with_capacity(num_rows);
             for i in 0..num_rows {
                 let bytes = &data[offsets[i] as usize..offsets[i + 1] as usize];
-                let s = std::str::from_utf8(bytes).map_err(|e| {
-                    tantivy::TantivyError::InternalError(format!(
-                        "Invalid UTF-8 in string dictionary: {e}"
-                    ))
-                })?;
+                let s = std::str::from_utf8(bytes)
+                    .expect("Tantivy Str dictionary entry must be valid UTF-8");
                 views.push(s);
             }
             Arc::new(StringViewArray::from_iter_values(views))
         };
-        self.evaluate_array(array, num_rows, out)
+        self.evaluate_array(array, num_rows, out);
     }
 
-    fn filter_monotonic_u64s(
-        &self,
-        col_type: ColumnType,
-        values: &[u64],
-        out: &mut [TinySet],
-    ) -> tantivy::Result<()> {
+    fn filter_monotonic_u64s(&self, col_type: ColumnType, values: &[u64], out: &mut [TinySet]) {
         let num_rows = values.len();
         if num_rows == 0 {
-            return Ok(());
+            return;
         }
         // `WhichFastField::arrow_data_type` / `SearchFieldType::arrow_data_type` widens all
         // integer and float scan columns to 64-bit (`Int64`, `UInt64`, `Float64`) and all
@@ -1419,13 +1390,18 @@ impl TermPredicate for ExprTermPredicate {
                     )
                 })),
             ),
-            (other_col, other_probe) => {
-                return Err(tantivy::TantivyError::InvalidArgument(format!(
-                    "Unsupported ({other_col:?}, {other_probe:?}) in ExprTermPredicate"
-                )));
-            }
+            _ => unreachable!("unsupported (ColumnType, DataType) pair in ExprTermPredicate"),
         };
-        self.evaluate_array(array, num_rows, out)
+        self.evaluate_array(array, num_rows, out);
+    }
+
+    fn probe_cost(&self) -> ProbeCost {
+        // Each invocation allocates a 1-column Arrow `RecordBatch` and dispatches into
+        // DataFusion's vectorized `PhysicalExpr::evaluate`. Setting `setup` above
+        // `ProbeCost::BATCH_SETUP_THRESHOLD` ensures Tantivy batches probes through
+        // `seek_danger_batch` / `BatchFilteredScorer` and defers evaluation past WAND/MaxScore
+        // score pruning.
+        ProbeCost::new(ProbeSetupCost(300), ProbePerDocCost(10))
     }
 }
 
@@ -1801,9 +1777,14 @@ fn try_convert_predicate_to_query(
         batch_schema,
         probe_data_type,
     });
+    // `resolve_predicate_exact_postings` already rejected non-`"raw"` fast fields on `Str`
+    // columns, so `ExactFastField::Available` lets `TermSetWeight` use the raw `StrColumn`
+    // dictionary for both `pdb.literal` (`"keyword"` + `"raw"`) and tokenized `TEXT | FAST`
+    // columns with `ExactPostings::Unavailable`.
     let pred_query = TermPredicateQuery::new(tantivy_field, predicate)
         .with_bounds(bounds)
         .with_exact_postings(exact_postings)
+        .with_exact_fast_field(ExactFastField::Available)
         .with_strategy_config(cfg);
     Some(Box::new(ConstScoreQuery::new(pred_query, 0.0)))
 }
@@ -2330,8 +2311,7 @@ mod tests {
             .map(MonotonicallyMappableToU64::to_u64)
             .collect();
         let mut out = [TinySet::empty()];
-        pred.filter_monotonic_u64s(ColumnType::I64, &encoded, &mut out)
-            .unwrap();
+        pred.filter_monotonic_u64s(ColumnType::I64, &encoded, &mut out);
         assert_eq!(out[0].into_iter().collect::<Vec<_>>(), vec![1, 3]);
 
         // StringView InList on column index 1 evaluated via `filter_bytes`.
@@ -2358,7 +2338,7 @@ mod tests {
         let data = b"alphabeta_gammadelta";
         let offsets = [0u32, 5, 10, 15, 20];
         let mut out = [TinySet::empty()];
-        str_pred.filter_bytes(data, &offsets, &mut out).unwrap();
+        str_pred.filter_bytes(data, &offsets, &mut out);
         assert_eq!(out[0].into_iter().collect::<Vec<_>>(), vec![0, 2]);
 
         // Negated InList must be rejected.

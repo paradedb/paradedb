@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795507850756,
+  "lastUpdate": 1795507881612,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -349448,6 +349448,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14798967730-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795507878561,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.02134101000893,
+            "unit": "median tps",
+            "extra": "avg tps: 56.85921374948925, max tps: 680.702874409547, count: 59064"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.614277222353785,
+            "unit": "median tps",
+            "extra": "avg tps: 57.17756214492188, max tps: 739.5247477005217, count: 59064"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.39003520405188,
+            "unit": "median tps",
+            "extra": "avg tps: 59.551677166698596, max tps: 827.0228047403293, count: 59064"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.30540588088951,
+            "unit": "median tps",
+            "extra": "avg tps: 56.144736519821805, max tps: 697.6212075294125, count: 59064"
+          }
+        ],
+        "publication_id": "14900101678-tps"
       }
     ],
     "pg_search logical-replication-fsm-merge-race.toml Performance - Other Metrics": [
@@ -374446,6 +374493,161 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14798967730-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795507881485,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 22.66289,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.052666355885037, max cpu: 45.11278, count: 59064"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 51.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.84445851375203, max mem: 64.4609375, count: 59064"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.569253,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.330548519562752, max cpu: 4.5757866, count: 59064"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 21.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.95833637558411, max mem: 21.98828125, count: 59064"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.58635052559281, max cpu: 9.186603, count: 59064"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 29.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.422792040202154, max mem: 29.42578125, count: 59064"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1704,
+            "unit": "median pages",
+            "extra": "avg pages: 1596.5864655289179, max pages: 2099.0, count: 59064"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 13.3125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 12.47333176194467, max relation_size:MB: 16.3984375, count: 59064"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 5,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 5.414770418529053, max segment_count: 14.0, count: 59064"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.5411544,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.8925818803842467, max cpu: 4.5933013, count: 59064"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 21.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.49308350899025, max mem: 21.5546875, count: 59064"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 22.673594,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.21005195006497, max cpu: 45.11278, count: 59064"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 51.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.99926053465309, max mem: 61.35546875, count: 59064"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 22.66289,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.047102738162163, max cpu: 45.11278, count: 59064"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 45.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.79301735987657, max mem: 58.41796875, count: 59064"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 92.931884765625,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 187.91105658611147, max replication_lag:MB: 891.7668304443359, count: 59064"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 22.673594,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.2327237704932, max cpu: 40.601505, count: 59064"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 63.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.33621897433293, max mem: 75.4453125, count: 59064"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.043806,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.83584332148549, max cpu: 32.137733, count: 59064"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 22.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.117559580497428, max mem: 22.15625, count: 59064"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.048068,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.0156626917426, max cpu: 32.10702, count: 59064"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 22.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.1175719479082, max mem: 22.15625, count: 59064"
+          }
+        ],
+        "publication_id": "14900101678-other"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - TPS": [

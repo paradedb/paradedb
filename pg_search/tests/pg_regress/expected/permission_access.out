@@ -58,8 +58,7 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
   'SELECT * FROM paradedb.validate_checksum(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.storage_info(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.page_info(''permission_access.docs_idx'', 0)',
-  'SELECT * FROM pdb.verify_index(''permission_access.docs_idx'')',
-  'SELECT paradedb.aggregate(''permission_access.docs_idx'', paradedb.all(), ''{"a":{"terms":{"field":"email"}}}'')'
+  'SELECT * FROM pdb.verify_index(''permission_access.docs_idx'')'
 ] $$;
 -- Audit every regclass overload, including functions that do not read an index.
 -- A new signature must be classified and its access/lock policy covered explicitly.
@@ -77,7 +76,6 @@ WHERE 'regclass'::regtype::oid = ANY (p.proargtypes::oid[])
 ORDER BY 1;
                                                                                 regclass_function                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- paradedb.aggregate(index regclass, query paradedb.searchqueryinput, agg json, solve_mvcc boolean, memory_limit bigint, bucket_limit bigint, visibility text)
  paradedb.background_layer_sizes(index regclass)
  paradedb.bgmerger_state(index regclass)
  paradedb.combined_layer_sizes(index regclass)
@@ -109,13 +107,13 @@ ORDER BY 1;
  pdb.index_segments(index regclass)
  pdb.synonym_expansion(index regclass, input text)
  pdb.verify_index(index regclass, heapallindexed boolean, sample_rate double precision, report_progress boolean, "verbose" boolean, on_error_stop boolean, segment_ids integer[])
-(32 rows)
+(31 rows)
 
 SET ROLE permission_access_reader;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS no_grant_denials;
  no_grant_denials 
 ------------------
-               25
+               24
 (1 row)
 
 SELECT permission_access.assert_denied(ARRAY[
@@ -208,7 +206,7 @@ ROLLBACK TO SAVEPOINT named_rls_error;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS rls_denials;
  rls_denials 
 -------------
-          25
+          24
 (1 row)
 
 SELECT count(*) AS rls_inventory FROM pdb.indexes() WHERE schemaname = 'permission_access';

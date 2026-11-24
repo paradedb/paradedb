@@ -1,4 +1,4 @@
--- Tests the `visibility` argument of pdb.agg() and paradedb.aggregate(): the
+-- Tests the `visibility` argument of pdb.agg(): the
 -- 'transaction' / 'raw' / 'threshold' modes, the paradedb.visibility_threshold
 -- GUC, the legacy solve_mvcc spellings, and the errors for a conflicting or
 -- unrecognized setting.
@@ -131,66 +131,5 @@ FROM vis_test WHERE description ||| 'running';
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, 'raw'),
        pdb.agg('{"sum": {"field": "value"}}'::jsonb, 'raw')
 FROM vis_test WHERE description ||| 'running';
-
---
--- paradedb.aggregate(): the UDF
---
-
-SELECT * FROM paradedb.aggregate(
-    index => 'idx_vis_test',
-    query => paradedb.match('description', 'running'),
-    agg => '{"count": {"value_count": {"field": "id"}}}'
-);
-
-SELECT * FROM paradedb.aggregate(
-    index => 'idx_vis_test',
-    query => paradedb.match('description', 'running'),
-    agg => '{"count": {"value_count": {"field": "id"}}}',
-    visibility => 'raw'
-);
-
-SET paradedb.visibility_threshold = 0;
-SELECT * FROM paradedb.aggregate(
-    index => 'idx_vis_test',
-    query => paradedb.match('description', 'running'),
-    agg => '{"count": {"value_count": {"field": "id"}}}',
-    visibility => 'threshold'
-);
-RESET paradedb.visibility_threshold;
-
--- solve_mvcc still works, and now warns.
-SELECT * FROM paradedb.aggregate(
-    index => 'idx_vis_test',
-    query => paradedb.match('description', 'running'),
-    agg => '{"count": {"value_count": {"field": "id"}}}',
-    solve_mvcc => false
-);
-
--- Positional calls written against the old signature still resolve, because
--- `visibility` was appended after `bucket_limit` rather than replacing
--- `solve_mvcc` in place.
-SELECT * FROM paradedb.aggregate(
-    'idx_vis_test',
-    paradedb.match('description', 'running'),
-    '{"count": {"value_count": {"field": "id"}}}',
-    false
-);
-
--- Supplying both spellings is an error, not a precedence rule.
-SELECT * FROM paradedb.aggregate(
-    index => 'idx_vis_test',
-    query => paradedb.match('description', 'running'),
-    agg => '{"count": {"value_count": {"field": "id"}}}',
-    solve_mvcc => false,
-    visibility => 'raw'
-);
-
--- An unrecognized mode errors here too.
-SELECT * FROM paradedb.aggregate(
-    index => 'idx_vis_test',
-    query => paradedb.match('description', 'running'),
-    agg => '{"count": {"value_count": {"field": "id"}}}',
-    visibility => 'nonsense'
-);
 
 DROP TABLE vis_test;

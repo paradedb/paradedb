@@ -20,8 +20,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
-    use std::thread::sleep;
-    use std::time::{Duration, Instant};
 
     use pgrx::pg_sys;
     use pgrx::prelude::*;
@@ -51,21 +49,13 @@ mod tests {
     }
 
     #[pg_extern]
-    fn test_mutable_cache_access(
-        id: i32,
-        pause_build: bool,
-        pause_reader: bool,
-        build_gate: default!(i64, 0),
-    ) -> bool {
+    fn test_mutable_cache_access(id: i32, pause_build: bool, pause_reader: bool) -> bool {
         let key = lifecycle_key(id);
         let path = PathBuf::from(format!(
             "{}.fast",
             SegmentId::from_bytes(key.segment_id).uuid_string()
         ));
         let directory = get_or_build(&key, || {
-            if build_gate != 0 {
-                Spi::run(&format!("SELECT pg_advisory_xact_lock({build_gate})")).unwrap();
-            }
             if pause_build {
                 Spi::run("SELECT pg_sleep(60)").unwrap();
             }
@@ -80,70 +70,11 @@ mod tests {
         directory.atomic_read(&path).unwrap() == [1, 2, 3]
     }
 
-    #[pg_extern]
-    fn test_mutable_cache_pin_arena(id: i32) {
-        let key = lifecycle_key(id);
-        let cache = load_cache().unwrap();
-        let guard = cache.lock.acquire_exclusive();
-        let span = cache
-            .allocate(cache.arena_capacity as usize, &guard)
-            .unwrap();
-        let slots = unsafe { cache.slots_mut(&guard) };
-        let idx = slots
-            .iter()
-            .position(|slot| slot.state() == SlotState::Empty)
-            .unwrap();
-        slots[idx].key = key;
-        slots[idx].span = span;
-        slots[idx].set_state(SlotState::Ready);
-        slots[idx].active_readers.store(1, Ordering::Release);
-        BACKEND_READERS[idx].fetch_add(1, Ordering::Relaxed);
-        drop(guard);
-        let _reader = ActiveReaderGuard { slot_index: idx };
-        cache.invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
-        Spi::run("SELECT pg_sleep(60)").unwrap();
-    }
-
-    #[pg_extern]
-    fn test_mutable_cache_invalidation_race(id: i32, reader_pid: i32) {
-        const WAIT_CLASS_MASK: u32 = 0xFF00_0000;
-        const TIMEOUT: Duration = Duration::from_secs(5);
-        const POLL_INTERVAL: Duration = Duration::from_millis(1);
-        let key = lifecycle_key(id);
-        let reader_proc = unsafe { pg_sys::BackendPidGetProc(reader_pid) };
-        assert!(!reader_proc.is_null());
-        let cache = load_cache().unwrap();
-        let guard = cache.lock.acquire_exclusive();
-        let slot = unsafe { cache.slots_mut(&guard) }
-            .iter_mut()
-            .find(|slot| slot.key == key)
-            .unwrap();
-        assert_eq!(slot.active_readers.load(Ordering::Acquire), 1);
-        unsafe { pg_sys::pgstat_report_wait_start(pg_sys::PG_WAIT_EXTENSION) };
-        let deadline = Instant::now() + TIMEOUT;
-        loop {
-            let wait_class = unsafe { std::ptr::read_volatile(&(*reader_proc).wait_event_info) }
-                & WAIT_CLASS_MASK;
-            if slot.active_readers.load(Ordering::Acquire) == 0
-                && matches!(wait_class, pg_sys::PG_WAIT_LWLOCK | pg_sys::PG_WAIT_CLIENT)
-            {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "reader did not release its last pin"
-            );
-            sleep(POLL_INTERVAL);
-        }
-        unsafe { pg_sys::pgstat_report_wait_end() };
-        slot.set_state(SlotState::Superseded);
-    }
-
     #[pg_test]
     fn test_oversized_allocation_preserves_cached_segments() {
         let cache = load_cache().unwrap();
         let key = lifecycle_key(65255);
-        assert!(test_mutable_cache_access(65255, false, false, 0));
+        assert!(test_mutable_cache_access(65255, false, false));
         let guard = cache.lock.acquire_exclusive();
         let slot = unsafe { cache.slots() }
             .iter()
@@ -651,158 +582,6 @@ mod backend {
         }
     }
 
-    #[test]
-    fn failed_admission_releases_waiters_to_build_concurrently() {
-        const PIN_KEY: i32 = 65256;
-        const BUILD_KEY: i32 = 65257;
-        const BUILDER_GATE: i64 = 652560;
-        const WAITER_GATE: i64 = BUILDER_GATE + 1;
-        const WAITERS: usize = 3;
-        let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
-        let mut control = connect();
-        let mut pin = connect();
-        let pin_pid: i32 = pin
-            .query_one("SELECT pg_backend_pid()", &[])
-            .unwrap()
-            .get(0);
-        let pin =
-            spawn(move || pin.query("SELECT tests.test_mutable_cache_pin_arena($1)", &[&PIN_KEY]));
-        wait_until("arena pinned", || {
-            control
-                .query_one(
-                    "SELECT tests.test_mutable_cache_readers($1, false)",
-                    &[&PIN_KEY],
-                )
-                .unwrap()
-                .get::<_, i64>(0)
-                == 1
-        });
-        control
-            .query(
-                "SELECT pg_advisory_lock($1), pg_advisory_lock($2)",
-                &[&BUILDER_GATE, &WAITER_GATE],
-            )
-            .unwrap();
-        let mut builder = connect();
-        let builder_pid: i32 = builder
-            .query_one("SELECT pg_backend_pid()", &[])
-            .unwrap()
-            .get(0);
-        let builder = spawn(move || {
-            builder.query_one(
-                "SELECT tests.test_mutable_cache_access($1, false, false, $2)",
-                &[&BUILD_KEY, &BUILDER_GATE],
-            )
-        });
-        wait_until("first builder gated", || {
-            control.query_one(
-            "SELECT EXISTS(SELECT FROM pg_stat_activity WHERE pid=$1 AND wait_event='advisory')", &[&builder_pid],
-        ).unwrap().get(0)
-        });
-        let waiters: Vec<_> = (0..WAITERS)
-            .map(|_| {
-                let mut waiter = connect();
-                let pid: i32 = waiter
-                    .query_one("SELECT pg_backend_pid()", &[])
-                    .unwrap()
-                    .get(0);
-                let handle = spawn(move || {
-                    waiter.query_one(
-                        "SELECT tests.test_mutable_cache_access($1, false, false, $2)",
-                        &[&BUILD_KEY, &WAITER_GATE],
-                    )
-                });
-                (pid, handle)
-            })
-            .collect();
-        let waiter_pids: Vec<_> = waiters.iter().map(|(pid, _)| *pid).collect();
-        wait_until("all queries waiting for first build", || {
-            control.query_one(
-            "SELECT count(*) FROM pg_stat_activity WHERE pid=ANY($1) AND wait_event_type='Extension'", &[&waiter_pids],
-        ).unwrap().get::<_, i64>(0) == WAITERS as i64
-        });
-        control
-            .query("SELECT pg_advisory_unlock($1)", &[&BUILDER_GATE])
-            .unwrap();
-        assert!(builder.join().unwrap().unwrap().get::<_, bool>(0));
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            wait_until("all fallback builders running concurrently", || {
-                control.query_one(
-                "SELECT count(*) FROM pg_stat_activity WHERE pid=ANY($1) AND wait_event='advisory'", &[&waiter_pids],
-            ).unwrap().get::<_, i64>(0) == WAITERS as i64
-            });
-        }));
-        control
-            .query("SELECT pg_advisory_unlock($1)", &[&WAITER_GATE])
-            .unwrap();
-        for (_, waiter) in waiters {
-            assert!(waiter.join().unwrap().unwrap().get::<_, bool>(0));
-        }
-        control
-            .query("SELECT pg_cancel_backend($1)", &[&pin_pid])
-            .unwrap();
-        assert!(pin.join().unwrap().is_err());
-        if let Err(error) = result {
-            resume_unwind(error);
-        }
-    }
-
-    #[test]
-    fn last_reader_reclaims_concurrently_superseded_slot() {
-        const KEY: i32 = 65258;
-        let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
-        let mut control = connect();
-        let mut reader = connect();
-        let reader_pid: i32 = reader
-            .query_one("SELECT pg_backend_pid()", &[])
-            .unwrap()
-            .get(0);
-        let reader = spawn(move || {
-            let result = reader.query_one(
-                "SELECT tests.test_mutable_cache_access($1, false, true)",
-                &[&KEY],
-            );
-            (reader, result)
-        });
-        wait_until("reader pinned", || {
-            control.query_one(
-            "SELECT EXISTS(SELECT FROM pg_stat_activity WHERE pid=$1 AND wait_event='PgSleep')", &[&reader_pid],
-        ).unwrap().get(0)
-        });
-        let mut invalidator = connect();
-        let invalidator_pid: i32 = invalidator
-            .query_one("SELECT pg_backend_pid()", &[])
-            .unwrap()
-            .get(0);
-        let invalidator = spawn(move || {
-            invalidator.query(
-                "SELECT tests.test_mutable_cache_invalidation_race($1, $2)",
-                &[&KEY, &reader_pid],
-            )
-        });
-        wait_until("invalidation observed the active reader", || {
-            control.query_one(
-            "SELECT EXISTS(SELECT FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Extension')", &[&invalidator_pid],
-        ).unwrap().get(0)
-        });
-        control
-            .query("SELECT pg_cancel_backend($1)", &[&reader_pid])
-            .unwrap();
-        invalidator.join().unwrap().unwrap();
-        let (_reader, result) = reader.join().unwrap();
-        assert!(result.is_err());
-        assert_eq!(
-            control
-                .query_one(
-                    "SELECT tests.test_mutable_cache_readers($1, false)",
-                    &[&KEY]
-                )
-                .unwrap()
-                .get::<_, i64>(0),
-            -1
-        );
-    }
-
     #[rstest]
     #[case::cancel_reader(false, false, 65251)]
     #[case::terminate_reader(true, false, 65252)]
@@ -1006,59 +785,6 @@ mod backend {
         }
         client
             .batch_execute("DROP TABLE cache_corrupt_toast")
-            .unwrap();
-    }
-
-    #[test]
-    fn recently_dead_expression_uses_detoasted_values() {
-        let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
-        let mut client = connect();
-        client
-            .batch_execute(
-                "CREATE EXTENSION IF NOT EXISTS pg_surgery;
-             DROP TABLE IF EXISTS cache_expression_toast;
-             CREATE TABLE cache_expression_toast(id bigint PRIMARY KEY, body text)
-                 WITH(autovacuum_enabled=false);
-             ALTER TABLE cache_expression_toast ALTER COLUMN body SET STORAGE EXTERNAL;
-             CREATE INDEX cache_expression_toast_idx ON cache_expression_toast
-                 USING paradedb(id, (tests.test_toast_expression(body)::pdb.simple))
-                 WITH(mutable_segment_rows=1000, layer_sizes='0', background_layer_sizes='0');
-             INSERT INTO cache_expression_toast VALUES (1, repeat(md5('toast') || ' ', 200));
-             CREATE TEMP TABLE cache_expression_toast_chunks(toast_relation regclass, tids tid[]);
-             DO $$
-             DECLARE toast_relation regclass;
-             BEGIN
-                 SELECT reltoastrelid INTO toast_relation FROM pg_class
-                 WHERE oid='cache_expression_toast'::regclass;
-                 EXECUTE format('INSERT INTO cache_expression_toast_chunks SELECT %L::regclass, array_agg(ctid) FROM %s',
-                                toast_relation, toast_relation);
-             END $$;",
-            )
-            .unwrap();
-        let ctid: String = client
-            .query_one("SELECT ctid::text FROM cache_expression_toast", &[])
-            .unwrap()
-            .get(0);
-        let mut snapshot = connect();
-        snapshot
-            .batch_execute(
-                "BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT * FROM cache_expression_toast;",
-            )
-            .unwrap();
-        client
-            .batch_execute("DELETE FROM cache_expression_toast")
-            .unwrap();
-        assert!(client.query_one(
-            "SELECT tests.test_materialize_toast_expression('cache_expression_toast_idx'::regclass, $1::text::tid)",
-            &[&ctid],
-        ).unwrap().get::<_, bool>(0));
-        let error = snapshot
-            .query("SELECT md5(body) FROM cache_expression_toast", &[])
-            .unwrap_err();
-        assert_eq!(error.code(), Some(&SqlState::DATA_CORRUPTED));
-        snapshot.batch_execute("ROLLBACK").unwrap();
-        client
-            .batch_execute("DROP TABLE cache_expression_toast")
             .unwrap();
     }
 

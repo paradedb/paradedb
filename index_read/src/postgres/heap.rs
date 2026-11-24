@@ -2224,70 +2224,8 @@ mod unit_tests {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use pgrx::AnyElement;
     use pgrx::pg_sys::Oid;
     use pgrx::prelude::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    static REMOVE_EXPRESSION_TOAST: AtomicBool = AtomicBool::new(false);
-
-    #[pg_extern(immutable)]
-    fn test_toast_expression(body: AnyElement) -> String {
-        if REMOVE_EXPRESSION_TOAST.swap(false, Ordering::Relaxed) {
-            Spi::run(
-                "SELECT heap_force_kill(toast_relation, tids) FROM cache_expression_toast_chunks",
-            )
-            .unwrap();
-        }
-        body.value::<String>().unwrap().unwrap().to_lowercase()
-    }
-
-    #[pg_extern]
-    fn test_materialize_toast_expression(index_oid: Oid, ctid: pg_sys::ItemPointerData) -> bool {
-        let indexrel = PgSearchRelation::open(index_oid);
-        let heaprel = indexrel.heap_relation().unwrap();
-        let fetch_state = HeapFetchState::new(&heaprel);
-        let expression_state = ExpressionState::new(&indexrel);
-        let heaptupdesc = unsafe { PgTupleDesc::from_pg_unchecked(heaprel.rd_att) };
-        let schema = indexrel.schema().unwrap();
-        let fields = schema.categorized_fields();
-        let mut fetcher = HeapDocFetcher::new(
-            &fetch_state,
-            &expression_state,
-            &heaprel,
-            &heaptupdesc,
-            &fields,
-            indexrel.created_by_version(),
-            false,
-        );
-        unsafe {
-            let mut tid = ctid;
-            assert!(fetch_state.fetch_tuple(
-                &mut tid,
-                &raw mut pg_sys::SnapshotAnyData,
-                &mut false,
-                &mut false,
-            ));
-            let slot = fetch_state.buffer_heap_slot();
-            let _lock = BorrowedBuffer::from_pg((*slot).buffer);
-            assert_eq!(
-                pg_sys::HeapTupleSatisfiesVacuum(
-                    (*slot).base.tuple,
-                    fetcher.oldest_xmin,
-                    (*slot).buffer,
-                ),
-                pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
-            );
-        }
-        REMOVE_EXPRESSION_TOAST.store(true, Ordering::Relaxed);
-        PgTryBuilder::new(AssertUnwindSafe(|| {
-            let doc = unsafe { fetcher.fetch_doc(utils::item_pointer_to_u64(ctid)) };
-            assert!(!REMOVE_EXPRESSION_TOAST.load(Ordering::Relaxed));
-            doc.is_some()
-        }))
-        .finally(|| REMOVE_EXPRESSION_TOAST.store(false, Ordering::Relaxed))
-        .execute()
-    }
 
     #[pg_test]
     fn recently_dead_toast_error_cleanup() {

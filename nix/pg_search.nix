@@ -1,6 +1,7 @@
 {
   self,
   buildPgrxExtension,
+  callPackage,
   cargo-pgrx,
   fetchurl,
   lib,
@@ -70,10 +71,8 @@ buildPgrxExtension (finalAttrs: {
   version = rootCargoToml.workspace.package.version;
   src = self;
 
-  cargoLock = {
+  cargoDeps = callPackage ./vendor-cargo-deps.nix { } {
     lockFile = ../Cargo.lock;
-    # Use the Git revisions pinned in Cargo.lock alongside registry checksums.
-    allowBuiltinFetchGit = true;
     outputHashes = lib.optionalAttrs hasUnadvertisedOpenccRevision {
       "opencc-jieba-rs-0.9.0" = "sha256-JPBt8P0gizHCiBr6ZJhvif/ukWeqEhh5ly1d1FD1s14=";
     };

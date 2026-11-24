@@ -1,8 +1,15 @@
-# Build the Nix package on demand. Its Rust dependencies come from Cargo.lock.
+# Build the Nix package for packaging changes or on demand. Its Rust dependencies come from Cargo.lock.
 
 name: Test pg_search (Nix)
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/test-pg_search-nix.yml"
+      - "nix/**"
+      - "flake.lock"
+      - "flake.nix"
   workflow_dispatch:
 
 concurrency:

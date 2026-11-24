@@ -57,7 +57,7 @@ jobs:
       fail-fast: false
       matrix:
         # Base: system Postgres on ARM Ubuntu 26.04 for all versions.
-        pg_version: [15, 16, 17, 18]
+        pg_version: [15, 16, 17, 18, 19]
         pg_impl: [system]
         cpu: [8]
         ram: [16]
@@ -158,7 +158,7 @@ jobs:
           pgrx_cache_hit: ${{ steps.cache-pgrx-pg.outputs.cache-hit == 'true' }}
 
       # Needed for Citus compatibility tests
-      # Citus 13 supports PG 15-17, Citus 14 supports PG 16-18
+      # Citus 13 supports PG 15-17, Citus 14 supports PG 16-18. No Citus release supports PG 19 yet.
       - name: Build & install Citus 13 (PG 15)
         if: matrix.pg_version == 15
         env:
@@ -182,7 +182,7 @@ jobs:
           sudo PG_CONFIG="${PG_CONFIG}" make install -j"$(nproc)"
 
       - name: Build & install Citus 14 (PG 16-18)
-        if: matrix.pg_version >= 16
+        if: matrix.pg_version >= 16 && matrix.pg_version <= 18
         env:
           CITUS_VERSION: v14.1.0
         run: |
@@ -200,9 +200,13 @@ jobs:
       - name: Add extensions to shared_preload_libraries
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: |
-          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
+          if [[ "${{ matrix.pg_version }}" -le 18 ]]; then
+            sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
+            echo "citus.node_conninfo = 'sslmode=prefer'" >> postgresql.conf
+          else
+            sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+          fi
           sed -i "s/^max_connections = .*/max_connections = 300/" postgresql.conf
-          echo "citus.node_conninfo = 'sslmode=prefer'" >> postgresql.conf
           echo "max_worker_processes = 32" >> postgresql.conf
 
       - name: Compile & install pg_search extension (system)

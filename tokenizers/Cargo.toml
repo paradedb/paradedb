@@ -33,7 +33,7 @@ icu_segmenter = "2.3.0"
 # We use a fork of opencc-jieba-rs to remove the exact-version dependency pins (e.g., include-flate = "=0.3.0")
 # that were introduced for MSRV reasons, which otherwise conflict with our newer dependencies.
 # The fork also bumps jieba-rs to 0.10, matching tantivy-jieba so we compile one jieba chain rather than two.
-opencc-jieba-rs = { git = "https://github.com/paradedb/opencc-jieba-rs", branch = "main" }
+opencc-jieba-rs = { git = "https://github.com/paradedb/opencc-jieba-rs", rev = "7ef74d151bec02e12ac29fe5076ffa925216ba6e" }
 
 [dev-dependencies]
 rstest = "0.28.0"

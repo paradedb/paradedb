@@ -22,13 +22,8 @@ let
   cargoPackages = (builtins.fromTOML (builtins.readFile ../Cargo.lock)).package;
   linderaVersion = (builtins.head (builtins.filter (p: p.name == "lindera") cargoPackages)).version;
 
-  # This OpenCC revision is fetchable by SHA but is no longer on an advertised ref.
-  hasUnadvertisedOpenccRevision = lib.any (
-    p:
-    p.name == "opencc-jieba-rs"
-    && p.version == "0.9.0"
-    && lib.hasSuffix "#edfe347cfba463385337893feb4f5e2ff7309c83" (p.source or "")
-  ) cargoPackages;
+  # Lindera 6.2 keys its dictionary cache by crate and dictionary format version.
+  linderaCacheKey = "${linderaVersion}-fmt2";
 
   linderaWebsite = "https://lindera.dev";
 
@@ -71,12 +66,7 @@ buildPgrxExtension (finalAttrs: {
   version = rootCargoToml.workspace.package.version;
   src = self;
 
-  cargoDeps = callPackage ./vendor-cargo-deps.nix { } {
-    lockFile = ../Cargo.lock;
-    outputHashes = lib.optionalAttrs hasUnadvertisedOpenccRevision {
-      "opencc-jieba-rs-0.9.0" = "sha256-JPBt8P0gizHCiBr6ZJhvif/ukWeqEhh5ly1d1FD1s14=";
-    };
-  };
+  cargoDeps = callPackage ./vendor-cargo-deps.nix { } ../Cargo.lock;
 
   inherit postgresql;
   # The Nix builder also passes cargoPgrxFlags to `stop`, which does not accept
@@ -94,11 +84,11 @@ buildPgrxExtension (finalAttrs: {
   # from an external URL, which doesn't work in the Nix sandbox.
   preConfigure = ''
     export LINDERA_BUILD_DICTIONARY_CACHE_DIR=$TMPDIR/lindera-cache
-    mkdir -p $LINDERA_BUILD_DICTIONARY_CACHE_DIR/${linderaVersion}
+    mkdir -p $LINDERA_BUILD_DICTIONARY_CACHE_DIR/${linderaCacheKey}
 
     ${lib.concatMapStringsSep "\n" (dict: ''
       echo "Copying ${dict.language} dictionary to Lindera cache"
-      cp ${dict.source} $LINDERA_BUILD_DICTIONARY_CACHE_DIR/${linderaVersion}/${dict.filename}
+      cp ${dict.source} $LINDERA_BUILD_DICTIONARY_CACHE_DIR/${linderaCacheKey}/${dict.filename}
     '') (lib.attrValues dictionaries)}
 
     echo "Lindera cache prepared at $LINDERA_BUILD_DICTIONARY_CACHE_DIR"

@@ -3,7 +3,7 @@
   runCommand,
   rustPlatform,
 }:
-{ lockFile, outputHashes }:
+lockFile:
 let
   lockFileContents = builtins.readFile lockFile;
 
@@ -24,14 +24,13 @@ let
   selectPackages = blocks: lib.concatStringsSep "\n[[package]]\n" ([ header ] ++ blocks);
   workspaceVendor = importLock {
     lockFileContents = selectPackages packages.wrong;
-    inherit outputHashes;
   };
   dstVendor = importLock {
     lockFileContents = selectPackages packages.right;
   };
 in
 if packages.right == [ ] then
-  importLock { inherit lockFile outputHashes; }
+  importLock { inherit lockFile; }
 else
   runCommand "cargo-vendor-dir" { } ''
     mkdir -p "$out/.cargo" "$out/dst"

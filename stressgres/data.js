@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795507881612,
+  "lastUpdate": 1795507911352,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -543444,6 +543444,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14799297753-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795507908373,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3890.1954101890587,
+            "unit": "median tps",
+            "extra": "avg tps: 3888.454680623114, max tps: 4419.394660781997, count: 58894"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4404.501146203503,
+            "unit": "median tps",
+            "extra": "avg tps: 4433.954302848729, max tps: 5779.066931667157, count: 58894"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.74634901361424,
+            "unit": "median tps",
+            "extra": "avg tps: 164.39395920245954, max tps: 2918.8244988907372, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.690016402158292,
+            "unit": "median tps",
+            "extra": "avg tps: 40.04257771232758, max tps: 586.1341067802704, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.715183876854823,
+            "unit": "median tps",
+            "extra": "avg tps: 40.0428880521386, max tps: 595.7752291625587, count: 58894"
+          }
+        ],
+        "publication_id": "14900079395-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -559952,6 +560005,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14799297753-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795507911227,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.504474608226534, max cpu: 9.164679, count: 58894"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 23.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 22.99233501078208, max mem: 23.05859375, count: 58894"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.440161532611753, max cpu: 4.7999997, count: 58894"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 22.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 22.354760048243456, max mem: 22.37109375, count: 58894"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.191,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.39432462609971, max cpu: 32.38554, count: 58894"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 23.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 23.274402355821476, max mem: 23.27734375, count: 58894"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.056796957246, max document_count: 10002.0, count: 58894"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.057085611437, max document_count: 10002.0, count: 58894"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.216318,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.555114679568863, max cpu: 39.357704, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 62.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.2765593030487, max mem: 76.69140625, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.224964,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.59316337591047, max cpu: 39.357704, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 60.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 60.37060963075611, max mem: 74.234375, count: 58894"
+          }
+        ],
+        "publication_id": "14900079395-other"
       }
     ]
   }

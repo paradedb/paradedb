@@ -104,12 +104,13 @@ buildPgrxExtension (finalAttrs: {
   LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
   CLANG_PATH = "${llvmPackages.clang}/bin/clang";
 
-  # pgrx 0.20.1 rejects the random seed flag when generating bindings.
-  # Nix's compiler wrappers can cache these flags in target-specific variables.
-  preBuild = ''
-    for flags in "''${!NIX_CFLAGS_COMPILE@}"; do
-      export "$flags=$(printf '%s' "''${!flags}" | sed -E 's/(^|[[:space:]])-frandom-seed=[^[:space:]]+//g')"
-    done
+  # Nix injects a deterministic compiler seed. It only affects code generation,
+  # so allow it in pgrx 0.20.1's C macro audit without removing it from Clang.
+  prePatch = ''
+    substituteInPlace "$cargoDepsCopy/pgrx-c-macros-${cargo-pgrx.version}/src/frontend.rs" \
+      --replace-fail '&& !is_packaging_codegen_option(argument)' \
+        '&& !is_packaging_codegen_option(argument)
+            && !argument.starts_with("-frandom-seed=")'
   '';
 
   # Keep the compiler, libclang and archiver on the same LLVM release.

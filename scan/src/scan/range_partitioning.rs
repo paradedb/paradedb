@@ -70,13 +70,9 @@ impl RangePartitioningDataFusionExt for RangePartitioning {
         };
         let ordering = LexOrdering::new([sort_expr])?;
 
-        // `new` rather than `try_new`: a repeated split point produces an empty partition in
-        // both our execution model and DataFusion's, but fails `try_new`'s strict-ordering
-        // validation. The build never repeats a split point; the tolerance costs nothing.
-        Some(Partitioning::Range(DataFusionRangePartitioning::new(
-            ordering,
-            split_points,
-        )))
+        DataFusionRangePartitioning::try_new(ordering, split_points)
+            .ok()
+            .map(Partitioning::Range)
     }
 }
 

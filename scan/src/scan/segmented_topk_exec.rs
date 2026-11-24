@@ -87,7 +87,8 @@ use datafusion::physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion::physical_expr::{EquivalenceProperties, LexOrdering, PhysicalExpr};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
-    ChildPushdownResult, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
+    ChildFilterDescription, ChildPushdownResult, FilterDescription, FilterPushdownPhase,
+    FilterPushdownPropagation,
 };
 use datafusion::physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
@@ -560,15 +561,10 @@ impl ExecutionPlan for SegmentedTopKExec {
             ));
         }
 
-        let schema = self.input.schema();
         // Route parent filters to our child based on column compatibility,
         // and add our own dynamic filter as a self-filter.
-        let child_desc = crate::scan::filter_pushdown::schema_preserving_child_filter_description(
-            &parent_filters,
-            &schema,
-            None,
-        )?
-        .with_self_filter(Arc::clone(&self.dynamic_filter));
+        let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.input)?
+            .with_self_filter(Arc::clone(&self.dynamic_filter));
         Ok(FilterDescription::new().with_child(child_desc))
     }
 

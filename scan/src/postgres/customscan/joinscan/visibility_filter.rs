@@ -67,7 +67,7 @@ use datafusion::physical_expr::equivalence::ProjectionMapping;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_plan::ExecutionPlanProperties;
 use datafusion::physical_plan::filter_pushdown::{
-    FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
+    ChildFilterDescription, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
 };
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet, RecordOutput,
@@ -1351,17 +1351,19 @@ impl ExecutionPlan for VisibilityFilterExec {
             .iter()
             .map(|(plan_pos, _)| CtidColumn::new(*plan_pos).to_string())
             .collect();
-        let allowed_indices: std::collections::HashSet<usize> = schema
+        // Identity mapping over every column except the blocked ctids: columns absent from the
+        // mapping keep their filters from being pushed down.
+        let column_mapping: std::collections::HashMap<usize, usize> = schema
             .fields()
             .iter()
             .enumerate()
             .filter(|(_, f)| !blocked_ctid_names.contains(f.name()))
-            .map(|(i, _)| i)
+            .map(|(i, _)| (i, i))
             .collect();
-        let child_desc = crate::scan::filter_pushdown::schema_preserving_child_filter_description(
+        let child_desc = ChildFilterDescription::from_child_with_column_mapping(
             &parent_filters,
-            &schema,
-            Some(&allowed_indices),
+            column_mapping,
+            &self.input,
         )?;
         Ok(FilterDescription::new().with_child(child_desc))
     }

@@ -94,8 +94,8 @@ use datafusion::physical_expr::{
 };
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
-    ChildPushdownResult, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
-    PushedDown,
+    ChildFilterDescription, ChildPushdownResult, FilterDescription, FilterPushdownPhase,
+    FilterPushdownPropagation, PushedDown,
 };
 use datafusion::physical_plan::joins::PartitionMode;
 use datafusion::physical_plan::joins::utils::{
@@ -1208,20 +1208,12 @@ impl ExecutionPlan for RankJoinExec {
         }
 
         let mut left_desc =
-            crate::scan::filter_pushdown::schema_preserving_child_filter_description(
-                &left_parent_filters,
-                &self.inputs.left.schema(),
-                None,
-            )?;
+            ChildFilterDescription::from_child(&left_parent_filters, &self.inputs.left)?;
         if self.combiner.uses_right() || !parent_filters.is_empty() {
             left_desc = left_desc.with_self_filter(Arc::clone(&self.left_lookup_filter));
         }
         let mut right_desc =
-            crate::scan::filter_pushdown::schema_preserving_child_filter_description(
-                &right_parent_filters,
-                &self.inputs.right.schema(),
-                None,
-            )?;
+            ChildFilterDescription::from_child(&right_parent_filters, &self.inputs.right)?;
         if self.combiner.uses_left() || !parent_filters.is_empty() {
             right_desc = right_desc.with_self_filter(Arc::clone(&self.right_lookup_filter));
         }

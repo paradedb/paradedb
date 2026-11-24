@@ -29,7 +29,8 @@ use datafusion::common::config::ConfigOptions;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::filter_pushdown::{
-    ChildPushdownResult, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
+    ChildFilterDescription, ChildPushdownResult, FilterDescription, FilterPushdownPhase,
+    FilterPushdownPropagation,
 };
 use datafusion::physical_plan::metrics::MetricsSet;
 use datafusion::physical_plan::{
@@ -116,11 +117,8 @@ impl ExecutionPlan for FilterPassthroughExec {
         parent_filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &ConfigOptions,
     ) -> Result<FilterDescription> {
-        let child_desc = crate::scan::filter_pushdown::schema_preserving_child_filter_description(
-            &parent_filters,
-            &self.inner.schema(),
-            None,
-        )?;
+        // `inner` preserves its child's schema, and `from_child` only reads the schema.
+        let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.inner)?;
         Ok(FilterDescription::new().with_child(child_desc))
     }
 

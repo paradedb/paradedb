@@ -104,6 +104,12 @@ buildPgrxExtension (finalAttrs: {
   LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
   CLANG_PATH = "${llvmPackages.clang}/bin/clang";
 
+  # pgrx 0.20.1 rejects the random seed injected by the Nix compiler wrapper.
+  # The flag does not affect PostgreSQL's C macro semantics.
+  preBuild = ''
+    export NIX_CFLAGS_COMPILE="$(printf '%s' "$NIX_CFLAGS_COMPILE" | sed -E 's/(^|[[:space:]])-frandom-seed=[^[:space:]]+//g')"
+  '';
+
   # Keep the compiler, libclang and archiver on the same LLVM release.
   nativeBuildInputs = [
     lld

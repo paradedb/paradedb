@@ -307,6 +307,7 @@ enum BitmapCursorSourceInner {
         area: *mut pg_sys::dsa_area,
         table: pg_sys::dsa_pointer,
         slot: u32,
+        owner: crate::postgres::resowner::ResourceOwnerStamp,
         pages: RefCell<SharedPages>,
     },
 }
@@ -325,11 +326,13 @@ impl BitmapCursorSource {
     /// Attach a published claim table as participant `slot` (the owner is slot 0,
     /// a parallel worker is its worker number plus one).
     pub fn shared(area: *mut pg_sys::dsa_area, table: pg_sys::dsa_pointer, slot: u32) -> Self {
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         Self(crate::postgres::customscan::mpp::MainThread::new(
             BitmapCursorSourceInner::Shared {
                 area,
                 table,
                 slot,
+                owner,
                 pages: RefCell::new(SharedPages {
                     iter: std::ptr::null_mut(),
                     pages: Vec::new(),
@@ -407,9 +410,13 @@ impl BitmapCursorSource {
                     let mut claims = claims.lock().unwrap_or_else(PoisonError::into_inner);
                     claims.retain(|claim| *claim != (consumer_id, segment));
                 }
-                (BitmapCursorSourceInner::Shared { .. }, StreamClaim::Shared(entry)) => unsafe {
-                    (*entry).live.store(0, Ordering::Release);
-                },
+                (BitmapCursorSourceInner::Shared { owner, .. }, StreamClaim::Shared(entry)) => {
+                    // Once the participant's `ResourceOwner` has released its `dsa_area` mapping,
+                    // `entry` points into unmapped shared memory and must not be touched.
+                    owner.run_if_live(|| unsafe {
+                        (*entry).live.store(0, Ordering::Release);
+                    });
+                }
                 _ => unreachable!("a cursor releases the source it was claimed from"),
             }
         });
@@ -536,6 +543,7 @@ enum PageState {
 /// A forward-only merge cursor over one bitmap iteration stream.
 pub struct BitmapCursor {
     iter: CursorIter,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     state: PageState,
     offsets: [pg_sys::OffsetNumber; OFFSETS_CAP],
     counters: *const CursorCounters,
@@ -563,6 +571,7 @@ impl BitmapCursor {
     fn new(iter: CursorIter, counters: *const CursorCounters) -> Self {
         Self {
             iter,
+            owner: crate::postgres::resowner::ResourceOwnerStamp::current(),
             state: PageState::NotStarted,
             offsets: [0; OFFSETS_CAP],
             counters,
@@ -662,6 +671,7 @@ impl BitmapCursor {
                 table,
                 slot,
                 pages,
+                ..
             } = source.0.get(token)
             else {
                 unreachable!("a cached cursor comes from a shared source");
@@ -752,29 +762,30 @@ impl BitmapCursor {
 }
 
 crate::impl_safe_drop!(BitmapCursor, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            match self.iter {
-                #[cfg(not(feature = "pg18"))]
-                CursorIter::Private(iter) => pg_sys::tbm_end_iterate(iter),
-                #[cfg(feature = "pg18")]
-                CursorIter::Private(iter) => pg_sys::tbm_end_private_iterate(iter),
-                CursorIter::Cached { .. } => {}
-            }
+    let owner = self.owner;
+    owner.run_if_live(|| unsafe {
+        match self.iter {
+            #[cfg(not(feature = "pg18"))]
+            CursorIter::Private(iter) => pg_sys::tbm_end_iterate(iter),
+            #[cfg(feature = "pg18")]
+            CursorIter::Private(iter) => pg_sys::tbm_end_private_iterate(iter),
+            CursorIter::Cached { .. } => {}
         }
-        if let Some((source, claim)) = self.claim.take() {
-            source.release(claim);
-        }
+    });
+    if let Some((source, claim)) = self.claim.take() {
+        source.release(claim);
     }
 });
 
 // The attached slot iterator is this process's own allocation, ended once the
 // last cursor is gone with the source.
 crate::impl_safe_drop!(BitmapCursorSourceInner, |self| {
-    if let Self::Shared { pages, .. } = self {
+    if let Self::Shared { pages, owner, .. } = self {
         let iter = pages.get_mut().iter;
-        if !iter.is_null() && unsafe { crate::postgres::utils::IsTransactionState() } {
-            unsafe { pg_sys::tbm_end_shared_iterate(iter) };
+        if !iter.is_null() {
+            owner.run_if_live(|| unsafe {
+                pg_sys::tbm_end_shared_iterate(iter);
+            });
         }
     }
 });

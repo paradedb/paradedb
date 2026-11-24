@@ -57,22 +57,28 @@ enum TocKeys {
     WalUsage = 0xE000_0000_0000_000A,
 }
 
-pub struct WorkerStatsGuard {
+/// Flushes parallel worker buffer/WAL instrumentation into DSM via `InstrEndParallelQuery`.
+///
+/// Intentionally does NOT implement `Drop`: [`run_parallel_worker`] invokes [`Self::finish`]
+/// explicitly on normal worker completion while the backing DSM segment is guaranteed mapped.
+pub(crate) struct WorkerStatsGuard {
     buf_usage: *mut pg_sys::BufferUsage,
     wal_usage: *mut pg_sys::WalUsage,
     worker_idx: usize,
 }
 
-crate::impl_safe_drop!(WorkerStatsGuard, |self| {
-    if !self.buf_usage.is_null() && !self.wal_usage.is_null() {
-        unsafe {
-            pg_sys::InstrEndParallelQuery(
-                self.buf_usage.add(self.worker_idx),
-                self.wal_usage.add(self.worker_idx),
-            );
+impl WorkerStatsGuard {
+    pub(crate) unsafe fn finish(self) {
+        if !self.buf_usage.is_null() && !self.wal_usage.is_null() {
+            unsafe {
+                pg_sys::InstrEndParallelQuery(
+                    self.buf_usage.add(self.worker_idx),
+                    self.wal_usage.add(self.worker_idx),
+                );
+            }
         }
     }
-});
+}
 
 impl From<TocKeys> for u64 {
     fn from(key: TocKeys) -> Self {
@@ -574,16 +580,16 @@ macro_rules! launch_parallel_process {
                 seg: *mut pgrx::pg_sys::dsm_segment,
                 toc: *mut pgrx::pg_sys::shm_toc,
             ) {
-                let (state_manager, mq_sender) =
-                    $crate::parallel_worker::generic_parallel_worker_entry_point(
-                        seg,
-                        toc,
-                        $mq_size as usize,
-                    );
-
-                $crate::parallel_worker::finish_parallel_worker(
-                    <$parallel_worker_type>::new_parallel_worker(state_manager)
-                        .run(&mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber }),
+                $crate::parallel_worker::run_parallel_worker(
+                    seg,
+                    toc,
+                    $mq_size as usize,
+                    |state_manager, mq_sender| {
+                        $crate::parallel_worker::finish_parallel_worker(
+                            <$parallel_worker_type>::new_parallel_worker(state_manager)
+                                .run(mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber }),
+                        );
+                    },
                 );
             }
         }
@@ -605,12 +611,26 @@ macro_rules! launch_parallel_process {
     }};
 }
 
+/// Scoped entry point for PostgreSQL parallel workers launched via `ParallelProcessBuilder`.
+///
+/// Attaches `ParallelStateManager`, `WorkerStatsGuard`, and `MessageQueueSender` for the duration
+/// of `f`, then flushes worker buffer/WAL stats and detaches the completion queue on normal
+/// return while `seg` is guaranteed mapped. On `ereport(ERROR)` / panic unwind, `finish()` is
+/// skipped and PostgreSQL's own `shm_mq_detach_callback` detaches the queue before `seg` is
+/// unmapped.
+///
+/// # Safety
+/// Must be called directly from a PostgreSQL parallel worker entry point with the `seg` and
+/// `toc` pointers supplied by `ParallelWorkerMain`, which remain mapped for the entire callback.
 #[doc(hidden)]
-pub unsafe fn generic_parallel_worker_entry_point(
+pub unsafe fn run_parallel_worker<F>(
     seg: *mut pg_sys::dsm_segment,
     toc: *mut pg_sys::shm_toc,
     mq_size: usize,
-) -> (ParallelStateManager, MessageQueueSender) {
+    f: F,
+) where
+    F: FnOnce(ParallelStateManager, &MessageQueueSender),
+{
     unsafe {
         pg_sys::InstrStartParallelQuery();
     }
@@ -644,7 +664,8 @@ pub unsafe fn generic_parallel_worker_entry_point(
 
     let state_manager = ParallelStateManager::new(toc, seg);
     let mq_sender = MessageQueueSender::new(seg, mq, stats);
-    (state_manager, mq_sender)
+    f(state_manager, &mq_sender);
+    mq_sender.finish();
 }
 
 #[inline(always)]

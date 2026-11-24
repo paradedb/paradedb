@@ -54,7 +54,10 @@ pub const BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY: u64 = 256;
 /// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
 /// pin would collide with the index's tracked blocks under the `block_tracker` feature, and a
 /// `CREATE INDEX` reads the heap while its own index buffers are tracked.
-pub struct HeapBufferPin(pg_sys::Buffer);
+pub struct HeapBufferPin {
+    pg_buffer: pg_sys::Buffer,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
+}
 
 impl HeapBufferPin {
     /// Reads and pins `blockno` of `heaprel`'s main fork.
@@ -62,28 +65,34 @@ impl HeapBufferPin {
     /// # Safety
     /// `heaprel` must stay open for the lifetime of the returned pin.
     pub unsafe fn read(heaprel: &PgSearchRelation, blockno: BlockNumber) -> Self {
-        Self(pg_sys::ReadBufferExtended(
-            heaprel.as_ptr(),
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-            blockno,
-            pg_sys::ReadBufferMode::RBM_NORMAL,
-            std::ptr::null_mut(),
-        ))
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
+        Self {
+            pg_buffer: pg_sys::ReadBufferExtended(
+                heaprel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+                blockno,
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                std::ptr::null_mut(),
+            ),
+            owner,
+        }
     }
 
     pub fn buffer(&self) -> pg_sys::Buffer {
-        self.0
+        self.pg_buffer
     }
 }
 
-struct ReleaseHeapBufferOnMainThread(pg_sys::Buffer);
+struct ReleaseHeapBufferOnMainThread {
+    pg_buffer: pg_sys::Buffer,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
+}
 
 crate::impl_safe_drop!(ReleaseHeapBufferOnMainThread, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            pg_sys::ReleaseBuffer(self.0);
-        }
-    }
+    let pg_buffer = self.pg_buffer;
+    self.owner.run_if_live(|| unsafe {
+        pg_sys::ReleaseBuffer(pg_buffer);
+    });
 });
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the inner
@@ -91,9 +100,10 @@ crate::impl_safe_drop!(ReleaseHeapBufferOnMainThread, |self| {
 // `impl_safe_drop!`.
 impl Drop for HeapBufferPin {
     fn drop(&mut self) {
-        crate::postgres::customscan::mpp::drop_on_main_thread(ReleaseHeapBufferOnMainThread(
-            self.0,
-        ));
+        crate::postgres::customscan::mpp::drop_on_main_thread(ReleaseHeapBufferOnMainThread {
+            pg_buffer: self.pg_buffer,
+            owner: self.owner,
+        });
     }
 }
 
@@ -214,6 +224,7 @@ pub struct VisibilityChecker {
     scan: *mut pg_sys::IndexFetchTableData,
     snapshot: pg_sys::Snapshot,
     tid: pg_sys::ItemPointerData,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 
     // we hold onto this b/c `scan` points to the relation this does
     heaprel: PgSearchRelation,
@@ -265,20 +276,21 @@ impl Clone for VisibilityChecker {
 struct VisibilityCheckerCleanupOnMainThread {
     vmbuff: pg_sys::Buffer,
     scan: usize,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     _heaprel: PgSearchRelation,
 }
 
 crate::impl_safe_drop!(VisibilityCheckerCleanupOnMainThread, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            if self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                pg_sys::ReleaseBuffer(self.vmbuff);
-            }
-            if self.scan != 0 {
-                pg_sys::table_index_fetch_end(self.scan as *mut pg_sys::IndexFetchTableData);
-            }
+    let vmbuff = self.vmbuff;
+    let scan = self.scan;
+    self.owner.run_if_live(|| unsafe {
+        if vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer {
+            pg_sys::ReleaseBuffer(vmbuff);
         }
-    }
+        if scan != 0 {
+            pg_sys::table_index_fetch_end(scan as *mut pg_sys::IndexFetchTableData);
+        }
+    });
 });
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the cleanup
@@ -292,6 +304,7 @@ impl Drop for VisibilityChecker {
             VisibilityCheckerCleanupOnMainThread {
                 vmbuff,
                 scan,
+                owner: self.owner,
                 _heaprel: self.heaprel.clone(),
             },
         );
@@ -395,6 +408,7 @@ impl VisibilityChecker {
     /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
     /// `relation` and `snapshot`
     pub fn with_rel_and_snap(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) -> Self {
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             let nblocks =
                 pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), heaprel.fork_number());
@@ -402,6 +416,7 @@ impl VisibilityChecker {
                 scan: pg_sys::table_index_fetch_begin(heaprel.as_ptr()),
                 snapshot,
                 tid: pg_sys::ItemPointerData::default(),
+                owner,
                 heaprel: Clone::clone(heaprel),
                 bman: BufferManager::new(heaprel),
                 vm_block_no: None,
@@ -1367,6 +1382,7 @@ pub struct HeapFetchState {
     // A virtual view of the fetched tuple, handed to expression evaluation by
     // `fetch_eval_slot`. See that method for why a virtual slot is required.
     virtual_slot: *mut pg_sys::TupleTableSlot,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     // Hold a reference to the heap relation to keep it open for the lifetime of the scan.
     // The scan stores an internal pointer to the relation, so it must not be closed early.
     _heaprel: PgSearchRelation,
@@ -1379,6 +1395,7 @@ pub struct HeapFetchState {
 impl HeapFetchState {
     /// Create a HeapFetchState which will fetch the entire content of the given relation.
     pub fn new(heaprel: &PgSearchRelation) -> Self {
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             let scan = pg_sys::table_index_fetch_begin(heaprel.as_ptr());
             let slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
@@ -1389,6 +1406,7 @@ impl HeapFetchState {
                 scan,
                 slot: slot.cast(),
                 virtual_slot,
+                owner,
                 _heaprel: heaprel.clone(),
                 nblocks,
             }
@@ -1517,25 +1535,25 @@ struct HeapFetchStateCleanupOnMainThread {
     slot: usize,
     virtual_slot: usize,
     scan: usize,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     _heaprel: PgSearchRelation,
 }
 
 crate::impl_safe_drop!(HeapFetchStateCleanupOnMainThread, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            if self.slot != 0 {
-                pg_sys::ExecDropSingleTupleTableSlot(self.slot as *mut pg_sys::TupleTableSlot);
-            }
-            if self.virtual_slot != 0 {
-                pg_sys::ExecDropSingleTupleTableSlot(
-                    self.virtual_slot as *mut pg_sys::TupleTableSlot,
-                );
-            }
-            if self.scan != 0 {
-                pg_sys::table_index_fetch_end(self.scan as *mut pg_sys::IndexFetchTableData);
-            }
+    let slot = self.slot;
+    let virtual_slot = self.virtual_slot;
+    let scan = self.scan;
+    self.owner.run_if_live(|| unsafe {
+        if slot != 0 {
+            pg_sys::ExecDropSingleTupleTableSlot(slot as *mut pg_sys::TupleTableSlot);
         }
-    }
+        if virtual_slot != 0 {
+            pg_sys::ExecDropSingleTupleTableSlot(virtual_slot as *mut pg_sys::TupleTableSlot);
+        }
+        if scan != 0 {
+            pg_sys::table_index_fetch_end(scan as *mut pg_sys::IndexFetchTableData);
+        }
+    });
 });
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the cleanup
@@ -1550,6 +1568,7 @@ impl Drop for HeapFetchState {
             slot,
             virtual_slot,
             scan,
+            owner: self.owner,
             _heaprel: self._heaprel.clone(),
         });
     }

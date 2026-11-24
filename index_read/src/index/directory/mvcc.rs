@@ -21,7 +21,7 @@ use crate::api::{HashMap, HashSet};
 use crate::index::reader::io_stats::Trace;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::buffile::{self, BufFileReleaseGuard, TempFileOwner};
+use crate::postgres::buffile::{self, TempFileOwner};
 use crate::postgres::customscan::mpp::run_on_main_thread;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
@@ -77,10 +77,9 @@ pub(super) struct PgTempFile {
 
 impl PgTempFile {
     pub(super) fn create() -> Self {
-        let release_guard = BufFileReleaseGuard::register();
         let file = unsafe { buffile::create_temp_buffile() };
         Self {
-            file: TempFileOwner::new(file, release_guard),
+            file: TempFileOwner::new(file),
         }
     }
 }

@@ -92,8 +92,14 @@ pub fn vacuum_delay_point() {
 /// Postgres resource in `crate::postgres::customscan::mpp::MainThread` or forward their cleanup
 /// payload via `crate::postgres::customscan::mpp::drop_on_main_thread` from a plain `impl Drop`.
 ///
-/// PostgreSQL's transaction abort mechanism will clean up resources (buffers, relations, etc.)
-/// when the transaction is aborted due to the error.
+/// PostgreSQL's transaction and subtransaction abort mechanisms release `ResourceOwner`-managed
+/// resources (buffers, relations, locks, temp files, tuple descriptors) before a scan state's
+/// `MemoryContext` callback necessarily runs (for example, a failed outer cursor dropped later at
+/// `CLOSE` or `COMMIT`, or an SPI query failing inside an inner PL/pgSQL `EXCEPTION` block while
+/// `IsTransactionState()` is `true`). Wrappers that can live inside a `MemoryContext` should
+/// capture [`crate::postgres::resowner::ResourceOwnerStamp::current`] at acquisition time and gate
+/// C cleanup through [`crate::postgres::resowner::ResourceOwnerStamp::run_if_live`] rather than
+/// checking `IsTransactionState()` alone.
 ///
 /// Cleanup is also skipped once `proc_exit` has started: a FATAL doesn't unwind, so `panicking()`
 /// can't see it, and the abort that `proc_exit` runs releases those resources too. Skipping the body
@@ -103,11 +109,10 @@ pub fn vacuum_delay_point() {
 /// # Example
 /// ```ignore
 /// impl_safe_drop!(MyStruct, |self| {
-///     unsafe {
-///         if crate::postgres::utils::IsTransactionState() {
-///             pg_sys::some_cleanup_function(self.handle);
-///         }
-///     }
+///     let handle = self.handle;
+///     self.owner.run_if_live(|| unsafe {
+///         pg_sys::some_cleanup_function(handle);
+///     });
 /// });
 /// ```
 ///
@@ -226,25 +231,35 @@ pub fn proc_exit_in_progress() -> bool {
 /// // Use context_guard.as_ptr() to get the raw pointer
 /// // Context is automatically freed when context_guard goes out of scope
 #[derive(Debug)]
-pub struct ExprContextGuard(*mut pg_sys::ExprContext);
+pub struct ExprContextGuard {
+    econtext: *mut pg_sys::ExprContext,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
+}
 
 impl ExprContextGuard {
     /// Creates a new standalone expression context
     pub fn new() -> Self {
-        unsafe { Self(pg_sys::CreateStandaloneExprContext()) }
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
+        unsafe {
+            Self {
+                econtext: pg_sys::CreateStandaloneExprContext(),
+                owner,
+            }
+        }
     }
 
     /// Returns the raw pointer to the expression context
     pub fn as_ptr(&self) -> *mut pg_sys::ExprContext {
-        self.0
+        self.econtext
     }
 }
 
 impl_safe_drop!(ExprContextGuard, |self| {
-    unsafe {
-        if IsTransactionState() && !self.0.is_null() {
-            pg_sys::FreeExprContext(self.0, true);
-        }
+    if !self.econtext.is_null() {
+        let econtext = self.econtext;
+        self.owner.run_if_live(|| unsafe {
+            pg_sys::FreeExprContext(econtext, true);
+        });
     }
 });
 

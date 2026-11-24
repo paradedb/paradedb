@@ -1,0 +1,34 @@
+---
+title: Neon Logical Replication
+sidebarTitle: Neon
+description: Add ParadeDB BM25 search to Neon Postgres using logical replication
+canonical: https://www.paradedb.com/docs/operate/deploy/logical-replication/neon
+---
+
+If you can't install `pg_search` on your Neon database, run ParadeDB on Postgres 17 or later as a logical subscriber. Keep application writes on Neon and send search queries to ParadeDB. Search results reflect changes after they replicate.
+
+## 1. Prepare the Neon Publisher
+
+Enable [logical replication in your Neon project](https://neon.com/docs/guides/logical-replication-neon) if it isn't already enabled. Enabling it restarts the project's computes and cannot be reversed.
+
+Use a Neon role with the `REPLICATION` privilege and access to the published tables. Neon grants this privilege to roles created through its Console, CLI, or API. Give the role `USAGE` on the schema and `SELECT` on the tables for the initial copy.
+
+On Neon, create a publication for the tables you want to search. This example assumes `public.items` has a primary key. See [Replica Identity](/operate/deploy/logical-replication/configuration#handling-tables-without-primary-keys) for tables without one.
+
+```sql
+CREATE PUBLICATION paradedb_search FOR TABLE public.items;
+```
+
+## 2. Subscribe from ParadeDB
+
+Create the matching table schema on ParadeDB before subscribing. Apply later schema changes on both sides because logical replication only copies row data.
+
+On ParadeDB, create the subscription with the direct Neon hostname from the Console and the replication role's credentials. The direct hostname omits the `-pooler` suffix.
+
+```sql
+CREATE SUBSCRIPTION neon_search
+CONNECTION 'host=<direct-neon-host> port=5432 dbname=<database> user=<replication-role> password=<password> sslmode=require'
+PUBLICATION paradedb_search;
+```
+
+Follow [Initial Sync and Indexing](/operate/deploy/logical-replication/bootstrapping) to check that the initial copy finished and create the ParadeDB search index on the subscriber.

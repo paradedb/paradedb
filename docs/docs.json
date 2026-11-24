@@ -284,6 +284,7 @@
                     "group": "Logical Replication",
                     "pages": [
                       "operate/deploy/logical-replication/getting-started",
+                      "operate/deploy/logical-replication/neon",
                       "operate/deploy/logical-replication/bootstrapping",
                       "operate/deploy/logical-replication/configuration",
                       "operate/deploy/logical-replication/schema-changes",

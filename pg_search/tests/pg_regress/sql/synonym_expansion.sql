@@ -99,6 +99,15 @@ DELETE FROM shop_synonyms WHERE rule = 'sofa, settee';
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('settee', rule) FROM shop_synonyms) ORDER BY id;
 
+-- A one-token top-k by score stays serial, since Block-WAND prunes one term. A token that a rule
+-- turns into a group can take workers.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM products WHERE description ||| (SELECT pdb.expand('stand', rule) FROM shop_synonyms)
+ORDER BY pdb.score(id) DESC, id LIMIT 2;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM products WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)
+ORDER BY pdb.score(id) DESC, id LIMIT 2;
+
 -- A backend keeps the rules it read, by segment, and checks the row of each rule on every
 -- query, so an update, a reused ctid after VACUUM or a REINDEX never expands with an old rule.
 INSERT INTO products VALUES (11, 'telly remote'), (12, 'monitor arm');
@@ -115,6 +124,55 @@ REINDEX INDEX shop_synonyms_idx;
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms) ORDER BY id;
 DELETE FROM products WHERE id IN (11, 12);
+
+-- A join and an aggregate over a join print the synonym index too. The function keeps the
+-- lines of the plan that do not depend on its shape.
+CREATE TABLE product_groups (id int PRIMARY KEY, product_id int, note text);
+INSERT INTO product_groups VALUES (1, 1, 'big items'), (2, 2, 'large items');
+CREATE INDEX product_groups_idx ON product_groups USING bm25 (id, product_id, note);
+CREATE TABLE group_synonyms (rule pdb.synonym_rule NOT NULL);
+INSERT INTO group_synonyms VALUES ('big, large');
+CREATE INDEX group_synonyms_idx ON group_synonyms USING paradedb (rule);
+CREATE FUNCTION scan_and_synonyms(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF) ' || query LOOP
+        IF line ~ 'Custom Scan|Backend|Synonyms' THEN
+            RETURN NEXT line;
+        END IF;
+    END LOOP;
+END $$;
+SET paradedb.enable_join_custom_scan = on;
+SET paradedb.enable_aggregate_custom_scan = on;
+SELECT scan_and_synonyms($$
+    SELECT p.id FROM products p JOIN product_groups g ON g.product_id = p.id
+    WHERE p.description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)
+    ORDER BY p.id LIMIT 5
+$$);
+SELECT scan_and_synonyms($$
+    SELECT count(*) FROM products p JOIN product_groups g ON g.product_id = p.id
+    WHERE p.description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)
+$$);
+-- Each side of the join can read its own synonym index.
+SELECT scan_and_synonyms($$
+    SELECT p.id FROM products p JOIN product_groups g ON g.product_id = p.id
+    WHERE p.description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)
+      AND g.note ||| (SELECT pdb.expand('big', rule) FROM group_synonyms)
+    ORDER BY p.id LIMIT 5
+$$);
+-- An `OR` over the two sides is a predicate of the join, and its synonym indexes print too.
+SELECT scan_and_synonyms($$
+    SELECT p.id FROM products p JOIN product_groups g ON g.product_id = p.id
+    WHERE p.description ||| 'sofa'
+      AND (p.description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms)
+        OR g.note ||| (SELECT pdb.expand('big', rule) FROM group_synonyms))
+    ORDER BY p.id LIMIT 5
+$$);
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_aggregate_custom_scan;
+DROP FUNCTION scan_and_synonyms;
+DROP TABLE product_groups, group_synonyms;
 
 -- A JSON field expands the same way, with a group and with a phrase.
 CREATE TABLE json_products (id int PRIMARY KEY, attrs jsonb);

@@ -178,7 +178,7 @@ fn ranges_intersect(
     !ends_before(a_hi, b_lo) && !ends_before(b_hi, a_lo)
 }
 
-fn lower_bound_ge(a_lo: Bound<&PdbOwnedValue>, b_lo: Bound<&PdbOwnedValue>) -> bool {
+pub(crate) fn lower_bound_ge(a_lo: Bound<&PdbOwnedValue>, b_lo: Bound<&PdbOwnedValue>) -> bool {
     match (a_lo, b_lo) {
         (_, Bound::Unbounded) => true,
         (Bound::Unbounded, _) => false,
@@ -193,7 +193,7 @@ fn lower_bound_ge(a_lo: Bound<&PdbOwnedValue>, b_lo: Bound<&PdbOwnedValue>) -> b
     }
 }
 
-fn upper_bound_le(a_hi: Bound<&PdbOwnedValue>, b_hi: Bound<&PdbOwnedValue>) -> bool {
+pub(crate) fn upper_bound_le(a_hi: Bound<&PdbOwnedValue>, b_hi: Bound<&PdbOwnedValue>) -> bool {
     match (a_hi, b_hi) {
         (_, Bound::Unbounded) => true,
         (Bound::Unbounded, _) => false,

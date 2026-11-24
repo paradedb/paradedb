@@ -6,13 +6,13 @@ noindex: true
 
 See GitHub release: [v0.15.12](https://github.com/paradedb/paradedb/releases/tag/v0.15.12)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - Introduced `paradedb.force_merge()` which allows you to merge segments into an arbitrary layer size without changing the index's layer sizes. This
   is useful for merging into very large segment sizes (e.g. `>100MB`), because those merges are very expensive and can degrade write throughput if done at
   insert time.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed an issue where any long-running transaction could prevent segment recycling across all BM25 indexes, which led to increased index size
   and lowered write throughput. For instance, running a `REINDEX CONCURRENTLY` on one index could negatively affect other indexes.

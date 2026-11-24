@@ -23,6 +23,8 @@ use rstest::*;
 use sqlx::{PgConnection, Row};
 use tests::fixtures::*;
 
+const MPP_SPILL_WORK_MEM: &str = "4MB";
+
 #[derive(Clone, Copy, Debug)]
 enum ExecutionMode {
     Serial,
@@ -54,15 +56,14 @@ impl SpillShape {
     ///
     /// Serial execution processes all ~28k groups in one `AggregateExec` pipeline,
     /// whereas 3-worker MPP partitions the 3 immutable segments evenly across three
-    /// workers (~9.3k groups per worker).
+    /// workers (~9.3k groups per worker). The MPP budget forces spilling without
+    /// depending on concurrent partitions overlapping their memory use.
     fn work_mem(self, mode: ExecutionMode) -> &'static str {
         match (mode, self) {
             (ExecutionMode::Serial, Self::MultiType) => "16MB",
             (ExecutionMode::Serial, Self::DependentRowValue) => "12MB",
             (ExecutionMode::Serial, Self::SmallBuildJoin) => "10MB",
-            (ExecutionMode::Mpp, Self::MultiType) => "6MB",
-            (ExecutionMode::Mpp, Self::DependentRowValue) => "4MB",
-            (ExecutionMode::Mpp, Self::SmallBuildJoin) => "4MB",
+            (ExecutionMode::Mpp, _) => MPP_SPILL_WORK_MEM,
         }
     }
 

@@ -6,7 +6,7 @@ noindex: true
 
 See GitHub release: [v0.23.1](https://github.com/paradedb/paradedb/releases/tag/v0.23.1)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - Inline tokenizers can now be chained into relevance tuning casts (`pdb.boost`, `pdb.const`, `pdb.fuzzy`, `pdb.slop`). For example:
 
@@ -15,12 +15,12 @@ See GitHub release: [v0.23.1](https://github.com/paradedb/paradedb/releases/tag/
   WHERE description &&& 'shoes'::pdb.whitespace::pdb.boost(3);
   ```
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Tighten Block-Max WAND pruning in the single-scorer path, improving query performance when many documents share the same score.
 - `|||` (OR) queries over a single term now use Block-Max WAND pruning.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Replicate missed v0.23.0 migrations in v0.23.1 so upgrades from earlier versions apply cleanly.
 - Return parameterized selectivity for non-`Const` BM25 operator arguments, improving plans for prepared statements.

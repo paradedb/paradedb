@@ -10,13 +10,13 @@ vector_field = "emb"
 s3_base_path = "s3://paradedb-benchmark/datasets/hackernews/vector/v1"
 
 [postgres.build]
-shared_buffers = "32GB"
-maintenance_work_mem = "52428MB"
-max_parallel_maintenance_workers = 8
+shared_buffers = "8GB"
+maintenance_work_mem = "8GB"
+max_parallel_maintenance_workers = 7
 
 [postgres.search]
-shared_buffers = "32GB"
-max_parallel_workers = 16
+shared_buffers = "8GB"
+max_parallel_workers = 8
 max_worker_processes = 32
 
 [index]
@@ -24,7 +24,7 @@ options = """
 residual_quantization = true
 build.pin = 2
 [build.internal]
-lists = [80000]
+lists = [30000]
 spherical_centroids = true
 build_threads = 8
 sampling_factor = 64
@@ -42,10 +42,9 @@ explain_sample = 10
 enable_seqscan = "off"
 enable_bitmapscan = "off"
 enable_sort = "off"
-max_parallel_workers_per_gather = "8"
+max_parallel_workers_per_gather = "4"
 jit = "off"
 plan_cache_mode = "force_custom_plan"
-work_mem = "1GB"
 "vchordrq.prefilter" = "on"
 "vchordrq.epsilon" = "1.9"
 "vchordrq.max_scan_tuples" = "-1"
@@ -54,7 +53,7 @@ work_mem = "1GB"
 param = "vchordrq.probes"
 integer = true
 min = 1
-max = 80000
+max = 30000
 start = 64
 targets = [0.9, 0.95, 0.99]
 tolerance = 0.000001

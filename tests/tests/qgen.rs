@@ -1927,11 +1927,20 @@ async fn generated_rank_join(database: Db) {
             Some(base_w) => !use_disjunctive && base_w.is_positive_indexed_search(),
         };
 
+        // When the filter makes the leading `quantity` a constant, the `ORDER BY` starts with its
+        // next key. That key can be one that a rank join does not accept as its first key.
+        let lead_order_is_constant = n_scored == 0
+            && !is_vector_order
+            && extra_base_where
+                .as_ref()
+                .is_some_and(|base_w| base_w.requires_atom_on(&format!("{first_table}.quantity")));
+
         if !join.has_keyless_step()
             && !join_clause.contains(" AND ")
             && !join_clause.contains(".name =")
             && !join_clause.contains(".big_numeric =")
             && base_where_eligible
+            && !lead_order_is_constant
             && (n_scored == 0 || descending)
             && !gucs.parallel_workers
             && gucs.filter_pushdown

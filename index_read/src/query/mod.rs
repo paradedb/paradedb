@@ -43,7 +43,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 pub use crate::query::more_like_this::MoreLikeThisOptions;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
-use crate::query::pdb_query::pdb;
+use crate::query::pdb_query::{expands_with_synonyms, pdb};
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
@@ -57,6 +57,7 @@ use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
+use std::sync::Arc;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
     Query as TantivyQuery, QueryParser, TermSetQuery,
@@ -156,7 +157,9 @@ pub enum SearchQueryInput {
         conjunction_mode: Option<bool>,
     },
     TermSet {
-        terms: Vec<TermInput>,
+        /// Also reads the legacy `terms: [{"field": ..., "value": ...}, ...]` form.
+        #[serde(alias = "terms", deserialize_with = "deserialize_termset")]
+        termset: Arc<std::collections::BTreeMap<FieldName, Vec<PdbOwnedValue>>>,
     },
     WithIndex {
         oid: pg_sys::Oid,
@@ -446,6 +449,8 @@ impl SearchQueryInput {
                     query,
                     pdb::Query::All
                         | pdb::Query::Term { .. }
+                        | pdb::Query::Range { .. }
+                        | pdb::Query::StoredRange { .. }
                         | pdb::Query::Match {
                             distance: None | Some(0),
                             ..
@@ -646,50 +651,6 @@ impl SearchQueryInput {
             }
             _ => false,
         }
-    }
-
-    pub fn is_text_only(&self) -> bool {
-        let mut supported = true;
-        self.visit_ref(&mut |query| {
-            supported &= match query {
-                Self::All
-                | Self::Empty
-                | Self::Null
-                | Self::Boolean { .. }
-                | Self::WithIndex { .. }
-                | Self::Boost { .. }
-                | Self::ConstScore { .. }
-                | Self::TermSet { .. } => true,
-                Self::Parse { query_string, .. }
-                | Self::FieldedQuery {
-                    query:
-                        pdb::Query::Parse { query_string, .. }
-                        | pdb::Query::ParseWithField { query_string, .. },
-                    ..
-                } => parsed_query_is_text_only(query_string),
-                Self::FieldedQuery {
-                    query:
-                        pdb::Query::All
-                        | pdb::Query::Empty
-                        | pdb::Query::Term { .. }
-                        | pdb::Query::TermSet { .. }
-                        | pdb::Query::Match {
-                            distance: None | Some(0),
-                            ..
-                        }
-                        | pdb::Query::MatchArray {
-                            distance: None | Some(0),
-                            ..
-                        }
-                        | pdb::Query::Phrase { .. }
-                        | pdb::Query::PhraseArray { .. }
-                        | pdb::Query::TokenizedPhrase { .. },
-                    ..
-                } => true,
-                _ => false,
-            };
-        });
-        supported
     }
 
     pub fn is_exists(&self) -> bool {
@@ -944,6 +905,41 @@ impl SearchQueryInput {
         }
     }
 
+    /// Whether a synonym rule turns the token of this one-token match or parsed term into a
+    /// group of alternatives. `is_topk_prunable` sees only the query input, and not the rules.
+    pub fn expands_with_synonyms(&self, schema: &SearchIndexSchema) -> bool {
+        let (field, value, rules, parsed) = match self {
+            SearchQueryInput::FieldedQuery {
+                field,
+                query:
+                    pdb::Query::Match {
+                        value,
+                        tokenizer: None,
+                        synonyms: Some(rules),
+                        ..
+                    },
+            } => (field, value, rules, false),
+            SearchQueryInput::FieldedQuery {
+                field,
+                query:
+                    pdb::Query::ParseWithField {
+                        query_string,
+                        synonyms: Some(rules),
+                        ..
+                    },
+            } => (field, query_string, rules, true),
+            SearchQueryInput::WithIndex { query, .. } => {
+                return query.expands_with_synonyms(schema);
+            }
+            _ => return false,
+        };
+        schema
+            .search_field(field.root())
+            .is_some_and(|search_field| {
+                expands_with_synonyms(&search_field, schema, value, rules, parsed)
+            })
+    }
+
     /// Whether a score-DESC TopK over this query can be Block-WAND-pruned by the
     /// collector, making it sublinear and not worth parallelizing. Call only when the
     /// ORDER BY is score-DESC; everything that returns false has a non-trivial docset
@@ -1075,8 +1071,8 @@ impl SearchQueryInput {
                     }
                 },
                 Self::Parse { query_string, .. } => Some(query_string.clone()),
-                Self::TermSet { terms } => {
-                    field_names.extend(terms.iter().map(|term| term.field.root()));
+                Self::TermSet { termset } => {
+                    field_names.extend(termset.keys().map(|field| field.root()));
                     None
                 }
                 Self::MoreLikeThis { document, .. } => {
@@ -1145,7 +1141,7 @@ impl SearchQueryInput {
         visit_search_query_input!(self, visitor, visit_ref, as_ref);
     }
 
-    /// The synonym indexes that the match queries of this tree name.
+    /// The synonym indexes that the queries of this tree read.
     pub fn synonym_indexes(&self) -> Vec<pg_sys::Oid> {
         let mut indexes = Vec::new();
         self.visit_ref(&mut |input| {
@@ -1157,6 +1153,14 @@ impl SearchQueryInput {
                 query = inner;
             }
             if let pdb::Query::Match {
+                synonyms: Some(pdb::SynonymRules::Index(index)),
+                ..
+            }
+            | pdb::Query::TokenizedPhrase {
+                synonyms: Some(pdb::SynonymRules::Index(index)),
+                ..
+            }
+            | pdb::Query::ParseWithField {
                 synonyms: Some(pdb::SynonymRules::Index(index)),
                 ..
             } = query
@@ -1174,32 +1178,6 @@ impl SearchQueryInput {
         cleanup_variabilities_from_tantivy_query(&mut cleaned_query);
         serde_json::to_string(&cleaned_query).unwrap_or_else(|_| "Error".to_string())
     }
-}
-
-fn parsed_query_is_text_only(query: &str) -> bool {
-    use tantivy::query_grammar::{UserInputAst, UserInputLeaf, parse_query};
-
-    let Ok(ast) = parse_query(query) else {
-        return false;
-    };
-    let mut nodes = vec![ast];
-    while let Some(node) = nodes.pop() {
-        match node {
-            UserInputAst::Clause(children) => {
-                nodes.extend(children.into_iter().map(|(_, child)| child));
-            }
-            UserInputAst::Boost(inner, _) => nodes.push(*inner),
-            UserInputAst::Leaf(leaf) => {
-                if !matches!(
-                    *leaf,
-                    UserInputLeaf::Literal(_) | UserInputLeaf::Set { .. } | UserInputLeaf::All
-                ) {
-                    return false;
-                }
-            }
-        }
-    }
-    true
 }
 
 /// Remove the oid from the with_index object
@@ -1296,11 +1274,12 @@ impl SearchQueryInput {
     }
 }
 
-/// Legacy wire format for [`TermInput`] kept around so that JSON inputs in the
-/// 3-element positional form `[field, value, is_datetime]` still deserialize.
-/// `is_datetime` no longer affects parsing — `PdbOwnedValue::Date` carries the
-/// datetime intent now — but the slot must exist for serde's positional
-/// (array) deserialization to accept the 3-element shape.
+/// Legacy wire format for a term set entry, from when `SearchQueryInput::TermSet` was a flat
+/// `terms: Vec<TermInput>` list. Kept so values serialized by earlier versions still
+/// deserialize, including JSON inputs in the 3-element positional form
+/// `[field, value, is_datetime]`. `is_datetime` no longer affects parsing —
+/// `PdbOwnedValue::Date` carries the datetime intent now — but the slot must exist for serde's
+/// positional (array) deserialization to accept the 3-element shape.
 #[derive(Deserialize)]
 struct TermInputWire {
     field: FieldName,
@@ -1310,19 +1289,46 @@ struct TermInputWire {
     is_datetime: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(from = "TermInputWire")]
-pub struct TermInput {
-    pub field: FieldName,
-    pub value: PdbOwnedValue,
-}
-impl From<TermInputWire> for TermInput {
-    fn from(wire: TermInputWire) -> Self {
-        TermInput {
-            field: wire.field,
-            value: wire.value,
+/// Deserializes `SearchQueryInput::TermSet`'s field-grouped `termset` map, or the legacy flat
+/// `terms` list of [`TermInputWire`] entries (grouped by field as it is read).
+fn deserialize_termset<'de, D>(
+    deserializer: D,
+) -> Result<Arc<std::collections::BTreeMap<FieldName, Vec<PdbOwnedValue>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use std::collections::BTreeMap;
+
+    struct TermSetVisitor;
+
+    impl<'de> Visitor<'de> for TermSetVisitor {
+        type Value = Arc<BTreeMap<FieldName, Vec<PdbOwnedValue>>>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a map of field to term values, or a legacy list of term set entries")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut termset: BTreeMap<FieldName, Vec<PdbOwnedValue>> = BTreeMap::new();
+            while let Some((field, values)) = map.next_entry::<FieldName, Vec<PdbOwnedValue>>()? {
+                termset.entry(field).or_default().extend(values);
+            }
+            Ok(Arc::new(termset))
+        }
+
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut termset: BTreeMap<FieldName, Vec<PdbOwnedValue>> = BTreeMap::new();
+            while let Some(TermInputWire { field, value, .. }) = seq.next_element()? {
+                termset.entry(field).or_default().push(value);
+            }
+            Ok(Arc::new(termset))
         }
     }
+
+    deserializer.deserialize_any(TermSetVisitor)
 }
 
 /// Serialize a `SearchQueryInput` node to a Postgres [`pg_sys::Const`] node, palloc'd
@@ -1911,42 +1917,43 @@ impl SearchQueryInput {
                 )?;
                 Ok(builder.build_leaf(query, || "Parse Query".to_string(), cloned_for_estimate))
             }
-            SearchQueryInput::TermSet { terms: fields } => {
-                check_term_set_size(fields.len());
-                let terms = fields
-                    .into_iter()
-                    .map(|TermInput { field, value }| {
-                        let search_field = schema
-                            .search_field(field.root())
-                            .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
-                        let field_type = search_field.field_entry().field_type();
+            SearchQueryInput::TermSet { termset } => {
+                let term_count = termset.values().map(|s| s.len()).sum();
+                check_term_set_size(term_count);
+                let mut terms = Vec::with_capacity(term_count);
+                for (field, values) in termset.iter() {
+                    let search_field = schema
+                        .search_field(field.root())
+                        .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
 
+                    let field_type = search_field.field_entry().field_type();
+                    for value in values {
                         // A number that no integer of the field equals matches nothing, so it is
                         // left out.
-                        if numeric::is_outside_int_domain(&value, &search_field.field_type()) {
-                            return Ok(None);
+                        if numeric::is_outside_int_domain(value, &search_field.field_type()) {
+                            continue;
                         }
 
                         // The tantivy `FieldType` can't tell a scaled `Numeric64` or an encoded
                         // `NumericBytes` column from a plain `I64` or `Bytes` one, so the term has
                         // to be converted from the schema-level type, same as a single `Term`.
                         let value = numeric::convert_value_for_field(
-                            value,
+                            value.clone(),
                             &search_field.field_type(),
                             index_created_by_version,
                         )?;
 
-                        value_to_term(
+                        let term = value_to_term(
                             search_field.field(),
                             &value,
                             field_type,
                             field.path().as_deref(),
                             index_created_by_version,
-                        )
-                        .map(Some)
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                let query = Box::new(TermSetQuery::new(terms.into_iter().flatten()));
+                        )?;
+                        terms.push(term);
+                    }
+                }
+                let query = Box::new(SharedTermSetQuery(Arc::new(TermSetQuery::new(terms))));
 
                 Ok(builder.build_leaf(query, || "TermSet Query".to_string(), cloned_for_estimate))
             }
@@ -2007,7 +2014,7 @@ impl SearchQueryInput {
                 field,
                 query: pdb_query,
             } => {
-                let query = pdb_query.clone().into_tantivy_query(
+                let query = pdb_query.into_tantivy_query(
                     field.clone(),
                     schema,
                     index_created_by_version,
@@ -2050,6 +2057,38 @@ impl SearchQueryInput {
             expr_context,
             planstate,
         )
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SharedTermSetQuery(Arc<TermSetQuery>);
+impl tantivy::query::Query for SharedTermSetQuery {
+    fn weight(
+        &self,
+        enable_scoring: tantivy::query::EnableScoring<'_>,
+    ) -> tantivy::Result<Box<dyn tantivy::query::Weight>> {
+        self.0.weight(enable_scoring)
+    }
+
+    fn query_terms(
+        &self,
+        field: Field,
+        segment_reader: &tantivy::SegmentReader,
+        visitor: &mut dyn FnMut(&Term, bool),
+    ) {
+        self.0.query_terms(field, segment_reader, visitor)
+    }
+
+    fn count(&self, searcher: &Searcher) -> tantivy::Result<usize> {
+        self.0.count(searcher)
+    }
+
+    fn explain(
+        &self,
+        searcher: &Searcher,
+        doc_address: tantivy::DocAddress,
+    ) -> tantivy::Result<tantivy::query::Explanation> {
+        self.0.explain(searcher, doc_address)
     }
 }
 
@@ -2366,7 +2405,9 @@ impl PostgresExpression {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use super::{SearchQueryInput, TermInput};
+    use std::sync::Arc;
+
+    use super::SearchQueryInput;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::query::pdb_query::pdb;
 
@@ -2450,6 +2491,7 @@ mod tests {
                     lenient: None,
                     conjunction_mode: None,
                     fuzzy_data: None,
+                    synonyms: None,
                 },
             }),
         };
@@ -2463,6 +2505,7 @@ mod tests {
                         lenient: None,
                         conjunction_mode: None,
                         fuzzy_data: None,
+                        synonyms: None,
                     },
                 }),
             }),
@@ -2536,11 +2579,10 @@ mod tests {
     }
 
     fn create_term_query() -> SearchQueryInput {
+        let mut termset = std::collections::BTreeMap::new();
+        termset.insert("test".into(), vec![PdbOwnedValue::Str("value".to_string())]);
         SearchQueryInput::TermSet {
-            terms: vec![TermInput {
-                field: "test".into(),
-                value: PdbOwnedValue::Str("value".to_string()),
-            }],
+            termset: Arc::new(termset),
         }
     }
 
@@ -2917,6 +2959,25 @@ mod tests {
     }
 
     #[pg_test]
+    fn test_is_match_all_looks_through_index_wrappers() {
+        let with_index = |query| SearchQueryInput::WithIndex {
+            oid: 12345.into(),
+            query: Box::new(query),
+        };
+        assert!(SearchQueryInput::All.is_match_all());
+        assert!(with_index(SearchQueryInput::All).is_match_all());
+        assert!(!with_index(create_term_query()).is_match_all());
+        assert!(
+            !with_index(conjunction(vec![
+                SearchQueryInput::All,
+                create_term_query()
+            ]))
+            .is_match_all()
+        );
+        assert!(!conjunction(vec![SearchQueryInput::All, create_match_query()]).is_match_all());
+    }
+
+    #[pg_test]
     fn test_is_full_scan_query_wrapper_queries() {
         // WithIndex wrapping All → full scan
         assert!(
@@ -3122,5 +3183,85 @@ mod tests {
             tantivy::Term::from_field_i64(field, i64::MAX)
         );
         assert!(term(PdbOwnedValue::U64(1 << 63)).is_err());
+    }
+
+    #[pg_test]
+    fn term_set_reads_legacy_format_and_writes_grouped_format() {
+        use pgrx::IntoDatum;
+
+        // Every legacy entry shape: a map, a map with `is_datetime`, and the positional form.
+        let legacy = serde_json::json!({
+            "term_set": {
+                "terms": [
+                    {"field": "a", "value": "x"},
+                    {"field": "b", "value": 1, "is_datetime": false},
+                    ["a", "y", false],
+                ]
+            }
+        });
+        let parsed: SearchQueryInput = serde_json::from_value(legacy).unwrap();
+        let SearchQueryInput::TermSet { termset } = &parsed else {
+            panic!("expected a term set, got {parsed:?}");
+        };
+        assert_eq!(termset.len(), 2);
+        assert_eq!(
+            termset[&"a".into()],
+            vec![
+                PdbOwnedValue::Str("x".to_string()),
+                PdbOwnedValue::Str("y".to_string())
+            ]
+        );
+        assert_eq!(termset[&"b".into()], vec![PdbOwnedValue::U64(1)]);
+
+        // Serialization writes the grouped format, which also reads back.
+        let single = create_term_query();
+        let written = serde_json::to_value(&single).unwrap();
+        assert_eq!(
+            written,
+            serde_json::json!({"term_set": {"termset": {"test": ["value"]}}})
+        );
+        assert_eq!(
+            serde_json::from_value::<SearchQueryInput>(written).unwrap(),
+            single
+        );
+
+        // The CBOR datum round-trips.
+        let datum = parsed.clone().into_datum().unwrap();
+        let decoded = unsafe { SearchQueryInput::from_datum(datum, false) }.unwrap();
+        assert_eq!(decoded, parsed);
+    }
+
+    // `PdbOwnedValue`'s serde reaches Postgres's date functions, so these can't be plain tests.
+    #[pg_test]
+    fn non_finite_floats_survive_json() {
+        use crate::postgres::pdb_owned_value::PDB_FLOAT_TAG;
+
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let json = serde_json::to_string(&PdbOwnedValue::F64(value)).unwrap();
+            assert!(json.contains(PDB_FLOAT_TAG), "not tagged: {json}");
+            let PdbOwnedValue::F64(decoded) = serde_json::from_str(&json).unwrap() else {
+                panic!("did not decode as a float: {json}");
+            };
+            assert_eq!(decoded.to_bits(), value.to_bits());
+        }
+    }
+
+    #[pg_test]
+    fn finite_floats_stay_plain_json_numbers() {
+        assert_eq!(
+            serde_json::to_string(&PdbOwnedValue::F64(1.5)).unwrap(),
+            "1.5"
+        );
+    }
+
+    #[pg_test]
+    fn float_tag_only_decodes_non_finite_values() {
+        use crate::postgres::pdb_owned_value::PDB_FLOAT_TAG;
+
+        for text in ["1.5", "not a float"] {
+            let value: PdbOwnedValue =
+                serde_json::from_value(serde_json::json!({ PDB_FLOAT_TAG: text })).unwrap();
+            assert!(matches!(value, PdbOwnedValue::Object(_)), "{value:?}");
+        }
     }
 }

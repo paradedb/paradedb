@@ -20,11 +20,10 @@
 //! of a rule is one term of the field.
 
 use crate::api::FieldName;
-use crate::nodecast;
 use crate::postgres::catalog::synonym_rule_typoid;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::strip_tokenizer_cast;
+use crate::postgres::utils::heap_attno_read_by;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use pgrx::{PgList, pg_sys};
 use tantivy::TantivyDocument;
@@ -56,11 +55,7 @@ pub unsafe fn is_synonym_index_relation(indexrel: pg_sys::Relation) -> bool {
             let column = if attnum != 0 {
                 Some(attnum)
             } else {
-                expressions
-                    .next()
-                    .and_then(|expression| nodecast!(Var, strip_tokenizer_cast(expression)))
-                    .map(|var| (*var).varattno)
-                    .filter(|&attno| attno > 0)
+                expressions.next().and_then(heap_attno_read_by)
             };
             column.is_some_and(|attnum| pg_sys::get_atttype(index.indrelid, attnum) == typoid)
         })

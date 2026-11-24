@@ -34,7 +34,7 @@
 //! | Context | Created | Per-tuple memory reset | Use it for |
 //! |---|---|---|---|
 //! | `ps_ExprContext` | PostgreSQL, in `ExecInitCustomScan` | by the scan, per row | evaluating heap filters, snippets, projection |
-//! | runtime context (`BaseScanState::runtime_context`, `AggregateScanState::runtime_context`) | [`SolvePostgresExpressions::init_expr_context`], only when the base query has something to solve | once, at the start of each solve | the solved query |
+//! | runtime context (`BaseScanState::runtime_context`, `AggregateScanState::runtime_context`, `DataFusionAggState::runtime_context`) | [`SolvePostgresExpressions::init_expr_context`], only when the base query has something to solve | once, at the start of each solve | the solved query |
 //!
 //! Both live in the EState's per-query memory and are freed with it.
 //!
@@ -50,6 +50,10 @@
 //! 3. Nothing else resets the runtime context between solves.
 //! 4. Before solving again (rescan), drop everything that still points into the old solved
 //!    query: the reader and its scorers. The new solve starts with a reset that frees it.
+//! 5. Solve on the Postgres main thread before entering `PgTokioRuntime::block_on`. Evaluating
+//!    an `InitPlan` inside `block_on` runs under `HeldInterrupts` (forcing PostgreSQL's
+//!    `InitializeParallelDSM` into its private-memory fallback with `es_query_dsa == NULL`) and
+//!    panics if the `InitPlan` itself enters `block_on`.
 //!
 //! # Why a second context
 //!
@@ -63,10 +67,7 @@
 //! # Scans outside this trait
 //!
 //! JoinScan solves `JoinCSClause` in `ps_ExprContext`, which it never resets per row because
-//! DataFusion produces its rows. The DataFusion aggregate does reset `ps_ExprContext` per row,
-//! so it cannot solve there; each source solves in `PgSearchTableProvider::scan` into a context
-//! created for that source alone (`aggregatescan/datafusion_exec.rs`), so one source's reset
-//! cannot free another's query.
+//! DataFusion produces its rows (and still solves before entering `PgTokioRuntime::block_on`).
 
 use crate::api::operator::searchqueryinput_typoid;
 use crate::nodecast;
@@ -187,14 +188,10 @@ impl SearchQueryInput {
         found
     }
 
-    /// Collects raw `Expr*` pointers for every PostgreSQL expression referenced
-    /// by heap filters or PostgresExpression variants in this query tree.
-    ///
-    /// Used to populate `CustomScan.custom_exprs` so `finalize_plan`'s
-    /// param-dependency walker sees InitPlan references (issue #5727).
-    pub fn collect_expression_nodes(&mut self) -> Vec<*mut pg_sys::Node> {
-        let mut nodes = Vec::new();
-        self.visit(&mut |sqi| match sqi {
+    /// Appends raw `Expr*` pointers for every PostgreSQL expression referenced by `HeapFilter` or
+    /// `PostgresExpression` variants in this query tree.
+    pub fn collect_expression_nodes_into(&self, nodes: &mut Vec<*mut pg_sys::Node>) {
+        self.visit_ref(&mut |sqi| match sqi {
             SearchQueryInput::HeapFilter {
                 always_filters,
                 recheck_filters,
@@ -215,6 +212,16 @@ impl SearchQueryInput {
             }
             _ => {}
         });
+    }
+
+    /// Collects raw `Expr*` pointers for every PostgreSQL expression referenced
+    /// by heap filters or PostgresExpression variants in this query tree.
+    ///
+    /// Used to populate `CustomScan.custom_exprs` so `finalize_plan`'s
+    /// param-dependency walker sees InitPlan references (issue #5727).
+    pub fn collect_expression_nodes(&self) -> Vec<*mut pg_sys::Node> {
+        let mut nodes = Vec::new();
+        self.collect_expression_nodes_into(&mut nodes);
         nodes
     }
 

@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use std::cell::UnsafeCell;
+use std::cell::{OnceCell, UnsafeCell};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -45,9 +45,12 @@ use crate::query::tid_bitmap_stream::BitmapCell;
 use std::ptr::NonNull;
 
 use crate::index::reader::vector::SharedVectorRouting;
+use crate::postgres::customscan::basescan::privdat::VectorFilterPlan;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{PgTupleDesc, pg_sys};
+use pgrx::{JsonB, PgTupleDesc, pg_sys};
+use tantivy::DocAddress;
 use tantivy::index::SegmentId;
+use tantivy::query::Weight;
 use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
@@ -66,6 +69,7 @@ pub struct BaseScanState {
     /// Workers wait for the leader to publish this plan when they first need it.
     pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
     pub vector_routing_pending: bool,
+    pub vector_filter_plan: Option<VectorFilterPlan>,
 
     // Note: the range table index at execution time might be different from the one at planning time,
     // so we need to use the one at execution time when creating the custom scan state.
@@ -75,8 +79,8 @@ pub struct BaseScanState {
     pub planning_rti: pg_sys::Index,
     pub execution_rti: pg_sys::Index,
 
-    base_search_query_input: SearchQueryInput,
-    search_query_input: SearchQueryInput,
+    base_search_query_input: Arc<SearchQueryInput>,
+    search_query_input: Arc<SearchQueryInput>,
     /// Where `search_query_input` is solved; `None` when the base query has nothing to solve.
     /// Separate from `ps_ExprContext`, which `exec_custom_scan` resets per row: see the rules in
     /// `solve_expr.rs`.
@@ -105,6 +109,10 @@ pub struct BaseScanState {
     pub need_scores: bool,
     pub score_funcoids: [pg_sys::Oid; 2],
 
+    pub need_score_explanation: bool,
+    /// The weight of the scan's query, built when the first row needs an explanation.
+    pub score_explanation_weight: OnceCell<Box<dyn Weight>>,
+
     /// True when a junk ORDER-BY `embedding <-> query` `OpExpr` in the scan's
     /// targetlist was replaced with a NULL placeholder `Const` (see
     /// `inject_vector_distance_placeholders`). The value is never read — the
@@ -124,7 +132,7 @@ pub struct BaseScanState {
     pub placeholders: Option<BasePlaceholders>,
 
     // Store join-level search predicates for enhanced scoring/snippet generation
-    pub join_predicates: Option<SearchQueryInput>,
+    pub join_predicates: Option<Arc<SearchQueryInput>>,
 
     pub exec_method_type: ExecMethodType,
     pub ambulkdelete_epoch: u32,
@@ -152,6 +160,7 @@ pub struct BaseScanState {
 pub struct BasePlaceholders {
     pub projection: PlaceholderProjection,
     pub score: PlaceholderColumn,
+    pub score_explanation: PlaceholderColumn,
     pub snippets: HashMap<SnippetType, Vec<PlaceholderColumn>>,
     /// Indexed by target entry position.
     pub window_aggs: HashMap<usize, PlaceholderColumn>,
@@ -186,20 +195,20 @@ impl BaseScanState {
         };
     }
 
-    pub fn set_base_search_query_input(&mut self, input: SearchQueryInput) {
+    pub fn set_base_search_query_input(&mut self, input: Arc<SearchQueryInput>) {
         self.base_search_query_input = input;
     }
 
-    pub fn search_query_input(&self) -> &SearchQueryInput {
-        if matches!(self.search_query_input, SearchQueryInput::Uninitialized) {
+    pub fn search_query_input(&self) -> Arc<SearchQueryInput> {
+        if matches!(*self.search_query_input, SearchQueryInput::Uninitialized) {
             panic!("search_query_input should be initialized");
         }
-        &self.search_query_input
+        self.search_query_input.clone()
     }
 
     /// Get the original base search query input before any modifications
-    pub fn base_search_query_input(&self) -> &SearchQueryInput {
-        &self.base_search_query_input
+    pub fn base_search_query_input(&self) -> Arc<SearchQueryInput> {
+        self.base_search_query_input.clone()
     }
 
     /// Drop the active search results (whose scorers hold bitmap cursors),
@@ -314,6 +323,28 @@ impl BaseScanState {
     #[inline(always)]
     pub fn visibility_checker(&mut self) -> &mut VisibilityChecker {
         self.visibility_checker.as_mut().unwrap()
+    }
+
+    /// Tantivy's explanation of the score that the scan's query gives to the document.
+    pub fn explain_score(&self, doc_address: DocAddress) -> JsonB {
+        let search_reader = self
+            .search_reader
+            .as_ref()
+            .expect("BaseScanState: search_reader should be initialized");
+        let weight = self
+            .score_explanation_weight
+            .get_or_init(|| search_reader.weight());
+        let segment_reader = search_reader
+            .searcher()
+            .segment_reader(doc_address.segment_ord);
+        let explanation = weight
+            .explain(segment_reader, doc_address.doc_id)
+            .unwrap_or_else(|e| panic!("failed to explain the score of a row: {e}"));
+        // A `serde_json::Value` keeps an `f32` as an `f64`, which has digits that the `f32` does
+        // not have. The JSON text has the digits that `pdb.score` prints.
+        let json = serde_json::to_string(&explanation)
+            .expect("a score explanation should serialize to JSON");
+        JsonB(serde_json::from_str(&json).expect("a score explanation should be valid JSON"))
     }
 
     pub fn make_snippet(
@@ -659,18 +690,18 @@ impl SolvePostgresExpressions for BaseScanState {
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        self.search_query_input.init_postgres_expressions(planstate);
+        Arc::make_mut(&mut self.search_query_input).init_postgres_expressions(planstate);
     }
 
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        self.search_query_input
-            .solve_postgres_expressions(expr_context);
+        Arc::make_mut(&mut self.search_query_input).solve_postgres_expressions(expr_context);
     }
 
     /// Install the late-bound source cell. Workers attach the published claim
-    /// table immediately; the leader's (or a serial scan's) cell is filled after
-    /// its reader opens (serial: privately in `init_search_reader`; parallel:
-    /// with the shared view at DSM initialization).
+    /// table immediately; the leader's (or a serial scan's) cell is filled once
+    /// its reader opens (parallel with attached DSM: with the shared view at
+    /// DSM initialization; serial or local fallback without attached DSM:
+    /// privately in `exec_custom_scan`).
     fn bitmap_source_cell(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<BitmapCell> {
         self.bitmap_exec.as_ref()?;
         let cell = self
@@ -693,7 +724,7 @@ impl SolvePostgresExpressions for BaseScanState {
     }
 
     fn attach_bitmap_cell(&mut self, cell: &BitmapCell) {
-        self.search_query_input.attach_bitmap_cell(cell);
+        Arc::make_mut(&mut self.search_query_input).attach_bitmap_cell(cell);
     }
 }
 

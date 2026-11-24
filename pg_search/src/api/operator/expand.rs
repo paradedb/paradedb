@@ -33,6 +33,7 @@ use crate::query::SearchQueryInput;
 use crate::query::pdb_query::{pdb, synonym_index_of_column};
 use pgrx::{FromDatum, IntoDatum, PgList, direct_function_call, pg_extern, pg_sys};
 use std::ffi::CStr;
+use std::sync::Arc;
 
 /// The planner calls this function in place of a `pdb.expand` subquery that a synonym index
 /// holds. The text of a prepared statement can be a parameter, which has a value only at run time.
@@ -49,12 +50,14 @@ pub fn expand_with_index(query: String, index: IndexOid) -> pdb::Query {
 const MORE: &str = "it does more than read the rules of one table";
 
 /// Replaces the `pdb.expand` subquery in `rhs` with a query on a synonym index of its table, for
-/// a match on `field` of the text index `index`. `None` leaves the subquery to run as written.
+/// a query on `field` of the text index `index`. `None` leaves the subquery to run as written.
+/// `parsed` is for a query parser string.
 pub(super) unsafe fn replace_expand_subquery(
     root: *mut pg_sys::PlannerInfo,
     rhs: *mut pg_sys::Node,
     index: &PgSearchRelation,
     field: &FieldName,
+    parsed: bool,
 ) -> Option<*mut pg_sys::Node> {
     // The replaced plan depends on the role, and only a root can record that.
     if root.is_null() {
@@ -66,7 +69,7 @@ pub(super) unsafe fn replace_expand_subquery(
         }
         expand_call(subquery)
             .ok_or_else(|| MORE.to_owned())
-            .and_then(|expand| synonym_index_query(root, subquery, expand, index, field))
+            .and_then(|expand| synonym_index_query(root, subquery, expand, index, field, parsed))
             .map_err(|reason| {
                 add_planner_warning(
                     "Synonyms",
@@ -112,7 +115,7 @@ pub(super) unsafe fn selectivity_now(
     );
     let input = nodecast!(Const, input)?;
     let input = SearchQueryInput::from_datum((*input).constvalue, (*input).constisnull)?;
-    estimate_selectivity(index, input)
+    estimate_selectivity(index, Arc::new(input))
 }
 
 /// The run for the estimate reads and compiles every rule a second time, so it is only for a
@@ -274,6 +277,7 @@ unsafe fn synonym_index_query(
     expand: *mut pg_sys::Aggref,
     index: &PgSearchRelation,
     field: &FieldName,
+    parsed: bool,
 ) -> Result<*mut pg_sys::Node, String> {
     let rules = rules_of_one_table(root, subquery, expand)?;
     let synonym_index = synonym_index_of_column(
@@ -282,6 +286,7 @@ unsafe fn synonym_index_query(
         |candidate| holds_rows(candidate, rules.quals),
         index,
         field,
+        parsed,
     )
     .ok_or_else(|| {
         let name = rules.table.name();

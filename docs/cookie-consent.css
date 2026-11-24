@@ -1,82 +1,177 @@
-#paradedb-cookie-banner,
-#paradedb-cookie-preferences {
+/* Match the website's CookieConsentBanner styles. */
+#paradedb-cookie-banner {
   position: fixed;
+  inset-inline: 0;
   bottom: 0;
   z-index: 9999;
-  color: #475569;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  font-size: 0.8125rem;
-  line-height: 1.5;
-}
-
-#paradedb-cookie-banner {
-  inset-inline: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   padding: 1rem 1.5rem;
+  color: oklch(44.6% 0.043 257.281);
+  background: rgb(255 255 255 / 95%);
+  border-top: 1px solid oklch(92.9% 0.013 255.508);
+  backdrop-filter: blur(8px);
+  font-size: 0.75rem;
+  line-height: 1.625;
 }
 
 #paradedb-cookie-banner p {
   margin: 0;
+  min-width: 0;
+  max-width: 56rem;
+  flex: 1;
 }
 
 #paradedb-cookie-banner a {
+  color: inherit;
   text-decoration: underline;
+  text-decoration-color: oklch(86.9% 0.022 252.894);
+  text-underline-offset: 2px;
+  transition: color 150ms;
+}
+
+#paradedb-cookie-banner a:hover {
+  color: oklch(20.8% 0.042 265.755);
 }
 
 #paradedb-cookie-banner > div {
   display: flex;
+  width: 100%;
+  flex-shrink: 0;
   gap: 0.5rem;
 }
 
-#paradedb-cookie-banner button,
-#paradedb-cookie-preferences {
+#paradedb-cookie-banner button {
+  flex: 1;
   cursor: pointer;
   padding: 0.5rem 1rem;
-  border: 1px solid #cbd5e1;
   min-height: 2.5rem;
+  border: 1px solid oklch(92.9% 0.013 255.508);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.333333;
   white-space: nowrap;
+  transition:
+    color 150ms,
+    background-color 150ms,
+    border-color 150ms;
 }
 
-#paradedb-cookie-preferences {
-  left: 1rem;
+#paradedb-cookie-banner button:hover {
+  background: oklch(98.4% 0.003 247.858);
 }
 
 #paradedb-cookie-banner button:focus-visible,
-#paradedb-cookie-banner a:focus-visible,
-#paradedb-cookie-preferences:focus-visible {
+#paradedb-cookie-banner a:focus-visible {
   outline: 2px solid #6366f1;
   outline-offset: 2px;
 }
 
 #paradedb-cookie-banner [data-consent="true"] {
-  background: #eef2ff;
-  color: #4338ca;
-  border-color: #c7d2fe;
+  background: oklch(96.2% 0.018 272.314);
+  color: oklch(45.7% 0.24 277.023);
+  border-color: oklch(87% 0.065 274.039);
 }
 
-.dark #paradedb-cookie-banner,
-.dark #paradedb-cookie-preferences {
-  color: #cbd5e1;
-  background: #020617;
-  border-color: #334155;
+#paradedb-cookie-banner [data-consent="true"]:hover {
+  background: oklch(93% 0.034 272.788);
 }
 
-#paradedb-cookie-banner[hidden],
-#paradedb-cookie-preferences[hidden] {
+.dark #paradedb-cookie-banner {
+  color: oklch(70.4% 0.04 256.788);
+  background: oklch(12.9% 0.042 264.695 / 95%);
+  border-color: oklch(27.9% 0.041 260.031);
+}
+
+.dark #paradedb-cookie-banner a {
+  text-decoration-color: oklch(44.6% 0.043 257.281);
+}
+
+.dark #paradedb-cookie-banner a:hover {
+  color: oklch(92.9% 0.013 255.508);
+}
+
+.dark #paradedb-cookie-banner button {
+  color: oklch(86.9% 0.022 252.894);
+  border-color: oklch(27.9% 0.041 260.031);
+}
+
+.dark #paradedb-cookie-banner button:hover {
+  background: oklch(20.8% 0.042 265.755);
+}
+
+.dark #paradedb-cookie-banner [data-consent="true"] {
+  color: oklch(78.5% 0.115 274.713);
+  background: oklch(58.5% 0.233 277.117 / 10%);
+  border-color: oklch(35.9% 0.144 278.697);
+}
+
+.dark #paradedb-cookie-banner [data-consent="true"]:hover {
+  background: oklch(58.5% 0.233 277.117 / 20%);
+}
+
+#paradedb-cookie-banner[hidden] {
   display: none;
 }
 
-@media (max-width: 640px) {
+@media (min-width: 640px) {
   #paradedb-cookie-banner {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+    gap: 1.5rem;
+    padding-inline: max(3rem, calc((100vw - 1344px) / 2));
+    font-size: 13px;
+  }
+
+  #paradedb-cookie-banner > div {
+    width: auto;
   }
 
   #paradedb-cookie-banner button {
-    flex: 1;
+    flex: none;
   }
+}
+
+.paradedb-cookie-footer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+#paradedb-cookie-preferences {
+  color: #9ca3af;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+#paradedb-cookie-preferences:hover {
+  color: #4b5563;
+}
+
+.dark #paradedb-cookie-preferences {
+  color: #6b7280;
+}
+
+.dark #paradedb-cookie-preferences:hover {
+  color: #d1d5db;
+}
+
+#paradedb-cookie-preferences:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+#paradedb-cookie-preferences[hidden] {
+  display: none;
 }

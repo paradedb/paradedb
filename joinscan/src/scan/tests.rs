@@ -65,8 +65,8 @@ mod tests {
         // Open search reader
         let reader = SearchIndexReader::open(
             &index_rel,
-            SearchQueryInput::All, // Scan all docs
-            false,                 // need_scores
+            Arc::new(SearchQueryInput::All), // Scan all docs
+            false,                           // need_scores
             MvccSatisfies::Snapshot,
         )
         .unwrap();
@@ -107,7 +107,7 @@ mod tests {
         let plan = PgSearchScanPlan::new(
             Some(partition),
             build_arrow_schema(&fields),
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             Vec::new(),
             None,
             0,
@@ -140,7 +140,7 @@ mod tests {
     fn shared_vector_scan_requires_prepared_routing() {
         use crate::api::{FieldName, OrderByFeature, OrderByInfo, QueryVector, SortDirection};
         use crate::scan::execution_plan::{ScanState, ScannerConfig};
-        use crate::scan::lazy_sort::{LazyParallelMode, LazySortConfig};
+        use crate::scan::lazy_sort::{LazyParallelMode, LazySortConfig, TopKSelectivity};
         use crate::scan::range_partitioning::RangeSplitPoints;
         use crate::vector::metric::VectorMetric;
 
@@ -160,7 +160,7 @@ mod tests {
         let index_rel = PgSearchRelation::open(index_oid);
         let reader = SearchIndexReader::open(
             &index_rel,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             false,
             MvccSatisfies::Snapshot,
         )
@@ -190,7 +190,7 @@ mod tests {
             let plan = PgSearchScanPlan::new(
                 Some(state.clone()),
                 build_arrow_schema(&fields),
-                SearchQueryInput::All,
+                Arc::new(SearchQueryInput::All),
                 Vec::new(),
                 None,
                 index_oid.into(),
@@ -214,6 +214,7 @@ mod tests {
                 }]),
                 ordering: None,
                 initial_window: 10.0,
+                unpushed_join_selectivity: TopKSelectivity::ALL,
                 parallel_mode: LazyParallelMode::Unpartitioned,
                 telemetry: None,
             });
@@ -656,7 +657,7 @@ mod tests {
         for scoring in [false, true] {
             let reader = SearchIndexReader::open(
                 &index_rel,
-                SearchQueryInput::All,
+                Arc::new(SearchQueryInput::All),
                 scoring,
                 MvccSatisfies::Snapshot,
             )
@@ -914,8 +915,9 @@ mod tests {
 
         let p1 = build.partition_bounds(1);
 
-        let reader = SearchIndexReader::open(&index_rel, p1, false, MvccSatisfies::Snapshot)
-            .expect("open reader with stored partition bounds");
+        let reader =
+            SearchIndexReader::open(&index_rel, Arc::new(p1), false, MvccSatisfies::Snapshot)
+                .expect("open reader with stored partition bounds");
         assert_eq!(matching_ids(&reader), vec![2, 3]);
 
         Spi::run(
@@ -957,8 +959,9 @@ mod tests {
         };
         let p1 = split_points.build(3).partition_bounds(1);
 
-        let reader = SearchIndexReader::open(&index_rel, p1, false, MvccSatisfies::Snapshot)
-            .expect("open reader with stored NumericBytes partition bounds");
+        let reader =
+            SearchIndexReader::open(&index_rel, Arc::new(p1), false, MvccSatisfies::Snapshot)
+                .expect("open reader with stored NumericBytes partition bounds");
         assert_eq!(matching_ids(&reader), vec![2, 3]);
     }
 
@@ -971,7 +974,7 @@ mod tests {
 
         let reader = SearchIndexReader::open(
             &index_rel,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             false,
             MvccSatisfies::Snapshot,
         )
@@ -1020,7 +1023,7 @@ mod tests {
         let plan = PgSearchScanPlan::new(
             Some(partition),
             build_arrow_schema(&fields),
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             Vec::new(),
             None,
             index_oid.into(),
@@ -1298,6 +1301,7 @@ mod tests {
         };
 
         let make_plan = |query: SearchQueryInput| {
+            let query = Arc::new(query);
             let reader =
                 SearchIndexReader::open(&index_rel, query.clone(), false, MvccSatisfies::Snapshot)
                     .unwrap();

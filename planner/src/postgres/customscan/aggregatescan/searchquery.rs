@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
 use crate::postgres::customscan::aggregatescan::{CustomScanBuildError, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_path::{RestrictInfoType, restrict_info};
@@ -30,17 +32,17 @@ use crate::query::SearchQueryInput;
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SearchQueryClause {
-    query: SearchQueryInput,
+    query: Arc<SearchQueryInput>,
     uses_our_operator: bool,
 }
 
 impl SearchQueryClause {
-    pub fn query(&self) -> &SearchQueryInput {
-        &self.query
+    pub fn query(&self) -> Arc<SearchQueryInput> {
+        self.query.clone()
     }
 
     pub fn query_mut(&mut self) -> &mut SearchQueryInput {
-        &mut self.query
+        Arc::make_mut(&mut self.query)
     }
 
     pub fn uses_our_operator(&self) -> bool {
@@ -80,7 +82,7 @@ impl CustomScanClause for SearchQueryClause {
         let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);
         if !has_where_clause {
             return Ok(SearchQueryClause {
-                query: SearchQueryInput::All,
+                query: Arc::new(SearchQueryInput::All),
                 uses_our_operator: false,
             });
         }
@@ -138,7 +140,7 @@ impl CustomScanClause for SearchQueryClause {
         unsafe { optimize_quals_with_heap_expr(&mut quals) };
 
         Ok(SearchQueryClause {
-            query: SearchQueryInput::from(&quals),
+            query: Arc::new(SearchQueryInput::from(&quals)),
             uses_our_operator: where_qual_state.uses_our_operator,
         })
     }

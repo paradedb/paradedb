@@ -469,10 +469,8 @@ mod tests {
             );
 
             CREATE INDEX mpp_spill_items_idx ON mpp_spill_items
-            USING bm25 (id, group_key, content, size_bytes)
+            USING paradedb (id, (group_key::pdb.unicode_words('columnar=true')), content, size_bytes)
             WITH (
-                numeric_fields = '{"id": {"fast": true}, "size_bytes": {"fast": true}}',
-                text_fields = '{"group_key": {"fast": true}, "content": {}}',
                 target_segment_count = 3,
                 layer_sizes = '0',
                 background_layer_sizes = '0'
@@ -588,24 +586,34 @@ mod tests {
         );
 
         // 3. Verify exact result correctness across all 30,000 groups.
-        let (all_present, all_correct) = Spi::get_two::<bool, bool>(
-            r#"
-            SELECT
-                COUNT(*) = 30000 AS all_groups_present,
-                COUNT(*) FILTER (
-                    WHERE cnt <> 1
-                       OR total_size <> ((id * 17) % 4096)
-                       OR group_key <> ('group-key-payload-' || id)
-                ) = 0 AS all_groups_correct
-            FROM (
-                SELECT id, group_key, COUNT(*) AS cnt, SUM(size_bytes) AS total_size
-                FROM mpp_spill_items
-                WHERE content @@@ 'Section'
-                GROUP BY id, group_key
-            ) q
-            "#,
-        )
-        .unwrap();
+        // Use `limit = None` (`tcount = 0`) rather than `Spi::get_two` (`limit = Some(1)`),
+        // because PostgreSQL's `ExecutePlan` disables `es_use_parallel_mode` whenever
+        // `numberTuples != 0`.
+        let (all_present, all_correct) = Spi::connect(|client| {
+            let mut table = client
+                .select(
+                    r#"
+                    SELECT
+                        COUNT(*) = 30000 AS all_groups_present,
+                        COUNT(*) FILTER (
+                            WHERE cnt <> 1
+                               OR total_size <> ((id * 17) % 4096)
+                               OR group_key <> ('group-key-payload-' || id)
+                        ) = 0 AS all_groups_correct
+                    FROM (
+                        SELECT id, group_key, COUNT(*) AS cnt, SUM(size_bytes) AS total_size
+                        FROM mpp_spill_items
+                        WHERE content @@@ 'Section'
+                        GROUP BY id, group_key
+                    ) q
+                    "#,
+                    None,
+                    &[],
+                )
+                .unwrap();
+            let row = table.next().expect("expected one summary row");
+            (row.get::<bool>(1).unwrap(), row.get::<bool>(2).unwrap())
+        });
         assert_eq!(
             all_present,
             Some(true),

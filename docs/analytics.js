@@ -9,7 +9,7 @@
     const consent = shared.create({
       gtmId: "GTM-KMGRG564",
       posthogKey: "phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj",
-      posthogHost: "https://us.i.posthog.com",
+      posthogHost: "https://g.paradedb.com",
       // Previews don't have the website's country endpoint.
       regionEndpoint: ["www.paradedb.com", "paradedb.com"].includes(
         location.hostname,
@@ -24,11 +24,12 @@
     banner.id = "paradedb-cookie-banner";
     banner.setAttribute("aria-label", "Cookie preferences");
     banner.innerHTML = `
-      <p>We use cookies for analytics and personalized ads. Declining limits
-      tracking to cookieless measurement.
+      <p>We use cookies to understand how you use our service, improve your experience,
+      and personalize our marketing and advertising. Declining limits tracking to
+      cookieless measurement.
       <a href="https://www.paradedb.com/legal/privacy">Privacy Policy</a></p>
       <div><button type="button" data-consent="false">Decline</button>
-      <button type="button" data-consent="true">Accept</button></div>`;
+      <button type="button" data-consent="all">Accept</button></div>`;
     const preferences = document.createElement("button");
     preferences.id = "paradedb-cookie-preferences";
     preferences.type = "button";
@@ -37,12 +38,12 @@
 
     function showBanner(show, focus = false) {
       banner.hidden = !show;
-      preferences.hidden = show;
-      if (focus) (show ? banner.querySelector("button") : preferences).focus();
+      if (focus) (show ? banner.querySelector("button") : preferences)?.focus();
     }
     banner.querySelectorAll("button").forEach((button) => {
       button.addEventListener("click", () => {
-        consent.setConsent(button.dataset.consent === "true");
+        const granted = button.dataset.consent === "all";
+        consent.setConsent(granted, granted);
         showBanner(false, true);
       });
     });
@@ -50,12 +51,26 @@
       if (!consent.snapshot().blocked) showBanner(true, true);
     }
     preferences.addEventListener("click", openPreferences);
+
+    function mountPreferences() {
+      const attribution = document.querySelector(
+        '#footer a[href*="utm_campaign=poweredBy"]',
+      );
+      if (!attribution || attribution.previousElementSibling === preferences)
+        return;
+      attribution.parentElement.classList.add("paradedb-cookie-footer-row");
+      attribution.before(preferences);
+    }
+    // Mintlify can replace the footer during client-side navigation.
+    const footerObserver = new MutationObserver(mountPreferences);
+    footerObserver.observe(document.body, { childList: true, subtree: true });
+    mountPreferences();
     window.addEventListener("paradedb:cookie-preferences", openPreferences);
-    document.body.append(banner, preferences);
+    document.body.append(banner);
     consent.subscribe(({ blocked, saved }) => {
+      preferences.hidden = blocked;
       if (blocked) {
         banner.hidden = true;
-        preferences.hidden = true;
       } else showBanner(saved === undefined);
     });
   }

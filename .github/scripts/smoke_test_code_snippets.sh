@@ -147,7 +147,8 @@ if has_target django; then
 
   echo "Installing Django ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "django-paradedb==0.15.0" \
+    "django-paradedb==0.18.0" \
+    "django~=6.1.0" \
     "django-cte>=2.0" \
     "psycopg[binary]"
 
@@ -184,7 +185,7 @@ if has_target rails; then
   echo "Installing rails-paradedb from RubyGems..."
   GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
     gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
-    "rails-paradedb:0.14.0" \
+    "rails-paradedb:0.16.0" \
     "pg" \
     "json:<3"
 
@@ -228,7 +229,7 @@ if has_target sqlalchemy; then
 
   echo "Installing SQLAlchemy ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "sqlalchemy-paradedb==0.13.0" \
+    "sqlalchemy-paradedb==0.17.0" \
     "psycopg[binary]"
 
   while IFS= read -r snippet_file; do
@@ -265,9 +266,9 @@ if has_target drizzle; then
   # Keep the Drizzle version aligned with the integration's peer dependency.
   # Skip peer resolution for Drizzle's unused optional integrations (e.g. effect).
   npm --prefix "$JAVASCRIPT_ENV_DIR" install --legacy-peer-deps \
-    "@paradedb/drizzle-paradedb@0.7.1" \
-    "drizzle-orm@1.0.0-rc.4" \
-    "drizzle-kit@1.0.0-rc.4" \
+    "@paradedb/drizzle-paradedb@0.9.0" \
+    "drizzle-orm@1.0.0-rc.6" \
+    "drizzle-kit@1.0.0-rc.6" \
     "postgres" \
     "tsx"
 
@@ -308,9 +309,9 @@ efcore_pass_count=0
 efcore_fail_count=0
 if has_target efcore; then
   echo "Installing ParadeDB.EntityFrameworkCore from NuGet..."
-  dotnet new console --framework net10.0 --output "$CSHARP_ENV_DIR" >/dev/null
+  dotnet new console --framework net11.0 --output "$CSHARP_ENV_DIR" >/dev/null
   dotnet add "$CSHARP_ENV_DIR" package ParadeDB.EntityFrameworkCore \
-    --version 0.5.0 \
+    --version 0.7.0 \
     >/dev/null
   dotnet restore "$CSHARP_ENV_DIR" -p:NuGetAudit=false >/dev/null
 

@@ -79,7 +79,6 @@ struct EphemeralPostgres {
     pub port: u16,
     pub dbname: String,
     pub pg_ctl_path: PathBuf,
-    pub log_path: PathBuf,
 }
 
 // Implement Drop trait to ensure the PostgreSQL instance is properly stopped
@@ -170,7 +169,6 @@ impl EphemeralPostgres {
             port,
             dbname: "postgres".to_string(),
             pg_ctl_path,
-            log_path: PathBuf::from(logfile),
         }
     }
 
@@ -639,15 +637,35 @@ async fn test_physical_streaming_replication() -> Result<()> {
     Ok(())
 }
 
+/// `query` fails with SQLSTATE 0A000 and a message containing `fragment`.
+fn assert_feature_not_supported(connection: &mut PgConnection, query: &str, fragment: &str) {
+    let Err(err) = query.execute_result(connection) else {
+        panic!("query on a ParadeDB index must fail: {query}");
+    };
+    let db_err = match &err {
+        sqlx::Error::Database(db_err) => db_err,
+        other => panic!("expected a database error, got {other:?}"),
+    };
+    assert_eq!(db_err.code().as_deref(), Some("0A000"), "{db_err}");
+    assert!(
+        db_err.message().contains(fragment),
+        "unexpected message: {}",
+        db_err.message()
+    );
+}
+
 #[rstest]
 #[async_std::test]
 async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     // Primary Postgres setup + insert data
+    // wal_consistency_checking makes the standby compare every page a record touches with the
+    // primary's image; the taint set during replay must live where no record ever looks.
     let postgresql_conf = "
         listen_addresses = 'localhost'
         wal_level = replica
         max_wal_senders = 4
         shared_preload_libraries = 'pg_search'
+        wal_consistency_checking = 'all'
         # It's often helpful to have a short wal_keep_size or max_wal_senders for testing
     ";
     let pg_hba_conf = "
@@ -683,6 +701,22 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         ('4K television', 'Electronics', NOW())"
         .execute(&mut source_conn);
 
+    // Indexes built before the standby is cloned: the clone carries their files and replays no
+    // build record for them. A VACUUM or ANALYZE on the primary names them to the standby,
+    // whether or not VACUUM finds a dead row.
+    "
+    CREATE TABLE early (id INT, body TEXT);
+    INSERT INTO early VALUES (1, 'early shoes'), (2, 'early boots');
+    CREATE INDEX early_idx ON early USING paradedb (id, body);
+    CREATE TABLE append_only (id INT, body TEXT);
+    INSERT INTO append_only VALUES (1, 'appended shoes');
+    CREATE INDEX append_only_idx ON append_only USING paradedb (id, body);
+    CREATE TABLE analyzed (id INT, body TEXT);
+    INSERT INTO analyzed VALUES (1, 'analyzed shoes');
+    CREATE INDEX analyzed_idx ON analyzed USING paradedb (id, body);
+    "
+    .execute(&mut source_conn);
+
     // Set up the standby using pg_basebackup
     let target_tempdir = TempDir::new().expect("Failed to create temp dir for standby");
     let target_tempdir_path = target_tempdir.keep();
@@ -701,7 +735,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         --host localhost
         --port $source_port
         --username $source_username
-        -Fp -Xs -P -R
+        -Fp -Xs -P -R --checkpoint=fast
         &> /dev/null
     )
     .expect("Failed to run pg_basebackup for standby setup");
@@ -729,44 +763,164 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     );
     assert_eq!(standby_rows.len(), 4);
 
-    // Now build a bm25 index on the primary. ambuild emits the rmgr 137 marker; when the
-    // standby replays it, rm_redo aborts recovery with our "not supported" error.
+    // Build a ParadeDB index on the primary. ambuild logs the index pages and then emits the
+    // rmgr 137 INIT_INDEX record; replaying that record must not stop recovery (#6007).
     "
     CREATE INDEX items_search_idx ON items
     USING paradedb (id, description, category);
     "
     .execute(&mut source_conn);
 
-    // Wait for the marker to stream to the standby and FATAL its recovery process. Poll the
-    // log instead of sleeping for a fixed duration so the test self-paces.
-    let expected = "replicas are not supported on community and require paradedb enterprise";
-    let log_path = standby_postgres.log_path.clone();
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    let mut tripwire_found = false;
-    while std::time::Instant::now() < deadline {
-        if let Ok(log) = std::fs::read_to_string(&log_path)
-            && log.contains(expected)
-        {
-            tripwire_found = true;
-            break;
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
-    assert!(
-        tripwire_found,
-        "expected standby log {log_path:?} to contain tripwire message {expected:?}"
+    // A partitioned index has no storage of its own; each leaf refuses on its own after promotion.
+    "
+    CREATE TABLE events (id INT, body TEXT, region INT) PARTITION BY LIST (region);
+    CREATE TABLE events_1 PARTITION OF events FOR VALUES IN (1);
+    CREATE TABLE events_2 PARTITION OF events FOR VALUES IN (2);
+    INSERT INTO events VALUES (1, 'quarterly shoes sale', 1), (2, 'winter shoes', 2);
+    CREATE INDEX events_idx ON events USING paradedb (id, body);
+    "
+    .execute(&mut source_conn);
+
+    // Two rounds on `early`, so the primary rewrites its metapage twice after the taint and the
+    // standby compares both images. `append_only` gives VACUUM no dead row. `analyzed` is only
+    // analyzed.
+    "DELETE FROM early WHERE id = 2".execute(&mut source_conn);
+    "VACUUM early".execute(&mut source_conn);
+    "INSERT INTO early VALUES (3, 'early sandals')".execute(&mut source_conn);
+    "DELETE FROM early WHERE id = 3".execute(&mut source_conn);
+    "VACUUM early".execute(&mut source_conn);
+    "INSERT INTO append_only VALUES (2, 'appended boots')".execute(&mut source_conn);
+    "VACUUM append_only".execute(&mut source_conn);
+    "ANALYZE analyzed".execute(&mut source_conn);
+
+    // Replay continues past the records: heap WAL written after them still arrives.
+    "INSERT INTO items (description, category, created_at) VALUES
+        ('Green hiking shoes', 'Footwear', NOW())"
+        .execute(&mut source_conn);
+    let standby_rows: Vec<(String,)> = "SELECT description FROM items ORDER BY id".fetch_retry(
+        &mut standby_conn,
+        RETRIES,
+        RETRY_DELAY,
+        |result| result.len() == 5,
+    );
+    assert_eq!(standby_rows[4].0, "Green hiking shoes");
+
+    // Using the index on the standby fails with a targeted error, and only that statement fails.
+    assert_feature_not_supported(
+        &mut standby_conn,
+        "SELECT description FROM items WHERE description ||| 'shoes'",
+        "Serving reads from a standby requires write-ahead log (WAL) integration",
+    );
+    let standby_rows: Vec<(String,)> =
+        "SELECT description FROM items WHERE category = 'Footwear' ORDER BY id"
+            .fetch(&mut standby_conn);
+    assert_eq!(standby_rows.len(), 3);
+    // An admin function opens the index without going through the planner; the metapage
+    // refuses it.
+    assert_feature_not_supported(
+        &mut standby_conn,
+        "SELECT name FROM paradedb.schema('items_search_idx')",
+        "Serving reads from a standby requires write-ahead log (WAL) integration",
     );
 
-    // The FATAL during recovery should also have brought the standby down: reconnects fail.
-    let reconnect = PgConnection::connect(&format!(
-        "postgresql://{}@{}:{}/{}",
-        SUPERUSER, standby_postgres.host, standby_postgres.port, standby_postgres.dbname
-    ))
-    .await;
-    assert!(
-        reconnect.is_err(),
-        "expected reconnect to dead standby to fail, got {reconnect:?}"
+    // A refused query on the standby does not disturb replay.
+    "INSERT INTO items (description, category, created_at) VALUES
+        ('Bluetooth speaker', 'Electronics', NOW())"
+        .execute(&mut source_conn);
+    let standby_rows: Vec<(String,)> = "SELECT description FROM items ORDER BY id".fetch_retry(
+        &mut standby_conn,
+        RETRIES,
+        RETRY_DELAY,
+        |result| result.len() == 6,
     );
+    assert_eq!(standby_rows[5].0, "Bluetooth speaker");
+
+    // Promote. The backend behind `standby_conn` lives through it.
+    let pg_ctl_path = &standby_postgres.pg_ctl_path;
+    let standby_dir = &standby_postgres.tempdir_path;
+    run_cmd!($pg_ctl_path -D $standby_dir promote -w &> /dev/null).expect("Failed to promote");
+    "SELECT pg_is_in_recovery()".fetch_retry::<(bool,)>(
+        &mut standby_conn,
+        RETRIES,
+        RETRY_DELAY,
+        |result| result.first().is_some_and(|(in_recovery,)| !in_recovery),
+    );
+
+    // The tainted indexes refuse queries on the promoted server, with a REINDEX hint. Three of
+    // them predate the clone; the VACUUM and ANALYZE records are what tainted them.
+    for query in [
+        "SELECT description FROM items WHERE description ||| 'shoes'",
+        "SELECT id FROM items WHERE description @@@ 'shoes'",
+        "SELECT body FROM events WHERE body ||| 'shoes'",
+        "SELECT body FROM events_1 WHERE body ||| 'shoes'",
+        "SELECT body FROM early WHERE body ||| 'shoes'",
+        "SELECT body FROM append_only WHERE body ||| 'shoes'",
+        "SELECT body FROM analyzed WHERE body ||| 'shoes'",
+    ] {
+        assert_feature_not_supported(&mut standby_conn, query, "has since been promoted");
+    }
+
+    // The table itself keeps working, reads and writes alike, and so do the admin functions
+    // on the tainted index.
+    let count: Vec<(i64,)> = "SELECT count(*) FROM items".fetch(&mut standby_conn);
+    assert_eq!(count[0].0, 6);
+    let fields: Vec<(String,)> =
+        "SELECT name FROM paradedb.schema('items_search_idx')".fetch(&mut standby_conn);
+    assert!(!fields.is_empty());
+    "INSERT INTO items (description, category, created_at) VALUES
+        ('Promoted insert', 'Misc', NOW())"
+        .execute(&mut standby_conn);
+    let count: Vec<(i64,)> = "SELECT count(*) FROM items".fetch(&mut standby_conn);
+    assert_eq!(count[0].0, 7);
+
+    // REINDEX builds a fresh index on this server, which clears the mark. On a partitioned
+    // index it rebuilds every leaf.
+    for (index, query, matches) in [
+        (
+            "items_search_idx",
+            "SELECT description FROM items WHERE description ||| 'shoes'",
+            3,
+        ),
+        (
+            "events_idx",
+            "SELECT body FROM events WHERE body ||| 'shoes'",
+            2,
+        ),
+        (
+            "early_idx",
+            "SELECT body FROM early WHERE body ||| 'shoes'",
+            1,
+        ),
+        (
+            "append_only_idx",
+            "SELECT body FROM append_only WHERE body ||| 'shoes'",
+            1,
+        ),
+        (
+            "analyzed_idx",
+            "SELECT body FROM analyzed WHERE body ||| 'shoes'",
+            1,
+        ),
+    ] {
+        format!("REINDEX INDEX {index}").execute(&mut standby_conn);
+        let rows: Vec<(String,)> = query.fetch(&mut standby_conn);
+        assert_eq!(rows.len(), matches, "{index}");
+    }
+
+    // An index built after promotion is usable at once.
+    "CREATE TABLE after_promotion (id SERIAL PRIMARY KEY, body TEXT)".execute(&mut standby_conn);
+    "INSERT INTO after_promotion (body) VALUES ('built after promotion')"
+        .execute(&mut standby_conn);
+    "CREATE INDEX after_promotion_idx ON after_promotion USING paradedb (id, body)"
+        .execute(&mut standby_conn);
+    let rows: Vec<(String,)> =
+        "SELECT body FROM after_promotion WHERE body ||| 'promotion'".fetch(&mut standby_conn);
+    assert_eq!(rows.len(), 1);
+
+    // The old primary never ran as a standby and is untouched.
+    let rows: Vec<(String,)> =
+        "SELECT description FROM items WHERE description ||| 'shoes'".fetch(&mut source_conn);
+    assert_eq!(rows.len(), 3);
 
     Ok(())
 }
@@ -1256,5 +1410,177 @@ async fn test_ephemeral_small_immutable_backpressure_merges_concurrent_writes() 
         passed == Some(true),
         "verify_index failed after backpressure"
     );
+    Ok(())
+}
+
+// Index conversion must conflict with old replica snapshots even when a heap-page
+// pin prevented pruning from logging its usual snapshot-conflict WAL record.
+#[rstest]
+#[async_std::test]
+#[ignore = "requires Enterprise WAL replay and standby index reads"]
+async fn test_replica_snapshot_conflicts_with_dead_mutable_content() -> Result<()> {
+    let config = "
+        listen_addresses = 'localhost'
+        shared_preload_libraries = 'pg_search'
+        wal_level = replica
+        max_wal_senders = 5
+        max_replication_slots = 5
+        wal_keep_size = '256MB'
+        autovacuum = off
+        paradedb.mutable_sweep_interval = 600000
+    ";
+    let primary = EphemeralPostgres::new(Some(config), None);
+    let mut source = primary.connection().await?;
+    sqlx::raw_sql(
+        "CREATE EXTENSION pg_search CASCADE;
+        CREATE TABLE test(id bigint PRIMARY KEY,message text);
+        INSERT INTO test SELECT id,CASE WHEN id IN (1,2,3,4,8,9,10,11)
+          THEN 'beer a' ELSE 'wine a' END FROM generate_series(1,14) id;
+        CREATE INDEX idxtest ON test USING paradedb(id,message)
+          WITH(key_field='id',mutable_segment_rows=32,layer_sizes='10kb,100kb,1mb',
+               background_layer_sizes='10kb,100kb,1mb');
+        UPDATE test SET message=replace(message,' a',' v1') WHERE id<10;",
+    )
+    .execute(&mut source)
+    .await?;
+    let mutable_id: String =
+        sqlx::query_scalar("SELECT segno::text FROM paradedb.index_info('idxtest') WHERE mutable")
+            .fetch_one(&mut source)
+            .await?;
+
+    let clone = |slot: &str| {
+        let directory = TempDir::new().unwrap().keep();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let backup = EphemeralPostgres::pg_basebackup_path();
+        let port = primary.port;
+        run_cmd!($backup -D $directory -h localhost -p $port -U $SUPERUSER
+                 -Xs -R -C -S $slot --checkpoint=fast &> /dev/null)
+        .unwrap();
+        let replica_config = format!(
+            "{config}\n hot_standby=on\n hot_standby_feedback=on\n
+            max_standby_streaming_delay='100ms'\n wal_retrieve_retry_interval='100ms'"
+        );
+        EphemeralPostgres::new_from_initialized(&directory, Some(&replica_config), None)
+    };
+    let candidate = clone("candidate_slot");
+    let replica = clone("reader_slot");
+    let mut old_reader = replica.connection().await?;
+    // Establish only a heap snapshot: an index reader could pin the old segment
+    // and block replacement WAL, masking the missing conflict record.
+    sqlx::raw_sql(
+        "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+        SET LOCAL max_parallel_workers_per_gather=0;",
+    )
+    .execute(&mut old_reader)
+    .await?;
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM test WHERE message LIKE '%beer%'")
+        .fetch_one(&mut old_reader)
+        .await?;
+    assert_eq!(before, 8);
+
+    let ctl = primary.pg_ctl_path.clone();
+    let directory = &primary.tempdir_path;
+    run_cmd!($ctl -D $directory -m fast -w stop &> /dev/null)?;
+    let directory = &candidate.tempdir_path;
+    run_cmd!($ctl -D $directory -w promote &> /dev/null)?;
+    let mut promoted = candidate.connection().await?;
+    sqlx::query("UPDATE test SET message=replace(message,'v1','v2') WHERE id<10")
+        .execute(&mut promoted)
+        .await?;
+    let mut heap_pin = candidate.connection().await?;
+    sqlx::raw_sql(
+        "SET enable_indexscan=off; SET enable_indexonlyscan=off;
+        SET enable_bitmapscan=off; BEGIN;
+        DECLARE heap_pin CURSOR FOR SELECT id FROM test; FETCH 1 FROM heap_pin;",
+    )
+    .execute(&mut heap_pin)
+    .await?;
+    // The promoted primary has no feedback from the remaining replica yet.
+    // These inserts freeze and convert the segment containing the old versions.
+    for batch in 0..8_i64 {
+        sqlx::query(
+            "INSERT INTO test SELECT id,'Z' FROM generate_series($1::bigint,$2::bigint) id",
+        )
+        .bind(100 + batch * 32)
+        .bind(131 + batch * 32)
+        .execute(&mut promoted)
+        .await?;
+        thread::sleep(Duration::from_millis(200));
+    }
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let old_visible: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM paradedb.index_info('idxtest') WHERE segno::text=$1",
+        )
+        .bind(&mutable_id)
+        .fetch_one(&mut promoted)
+        .await?;
+        if old_visible == 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "mutable segment was not converted"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    let target_lsn: String = sqlx::query_scalar("SELECT pg_current_wal_lsn()::text")
+        .fetch_one(&mut promoted)
+        .await?;
+    sqlx::query("SELECT pg_create_physical_replication_slot('reader_slot',true)")
+        .execute(&mut promoted)
+        .await?;
+    let mut control = replica.connection().await?;
+    let candidate_port = candidate.port;
+    control
+        .execute(sqlx::AssertSqlSafe(format!(
+            "ALTER SYSTEM SET primary_conninfo =
+        'host=localhost port={candidate_port} user=postgres application_name=count_reader'"
+        )))
+        .await?;
+    sqlx::query("SELECT pg_reload_conf()")
+        .execute(&mut control)
+        .await?;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let caught_up =
+            sqlx::query_scalar::<_, bool>("SELECT pg_last_wal_replay_lsn()>=$1::text::pg_lsn")
+                .bind(&target_lsn)
+                .fetch_one(&mut control)
+                .await;
+        match caught_up {
+            Ok(true) => break,
+            Ok(false) => (),
+            Err(_) => control = replica.connection().await?,
+        }
+        assert!(
+            Instant::now() < deadline,
+            "replica did not replay the conversion"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    match sqlx::query_scalar::<_, i64>("SELECT count(*) FROM test WHERE id @@@ 'message:beer'")
+        .fetch_one(&mut old_reader)
+        .await
+    {
+        Ok(count) => assert_eq!(count, 8, "old replica snapshot silently lost matches"),
+        Err(error) => assert_eq!(
+            error
+                .as_database_error()
+                .and_then(|error| error.code())
+                .as_deref(),
+            Some("40001"),
+            "unexpected replica error: {error}"
+        ),
+    }
+    let mut fresh = replica.connection().await?;
+    let counts: (i64, i64) = sqlx::query_as(
+        "SELECT
+        (SELECT count(*) FROM test WHERE message LIKE '%beer%'),
+        (SELECT count(*) FROM test WHERE id @@@ 'message:beer')",
+    )
+    .fetch_one(&mut fresh)
+    .await?;
+    assert_eq!(counts, (8, 8));
     Ok(())
 }

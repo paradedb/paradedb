@@ -45,9 +45,11 @@
 //! Blind spots: `fraction` is exact for sorted scans, approximate for unsorted; a write-heavy
 //! index's mutable-segment open cost and phrase `size_hint` under-counts are not modeled.
 
+use super::vector_cost::VectorWork;
 use super::*;
-use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
+use crate::postgres::customscan::parallel::{ScanParallelStructure, parallel_scan_is_cheaper};
 pub(super) use crate::postgres::customscan::parallel::{WorkerDecisionReason, parallel_divisor};
+use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
 
 fn cpu_index_tuple_cost() -> f64 {
     unsafe { pg_sys::cpu_index_tuple_cost }
@@ -81,6 +83,41 @@ pub(super) enum WorkerPathPolicy {
 }
 
 impl WorkerPathPolicy {
+    pub(super) fn for_vector_topk(
+        strategy: VectorFilterStrategy,
+        workers: usize,
+        work: Option<VectorWork>,
+        leader_participates: bool,
+    ) -> Self {
+        let reason = WorkerDecisionReason::VectorWork;
+        let Some(nworkers) = NonZeroUsize::new(workers) else {
+            return Self::SerialOnly { reason };
+        };
+        let parallel = match strategy {
+            VectorFilterStrategy::Post {
+                stage: PostFilterStage::AfterQuantizedScoring,
+                ..
+            } => false,
+            VectorFilterStrategy::Pre {
+                uses_fast_fields: true,
+            } => true,
+            VectorFilterStrategy::Pre {
+                uses_fast_fields: false,
+            }
+            | VectorFilterStrategy::Post {
+                stage: PostFilterStage::BeforeQuantizedScoring,
+                ..
+            } => work.is_some_and(|work| {
+                work.parallel_wins(parallel_divisor(nworkers, leader_participates))
+            }),
+        };
+        if parallel {
+            Self::ParallelOnly { nworkers, reason }
+        } else {
+            Self::SerialOnly { reason }
+        }
+    }
+
     pub(super) fn reason(self) -> WorkerDecisionReason {
         match self {
             Self::SerialOnly { reason }
@@ -221,7 +258,7 @@ pub(super) enum EstimationQuery {
     AsWritten,
     /// A planning-only copy with runtime expressions folded through PostgreSQL's
     /// `estimate_expression_value`. Execution still solves the written query.
-    Folded(Box<SearchQueryInput>),
+    Folded(Arc<SearchQueryInput>),
     Guess(f64),
 }
 
@@ -246,20 +283,20 @@ impl EstimationQuery {
         if query.has_postgres_expressions()
             && let Some(folded) = query.fold_for_estimation(root)
         {
-            return Self::Folded(Box::new(folded));
+            return Self::Folded(Arc::new(folded));
         }
         // if the query has expressions then it's parameterized and we have to guess something
         Self::Guess(PARAMETERIZED_SELECTIVITY)
     }
 
     /// `Ok`: the query to open the index with. `Err`: the selectivity to guess instead.
-    pub(super) fn resolve<'a>(
-        &'a self,
-        written: &'a SearchQueryInput,
-    ) -> Result<&'a SearchQueryInput, f64> {
+    pub(super) fn resolve(
+        &self,
+        written: Arc<SearchQueryInput>,
+    ) -> Result<Arc<SearchQueryInput>, f64> {
         match self {
             Self::AsWritten => Ok(written),
-            Self::Folded(folded) => Ok(folded),
+            Self::Folded(folded) => Ok(folded.clone()),
             Self::Guess(selectivity) => Err(*selectivity),
         }
     }
@@ -272,7 +309,7 @@ impl EstimationQuery {
 /// # Safety
 /// `root` must point to a valid `PlannerInfo` for the duration of this call.
 pub(super) unsafe fn costable_drive_cost(
-    query: &SearchQueryInput,
+    query: Arc<SearchQueryInput>,
     estimation_query: &EstimationQuery,
     bm25_index: &PgSearchRelation,
     quals: &Qual,
@@ -332,23 +369,21 @@ pub(super) struct ScanParallelismInputs<'a> {
     /// The LIMIT-capped output cardinality (`min(matches, limit)`). `< matches` exactly when an
     /// effective LIMIT is in play, which routes a costable scan to [`cost_test_limited`].
     pub(super) base_result_rows: f64,
-    pub(super) segment_count: usize,
+    pub(super) structure: ScanParallelStructure,
     pub(super) consider_parallel: bool,
-    pub(super) quals: &'a Qual,
-    pub(super) root: *mut pg_sys::PlannerInfo,
     pub(super) parallel_leader_participates: bool,
     pub(super) is_join_context: bool,
     /// True when a `GROUP BY` / `SELECT DISTINCT` sits above this scan; routes it through the row
     /// heuristic because PG under-costs the serial HashAggregate for non-collapsing grouping.
     pub(super) has_grouping: bool,
+    /// True when a synonym rule turns the one token of the query into a group of alternatives,
+    /// which prunes less than one term. The call reads the synonym index.
+    pub(super) expands_with_synonyms: &'a dyn Fn() -> bool,
 }
 
 /// Decide how to shape a scan's paths. The numbered steps mirror the module-level decision tree;
 /// the inline comments carry the per-branch rationale.
-///
-/// # Safety
-/// `inputs.root` must point to a valid `PlannerInfo` for the duration of this call.
-pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> WorkerPathPolicy {
+pub(super) fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> WorkerPathPolicy {
     let ScanParallelismInputs {
         prunability,
         query,
@@ -357,40 +392,31 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
         is_sorted,
         limit,
         base_result_rows,
-        segment_count,
+        structure,
         consider_parallel,
-        quals,
-        root,
         parallel_leader_participates,
         is_join_context,
         has_grouping,
+        expands_with_synonyms,
     } = inputs;
 
     // 1. Prunable short-circuit -> serial only. Block-WAND keeps primarily score-DESC ordered top-k sublinear
     //    (#4664), so workers would only add overhead. A hard gate: the cost model can't see
     //    Block-WAND, and the predicate must actually prune, not just look like a term.
-    if matches!(prunability, TopKPrunability::PrunableCandidate) && query.is_topk_prunable() {
+    if matches!(prunability, TopKPrunability::PrunableCandidate)
+        && query.is_topk_prunable()
+        && !expands_with_synonyms()
+    {
         return WorkerPathPolicy::SerialOnly {
             reason: WorkerDecisionReason::BlockWandPrunable,
         };
     }
 
-    let external_var = quals.contains_external_var();
-    let correlated = quals.contains_correlated_param(root);
-
     // The row heuristic (`compute_nworkers`): used by the two fallback branches below, so computed
     // lazily here. It commits to serial or parallel itself (no cost to hand PostgreSQL).
     let heuristic_policy = || {
         let nworkers = if consider_parallel {
-            compute_nworkers(
-                is_sorted,
-                limit,
-                row_estimate,
-                segment_count,
-                external_var,
-                correlated,
-                is_join_context,
-            )
+            compute_nworkers(is_sorted, limit, row_estimate, structure, is_join_context)
         } else {
             0
         };
@@ -412,9 +438,10 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
     };
 
     // Structural ceiling from `max_useful_workers`: 0 (serial) for a single segment, parallelism
-    // off, or correlated/external -- though `debug_parallel_query` bumps a single segment to one.
+    // off, `parallel_workers = 0`, or correlated/external -- though `debug_parallel_query` bumps a
+    // single segment to one when `parallel_workers` is not `0`.
     let structural_workers = if consider_parallel {
-        max_useful_workers(segment_count, external_var, correlated)
+        max_useful_workers(structure)
     } else {
         0
     };
@@ -503,5 +530,55 @@ pub(super) fn estimate_path_cost(
 
     PathCostBasis {
         parallelizable_cost: scan_work + output_cost,
+    }
+}
+
+#[cfg(test)]
+mod vector_filter_tests {
+    use super::WorkerPathPolicy;
+    use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
+
+    #[test]
+    fn filtering_strategy_selects_vector_workers() {
+        for workers in [0, 1, 7] {
+            for (strategy, parallel) in [
+                (
+                    VectorFilterStrategy::Pre {
+                        uses_fast_fields: false,
+                    },
+                    false,
+                ),
+                (
+                    VectorFilterStrategy::Pre {
+                        uses_fast_fields: true,
+                    },
+                    workers > 0,
+                ),
+                (
+                    VectorFilterStrategy::Post {
+                        stage: PostFilterStage::BeforeQuantizedScoring,
+                        estimated_selectivity: 0.1,
+                    },
+                    false,
+                ),
+                (
+                    VectorFilterStrategy::Post {
+                        stage: PostFilterStage::AfterQuantizedScoring,
+                        estimated_selectivity: 0.1,
+                    },
+                    false,
+                ),
+            ] {
+                let serialized = serde_json::to_string(&strategy).unwrap();
+                let restored = serde_json::from_str(&serialized).unwrap();
+                assert_eq!(
+                    matches!(
+                        WorkerPathPolicy::for_vector_topk(restored, workers, None, true),
+                        WorkerPathPolicy::ParallelOnly { .. }
+                    ),
+                    parallel
+                );
+            }
+        }
     }
 }

@@ -38,6 +38,7 @@ use pgrx::JsonB;
 use pgrx::datum::DatumWithOid;
 use pgrx::prelude::*;
 use serde_json::Value;
+use std::sync::Arc;
 use tantivy::schema::FieldType;
 use tantivy::vector::diagnostics::VectorStorageFormat;
 
@@ -599,7 +600,8 @@ fn find_ctid(index: IndexOid, ctid: pg_sys::ItemPointerData) -> Result<Option<Ve
             value: ctid_u64.into(),
         },
     };
-    let search_index = SearchIndexReader::open(&index, query, false, MvccSatisfies::Snapshot)?;
+    let search_index =
+        SearchIndexReader::open(&index, Arc::new(query), false, MvccSatisfies::Snapshot)?;
     let results = search_index.search();
 
     let results = results

@@ -58,12 +58,14 @@
 //!
 //! 3. **Gate 3 (Cardinality, Unscored Selectivity & Initial Window Scaling)**:
 //!    - Requires `K <= 1,000` ([`MAX_RANK_JOIN_K`]), estimated rows `>=`
-//!      `paradedb.rank_join_min_rows` on every joined input, and combined unscored (`RA`)
-//!      selectivity `>= paradedb.rank_join_unscored_selectivity_threshold` (default `0.08`,
-//!      [`UNSCORED_SELECTIVITY_THRESHOLD`]) in single-sided (`NRJN`) joins.
-//!    - Scales each `SA` leaf's `initial_window` inversely by the subtree survival probability
-//!      `p_survive = p_unscored * p_tagged` via
-//!      [`TopKSelectivity::compute_initial_window`].
+//!      `paradedb.rank_join_min_rows` on every joined input, and worst-case candidate survival
+//!      `sa_survival >= paradedb.rank_join_unscored_selectivity_threshold` (default `0.08`,
+//!      [`crate::gucs::UNSCORED_SELECTIVITY_THRESHOLD`]) across unscored (`RA`) inputs of
+//!      single-sided (`NRJN`) joins and peer `base_query` filters of `ScanMode::Disjunctive` joins.
+//!    - Scales each `SA` leaf's `initial_window` inversely by the product of its peer subtrees'
+//!      [`RaSelectivity`] (and any `ScanMode::Tagged` selectivity) via
+//!      [`TopKSelectivity::compute_initial_window`], excluding the leaf's own `base_query`
+//!      because its `SA` scan already applies it.
 //!    - When `RankJoinExec` is declined on a single-sided top-K join (e.g. when the unscored
 //!      build side is selective `< paradedb.rank_join_unscored_selectivity_threshold`, or for
 //!      `OrderByFeature::VectorDistance` when `K > 1,000` or `paradedb.enable_rank_join = false`),
@@ -73,12 +75,16 @@
 //!      (`with_coalesce_batches(false)`) on `HashJoinExec` along the probe spine, pushes any outer
 //!      [`VisibilityFilterExec`] below the `HashJoinExec` onto its build and probe inputs
 //!      (allowing `LimitPushdown` to push `fetch=K` directly into `HashJoinExec`), and configures
-//!      the probe leaf scan with `LazySortConfig` (`LazyParallelMode::WorkerPool`). For
-//!      `OrderByFeature::Score` and `OrderByFeature::Field`, this rewrite is gated on the selective
-//!      build side fitting within
-//!      `paradedb.hash_join_inlist_pushdown_max_distinct_values` and the probe leaf supporting
-//!      indexed `InList` pushdown on the join keys, so the build side's `InList` dynamic filter
-//!      restricts the probe's `TopDocs` / Block-Max WAND collector directly.
+//!      the probe leaf scan with `LazySortConfig` (`LazyParallelMode::WorkerPool`).
+//!    - For `OrderByFeature::Score` and `OrderByFeature::Field`, [`try_rewrite_lazy_sort_probe_join`]
+//!      is gated on the selective build side fitting within
+//!      `paradedb.hash_join_inlist_pushdown_max_distinct_values` and
+//!      `paradedb.hash_join_inlist_pushdown_max_size`, and the probe leaf supporting indexed
+//!      `InList` pushdown on the join keys (falling through to standard `HashJoinExec` +
+//!      `SortExec(TopK)` otherwise). For `OrderByFeature::VectorDistance` (which has no
+//!      non-`lazy_sort` scan fallback until <https://github.com/paradedb/paradedb/issues/7496>),
+//!      Gate 3 keeps `RankJoinExec` when `sa_survival < threshold` unless the selective build side
+//!      is estimated to fit `HashJoinExec` `InList` pushdown.
 //!
 //! # Why Physical-Time Optimization & Tag Elision (`ScanMode::Tagged` -> `ScanMode::Disjunctive`)
 //!
@@ -172,36 +178,12 @@ use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 
 /// Maximum `LIMIT + OFFSET` (`K`) eligible for `RankJoinExec`.
-pub const MAX_RANK_JOIN_K: usize = 1_000;
+const MAX_RANK_JOIN_K: usize = 1_000;
 
 /// Minimum ratio `min(delta_l_max, delta_r_max) / max(delta_l_max, delta_r_max)`
 /// required by Gate 2 so heavily lopsided two-sided score queries do not force `RankJoinExec`
 /// to scan the weaker-scored input to completion.
-pub const SCORE_BALANCE_THRESHOLD: f64 = 0.20;
-
-/// Minimum estimated selectivity (`planner_estimated_rows / total_docs`) required across
-/// unscored (`RA`) inputs of a single-sided (`NRJN`) join when `min_rows > 0`.
-///
-/// When the unscored build side is selective, most rows pulled from the `SA` stream miss during
-/// `RA` point lookups, requiring repeated `SA` window expansions on a single thread while
-/// parallel `HashJoinExec` can build a small hash table on the selective input and push a join
-/// dynamic filter into the `SA` scan.
-///
-/// Note: The `0.08` (`8%`) cutoff is somewhat arbitrary and is calibrated around Tantivy's
-/// `DocSet::size_hint()` behavior when `QueryEstimate::estimate_docs` falls back to
-/// `scorer_estimate`:
-/// - `FastFieldRangeQuery` (`RangeDocSet::size_hint()`) has no histogram and unconditionally
-///   reports `column.num_docs() / 10` (`~0.09999` after integer division on the largest segment),
-///   so a threshold `<= 0.099` is required to admit fast-field range filters (e.g.
-///   `u.reputation > 100`) on the unscored side.
-/// - `TermSetQuery` reports `~1.0` (`max_doc - first_match`) under `Gallop` and `LinearScan`,
-///   and reports the exact segment match count `bitset.len()` under `BitsetFromPostings`
-///   (admitting multi-row term sets that match `>= 8%` of the table while keeping small/unique
-///   `BitsetFromPostings` sets on `HashJoinExec`).
-/// - Inverted-index text queries (`TermQuery`, `BooleanQuery`) use actual `doc_freq` statistics,
-///   so selective text filters on the unscored side (e.g. `~6%` in
-///   `join_top_k_score_desc_low_selectivity`) fall below `0.08` and stay on parallel `HashJoinExec`.
-pub const UNSCORED_SELECTIVITY_THRESHOLD: f64 = 0.08;
+const SCORE_BALANCE_THRESHOLD: f64 = 0.20;
 
 /// Physical optimizer rule that replaces top-K scored `HashJoinExec`s with `RankJoinExec`.
 #[derive(Debug, Default)]
@@ -270,9 +252,10 @@ impl PhysicalOptimizerRule for RankJoinRule {
             ));
         }
 
-        // Until on-demand `pdb.vector_score` evaluation on arbitrary `DocId`s is supported
-        // outside `TopDocs::order_by_similarity` (<https://github.com/paradedb/paradedb/issues/7141>),
-        // a vector `ORDER BY` leaf must be placed on the ordered `SA` / probe spine by this rule.
+        // Until cluster-ordered `pdb.vector_score` scans with Top-K dynamic filter pushdown are
+        // supported outside `TopDocs::order_by_similarity`
+        // (<https://github.com/paradedb/paradedb/issues/7496>), a vector `ORDER BY` leaf must be
+        // placed on the ordered `SA` / probe spine by this rule.
         if any_scan(&rewritten, |s| {
             s.vector_order_by().is_some() && s.lazy_sort().is_none_or(|ls| ls.ordering.is_none())
         }) {
@@ -328,8 +311,9 @@ pub enum RankJoinDeclineReason {
         estimated_rows: u64,
         min_rows: usize,
     },
-    /// Unscored (`RA`) input selectivity in a single-sided join falls below
-    /// `paradedb.rank_join_unscored_selectivity_threshold` and `lazy_sort` probe join also declined.
+    /// Unscored (`RA`) input selectivity in a single-sided join or unscored `base_query`
+    /// selectivity in a `ScanMode::Disjunctive` join falls below
+    /// `paradedb.rank_join_unscored_selectivity_threshold`, and `lazy_sort` probe join also declined.
     LowUnscoredSelectivity { selectivity: f64, threshold: f64 },
 }
 
@@ -427,33 +411,53 @@ impl From<DataFusionError> for RankJoinRewriteError {
 
 type RewriteResult<T> = std::result::Result<T, RankJoinRewriteError>;
 
+/// Probability `[0.0, 1.0]` that a join key probed *into* a subtree via `RA` passes that
+/// subtree's unscored filters (`resolved_query` on unscored `Standard` leaves, or `base_query`
+/// on unscored `Tagged` and scored `Disjunctive` leaves).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct RaSelectivity(TopKSelectivity);
+
+/// Worst-case survival probability `[0.0, 1.0]` across peer `RA` subtrees for candidates pulled
+/// *from* `SA` leaves in this subtree. Excludes each `SA` leaf's own `base_query`, which its `SA`
+/// scan already evaluates before emitting candidates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SaSurvival(TopKSelectivity);
+
+/// Whether Gate 3 enforces `paradedb.rank_join_unscored_selectivity_threshold` immediately inside
+/// [`SubtreeScoreStats::combine`] or defers the check to [`try_rewrite_under_sort`] until
+/// `InList` pushdown fit is verified.
+///
+/// TODO(<https://github.com/paradedb/paradedb/issues/7496>): Remove `DeferUntilInListCheck` once
+/// cluster-ordered `pdb.vector_score` scans with Top-K dynamic filter pushdown land, so vector
+/// joins share the same 3-way fallback as `Score` and `Field` joins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectivityGate {
+    /// Enforce `sa_survival >= threshold` immediately (`Score`, `Field`, and two-sided joins).
+    Enforce,
+    /// Defer `sa_survival >= threshold` on single-sided vector joins so `RankJoinExec` is kept
+    /// when [`try_rewrite_lazy_sort_probe_join`] cannot push an `InList`.
+    DeferUntilInListCheck,
+}
+
 /// Statistics and score range for a join input subtree used by Gates 2 and 3
-/// and for sizing the initial `SA` window via [`TopKSelectivity`].
+/// and for sizing per-leaf initial `SA` windows via [`TopKSelectivity`].
 #[derive(Debug, Clone, Copy)]
-pub struct SubtreeScoreStats {
-    pub estimated_rows: u64,
-    pub unscored_selectivity: TopKSelectivity,
-    pub tagged_selectivity: Option<TopKSelectivity>,
-    pub score_min: f64,
-    pub score_max: f64,
+struct SubtreeScoreStats {
+    estimated_rows: u64,
+    ra_selectivity: RaSelectivity,
+    sa_survival: SaSurvival,
+    tagged_selectivity: Option<TopKSelectivity>,
+    score_min: f64,
+    score_max: f64,
 }
 
 impl SubtreeScoreStats {
-    /// Combined survival probability of a candidate row pulled from the `SA` scan across
-    /// all unscored (`RA`) inputs and any cross-table `ScanMode::Tagged` disjunction.
-    pub fn survival_selectivity(&self) -> TopKSelectivity {
-        match self.tagged_selectivity {
-            Some(tagged) => self.unscored_selectivity.and(tagged),
-            None => self.unscored_selectivity,
-        }
-    }
-
     /// Verifies Gate 1 (non-constant BM25 score when `is_score_sort` is true) and computes
     /// `[0.0, score_max]` for a leaf scan.
     pub fn from_leaf_queries(
         is_score_sort: bool,
         base_query: &SearchQueryInput,
-        disjunct_queries: &[SearchQueryInput],
+        disjunct_queries: &[Arc<SearchQueryInput>],
         estimated_rows: u64,
     ) -> Option<Self> {
         // TODO: Remove this constant-score restriction once `RankJoinExec` and `LazySortExec`
@@ -476,7 +480,7 @@ impl SubtreeScoreStats {
             let disjunct_max = disjunct_queries
                 .iter()
                 .filter(|q| !q.is_constant_score())
-                .map(SearchQueryInput::estimate_max_score)
+                .map(|q| q.estimate_max_score())
                 .fold(0.0_f64, f64::max);
             (base + disjunct_max).max(1.0)
         } else {
@@ -484,7 +488,8 @@ impl SubtreeScoreStats {
         };
         Some(Self {
             estimated_rows,
-            unscored_selectivity: TopKSelectivity::ALL,
+            ra_selectivity: RaSelectivity(TopKSelectivity::ALL),
+            sa_survival: SaSurvival(TopKSelectivity::ALL),
             tagged_selectivity: None,
             score_min: 0.0,
             score_max,
@@ -504,14 +509,17 @@ impl SubtreeScoreStats {
     }
 
     /// Verifies Gate 2 (score balance when both sides are scored) and Gate 3 (`min_rows` and
-    /// `UNSCORED_SELECTIVITY_THRESHOLD`), and computes the combined `[score_min, score_max]`
-    /// across `combiner`.
-    pub fn combine(
+    /// `paradedb.rank_join_unscored_selectivity_threshold`), and computes the combined
+    /// `[score_min, score_max]` across `combiner`.
+    fn combine(
         combiner: &ScoreCombiner,
         left: Self,
         right: Self,
         min_rows: usize,
+        selectivity_gate: SelectivityGate,
     ) -> std::result::Result<Self, RankJoinDeclineReason> {
+        let uses_left = combiner.uses_left();
+        let uses_right = combiner.uses_right();
         let f_max_max = combiner.eval(InputScorePair {
             left: left.score_max,
             right: right.score_max,
@@ -526,7 +534,7 @@ impl SubtreeScoreStats {
         });
 
         // Gate 2: When both sides are scored, both must contribute comparably to the combined score.
-        if combiner.uses_left() && combiner.uses_right() {
+        if uses_left && uses_right {
             let delta_l = (f_max_max - f_min_max).abs();
             let delta_r = (f_max_max - f_max_min).abs();
             if delta_l <= 0.0 || delta_r <= 0.0 || !delta_l.is_finite() || !delta_r.is_finite() {
@@ -543,13 +551,25 @@ impl SubtreeScoreStats {
         }
 
         let min_matched = left.estimated_rows.min(right.estimated_rows);
-        let unscored_selectivity = left.unscored_selectivity.and(right.unscored_selectivity);
+        let ra_selectivity = RaSelectivity(left.ra_selectivity.0.and(right.ra_selectivity.0));
+        let sa_survival = match (uses_left, uses_right) {
+            (true, false) => SaSurvival(left.sa_survival.0.and(right.ra_selectivity.0)),
+            (false, true) => SaSurvival(right.sa_survival.0.and(left.ra_selectivity.0)),
+            (true, true) => {
+                let left_surv = left.sa_survival.0.and(right.ra_selectivity.0).0;
+                let right_surv = right.sa_survival.0.and(left.ra_selectivity.0).0;
+                SaSurvival(TopKSelectivity(left_surv.min(right_surv)))
+            }
+            (false, false) => SaSurvival(TopKSelectivity::ALL),
+        };
         let tagged_selectivity =
             Self::combine_tagged(left.tagged_selectivity, right.tagged_selectivity);
 
         // Gate 3: Both inputs must meet the minimum row threshold (`rank_join_min_rows`),
-        // and any unscored (`RA`) inputs in a single-sided (`NRJN`) join must meet
-        // `UNSCORED_SELECTIVITY_THRESHOLD`.
+        // and peer `RA` survival across unscored inputs of single-sided (`NRJN`) joins or
+        // peer `base_query` filters of `ScanMode::Disjunctive` joins must meet
+        // `paradedb.rank_join_unscored_selectivity_threshold` (unless deferred for a single-sided
+        // vector join).
         if min_rows > 0 {
             if min_matched < min_rows as u64 {
                 return Err(RankJoinDeclineReason::BelowMinRows {
@@ -557,12 +577,16 @@ impl SubtreeScoreStats {
                     min_rows,
                 });
             }
-            let threshold = crate::gucs::rank_join_unscored_selectivity_threshold();
-            if unscored_selectivity.0 < threshold {
-                return Err(RankJoinDeclineReason::LowUnscoredSelectivity {
-                    selectivity: unscored_selectivity.0,
-                    threshold,
-                });
+            let enforce_selectivity =
+                (uses_left && uses_right) || selectivity_gate == SelectivityGate::Enforce;
+            if enforce_selectivity {
+                let threshold = crate::gucs::rank_join_unscored_selectivity_threshold();
+                if sa_survival.0.0 < threshold {
+                    return Err(RankJoinDeclineReason::LowUnscoredSelectivity {
+                        selectivity: sa_survival.0.0,
+                        threshold,
+                    });
+                }
             }
         }
 
@@ -577,7 +601,8 @@ impl SubtreeScoreStats {
         ];
         Ok(Self {
             estimated_rows: min_matched,
-            unscored_selectivity,
+            ra_selectivity,
+            sa_survival,
             tagged_selectivity,
             score_min: corners.into_iter().fold(f64::INFINITY, f64::min),
             score_max: corners.into_iter().fold(f64::NEG_INFINITY, f64::max),
@@ -606,10 +631,19 @@ enum BranchLevel {
 
 /// Result of decomposing a join's primary score sort expression across its left and right children.
 #[derive(Debug, Clone)]
-pub struct DecomposedJoinScore {
-    pub left_sort_expr: PhysicalSortExpr,
-    pub right_sort_expr: PhysicalSortExpr,
-    pub combiner: ScoreCombiner,
+struct DecomposedJoinScore {
+    left_sort_expr: PhysicalSortExpr,
+    right_sort_expr: PhysicalSortExpr,
+    combiner: ScoreCombiner,
+}
+
+fn non_vector_probe_eligibility(k: usize) -> NonVectorProbeEligibility {
+    let std_cap = crate::gucs::InListPushdownMode::Standard.max_distinct_values();
+    if crate::gucs::enable_rank_join() && k <= MAX_RANK_JOIN_K && std_cap > 0 {
+        NonVectorProbeEligibility::Eligible
+    } else {
+        NonVectorProbeEligibility::Disallowed
+    }
 }
 
 /// Walks down from `SortExec` through pass-through nodes to find, verify (Gates 1, 2, and 3),
@@ -644,16 +678,75 @@ fn try_rewrite_under_sort(
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
     let mut eager_fields = Vec::new();
     let mut decline_reason = None;
+    let non_vector_eligibility = non_vector_probe_eligibility(k);
     if crate::gucs::enable_rank_join() {
-        match try_rewrite_rank_join(node, required_ordering, k, min_rows, &mut eager_fields) {
+        let selectivity_gate = if any_scan(node, |s| s.vector_order_by().is_some()) {
+            SelectivityGate::DeferUntilInListCheck
+        } else {
+            SelectivityGate::Enforce
+        };
+        match try_rewrite_rank_join(
+            node,
+            required_ordering,
+            k,
+            min_rows,
+            selectivity_gate,
+            &mut eager_fields,
+        ) {
             Ok((rewritten, root_stats)) => {
-                let initial_window = compute_initial_window(k, root_stats.survival_selectivity());
-                let rewritten = apply_sa_initial_window(rewritten, initial_window)?;
-                let rewritten = crate::scan::deferred_placement_rule::make_fields_eager(
-                    rewritten,
-                    &eager_fields,
-                )?;
-                return Ok(Some(rewritten));
+                let threshold = crate::gucs::rank_join_unscored_selectivity_threshold();
+                let below_threshold = min_rows > 0 && root_stats.sa_survival.0.0 < threshold;
+                let is_vector_rank_join = any_scan(&rewritten, |s| {
+                    s.lazy_sort()
+                        .and_then(|ls| ls.orderby_info.as_ref())
+                        .and_then(|obs| obs.first())
+                        .is_some_and(OrderByInfo::is_vector_distance)
+                });
+                if below_threshold && !is_vector_rank_join {
+                    decline_reason = Some(RankJoinDeclineReason::LowUnscoredSelectivity {
+                        selectivity: root_stats.sa_survival.0.0,
+                        threshold,
+                    });
+                } else {
+                    // TODO(<https://github.com/paradedb/paradedb/issues/7496>): Once
+                    // cluster-ordered `pdb.vector_score` scans with Top-K dynamic filter pushdown
+                    // exist, decline `RankJoinExec` uniformly on `below_threshold` without
+                    // checking `VectorProbePolicy::RequireInListFit`.
+                    if below_threshold {
+                        let mut probe_eager_fields = Vec::new();
+                        if let Some(probe_plan) = try_rewrite_lazy_sort_probe_join(
+                            node,
+                            required_ordering,
+                            &[],
+                            LazySortProbeContext {
+                                k,
+                                level: BranchLevel::RootJoin,
+                                min_rows,
+                                non_vector_eligibility,
+                                vector_policy: VectorProbePolicy::RequireInListFit,
+                                unpushed_join_selectivity: TopKSelectivity::ALL,
+                            },
+                            &mut probe_eager_fields,
+                            &mut Vec::new(),
+                        )? {
+                            let probe_plan =
+                                crate::scan::deferred_placement_rule::make_fields_eager(
+                                    probe_plan,
+                                    &probe_eager_fields,
+                                )?;
+                            return Ok(Some(probe_plan));
+                        }
+                    }
+                    let root_peer_selectivity = root_stats
+                        .tagged_selectivity
+                        .unwrap_or(TopKSelectivity::ALL);
+                    let rewritten = apply_sa_initial_window(rewritten, k, root_peer_selectivity)?;
+                    let rewritten = crate::scan::deferred_placement_rule::make_fields_eager(
+                        rewritten,
+                        &eager_fields,
+                    )?;
+                    return Ok(Some(rewritten));
+                }
             }
             Err(RankJoinRewriteError::DataFusion(err)) => return Err(err),
             Err(RankJoinRewriteError::Declined(reason)) => {
@@ -662,14 +755,6 @@ fn try_rewrite_under_sort(
         }
     }
     eager_fields.clear();
-    let max_inlist_distinct =
-        crate::gucs::hash_join_inlist_pushdown_max_distinct_values().max(0) as usize;
-    let non_vector_eligibility =
-        if crate::gucs::enable_rank_join() && k <= MAX_RANK_JOIN_K && max_inlist_distinct > 0 {
-            NonVectorProbeEligibility::Eligible
-        } else {
-            NonVectorProbeEligibility::Disallowed
-        };
     if let Some(rewritten) = try_rewrite_lazy_sort_probe_join(
         node,
         required_ordering,
@@ -679,7 +764,8 @@ fn try_rewrite_under_sort(
             level: BranchLevel::RootJoin,
             min_rows,
             non_vector_eligibility,
-            max_inlist_distinct,
+            vector_policy: VectorProbePolicy::AllowUnpushedFallback,
+            unpushed_join_selectivity: TopKSelectivity::ALL,
         },
         &mut eager_fields,
         &mut Vec::new(),
@@ -703,6 +789,7 @@ fn try_rewrite_rank_join(
     required_ordering: &LexOrdering,
     k: usize,
     min_rows: usize,
+    selectivity_gate: SelectivityGate,
     eager_fields: &mut Vec<PhysicalDeferredField>,
 ) -> RewriteResult<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)> {
     if k > MAX_RANK_JOIN_K {
@@ -725,6 +812,7 @@ fn try_rewrite_rank_join(
                         min_rows,
                         join_mode,
                         field_sort_policy: FieldSortPolicy::Allowed,
+                        selectivity_gate,
                         level: BranchLevel::RootJoin,
                     },
                     eager_fields,
@@ -752,6 +840,7 @@ fn try_rewrite_rank_join(
             min_rows,
             join_mode,
             field_sort_policy: FieldSortPolicy::Allowed,
+            selectivity_gate,
             level: BranchLevel::RootJoin,
         },
         eager_fields,
@@ -1087,24 +1176,82 @@ fn compute_initial_window(k: usize, selectivity: TopKSelectivity) -> f64 {
     selectivity.compute_initial_window(k, scale_factor)
 }
 
+/// Role of a leaf [`PgSearchScanPlan`] in a [`RankJoinExec`] tree when computing its
+/// [`RaSelectivity`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LeafRole {
+    /// Scored (`SA`) leaf (`initial_window > 0.0`): only `ScanMode::Disjunctive`'s unscored
+    /// `base_query` restricts incoming `RA` probes.
+    ScoredSa,
+    /// Unscored (`RA`-only) leaf (`initial_window == 0.0`): incoming `RA` probes are restricted by
+    /// `resolved_query` (`Standard`) or `base_query` (`Tagged`).
+    UnscoredRa,
+}
+
+fn scan_ra_selectivity(scan: &PgSearchScanPlan, role: LeafRole) -> RaSelectivity {
+    let sel = match (role, scan.scan_mode()) {
+        (LeafRole::UnscoredRa, ScanMode::Standard { .. }) => scan.estimated_selectivity(),
+        (LeafRole::UnscoredRa, ScanMode::Tagged { base_query, .. })
+        | (LeafRole::ScoredSa, ScanMode::Disjunctive { base_query, .. }) => {
+            if matches!(base_query.as_ref(), SearchQueryInput::All) {
+                TopKSelectivity::ALL
+            } else {
+                scan.estimated_selectivity()
+            }
+        }
+        _ => TopKSelectivity::ALL,
+    };
+    RaSelectivity(sel)
+}
+
+fn subtree_ra_selectivity(node: &Arc<dyn ExecutionPlan>) -> RaSelectivity {
+    if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
+        let role = if scan.lazy_sort().is_some_and(|ls| ls.initial_window > 0.0) {
+            LeafRole::ScoredSa
+        } else {
+            LeafRole::UnscoredRa
+        };
+        return scan_ra_selectivity(scan, role);
+    }
+    let combined = node
+        .children()
+        .into_iter()
+        .map(|child| subtree_ra_selectivity(child).0)
+        .fold(TopKSelectivity::ALL, TopKSelectivity::and);
+    RaSelectivity(combined)
+}
+
 fn apply_sa_initial_window(
     plan: Arc<dyn ExecutionPlan>,
-    initial_window: f64,
+    k: usize,
+    peer_selectivity: TopKSelectivity,
 ) -> Result<Arc<dyn ExecutionPlan>> {
-    plan.transform_down(|node| {
-        if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>()
-            && let Some(ls) = scan.lazy_sort()
-            && ls.initial_window > 0.0
-        {
-            let mut updated_ls = ls.clone();
-            updated_ls.initial_window = initial_window;
-            return Ok(Transformed::yes(Arc::new(
-                scan.clone().with_lazy_sort(updated_ls),
-            )));
-        }
-        Ok(Transformed::no(node))
-    })
-    .map(|t| t.data)
+    if let Some(rj) = plan.downcast_ref::<RankJoinExec>() {
+        let left_ra = subtree_ra_selectivity(rj.left()).0;
+        let right_ra = subtree_ra_selectivity(rj.right()).0;
+        let new_left =
+            apply_sa_initial_window(Arc::clone(rj.left()), k, peer_selectivity.and(right_ra))?;
+        let new_right =
+            apply_sa_initial_window(Arc::clone(rj.right()), k, peer_selectivity.and(left_ra))?;
+        return replace_children_if_necessary(plan, vec![new_left, new_right]);
+    }
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>()
+        && let Some(ls) = scan.lazy_sort()
+        && ls.initial_window > 0.0
+    {
+        let mut updated_ls = ls.clone();
+        updated_ls.initial_window = compute_initial_window(k, peer_selectivity);
+        return Ok(Arc::new(scan.clone().with_lazy_sort(updated_ls)));
+    }
+    if plan.children().is_empty() {
+        return Ok(plan);
+    }
+    let new_children = plan
+        .children()
+        .into_iter()
+        .map(|child| apply_sa_initial_window(Arc::clone(child), k, peer_selectivity))
+        .collect::<Result<Vec<_>>>()?;
+    replace_children_if_necessary(plan, new_children)
 }
 
 fn collect_decode_tiebreaker_fields(
@@ -1133,6 +1280,7 @@ struct ScoredBranchContext {
     min_rows: usize,
     join_mode: PartitionMode,
     field_sort_policy: FieldSortPolicy,
+    selectivity_gate: SelectivityGate,
     level: BranchLevel,
 }
 
@@ -1245,6 +1393,7 @@ fn try_rewrite_scored_branch(
         min_rows: ctx.min_rows,
         join_mode: ctx.join_mode,
         field_sort_policy: child_field_sort_policy,
+        selectivity_gate: ctx.selectivity_gate,
         level: BranchLevel::ChildBranch,
     };
 
@@ -1299,8 +1448,13 @@ fn try_rewrite_scored_branch(
         try_rewrite_unscored_branch(join.right(), &right_key_sets, ctx.join_mode)?
     };
 
-    let combined_stats =
-        SubtreeScoreStats::combine(&decomposed.combiner, left_stats, right_stats, ctx.min_rows)?;
+    let combined_stats = SubtreeScoreStats::combine(
+        &decomposed.combiner,
+        left_stats,
+        right_stats,
+        ctx.min_rows,
+        ctx.selectivity_gate,
+    )?;
 
     let rank_join = RankJoinExec::try_new(
         RankJoinInputs {
@@ -1560,9 +1714,13 @@ fn try_rewrite_unscored_branch(
             try_rewrite_unscored_branch(join.right(), &right_key_sets, join_mode)?;
         let stats = SubtreeScoreStats {
             estimated_rows: left_stats.estimated_rows.min(right_stats.estimated_rows),
-            unscored_selectivity: left_stats
-                .unscored_selectivity
-                .and(right_stats.unscored_selectivity),
+            ra_selectivity: RaSelectivity(
+                left_stats
+                    .ra_selectivity
+                    .0
+                    .and(right_stats.ra_selectivity.0),
+            ),
+            sa_survival: SaSurvival(TopKSelectivity::ALL),
             tagged_selectivity: SubtreeScoreStats::combine_tagged(
                 left_stats.tagged_selectivity,
                 right_stats.tagged_selectivity,
@@ -1599,21 +1757,15 @@ fn try_rewrite_unscored_branch(
     if !leaf_supports_key_sets(scan, parent_key_sets) {
         return Err(RankJoinDeclineReason::UnsupportedJoinKeys.into());
     }
-    let (unscored_selectivity, tagged_selectivity) = match scan.scan_mode() {
-        ScanMode::Standard { .. } => (scan.estimated_selectivity(), None),
-        ScanMode::Tagged { base_query, .. } => {
-            let base_sel = if matches!(base_query.as_ref(), SearchQueryInput::All) {
-                TopKSelectivity::ALL
-            } else {
-                scan.estimated_selectivity()
-            };
-            (base_sel, scan.estimated_tagged_selectivity())
-        }
+    let tagged_selectivity = match scan.scan_mode() {
+        ScanMode::Standard { .. } => None,
+        ScanMode::Tagged { .. } => scan.estimated_tagged_selectivity(),
         _ => return Err(RankJoinDeclineReason::DisjunctiveSingleSidedScoreSort.into()),
     };
     let stats = SubtreeScoreStats {
         estimated_rows: scan.planner_estimated_rows(),
-        unscored_selectivity,
+        ra_selectivity: scan_ra_selectivity(scan, LeafRole::UnscoredRa),
+        sa_survival: SaSurvival(TopKSelectivity::ALL),
         tagged_selectivity,
         score_min: 0.0,
         score_max: 0.0,
@@ -1624,6 +1776,7 @@ fn try_rewrite_unscored_branch(
             orderby_info: None,
             ordering: None,
             initial_window: 0.0,
+            unpushed_join_selectivity: TopKSelectivity::ALL,
             parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
         },
@@ -1668,7 +1821,11 @@ fn try_rewrite_scored_leaf(
             &SearchQueryInput::All,
             disjunct_queries,
             scan.planner_estimated_rows(),
-        ),
+        )
+        .map(|mut s| {
+            s.ra_selectivity = scan_ra_selectivity(scan, LeafRole::ScoredSa);
+            s
+        }),
         ScanMode::Tagged { .. } => {
             return Err(RankJoinDeclineReason::DisjunctiveSingleSidedScoreSort);
         }
@@ -1695,6 +1852,7 @@ fn try_rewrite_scored_leaf(
             orderby_info,
             ordering: leaf_ordering,
             initial_window: 1.0,
+            unpushed_join_selectivity: TopKSelectivity::ALL,
             parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
         },
@@ -1705,10 +1863,29 @@ fn try_rewrite_scored_leaf(
 
 /// Whether non-vector (`OrderByFeature::Score` / `OrderByFeature::Field`) leaf sorts are
 /// eligible for [`try_rewrite_lazy_sort_probe_join`] along the current probe spine.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NonVectorProbeEligibility {
     Eligible,
     Disallowed,
+}
+
+/// Controls how [`try_rewrite_lazy_sort_probe_join`] handles `OrderByFeature::VectorDistance`
+/// when build-side `InList` pushdown does not fit.
+///
+/// TODO(<https://github.com/paradedb/paradedb/issues/7496>): Once cluster-ordered
+/// `pdb.vector_score` scans with Top-K dynamic filter pushdown land, delete both this enum and
+/// [`NonVectorProbeEligibility`] so vector and non-vector single-sided joins share one uniform
+/// `InList`-fit check and fall through to `HashJoinExec` + `SortExec(TopK)` otherwise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VectorProbePolicy {
+    /// Require every join along the probe spine to fit `HashJoinExec` `InList` pushdown
+    /// (`LazySortProbe` distinct cap, `hash_join_inlist_pushdown_max_size`, and indexed join key),
+    /// returning `None` otherwise so [`try_rewrite_under_sort`] keeps [`RankJoinExec`].
+    RequireInListFit,
+    /// Allow unpushed `HashTableLookupExpr` / residual-filter fallback when [`RankJoinExec`] was
+    /// already declined for another reason (e.g. `k > MAX_RANK_JOIN_K`, `enable_rank_join = false`,
+    /// `BelowMinRows`, or a residual `JoinFilter`) and no non-`lazy_sort` vector scan exists yet.
+    AllowUnpushedFallback,
 }
 
 /// Top-down context threaded through [`try_rewrite_lazy_sort_probe_join`].
@@ -1718,7 +1895,8 @@ struct LazySortProbeContext {
     level: BranchLevel,
     min_rows: usize,
     non_vector_eligibility: NonVectorProbeEligibility,
-    max_inlist_distinct: usize,
+    vector_policy: VectorProbePolicy,
+    unpushed_join_selectivity: TopKSelectivity,
 }
 
 /// A per-table MVCC visibility check extracted from an outer [`VisibilityFilterExec`] above a
@@ -1802,6 +1980,22 @@ fn estimate_subtree_rows(plan: &Arc<dyn ExecutionPlan>) -> Option<u64> {
     None
 }
 
+/// Estimates the combined selectivity `[0.0, 1.0]` of a build-side subtree from its leaf
+/// `PgSearchScanPlan::estimated_selectivity()`.
+fn estimate_subtree_selectivity(plan: &Arc<dyn ExecutionPlan>) -> TopKSelectivity {
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
+        return scan.estimated_selectivity();
+    }
+    if let Some(join) = plan.downcast_ref::<HashJoinExec>() {
+        return estimate_subtree_selectivity(join.left())
+            .and(estimate_subtree_selectivity(join.right()));
+    }
+    if plan.children().len() == 1 {
+        return estimate_subtree_selectivity(plan.children()[0]);
+    }
+    TopKSelectivity::ALL
+}
+
 /// Routes `parent_key_sets` through `join` to `probe_side` and appends `join`'s own probe-side
 /// equi-join key, returning `None` if `join` has composite join keys (`join.on().len() != 1`)
 /// or if any parent key cannot be unprojected cleanly.
@@ -1865,36 +2059,110 @@ fn route_probe_join_key_sets(
     Ok(Some(routed))
 }
 
-/// Updates `ctx` and routes `probe_key_sets` when descending into `probe_side` of `join`,
-/// disabling non-vector probe eligibility if `join` has a residual `JoinFilter`, if
-/// `build_input`'s estimated rows exceed `ctx.max_inlist_distinct`, or if the join keys
-/// cannot be routed as single-column `InList` dynamic filters.
+/// Estimates per-row Arrow buffer memory (`Array::get_array_memory_size()`) of a build-side join
+/// key column when `HashJoinExec` checks `hash_join_inlist_pushdown_max_size`.
+fn estimated_inlist_key_bytes(data_type: &DataType) -> u64 {
+    if let Some(width) = data_type.primitive_width() {
+        return width as u64;
+    }
+    match data_type {
+        DataType::Boolean => 1,
+        DataType::FixedSizeBinary(n) => (*n).max(1) as u64,
+        // 16-byte `ByteView` (or offset) + ~36-byte payload (e.g. UUID string).
+        DataType::Utf8
+        | DataType::LargeUtf8
+        | DataType::Utf8View
+        | DataType::Binary
+        | DataType::LargeBinary
+        | DataType::BinaryView
+        | DataType::Union(_, _) => 52,
+        _ => 32,
+    }
+}
+
+/// Updates `ctx` and routes `probe_key_sets` when descending into `probe_side` of `join`:
+/// - Disables non-vector probe eligibility if `join` has a residual `JoinFilter`, if
+///   `build_input`'s estimated rows exceed `InListPushdownMode::Standard` or
+///   `hash_join_inlist_pushdown_max_size`, or if the join keys cannot be routed as single-column
+///   `InList` dynamic filters.
+/// - Under [`VectorProbePolicy::RequireInListFit`], returns `Ok(None)` if `build_input` does not
+///   fit `InListPushdownMode::LazySortProbe` and `hash_join_inlist_pushdown_max_size`, or if the
+///   join keys cannot be routed as single-column `InList` dynamic filters.
 fn advance_probe_join_context(
     ctx: LazySortProbeContext,
     join: &HashJoinExec,
     build_input: &Arc<dyn ExecutionPlan>,
     probe_key_sets: &[Vec<Arc<dyn PhysicalExpr>>],
     probe_side: ExprSide,
-) -> Result<(LazySortProbeContext, JoinKeySets)> {
+) -> Result<Option<(LazySortProbeContext, JoinKeySets)>> {
     let mut child_ctx = ctx;
     child_ctx.level = BranchLevel::ChildBranch;
-    if join.filter().is_some()
-        || !estimate_subtree_rows(build_input)
-            .is_some_and(|rows| rows <= ctx.max_inlist_distinct as u64)
+    child_ctx.unpushed_join_selectivity = child_ctx
+        .unpushed_join_selectivity
+        .and(estimate_subtree_selectivity(build_input));
+
+    let single_equi_key = join.filter().is_none() && join.on().len() == 1;
+    let build_rows = estimate_subtree_rows(build_input);
+    let max_inlist_bytes = crate::gucs::hash_join_inlist_pushdown_max_size().max(0) as u64;
+    let key_bytes = join
+        .on()
+        .first()
+        .and_then(|(l, r)| {
+            let build_key = match probe_side {
+                ExprSide::RightOnly => l,
+                ExprSide::LeftOnly => r,
+                _ => return None,
+            };
+            build_key.data_type(&build_input.schema()).ok()
+        })
+        .map_or(32, |dt| estimated_inlist_key_bytes(&dt));
+
+    let std_cap = crate::gucs::InListPushdownMode::Standard.max_distinct_values() as u64;
+    if !single_equi_key
+        || std_cap == 0
+        || max_inlist_bytes == 0
+        || !build_rows.is_some_and(|rows| {
+            rows <= std_cap && rows.saturating_mul(key_bytes) <= max_inlist_bytes
+        })
     {
         child_ctx.non_vector_eligibility = NonVectorProbeEligibility::Disallowed;
     }
-    let routed_keys = if child_ctx.non_vector_eligibility == NonVectorProbeEligibility::Eligible {
+
+    if child_ctx.vector_policy == VectorProbePolicy::RequireInListFit {
+        let lazy_cap = crate::gucs::InListPushdownMode::LazySortProbe.max_distinct_values() as u64;
+        let part_count = if is_hash_join_range_co_partitioned(join)? {
+            build_input.output_partitioning().partition_count().max(1) as u64
+        } else {
+            1
+        };
+        let fits_vector = single_equi_key
+            && lazy_cap > 0
+            && max_inlist_bytes > 0
+            && build_rows.is_some_and(|rows| {
+                let per_part = rows.div_ceil(part_count);
+                per_part <= lazy_cap && per_part.saturating_mul(key_bytes) <= max_inlist_bytes
+            });
+        if !fits_vector {
+            return Ok(None);
+        }
+    }
+
+    let need_routed_keys = child_ctx.non_vector_eligibility == NonVectorProbeEligibility::Eligible
+        || child_ctx.vector_policy == VectorProbePolicy::RequireInListFit;
+    let routed_keys = if need_routed_keys {
         if let Some(keys) = route_probe_join_key_sets(join, probe_key_sets, probe_side)? {
             keys
         } else {
             child_ctx.non_vector_eligibility = NonVectorProbeEligibility::Disallowed;
+            if child_ctx.vector_policy == VectorProbePolicy::RequireInListFit {
+                return Ok(None);
+            }
             Vec::new()
         }
     } else {
         Vec::new()
     };
-    Ok((child_ctx, routed_keys))
+    Ok(Some((child_ctx, routed_keys)))
 }
 
 /// Rewrites a single-sided top-K `HashJoinExec` branch into a `lazy_sort`-probe `HashJoinExec`
@@ -1912,8 +2180,27 @@ fn advance_probe_join_context(
 /// `OrderByFeature::Score`, or `OrderByFeature::Field` plus any secondary tie-breakers).
 ///
 /// For `OrderByFeature::Score` and `OrderByFeature::Field`, this rewrite requires the build
-/// side's estimated row count to fit within `paradedb.hash_join_inlist_pushdown_max_distinct_values`
-/// and the probe leaf to support indexed `InList` pushdown on the join keys.
+/// side's estimated row count and byte size to fit within
+/// `paradedb.hash_join_inlist_pushdown_max_distinct_values` (`20,000`) and
+/// `paradedb.hash_join_inlist_pushdown_max_size`, and the probe leaf to support indexed `InList`
+/// pushdown on the join keys; above that size, standard `DocId`-order `HashJoinExec`
+/// (`HashTableLookupExpr` fast-field `PreFilter`) + post-join `SortExec(TopK)` is faster.
+///
+/// `OrderByFeature::VectorDistance` has no non-`lazy_sort` scan fallback yet
+/// (<https://github.com/paradedb/paradedb/issues/7496>): when `RankJoinExec` is otherwise eligible
+/// (`VectorProbePolicy::RequireInListFit`), this rewrite only succeeds if the build side fits
+/// `paradedb.lazy_sort_inlist_pushdown_max_distinct_values` (`131,072`) and
+/// `paradedb.hash_join_inlist_pushdown_max_size` with an indexed join key (keeping `RankJoinExec`
+/// otherwise); when `RankJoinExec` was already declined (`VectorProbePolicy::AllowUnpushedFallback`),
+/// it configures the `lazy_sort` vector probe unconditionally.
+///
+/// TODO(<https://github.com/paradedb/paradedb/issues/7496>): Once cluster-ordered
+/// `pdb.vector_score` scans with Top-K dynamic filter pushdown exist, remove
+/// [`VectorProbePolicy`] / [`NonVectorProbeEligibility`] so unpushable `< 0.08` vector joins fall
+/// through to `HashJoinExec` + `SortExec(TopK)` just like `Score` and `Field` joins (and with
+/// Tantivy's `VectorFilterStrategy` (`#7469` / `#7431`), implementing `Weight::uses_fast_fields()`
+/// and `Weight::scorer_for_candidates_unpositioned` for `HashTableLookupExpr` can also post-filter
+/// candidates lazily when `RankJoinExec` is ineligible).
 fn try_rewrite_lazy_sort_probe_join(
     node: &Arc<dyn ExecutionPlan>,
     required_ordering: &LexOrdering,
@@ -1949,6 +2236,9 @@ fn try_rewrite_lazy_sort_probe_join(
         let mapped_keys = map_key_sets_through_passthrough(node, probe_key_sets);
         if mapped_keys.is_none() {
             child_ctx.non_vector_eligibility = NonVectorProbeEligibility::Disallowed;
+            if child_ctx.vector_policy == VectorProbePolicy::RequireInListFit {
+                return Ok(None);
+            }
         }
         let child_key_sets = mapped_keys.as_deref().unwrap_or(&[]);
         let Some(new_child) = try_rewrite_lazy_sort_probe_join(
@@ -1992,6 +2282,13 @@ fn try_rewrite_lazy_sort_probe_join(
             {
                 return Ok(None);
             }
+            if ctx.vector_policy == VectorProbePolicy::RequireInListFit
+                && (ctx.level != BranchLevel::ChildBranch
+                    || probe_key_sets.is_empty()
+                    || !leaf_supports_key_sets(scan, probe_key_sets))
+            {
+                return Ok(None);
+            }
             scan.estimated_tagged_selectivity()
                 .unwrap_or(TopKSelectivity::ALL)
         } else {
@@ -2022,6 +2319,7 @@ fn try_rewrite_lazy_sort_probe_join(
             orderby_info: Some(order_bys),
             ordering: Some(required_ordering.clone()),
             initial_window,
+            unpushed_join_selectivity: ctx.unpushed_join_selectivity,
             parallel_mode: LazyParallelMode::WorkerPool,
             telemetry: None,
         })) as Arc<dyn ExecutionPlan>;
@@ -2055,13 +2353,16 @@ fn try_rewrite_lazy_sort_probe_join(
             else {
                 return Ok(None);
             };
-            let (child_ctx, routed_keys) = advance_probe_join_context(
+            let Some((child_ctx, routed_keys)) = advance_probe_join_context(
                 ctx,
                 join,
                 join.left(),
                 probe_key_sets,
                 ExprSide::RightOnly,
-            )?;
+            )?
+            else {
+                return Ok(None);
+            };
             let build_vis = take_matching_visibility_checks(pending_vis, &join.left().schema());
             let Some(new_right) = try_rewrite_lazy_sort_probe_join(
                 join.right(),
@@ -2089,13 +2390,16 @@ fn try_rewrite_lazy_sort_probe_join(
             Ok(Some(new_join))
         }
         (JoinType::Inner | JoinType::LeftSemi, ExprSide::LeftOnly) => {
-            let (child_ctx, routed_keys) = advance_probe_join_context(
+            let Some((child_ctx, routed_keys)) = advance_probe_join_context(
                 ctx,
                 join,
                 join.right(),
                 probe_key_sets,
                 ExprSide::LeftOnly,
-            )?;
+            )?
+            else {
+                return Ok(None);
+            };
             let build_vis = take_matching_visibility_checks(pending_vis, &join.right().schema());
             let Some(new_left) = try_rewrite_lazy_sort_probe_join(
                 join.left(),
@@ -2461,7 +2765,7 @@ fn zero_sort_expr(options: SortOptions) -> PhysicalSortExpr {
 /// Analyzes `sort_expr` over `join_schema` and decomposes it into
 /// `(left_sort_expr, right_sort_expr, ScoreCombiner)` if it is a
 /// valid monotonic combination of both sides.
-pub fn analyze_join_score_expr(
+fn analyze_join_score_expr(
     sort_expr: &PhysicalSortExpr,
     join_type: JoinType,
     left_schema: &SchemaRef,

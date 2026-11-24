@@ -15,6 +15,11 @@ on:
     types: [labeled] # Opt in with `benchmarks`, `benchmark-benchmarker` (all), or `benchmark-benchmarker-{hackernews,stackexchange,wikipedia}`.
   workflow_dispatch:
     inputs:
+      runner_type:
+        description: "Runner availability"
+        type: choice
+        options: [spot, on-demand]
+        default: spot
       dataset:
         description: "Which dataset(s) to benchmark: 'all', 'hackernews', 'stackexchange', or 'wikipedia'."
         required: false
@@ -53,6 +58,7 @@ jobs:
     name: Benchmarker (hackernews)
     runs-on:
       - runs-on=${{ github.run_id }}
+      - spot=${{ (github.event_name == 'workflow_dispatch' && inputs.runner_type == 'spot') || (github.event_name != 'workflow_dispatch' && !contains(github.event.pull_request.labels.*.name, 'benchmark-nonspot')) }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
@@ -197,6 +203,7 @@ jobs:
     name: Benchmarker (${{ matrix.dataset }})
     runs-on:
       - runs-on=${{ github.run_id }}
+      - spot=${{ (github.event_name == 'workflow_dispatch' && inputs.runner_type == 'spot') || (github.event_name != 'workflow_dispatch' && !contains(github.event.pull_request.labels.*.name, 'benchmark-nonspot')) }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
@@ -259,7 +266,7 @@ jobs:
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
         with:
-          ref: ${{ inputs[format('benchmarker_{0}_ref', matrix.dataset)] || 'main' }}
+          ref: ${{ inputs[format('benchmarker_{0}_ref', env.DATASET)] || 'main' }}
 
       - name: Pull ${{ env.DATASET }} Benchmark Config
         working-directory: benchmarker
@@ -278,8 +285,8 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref }}
           base_image: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
           image_tag: ${{ env.IMAGE_TAG }}
-          dataset: ${{ matrix.dataset }}
-          size: ${{ matrix.dataset == 'stackexchange' && '150m' || '5m' }}
+          dataset: ${{ env.DATASET }}
+          size: ${{ env.DATASET == 'stackexchange' && '150m' || '5m' }}
           snapshot_format: zst
 
       - name: Build ${{ env.DATASET }} Index with ${{ env.IMAGE_TAG }}
@@ -298,6 +305,10 @@ jobs:
       - name: Run ${{ env.DATASET }} Benchmark
         working-directory: benchmarker
         env:
+          WARMUP_SECONDS: 5
+          DURATION_SECONDS: 25
+          UPDATES_PER_SECOND: 1000
+          STARTUP_TIMEOUT_SECONDS: 300
           BENCHMARKER_META: >-
             {"commit":"${{ steps.build_image.outputs.commit_sha }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
         run: |
@@ -309,6 +320,10 @@ jobs:
           run_benchmark() {
             workload="$1"
             style="$2"
+            name="${workload}-${style}"
+            if [ "${3:-0}" -gt 0 ]; then
+              name+="-concurrent-updates"
+            fi
             echo "== Running workload=${workload} query_style=${style} =="
             (
               cd "$root/results"
@@ -318,24 +333,44 @@ jobs:
                 -e WORKLOAD="${workload}" \
                 -e QUERY_STYLE="${style}" \
                 -e VUS=1 \
-                -e WARMUP_SECONDS=30 \
-                -e DURATION_SECONDS=300 \
+                -e UPDATES_PER_SECOND="${3:-0}" \
+                -e WARMUP_SECONDS="${WARMUP_SECONDS}" \
+                -e DURATION_SECONDS="${DURATION_SECONDS}" \
                 "$root/datasets/_ci_config/k6/search.js"
-            )
+            ) 2>&1 | tee "$root/results/${name}.log"
+            if [ "${3:-0}" -gt 0 ] && grep -Eq "[1-9][0-9]* interrupted iterations" "$root/results/${name}.log"; then
+              echo "Interrupted benchmark iterations in ${name}" >&2
+              exit 1
+            fi
             dashboard_json=("$root"/results/dashboard_*.json)
             dashboard_html=("$root"/results/dashboard_*.html)
             if [ ${#dashboard_json[@]} -ne 1 ] || [ ${#dashboard_html[@]} -ne 1 ]; then
               echo "Expected one JSON and HTML dashboard for ${workload}/${style}" >&2
               exit 1
             fi
-            mv "${dashboard_json[0]}" "$root/results/${workload}-${style}.json"
-            mv "${dashboard_html[0]}" "$root/results/${workload}-${style}.html"
+            mv "${dashboard_json[0]}" "$root/results/${name}.json"
+            mv "${dashboard_html[0]}" "$root/results/${name}.html"
           }
 
+          BENCHMARKER_META="$(jq -c --argjson seconds "$DURATION_SECONDS" '. + {measurement_seconds: $seconds}' <<< "$BENCHMARKER_META")"
+          export BENCHMARKER_META
           for style in conjunction disjunction phrase mixed; do
             run_benchmark topk "${style}"
           done
           run_benchmark count mixed
+
+          if [ "${DATASET}" = stackexchange ]; then
+            test "$PARADEDB_DATA_DIR" = "$RUNNER_TEMP/benchmark-pgdata"
+            pristine="$(mktemp -d "$RUNNER_TEMP/stackexchange-pristine.XXXXXX")"
+            docker compose stop paradedb
+            sudo cp -a --reflink=auto "$PARADEDB_DATA_DIR/." "$pristine/"
+            for style in conjunction disjunction phrase mixed; do
+              docker compose stop paradedb
+              sudo rsync -a --checksum --delete "$pristine/" "$PARADEDB_DATA_DIR/"
+              docker compose up -d --wait --wait-timeout "$STARTUP_TIMEOUT_SECONDS" paradedb
+              run_benchmark topk "${style}" "$UPDATES_PER_SECOND"
+            done
+          fi
 
       - name: Dump Database Logs on Failure
         if: failure() || cancelled()

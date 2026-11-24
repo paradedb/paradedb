@@ -3,10 +3,7 @@ description: Build and install pg_vectorsearch in the benchmark container
 
 inputs:
   ref:
-    description: "paradedb/pg_vectorsearch commit"
-    required: true
-  github_token:
-    description: "Token with read access to paradedb/pg_vectorsearch"
+    description: "timescale/pg_vectorsearch commit"
     required: true
 
 runs:
@@ -15,10 +12,9 @@ runs:
     - name: Checkout pg_vectorsearch
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
-        repository: paradedb/pg_vectorsearch
+        repository: timescale/pg_vectorsearch
         ref: ${{ inputs.ref }}
         path: pg-vectorsearch
-        token: ${{ inputs.github_token }}
         persist-credentials: false
 
     - name: Build and Install pg_vectorsearch
@@ -31,7 +27,9 @@ runs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
         apt-get install -y --no-install-recommends \
-          postgresql-server-dev-18 build-essential pkg-config meson ninja-build libopenblas-dev
+          postgresql-server-dev-18 build-essential pkg-config meson ninja-build libopenblas-dev git
+        git config --global --add safe.directory /tmp/pg-vectorsearch
+        git -C /tmp/pg-vectorsearch rev-parse HEAD
         pg_config="/usr/lib/postgresql/18/bin/pg_config"
         CC="$("$pg_config" --cc)" meson setup /tmp/pg-vectorsearch/build /tmp/pg-vectorsearch --buildtype=release \
           -Dnative=true -Dblas=enabled -Dpostgresql=enabled -Dtools=disabled -Dpg_config="$pg_config"
@@ -60,3 +58,15 @@ runs:
           -c 'DO $$ BEGIN PERFORM 1; END $$;' \
           -c 'SHOW server_version;' \
           | tee benchmark-artifacts/pg-vectorsearch-postgres-version.txt
+
+    - name: Verify pg_vectorsearch Revision
+      shell: bash
+      run: |
+        set -euo pipefail
+        psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pg_vectorsearch;'
+        psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+          -c "SELECT json_build_object('version', extversion, 'commit', pg_vectorsearch_git_commit())
+              FROM pg_extension WHERE extname = 'pg_vectorsearch'" \
+          > benchmark-artifacts/pg-vectorsearch-version.json
+        jq -e --arg ref "$(cat benchmark-artifacts/pg-vectorsearch-commit.txt)" \
+          '.commit == $ref' benchmark-artifacts/pg-vectorsearch-version.json

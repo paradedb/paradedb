@@ -1210,13 +1210,15 @@ mod unit_tests {
 mod tests {
     use super::*;
     use crate::api::vector_test_support::*;
+    use std::sync::Arc;
+
     #[pg_test]
     fn vector_header_validation_is_cached() {
         let index = vector_metadata_fixture();
         let trace = crate::index::reader::io_stats::Trace::default();
         let reader = SearchIndexReader::open_with_context(
             &index,
-            crate::query::SearchQueryInput::Empty,
+            Arc::new(crate::query::SearchQueryInput::Empty),
             false,
             crate::index::mvcc::MvccSatisfies::Snapshot,
             None,

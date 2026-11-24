@@ -26,7 +26,10 @@ use pgrx::{AnyElement, PgList, extension_sql, pg_extern, pg_sys};
 #[pgrx::pg_schema]
 pub mod pdb {
     use crate::postgres::customscan::basescan::projections::missing_scan_error;
-    use pgrx::{AnyElement, extension_sql, pg_extern};
+    use pgrx::pg_sys::panic::ErrorReport;
+    use pgrx::{
+        AnyElement, JsonB, PgLogLevel, PgSqlErrorCode, extension_sql, function_name, pg_extern,
+    };
 
     #[allow(unused_variables)]
     #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
@@ -40,6 +43,30 @@ pub mod pdb {
     "#,
         name = "score_placeholder",
         requires = [score_from_relation, placeholder_support]
+    );
+
+    #[allow(unused_variables)]
+    #[pg_extern(name = "explain_score", stable, parallel_safe, cost = 1)]
+    pub fn explain_score_from_relation(relation_reference: AnyElement) -> JsonB {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+            "`pdb.explain_score` must be in the `SELECT` list of a query that a ParadeDB scan evaluates",
+            function_name!(),
+        )
+        .set_detail(
+            "The query must apply a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` to the same table. `pdb.explain_score` does not work in `WHERE`.",
+        )
+        .set_hint("Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.explain_score`.")
+        .report(PgLogLevel::ERROR);
+        unreachable!()
+    }
+
+    extension_sql!(
+        r#"
+    ALTER FUNCTION pdb.explain_score SUPPORT paradedb.placeholder_support;
+    "#,
+        name = "explain_score_placeholder",
+        requires = [explain_score_from_relation, placeholder_support]
     );
 }
 

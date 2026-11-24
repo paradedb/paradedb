@@ -170,9 +170,7 @@ pub fn run(
         let finished = finished.clone();
         let suite_runner = suite_runner.clone();
         std::thread::spawn(move || {
-            let errors = suite_runner
-                .wait_for_finish()
-                .expect("wait_for_finish() should not fail");
+            let errors = suite_runner.wait_for_finish();
 
             let mut reported_errors = 0;
             for error in errors {
@@ -211,12 +209,15 @@ pub fn run(
     if !finished.load(std::sync::atomic::Ordering::Relaxed) {
         let mut any_worker_active = false;
         for runner in suite_runner.runners().chain(suite_runner.monitor_runners()) {
+            if runner.worker_active() {
+                runner.log_shutdown_diagnostics();
+            }
             match runner.worker_state() {
                 WorkerState::Stopped => {}
                 WorkerState::RunningQuery => {
                     any_worker_active = true;
                     eprintln!(
-                        "job still active at shutdown timeout (running query): {}",
+                        "job still active at shutdown timeout (awaiting query/transaction response): {}",
                         runner.title()
                     );
                 }

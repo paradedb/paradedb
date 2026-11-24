@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+from collections import Counter
 from pathlib import Path
 
 # A text predicate whose query string comes from a session setting stays an expression until
@@ -40,7 +41,7 @@ def verify_ann(plan, index_name, fields, access_method, prefilter=False):
         for key in ("Filter", "Index Cond", "Recheck Cond")
     )
     if any(not re.search(rf"\b{re.escape(field)}\b", predicates) for field in fields):
-        raise ValueError("Expected every HN predicate in the PostgreSQL plan")
+        raise ValueError("Expected every filter predicate in the PostgreSQL plan")
     scans = [
         node
         for node in nodes
@@ -111,6 +112,36 @@ def verify(plan, filtered, neighbors=None, fields=None):
         )
 
 
+def execution_path(plan):
+    """Router path per segment, worker launch and vector filter stage of one executed
+    pg_search plan. Needs `EXPLAIN (ANALYZE, VERBOSE)` with `paradedb.vector_stats` on; the
+    leader's Segment Info already holds the segments its parallel workers scanned."""
+    paths = Counter()
+    planned = launched = 0
+    filtering = None
+    pending = [plan[0]["Plan"]]
+    while pending:
+        node = {key.strip(): value for key, value in pending.pop().items()}
+        planned += node.get("Workers Planned", 0)
+        launched += node.get("Workers Launched", 0)
+        filtering = filtering or node.get("Vector Filtering")
+        info = node.get("Segment Info")
+        if info is not None:
+            info = json.loads(info) if isinstance(info, str) else info
+            paths.update(stats.get("access_path", "unknown") for stats in info.values())
+        pending.extend(node.get("Plans", []))
+    segments = sum(paths.values())
+    return {
+        "router": ", ".join(
+            f"{path.lower()} {count}/{segments}"
+            for path, count in sorted(paths.items())
+        )
+        or "—",
+        "execution": f"parallel {launched}/{planned}" if planned else "serial",
+        "filter": filtering or "—",
+    }
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("directory", type=Path)
@@ -120,12 +151,18 @@ if __name__ == "__main__":
     output = args.directory / "plans"
     output.mkdir(exist_ok=True)
     plan_modes = ["| Operating point | Execution path |", "|---|---|"]
+    pg_paths = [
+        "| Operating point | Router | Execution | Vector filter |",
+        "|---|---|---|---|",
+    ]
     for point in points:
         if not point["reached"]:
             continue
         session = point["session"] | {
             point.get("param", "paradedb.vector_cluster_max_probe"): point["probe"]
         }
+        if point.get("engine", "pg_search") == "pg_search":
+            session |= {"paradedb.vector_stats": "on"}
         settings = "\n".join(
             f"SET {key} = '{value}';" for key, value in session.items()
         )
@@ -190,12 +227,38 @@ EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
                 point["neighbors"],
                 point["filter_fields"],
             )
+            point["execution_path"] = execution_path(executed_plan)
+            pg_paths.append(
+                f"| `{point['name']}` | "
+                + " | ".join(point["execution_path"].values())
+                + " |"
+            )
         print(f"Verified {point['name']}: {path}")
     (args.directory / "operating_points.json").write_text(
         json.dumps(points, indent=2) + "\n"
     )
+    report = None
     if len(plan_modes) > 2:
         report = "\n" + "\n".join(plan_modes) + "\n"
+    elif len(pg_paths) > 2:
+        # GitHub renders Markdown inside <details> only with a blank line after the summary.
+        report = "\n".join(
+            [
+                "<details><summary>Execution paths</summary>",
+                "",
+                *pg_paths,
+                "",
+                (
+                    "One `EXPLAIN (ANALYZE, VERBOSE)` per operating point on the first query "
+                    "vector, with `paradedb.vector_stats` on. Router counts segments that routed "
+                    "or located their filter's matches (router bypass); execution is "
+                    "launched/planned workers."
+                ),
+                "</details>",
+                "",
+            ]
+        )
+    if report:
         (args.directory / "plan-modes.md").write_text(report)
         for destination in (
             args.directory / "result-context.md",

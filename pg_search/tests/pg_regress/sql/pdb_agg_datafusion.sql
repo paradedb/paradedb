@@ -368,6 +368,19 @@ SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jso
        pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb, 'threshold')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description ||| 'laptop';
+
+-- Runtime expressions are solved before resolving `threshold`, so an InitPlan
+-- query follows the solved row estimate rather than always checking visibility.
+SET LOCAL paradedb.visibility_threshold TO 10;
+SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'threshold'),
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb, 'threshold')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description ||| (SELECT 'laptop');
+SET LOCAL paradedb.visibility_threshold TO 1000;
+SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'threshold'),
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb, 'threshold')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description ||| (SELECT 'laptop');
 ROLLBACK;
 
 -- Test 3.6: conflicting visibility settings are rejected

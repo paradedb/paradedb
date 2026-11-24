@@ -30,7 +30,10 @@ CREATE TABLE stackoverflow_posts (
     -- format. Generated so the sampled CSVs stay unchanged: COPY skips
     -- generated columns. amount78 mimics uint256-style token amounts.
     amount15 NUMERIC(15, 2) GENERATED ALWAYS AS (view_count::numeric / 100) STORED,
-    amount78 NUMERIC(78, 0) GENERATED ALWAYS AS ('1e70'::numeric + view_count) STORED
+    amount78 NUMERIC(78, 0) GENERATED ALWAYS AS ('1e70'::numeric + view_count) STORED,
+    -- Deterministic full-entropy UUID join key mirroring owner_user_id.
+    -- Explicit ::text cast avoids STABLE textanycat; preserves NULL when owner_user_id IS NULL.
+    owner_user_uuid UUID GENERATED ALWAYS AS (md5('user-' || owner_user_id::text)::uuid) STORED
 );
 
 CREATE TABLE badges (
@@ -39,7 +42,9 @@ CREATE TABLE badges (
     date TIMESTAMP,
     user_id INTEGER,
     class INTEGER,
-    tag_based BOOLEAN
+    tag_based BOOLEAN,
+    -- Deterministic full-entropy UUID join key mirroring user_id.
+    user_uuid UUID GENERATED ALWAYS AS (md5('user-' || user_id::text)::uuid) STORED
 );
 
 CREATE TABLE comments (
@@ -65,5 +70,7 @@ CREATE TABLE users (
     down_votes INTEGER,
     views INTEGER,
     profile_image_url VARCHAR,
-    website_url VARCHAR
+    website_url VARCHAR,
+    -- Deterministic full-entropy UUID join key mirroring id.
+    user_uuid UUID GENERATED ALWAYS AS (md5('user-' || id::text)::uuid) STORED
 );

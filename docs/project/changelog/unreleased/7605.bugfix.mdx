@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Fixed aggregate and `DISTINCT` queries with subqueries in search predicates failing at execution time (#7593), and resolved runtime predicates before evaluating `pdb.agg(..., 'threshold')` visibility. Also fixed parallel search queries with bitmap intersection failing when run outside parallel mode.

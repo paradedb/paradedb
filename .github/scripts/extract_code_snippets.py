@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Inventory executable docs fences and extract explicitly covered examples."""
 
+import argparse
 import hashlib
+import io
 import json
 import re
 import shutil
+import subprocess
 import sys
+import tarfile
+import tempfile
 from collections import Counter
 from functools import cache
 from pathlib import Path
@@ -44,11 +49,6 @@ IGNORED_CODEGROUPS = {
         "Non-executable distance metric fragments; "
         "covered by the runnable vector index examples."
     ),
-    # Remove once the 0.27 ORM client packages ship target_leaf_size support.
-    "reference__indexing__indexing-vectors__group-003": (
-        "ORM variants use target_leaf_size, pending client releases; "
-        "the SQL fence still runs in the standalone inventory."
-    ),
 }
 EXTERNAL_INDEXES = "reference/filtering/external-indexes.mdx::fence-"
 SYNONYMS = "reference/tokenizers/synonyms.mdx::fence-"
@@ -59,6 +59,8 @@ CODEGROUP_SETUP = {
     "reference__tokenizers__synonyms__group-001": [SYNONYMS + "001", SYNONYMS + "005"],
     "reference__tokenizers__synonyms__group-002": [SYNONYMS + "001", SYNONYMS + "005"],
     "reference__tokenizers__synonyms__group-003": [SYNONYMS + "004", SYNONYMS + "005"],
+    "reference__tokenizers__synonyms__group-004": [SYNONYMS + "001", SYNONYMS + "005"],
+    "reference__tokenizers__synonyms__group-005": [SYNONYMS + "001", SYNONYMS + "005"],
 }
 # The rules tables that the ORM fences of the synonyms page read.
 SYNONYM_TABLES = [SYNONYMS + "001", SYNONYMS + "004"]
@@ -257,7 +259,41 @@ def write_standalone_snippets(outputs, outside, coverage):
     return count
 
 
+def git(*args):
+    return subprocess.check_output(["git", *args])
+
+
+def snippets_unchanged(base, head):
+    base = git("merge-base", base, head).decode().strip()
+    paths = git("diff", "--no-renames", "--name-only", "-z", base, head).split(b"\0")
+    paths = [path for path in paths if path]
+    if not paths or any(not path.startswith(b"docs/") for path in paths):
+        return False
+    # The docs version is also an input to snippet classification and extraction.
+    if b"docs/docs.json" in paths:
+        return False
+    with tempfile.TemporaryDirectory() as temp:
+        for name, ref in (("base", base), ("head", head)):
+            with tarfile.open(fileobj=io.BytesIO(git("archive", ref, "docs"))) as archive:
+                archive.extractall(Path(temp) / name, filter="data")
+        return inventory(Path(temp) / "base/docs") == inventory(Path(temp) / "head/docs")
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--compare", nargs=2, metavar=("BASE", "HEAD"))
+    args = parser.parse_args()
+    if args.compare:
+        try:
+            if snippets_unchanged(*args.compare):
+                print("snippets=unchanged")
+        except (OSError, ValueError, tarfile.TarError, subprocess.CalledProcessError) as error:
+            print(f"Could not compare docs snippets: {error}", file=sys.stderr)
+        return 0
+    return extract()
+
+
+def extract():
     """Validate coverage and emit snippets for the smoke-test harnesses."""
     groups, outside = inventory()
     if not groups:

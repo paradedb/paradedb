@@ -56,6 +56,27 @@ pub fn score_funcoids() -> [pg_sys::Oid; 2] {
     })
 }
 
+/// The oid of `pdb.explain_score(anyelement)`. It is `InvalidOid` in a database that still has
+/// the SQL objects of an older release, and no call has that oid.
+pub fn explain_score_funcoid() -> pg_sys::Oid {
+    static OID_CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    if let Some(funcoid) = OID_CACHE.get() {
+        return *funcoid;
+    }
+    let funcoid = unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::to_regprocedure,
+            &["pdb.explain_score(anyelement)".into_datum()],
+        )
+    };
+    // Only a found oid is cached. `ALTER EXTENSION pg_search UPDATE` creates the function, and a
+    // session that is open at that time must find it afterwards.
+    match funcoid {
+        Some(funcoid) => *OID_CACHE.get_or_init(|| funcoid),
+        None => pg_sys::InvalidOid,
+    }
+}
+
 pub mod orderby {
     pub use crate::postgres::utils::text_lower_funcoid;
     use crate::schema::SearchFieldType;

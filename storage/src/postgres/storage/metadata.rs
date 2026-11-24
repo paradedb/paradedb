@@ -21,14 +21,13 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     SegmentMetaEntry, SegmentMetaEntryContent, block_number_is_valid,
 };
-use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer, init_new_buffer};
+use crate::postgres::storage::buffer::{
+    BufferManager, Page, PageMut, PinnedBuffer, init_new_buffer,
+};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{
-    PgLogLevel, PgRelation, PgSqlErrorCode, function_name, iter::TableIterator, name, pg_sys,
-};
+use pgrx::{PgRelation, iter::TableIterator, name, pg_sys};
 use tantivy::IndexSettings;
 use tantivy::schema::Schema;
 
@@ -105,7 +104,22 @@ pub struct MetaPageData {
     created_by_version_patch: u16,
 
     created_at: pg_sys::TimestampTz,
+
+    /// The block that holds [`StandbyTaintData`]; zero on an index built before the field existed.
+    standby_taint: pg_sys::BlockNumber,
 }
+
+/// Contents of the standby-taint block. The primary writes this page once, when it allocates
+/// the block, so a flag that a standby's WAL replay sets here is never overwritten by a later
+/// page image from the primary and is never compared by `wal_consistency_checking`.
+#[derive(Copy, Clone)]
+#[repr(C, packed)]
+struct StandbyTaintData {
+    tainted: u32,
+}
+
+/// The flag replay writes; the page the primary allocated reads zero.
+const STANDBY_TAINTED: u32 = 1;
 
 /// Provides read access to the metadata page
 /// Because the metadata page does not change after it's initialized in MetaPage::open(),
@@ -160,6 +174,7 @@ impl MetaPage {
             metadata.active_vacuum_list = init_new_buffer(indexrel).number();
             metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
             metadata.merge_lock = init_new_buffer(indexrel).number();
+            metadata.standby_taint = init_new_buffer(indexrel).number();
             metadata.v2_fsm = crate::postgres::storage::fsm::v2::V2FSM::create(indexrel);
             metadata.segment_meta_garbage =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
@@ -182,16 +197,6 @@ impl MetaPage {
     }
 
     pub fn open(indexrel: &PgSearchRelation) -> Self {
-        if unsafe { pgrx::pg_sys::HotStandbyActive() } && unsafe { !pg_sys::XLogInsertAllowed() } {
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
-                "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community",
-                function_name!(),
-            )
-            .set_detail("ParadeDB Enterprise is commercially licensed and included with ParadeDB Cloud. To self-host ParadeDB Enterprise, contact sales@paradedb.com.")
-            .report(PgLogLevel::ERROR);
-        }
-
         let mut bman = BufferManager::new(indexrel);
         let buffer = bman.get_buffer(METAPAGE);
         let page = buffer.page();
@@ -210,6 +215,7 @@ impl MetaPage {
         let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
             || !block_number_is_valid(metadata.ambulkdelete_sentinel)
             || !block_number_is_valid(metadata.merge_lock)
+            || !block_number_is_valid(metadata.standby_taint)
             || !block_number_is_valid(metadata.v2_fsm)
             || !block_number_is_valid(metadata.segment_meta_garbage);
 
@@ -233,6 +239,10 @@ impl MetaPage {
 
                 if !block_number_is_valid(metadata.merge_lock) {
                     metadata.merge_lock = init_new_buffer(indexrel).number();
+                }
+
+                if !block_number_is_valid(metadata.standby_taint) {
+                    metadata.standby_taint = init_new_buffer(indexrel).number();
                 }
 
                 if !block_number_is_valid(metadata.v2_fsm) {
@@ -297,8 +307,8 @@ impl MetaPage {
         }
     }
 
-    /// Returns `None` if VACUUM blocks merge admission, so the sweep can try other indexes.
-    pub fn try_pin_merge(&self) -> Option<MergePins> {
+    /// Returns `None` if VACUUM blocks merge admission.
+    fn try_pin_merge(&self) -> Option<MergePins> {
         unsafe {
             let relation = self.bman.buffer_access().rel().as_ptr();
             let blockno = self.cleanup_lock_blockno();
@@ -310,6 +320,12 @@ impl MetaPage {
             pg_sys::UnlockPage(relation, blockno, mode);
             Some(pins)
         }
+    }
+
+    pub unsafe fn try_pin_and_lock_merge(&self) -> Option<(MergePins, MergeLock)> {
+        let pins = self.try_pin_merge()?;
+        let lock = MergeLock::try_acquire(self.bman.buffer_access().rel(), self.data.merge_lock)?;
+        Some((pins, lock))
     }
 
     pub fn vacuum_list(&self) -> VacuumList {
@@ -529,6 +545,28 @@ impl MetaPage {
     // been updated and this value is stale
     pub fn ambulkdelete_epoch(&self) -> u32 {
         self.data.ambulkdelete_epoch
+    }
+
+    /// True once a standby's WAL replay set the taint; see `PgSearchRelation::blocked_after_promotion`.
+    pub fn standby_tainted(&self) -> bool {
+        let buffer = self.bman.get_buffer(self.standby_taint_block());
+        Self::is_tainted(&buffer.page())
+    }
+
+    /// The block the `INIT_INDEX` record names, so replay finds the taint page without a catalog.
+    pub fn standby_taint_block(&self) -> pg_sys::BlockNumber {
+        assert!(block_number_is_valid(self.data.standby_taint));
+        self.data.standby_taint
+    }
+
+    /// True when a taint page carries the standby taint flag.
+    pub fn is_tainted(page: &Page<'_>) -> bool {
+        page.contents::<StandbyTaintData>().tainted == STANDBY_TAINTED
+    }
+
+    /// Sets the taint on a taint page during WAL replay, where no relation can be opened.
+    pub fn taint(page: &mut PageMut<'_>) {
+        page.contents_mut::<StandbyTaintData>().tainted = STANDBY_TAINTED;
     }
 
     pub fn increment_ambulkdelete_epoch(&mut self) {

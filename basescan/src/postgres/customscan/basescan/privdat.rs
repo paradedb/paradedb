@@ -28,13 +28,21 @@ use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tantivy::vector::VectorFilterStrategy;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum VectorFilterPlan {
+    Planned(VectorFilterStrategy),
+    Deferred,
+}
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,
     range_table_index: Option<pg_sys::Index>,
-    query: Option<SearchQueryInput>,
+    query: Option<Arc<SearchQueryInput>>,
     limit_offset: Option<LimitOffset>,
     // ORDER-BY info that will be used iff the appropriate ExecMethodType is chosen.
     maybe_orderby_info: Option<Vec<OrderByInfo>>,
@@ -52,7 +60,7 @@ pub struct PrivateData {
     exec_method_type: ExecMethodType,
     // Additional search predicates from join filters that are relevant for snippet/score generation
     // Stores the entire simplified Boolean expression to preserve OR structures like (TRUE OR name:"Rowling")
-    join_predicates: Option<SearchQueryInput>,
+    join_predicates: Option<Arc<SearchQueryInput>>,
     ambulkdelete_epoch: u32,
     // Window aggregates to compute during Top K execution
     window_aggregates: Vec<WindowAggregateInfo>,
@@ -62,6 +70,8 @@ pub struct PrivateData {
     // Which decision branch produced this path's serial/parallel choice, surfaced in EXPLAIN
     // VERBOSE. `None` only on plans serialized before this field existed.
     worker_selection_reason: Option<WorkerDecisionReason>,
+    #[serde(default)]
+    vector_filter_plan: Option<VectorFilterPlan>,
     // `nodeToString` of the WHERE clauses evaluated in `plan.qual` instead of the scan: the leaky
     // ones, and the base clauses the join qual fallback could not push down.
     #[serde(default)]
@@ -182,7 +192,7 @@ impl PrivateData {
         self.range_table_index = Some(rti);
     }
 
-    pub fn set_query(&mut self, query: SearchQueryInput) {
+    pub fn set_query(&mut self, query: Arc<SearchQueryInput>) {
         self.query = Some(query);
     }
 
@@ -192,6 +202,12 @@ impl PrivateData {
 
     pub fn set_maybe_orderby_info(&mut self, style: Option<&Vec<OrderByStyle>>) {
         self.maybe_orderby_info = Some(OrderByStyle::extract_orderby_info(style));
+    }
+
+    /// Drops the candidate ORDER BY once the chosen exec method carries it, so the plan holds
+    /// one copy of it (and of any query vector in it).
+    pub fn clear_maybe_orderby_info(&mut self) {
+        self.maybe_orderby_info = None;
     }
 
     pub fn set_var_attname_lookup(
@@ -211,6 +227,10 @@ impl PrivateData {
 
     pub(super) fn set_worker_selection_reason(&mut self, reason: WorkerDecisionReason) {
         self.worker_selection_reason = Some(reason);
+    }
+
+    pub(super) fn set_vector_filter_plan(&mut self, plan: Option<VectorFilterPlan>) {
+        self.vector_filter_plan = plan;
     }
 
     pub fn set_planned_which_fast_fields(
@@ -236,7 +256,7 @@ impl PrivateData {
         self.need_scores = maybe;
     }
 
-    pub fn set_join_predicates(&mut self, predicates: Option<SearchQueryInput>) {
+    pub fn set_join_predicates(&mut self, predicates: Option<Arc<SearchQueryInput>>) {
         self.join_predicates = predicates;
     }
 
@@ -274,12 +294,12 @@ impl PrivateData {
         self.range_table_index
     }
 
-    pub fn query(&self) -> &Option<SearchQueryInput> {
-        &self.query
+    pub fn query(&self) -> Option<Arc<SearchQueryInput>> {
+        self.query.clone()
     }
 
-    pub fn query_mut(&mut self) -> &mut Option<SearchQueryInput> {
-        &mut self.query
+    pub fn query_mut(&mut self) -> Option<&mut SearchQueryInput> {
+        self.query.as_mut().map(Arc::make_mut)
     }
 
     pub fn limit_offset(&self) -> &Option<LimitOffset> {
@@ -303,6 +323,10 @@ impl PrivateData {
 
     pub(super) fn worker_selection_reason(&self) -> Option<WorkerDecisionReason> {
         self.worker_selection_reason
+    }
+
+    pub(super) fn vector_filter_plan(&self) -> Option<VectorFilterPlan> {
+        self.vector_filter_plan
     }
 
     pub fn segment_count(&self) -> usize {
@@ -330,8 +354,8 @@ impl PrivateData {
         self.need_scores
     }
 
-    pub fn join_predicates(&self) -> &Option<SearchQueryInput> {
-        &self.join_predicates
+    pub fn join_predicates(&self) -> Option<Arc<SearchQueryInput>> {
+        self.join_predicates.clone()
     }
 
     pub fn ambulkdelete_epoch(&self) -> u32 {

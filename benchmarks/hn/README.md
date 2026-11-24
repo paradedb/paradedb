@@ -30,7 +30,21 @@ benchmark another revision.
 
 Six workloads cover timestamp ranges at 10%, 1%, and 0.1% selectivity, and exact
 authors at 0.1%, 0.01%, and 0.001%. All engines use the same heap, predicates,
-query vectors, ground truth, and Docker resources.
+query vectors, ground truth, and Docker resources: 8 CPUs on cores 0–7,
+32 GiB memory, 16 GiB shared memory, 8 GiB shared buffers, 8 GiB
+`maintenance_work_mem`, 24 GiB `effective_cache_size`, and 256 MiB `work_mem`.
+k6 runs on cores 64–67.
+
+CI overrides the pinned pdbench Compose configuration for every engine to use
+8 CPUs, eight global parallel workers, and four workers per parallel query.
+The maintenance-worker limit is seven; VectorChord retains eight internal build threads. The
+worker-process pool remains 32. Query-session settings also use four workers
+for recall calibration and k6. Memory settings remain unchanged.
+
+Result dataset names include `-8cpu-32gb`, keeping these baselines separate from
+previous 64-CPU runs. The resolved Compose configuration is included in the
+run diagnostics as `runtime-compose.yml`. The RunsOn host remains unchanged;
+these limits apply to the database container.
 
 Each workload tunes probes for R90/R95/R99. Settings that meet the target on all
 100 vectors run in k6 with one VU, 10 seconds of warmup, and 50 seconds of
@@ -58,3 +72,11 @@ To check fixtures locally, use Python 3.11+ with `duckdb==2.0.0`:
 ```sh
 python3 benchmarks/hn/prepare.py --output /tmp/hn-fixtures
 ```
+
+## VectorChord comparison profiles
+
+The VectorChord profiles use 30,000 lists for HN,
+hierarchical k-means in 100 dimensions, sampling factor 64, eight build threads,
+`build.pin=2`, residual quantization, and spherical centroids. Probe sweeps are
+capped at the list count. Both build and search use the shared 32 GiB container
+configuration, with 8 GiB shared buffers and 8 GiB `maintenance_work_mem`.

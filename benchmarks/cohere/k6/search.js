@@ -19,8 +19,9 @@ if (point.engine === "vectorchord") {
   const prefilter = session["vchordrq.prefilter"];
   if (!["on", "off"].includes(prefilter))
     throw new Error("VectorChord requires an explicit prefilter setting");
-  const mode =
+  const filterMode =
     prefilter === "on" ? "vchordrq-prefilter" : "vchordrq-postfilter";
+  const mode = point.filter_fields.length ? filterMode : "vchordrq";
   if (point.plan_mode !== mode)
     throw new Error("VectorChord filter mode differs from its verified plan");
 }

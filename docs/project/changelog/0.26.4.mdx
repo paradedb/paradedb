@@ -6,7 +6,7 @@ noindex: true
 
 See GitHub release: [v0.26.4](https://github.com/paradedb/paradedb/releases/tag/v0.26.4)
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Late materialization now covers array columns: a `text[]` or other string array column that a join or aggregate reads from the index is carried through the join as a doc address and read once, where it is used, instead of for every scanned row (#6164).
 
@@ -14,7 +14,7 @@ See GitHub release: [v0.26.4](https://github.com/paradedb/paradedb/releases/tag/
 
 - Avoid quadratic token consumption for Chinese, Japanese, and Korean Lindera tokenizers on large text fields.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - A search predicate that stays above a partitioned table's `Append`, such as an `OR` across a join or a `NOT` arm, no longer fails with `could not open file "pg_tblspc/0/..."`, and neither does a window function in a search query with `ORDER BY ... LIMIT` over a partitioned table. Each row is now matched against the index of its own partition. `paradedb.index_info` and `paradedb.schema` also work on a partitioned index with more than one level.
 

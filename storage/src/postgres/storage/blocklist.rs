@@ -705,7 +705,10 @@ pub mod reader {
         #[pg_test]
         fn test_blocklist_directory_lookup() {
             Spi::run("CREATE TABLE directory_lookup (id SERIAL, data TEXT)").unwrap();
-            Spi::run("CREATE INDEX directory_lookup_idx ON directory_lookup USING bm25 (id, data) WITH (key_field='id')").unwrap();
+            Spi::run(
+                "CREATE INDEX directory_lookup_idx ON directory_lookup USING paradedb (id, data)",
+            )
+            .unwrap();
             let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'directory_lookup_idx'::regclass::oid")
                 .unwrap()
                 .unwrap();
@@ -768,7 +771,7 @@ pub mod reader {
             use crate::postgres::storage::blocklist::directory::ROOT_CAPACITY;
             use crate::postgres::storage::blocklist::tree::Entry;
             Spi::run("CREATE TABLE directory_overflow (id SERIAL, data TEXT)").unwrap();
-            Spi::run("CREATE INDEX directory_overflow_idx ON directory_overflow USING bm25 (id, data) WITH (key_field='id')").unwrap();
+            Spi::run("CREATE INDEX directory_overflow_idx ON directory_overflow USING paradedb (id, data)").unwrap();
             let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'directory_overflow_idx'::regclass::oid")
                 .unwrap()
                 .unwrap();

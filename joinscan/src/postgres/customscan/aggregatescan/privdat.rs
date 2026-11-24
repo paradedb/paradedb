@@ -32,6 +32,7 @@ use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeIterator, Tre
 use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct ColumnRef {
@@ -182,7 +183,7 @@ impl FilterExpr {
     /// `RelNode::visit_queries_mut`.
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         match self {
-            FilterExpr::SearchTag { predicate, .. } => f(&mut predicate.query),
+            FilterExpr::SearchTag { predicate, .. } => f(Arc::make_mut(&mut predicate.query)),
             FilterExpr::BinOp { left, right, .. } => {
                 left.visit_queries_mut(f);
                 right.visit_queries_mut(f);
@@ -348,7 +349,9 @@ pub enum PrivateData {
         /// HAVING clause filter applied after aggregation.
         #[serde(default)]
         having_filter: Option<FilterExpr>,
-        /// PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK` decision.
+        /// Plan-time MPP parallel safety decision (`sources_and_exprs_allow_parallel`:
+        /// `PlannerGlobal.parallelModeOK`, non-`TEMP` sources, and parallel-safe worker
+        /// expressions).
         parallel_mode_ok: bool,
     },
 }

@@ -1,0 +1,315 @@
+-- `pdb.explain_score` gives the explanation of the score of a row, and a synonym group explains
+-- as one term with the words of the group that the row holds.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS explain_products, explain_orders, explain_synonyms;
+CREATE TABLE explain_synonyms (rule pdb.synonym_rule NOT NULL);
+INSERT INTO explain_synonyms VALUES
+    ('sofa, couch, divan'),
+    ('trainers, running shoes');
+CREATE INDEX explain_synonyms_idx ON explain_synonyms USING paradedb (rule);
+CREATE TABLE explain_products (id int PRIMARY KEY, description text);
+INSERT INTO explain_products VALUES
+    (1, 'red couch'),
+    (2, 'red leather sofa and a couch'),
+    (3, 'oak divan'),
+    (4, 'blue running shoes'),
+    (5, 'red chair'),
+    (6, 'white trainers');
+CREATE INDEX explain_products_idx ON explain_products USING bm25 (id, description);
+-- A term explains with its idf, its frequency in the row and the length of the field. The query
+-- does not select `pdb.score`, and the scan still computes scores.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, jsonb_pretty(pdb.explain_score(id)) FROM explain_products
+WHERE description ||| 'oak' ORDER BY id;
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, (jsonb_pretty(pdb.explain_score(id)))
+   Sort Key: explain_products.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.explain_products
+         Output: id, jsonb_pretty(pdb.explain_score(id))
+         Table: explain_products
+         Index: explain_products_idx
+         Worker Selection: Cost model
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"oak","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(11 rows)
+
+SELECT id, jsonb_pretty(pdb.explain_score(id)) FROM explain_products
+WHERE description ||| 'oak' ORDER BY id;
+ id |                                   jsonb_pretty                                   
+----+----------------------------------------------------------------------------------
+  3 | {                                                                               +
+    |     "value": 1.7511442,                                                         +
+    |     "context": [                                                                +
+    |         "Term=Term(field=0, type=Str, \"oak\")"                                 +
+    |     ],                                                                          +
+    |     "details": [                                                                +
+    |         {                                                                       +
+    |             "value": 2.2,                                                       +
+    |             "description": "(K1+1)"                                             +
+    |         },                                                                      +
+    |         {                                                                       +
+    |             "value": 1.5404451,                                                 +
+    |             "details": [                                                        +
+    |                 {                                                               +
+    |                     "value": 1.0,                                               +
+    |                     "description": "n, number of docs containing this term"     +
+    |                 },                                                              +
+    |                 {                                                               +
+    |                     "value": 6.0,                                               +
+    |                     "description": "N, total number of docs"                    +
+    |                 }                                                               +
+    |             ],                                                                  +
+    |             "description": "idf, computed as log(1 + (N - n + 0.5) / (n + 0.5))"+
+    |         },                                                                      +
+    |         {                                                                       +
+    |             "value": 0.5167173,                                                 +
+    |             "details": [                                                        +
+    |                 {                                                               +
+    |                     "value": 1.0,                                               +
+    |                     "description": "freq, occurrences of term within document"  +
+    |                 },                                                              +
+    |                 {                                                               +
+    |                     "value": 1.2,                                               +
+    |                     "description": "k1, term saturation parameter"              +
+    |                 },                                                              +
+    |                 {                                                               +
+    |                     "value": 0.75,                                              +
+    |                     "description": "b, length normalization parameter"          +
+    |                 },                                                              +
+    |                 {                                                               +
+    |                     "value": 2.0,                                               +
+    |                     "description": "dl, length of field"                        +
+    |                 },                                                              +
+    |                 {                                                               +
+    |                     "value": 2.8333333,                                         +
+    |                     "description": "avgdl, average length of field"             +
+    |                 }                                                               +
+    |             ],                                                                  +
+    |             "description": "freq / (freq + k1 * (1 - b + b * dl / avgdl))"      +
+    |         }                                                                       +
+    |     ],                                                                          +
+    |     "description": "TermQuery, product of..."                                   +
+    | }
+(1 row)
+
+-- A synonym group is one term. Its frequency is the sum over the words of the group that the
+-- row holds, and row 2 holds two of them.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id,
+       pdb.explain_score(id)->>'description' AS description,
+       jsonb_pretty(pdb.explain_score(id) #> '{details,2,details,0}') AS frequency
+FROM explain_products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM explain_synonyms) ORDER BY id;
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, ((pdb.explain_score(id) ->> 'description'::text)), (jsonb_pretty((pdb.explain_score(id) #> '{details,2,details,0}'::text[])))
+   Sort Key: explain_products.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.explain_products
+         Output: id, (pdb.explain_score(id) ->> 'description'::text), jsonb_pretty((pdb.explain_score(id) #> '{details,2,details,0}'::text[]))
+         Table: explain_products
+         Index: explain_products_idx
+         Worker Selection: Cost model
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sofa","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+         Synonyms: explain_synonyms_idx
+(12 rows)
+
+SELECT id,
+       pdb.explain_score(id)->>'description' AS description,
+       jsonb_pretty(pdb.explain_score(id) #> '{details,2,details,0}') AS frequency
+FROM explain_products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM explain_synonyms) ORDER BY id;
+ id |         description         |                                   frequency                                    
+----+-----------------------------+--------------------------------------------------------------------------------
+  1 | SynonymQuery, product of... | {                                                                             +
+    |                             |     "value": 1.0,                                                             +
+    |                             |     "details": [                                                              +
+    |                             |         {                                                                     +
+    |                             |             "value": 1.0,                                                     +
+    |                             |             "description": "occurrences of Term(field=0, type=Str, \"couch\")"+
+    |                             |         }                                                                     +
+    |                             |     ],                                                                        +
+    |                             |     "description": "freq, sum of the occurrences of the terms within document"+
+    |                             | }
+  2 | SynonymQuery, product of... | {                                                                             +
+    |                             |     "value": 2.0,                                                             +
+    |                             |     "details": [                                                              +
+    |                             |         {                                                                     +
+    |                             |             "value": 1.0,                                                     +
+    |                             |             "description": "occurrences of Term(field=0, type=Str, \"couch\")"+
+    |                             |         },                                                                    +
+    |                             |         {                                                                     +
+    |                             |             "value": 1.0,                                                     +
+    |                             |             "description": "occurrences of Term(field=0, type=Str, \"sofa\")" +
+    |                             |         }                                                                     +
+    |                             |     ],                                                                        +
+    |                             |     "description": "freq, sum of the occurrences of the terms within document"+
+    |                             | }
+  3 | SynonymQuery, product of... | {                                                                             +
+    |                             |     "value": 1.0,                                                             +
+    |                             |     "details": [                                                              +
+    |                             |         {                                                                     +
+    |                             |             "value": 1.0,                                                     +
+    |                             |             "description": "occurrences of Term(field=0, type=Str, \"divan\")"+
+    |                             |         }                                                                     +
+    |                             |     ],                                                                        +
+    |                             |     "description": "freq, sum of the occurrences of the terms within document"+
+    |                             | }
+(3 rows)
+
+-- A group with a multi-word alternative takes the best of its alternatives, and the explanation
+-- has the one that the row holds.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id,
+       pdb.explain_score(id)->>'description' AS description,
+       jsonb_path_query_array(pdb.explain_score(id), '$.details[*].description') AS alternatives
+FROM explain_products
+WHERE description ||| (SELECT pdb.expand('trainers', rule) FROM explain_synonyms) ORDER BY id;
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, ((pdb.explain_score(id) ->> 'description'::text)), (jsonb_path_query_array(pdb.explain_score(id), '$."details"[*]."description"'::jsonpath, '{}'::jsonb, false))
+   Sort Key: explain_products.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.explain_products
+         Output: id, (pdb.explain_score(id) ->> 'description'::text), jsonb_path_query_array(pdb.explain_score(id), '$."details"[*]."description"'::jsonpath, '{}'::jsonb, false)
+         Table: explain_products
+         Index: explain_products_idx
+         Worker Selection: Cost model
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"trainers","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+         Synonyms: explain_synonyms_idx
+(12 rows)
+
+SELECT id,
+       pdb.explain_score(id)->>'description' AS description,
+       jsonb_path_query_array(pdb.explain_score(id), '$.details[*].description') AS alternatives
+FROM explain_products
+WHERE description ||| (SELECT pdb.expand('trainers', rule) FROM explain_synonyms) ORDER BY id;
+ id |        description         |         alternatives         
+----+----------------------------+------------------------------
+  4 | DisjunctionMax. max of ... | ["Phrase Scorer"]
+  6 | DisjunctionMax. max of ... | ["TermQuery, product of..."]
+(2 rows)
+
+-- The explanation of a Top K row has the score of that row.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.score(id), (pdb.explain_score(id)->>'value')::real = pdb.score(id) AS same
+FROM explain_products
+WHERE description ||| (SELECT pdb.expand('red sofa', rule) FROM explain_synonyms)
+ORDER BY pdb.score(id) DESC, id LIMIT 3;
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, (pdb.score(id)), ((((pdb.explain_score(id) ->> 'value'::text))::real = pdb.score(id)))
+   ->  Custom Scan (ParadeDB Base Scan) on public.explain_products
+         Output: id, pdb.score(id), (((pdb.explain_score(id) ->> 'value'::text))::real = pdb.score(id))
+         Table: explain_products
+         Index: explain_products_idx
+         Worker Selection: Cost model
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 3
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"red sofa","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+         Synonyms: explain_synonyms_idx
+(13 rows)
+
+SELECT id, pdb.score(id), (pdb.explain_score(id)->>'value')::real = pdb.score(id) AS same
+FROM explain_products
+WHERE description ||| (SELECT pdb.expand('red sofa', rule) FROM explain_synonyms)
+ORDER BY pdb.score(id) DESC, id LIMIT 3;
+ id |   score   | same 
+----+-----------+------
+  1 | 1.9584033 | t
+  2 | 1.5528046 | t
+  3 | 1.1704489 | t
+(3 rows)
+
+-- A row that matches one side of an `OR` explains with that side, also when the other side
+-- first matches a later row.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.score(id), (pdb.explain_score(id)->>'value')::real = pdb.score(id) AS same
+FROM explain_products WHERE description ||| 'red' OR id > 4 ORDER BY id;
+                                                                                                                                               QUERY PLAN                                                                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.score(id)), ((((pdb.explain_score(id) ->> 'value'::text))::real = pdb.score(id)))
+   Sort Key: explain_products.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.explain_products
+         Output: id, pdb.score(id), (((pdb.explain_score(id) ->> 'value'::text))::real = pdb.score(id))
+         Table: explain_products
+         Index: explain_products_idx
+         Worker Selection: Cost model
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"red","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"id","lower_bound":{"excluded":4},"upper_bound":null}}]}}
+(11 rows)
+
+SELECT id, pdb.score(id), (pdb.explain_score(id)->>'value')::real = pdb.score(id) AS same
+FROM explain_products WHERE description ||| 'red' OR id > 4 ORDER BY id;
+ id |   score    | same 
+----+------------+------
+  1 |  0.7879545 | t
+  2 | 0.47566426 | t
+  5 |  1.7879546 | t
+  6 |          1 | t
+(4 rows)
+
+-- The Join Scan does not explain a score, so the Base Scan of the table does.
+CREATE TABLE explain_orders (id int PRIMARY KEY, product_id int, note text);
+INSERT INTO explain_orders VALUES (1, 1, 'fast'), (2, 2, 'slow'), (3, 5, 'fast');
+CREATE INDEX explain_orders_idx ON explain_orders USING bm25 (id, product_id, note);
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT o.id, p.id, (pdb.explain_score(p.id)->>'value')::real = pdb.score(p.id) AS same
+FROM explain_orders o JOIN explain_products p ON p.id = o.product_id
+WHERE p.description ||| 'red' ORDER BY pdb.score(p.id) DESC, o.id LIMIT 2;
+WARNING:  JoinScan not used: pdb.explain_score is not supported (tables: o, p)
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: o.id, p.id, (((((pdb.explain_score(p.id)) ->> 'value'::text))::real = (pdb.score(p.id)))), (pdb.score(p.id))
+   ->  Sort
+         Output: o.id, p.id, (((((pdb.explain_score(p.id)) ->> 'value'::text))::real = (pdb.score(p.id)))), (pdb.score(p.id))
+         Sort Key: (pdb.score(p.id)) DESC, o.id
+         ->  Nested Loop
+               Output: o.id, p.id, ((((pdb.explain_score(p.id)) ->> 'value'::text))::real = (pdb.score(p.id))), (pdb.score(p.id))
+               Inner Unique: true
+               Join Filter: (o.product_id = p.id)
+               ->  Seq Scan on public.explain_orders o
+                     Output: o.id, o.product_id, o.note
+               ->  Materialize
+                     Output: p.id, (pdb.explain_score(p.id)), (pdb.score(p.id)), (pdb.score(p.id)), (pdb.explain_score(p.id)), (pdb.score(p.id)), (pdb.score(p.id))
+                     ->  Custom Scan (ParadeDB Base Scan) on public.explain_products p
+                           Output: p.id, pdb.explain_score(p.id), pdb.score(p.id), pdb.score(p.id), pdb.explain_score(p.id), pdb.score(p.id), pdb.score(p.id)
+                           Table: explain_products
+                           Index: explain_products_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: true
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"red","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(21 rows)
+
+SELECT o.id, p.id, (pdb.explain_score(p.id)->>'value')::real = pdb.score(p.id) AS same
+FROM explain_orders o JOIN explain_products p ON p.id = o.product_id
+WHERE p.description ||| 'red' ORDER BY pdb.score(p.id) DESC, o.id LIMIT 2;
+WARNING:  JoinScan not used: pdb.explain_score is not supported (tables: o, p)
+ id | id | same 
+----+----+------
+  1 |  1 | t
+  3 |  5 | t
+(2 rows)
+
+-- The scan gives the explanation with its output, so a `WHERE` clause can't read it.
+SELECT id FROM explain_products
+WHERE description ||| 'red' AND (pdb.explain_score(id)->>'value')::real > 0.5;
+ERROR:  `pdb.explain_score` must be in the `SELECT` list of a query that a ParadeDB scan evaluates
+-- A query with no search operator has no score to explain.
+SELECT id, pdb.explain_score(id) FROM explain_products WHERE id = 1;
+ERROR:  `pdb.explain_score` must be in the `SELECT` list of a query that a ParadeDB scan evaluates
+DROP TABLE explain_products, explain_orders, explain_synonyms;

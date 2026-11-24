@@ -37,28 +37,17 @@ fn test_aggregate_with_mvcc(mut conn: PgConnection) {
 
     // Test with MVCC enabled (default)
     let result = r#"
-    SELECT paradedb.aggregate(
-        'paradedb.idxbm25_search',
-        paradedb.parse('description:keyboard'),
-        '{
-            "category": {
-                "terms": {
-                    "field": "category",
-                    "size": 10
-                }
-            }
-        }'::json
+    SELECT pdb.agg(
+        '{"terms": {"field": "category", "size": 10}}'::jsonb,
+        'transaction'
     )
+    FROM paradedb.bm25_search
+    WHERE description ||| 'keyboard'
     "#
     .fetch_one::<(serde_json::Value,)>(&mut conn);
 
     // Verify the aggregation results
-    let buckets = result
-        .0
-        .pointer("/category/buckets")
-        .unwrap()
-        .as_array()
-        .unwrap();
+    let buckets = result.0.pointer("/buckets").unwrap().as_array().unwrap();
     assert_eq!(buckets.len(), 1); // Should have 1 category
 }
 
@@ -79,28 +68,16 @@ fn test_aggregate_without_mvcc(mut conn: PgConnection) {
 
     // Test with MVCC disabled
     let result = r#"
-    SELECT paradedb.aggregate(
-        'paradedb.idxbm25_search',
-        paradedb.parse('description:keyboard'),
-        '{
-            "category": {
-                "terms": {
-                    "field": "category",
-                    "size": 10
-                }
-            }
-        }'::json,
-        false
+    SELECT pdb.agg(
+        '{"terms": {"field": "category", "size": 10}}'::jsonb,
+        'raw'
     )
+    FROM paradedb.bm25_search
+    WHERE description ||| 'keyboard'
     "#
     .fetch_one::<(serde_json::Value,)>(&mut conn);
 
     // Verify the aggregation results
-    let buckets = result
-        .0
-        .pointer("/category/buckets")
-        .unwrap()
-        .as_array()
-        .unwrap();
+    let buckets = result.0.pointer("/buckets").unwrap().as_array().unwrap();
     assert_eq!(buckets.len(), 2); // Should have 2 categories
 }

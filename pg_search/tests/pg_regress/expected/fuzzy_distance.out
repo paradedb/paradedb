@@ -1,0 +1,27 @@
+-- Out-of-range distances must be rejected before they can wrap to a u8.
+SELECT pdb.fuzzy_term('shoe', distance => -1)::text;
+ERROR:  distance must be between 0 and 2
+\echo :SQLSTATE
+22003
+SELECT pdb.fuzzy_term('shoe', distance => 256)::text;
+ERROR:  distance must be between 0 and 2
+\echo :SQLSTATE
+22003
+SELECT pdb.match('shoe', distance => -1)::text;
+ERROR:  distance must be between 0 and 2
+\echo :SQLSTATE
+22003
+SELECT pdb.match('shoe', distance => 256)::text;
+ERROR:  distance must be between 0 and 2
+\echo :SQLSTATE
+22003
+-- The builder accepts representable distances and leaves the search limit to Tantivy.
+\pset format unaligned
+SELECT pdb.fuzzy_term('shoe', distance => 3)::text::jsonb #>> '{fuzzy_term,distance}' AS distance;
+distance
+3
+(1 row)
+SELECT pdb.match('shoe', distance => 3)::text::jsonb #>> '{match,distance}' AS distance;
+distance
+3
+(1 row)

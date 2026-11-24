@@ -7,7 +7,7 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// This program is distributed in the hope that it will be useful,
+// This program is distributed in the hope that it will be useful
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU Affero General Public License for more details.
@@ -34,13 +34,18 @@
 //! Hot-path performance: `Buffer`, `PinnedBuffer`, and `BorrowedBuffer` capture and check a stamp
 //! on every page read and release. To avoid per-pin syscalls (`getpid()`), atomics, `RefCell`
 //! borrows, and `Vec` scans, we key process identity on `pg_sys::MyProcPid` (updated by Postgres
-//! in `InitPostmasterChild` after every `fork()`) and maintain a single-entry `Cell`-backed cache
-//! for the current backend's active `ResourceOwner`.
+//! in `fork_process()` / `fork_process.c` after every `fork()`, and in `main.c` for postmaster)
+//! and maintain a single-entry `Cell`-backed cache for the current backend's active
+//! `ResourceOwner`.
 
 #[cfg(not(test))]
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
+#[cfg(not(test))]
+use std::num::NonZeroI32;
 use std::num::NonZeroU64;
+#[cfg(not(test))]
+use std::ptr::NonNull;
 #[cfg(not(test))]
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -100,32 +105,23 @@ impl LiveResourceOwners {
 #[derive(Clone, Copy)]
 struct CachedOwner {
     /// `pg_sys::MyProcPid` for which `resowner_release_callback` is installed and `owner`/`stamp`
-    /// are valid (`0` before registration or after `fork()` changes `MyProcPid`).
-    pid: i32,
-    /// Most recently stamped or looked-up live `ResourceOwner` pointer (null when invalidated).
-    owner: *mut c_void,
-    /// Non-zero stamp for `owner` (`0` when `owner` is null).
-    stamp: u64,
-}
-
-#[cfg(not(test))]
-impl CachedOwner {
-    const EMPTY: Self = Self {
-        pid: 0,
-        owner: std::ptr::null_mut(),
-        stamp: 0,
-    };
+    /// are valid.
+    pid: NonZeroI32,
+    /// Most recently stamped or looked-up live `ResourceOwner` pointer.
+    owner: NonNull<c_void>,
+    /// Monotonically unique stamp for `owner`.
+    stamp: NonZeroU64,
 }
 
 #[cfg(not(test))]
 thread_local! {
     /// Single-entry hot-path cache for the current backend's active `ResourceOwner`.
     ///
-    /// Invariant: whenever `pid != 0 && pid == pg_sys::MyProcPid`:
+    /// Invariant: whenever `Some(cached)` with `cached.pid.get() == pg_sys::MyProcPid`:
     /// 1. `resowner_release_callback` is registered in this process, and
-    /// 2. if `!owner.is_null()`, `(owner, stamp)` is a currently live entry in
-    ///    `LIVE_RESOURCE_OWNERS` (not yet passed to `RESOURCE_RELEASE_BEFORE_LOCKS`).
-    static CACHED_OWNER: Cell<CachedOwner> = const { Cell::new(CachedOwner::EMPTY) };
+    /// 2. `(cached.owner, cached.stamp)` is a currently live entry in `LIVE_RESOURCE_OWNERS` (not
+    ///    yet passed to `RESOURCE_RELEASE_BEFORE_LOCKS`).
+    static CACHED_OWNER: Cell<Option<CachedOwner>> = const { Cell::new(None) };
     static LIVE_RESOURCE_OWNERS: RefCell<LiveResourceOwners> = const {
         RefCell::new(LiveResourceOwners::new())
     };
@@ -168,15 +164,10 @@ fn mark_resource_owner_releasing(releasing_owner: *mut c_void) {
         return;
     }
     let pid = unsafe { pgrx::pg_sys::MyProcPid };
-    let cached = CACHED_OWNER.get();
-    if cached.pid != pid {
-        CACHED_OWNER.set(CachedOwner::EMPTY);
-    } else if cached.owner == releasing_owner {
-        CACHED_OWNER.set(CachedOwner {
-            pid,
-            owner: std::ptr::null_mut(),
-            stamp: 0,
-        });
+    if let Some(cached) = CACHED_OWNER.get()
+        && (cached.pid.get() != pid || cached.owner.as_ptr() == releasing_owner)
+    {
+        CACHED_OWNER.set(None);
     }
     LIVE_RESOURCE_OWNERS.with(|cell| {
         cell.borrow_mut().remove_owner(pid, releasing_owner);
@@ -188,13 +179,11 @@ fn mark_resource_owner_releasing(releasing_owner: *mut c_void) {
 #[inline(never)]
 fn stamp_current_slow(pid: i32, owner: *mut c_void) -> ResourceOwnerStamp {
     ensure_resowner_callback_installed(pid);
-    let stamp = LIVE_RESOURCE_OWNERS
-        .with(|cell| cell.borrow_mut().stamp_for_owner(pid, owner))
-        .get();
-    if pid != 0 {
-        CACHED_OWNER.set(CachedOwner { pid, owner, stamp });
+    let stamp = LIVE_RESOURCE_OWNERS.with(|cell| cell.borrow_mut().stamp_for_owner(pid, owner));
+    if let (Some(pid), Some(owner)) = (NonZeroI32::new(pid), NonNull::new(owner)) {
+        CACHED_OWNER.set(Some(CachedOwner { pid, owner, stamp }));
     }
-    ResourceOwnerStamp(stamp)
+    ResourceOwnerStamp(Some(stamp))
 }
 
 #[cfg(not(test))]
@@ -204,12 +193,12 @@ fn lookup_live_owner_slow(pid: i32, stamp: NonZeroU64) -> Option<*mut c_void> {
     // Drop the `RefCell` borrow before returning so caller `Drop`s or nested
     // `ResourceOwnerStamp::current()` calls can re-enter cleanly.
     let owner = LIVE_RESOURCE_OWNERS.with(|cell| cell.borrow_mut().lookup_owner(pid, stamp))?;
-    if pid != 0 {
-        CACHED_OWNER.set(CachedOwner {
+    if let (Some(pid), Some(owner_ptr)) = (NonZeroI32::new(pid), NonNull::new(owner)) {
+        CACHED_OWNER.set(Some(CachedOwner {
             pid,
-            owner,
-            stamp: stamp.get(),
-        });
+            owner: owner_ptr,
+            stamp,
+        }));
     }
     Some(owner)
 }
@@ -247,8 +236,8 @@ impl Drop for ScopedCurrentResourceOwner {
 ///
 /// See module documentation for how this guards deferred `MemoryContextDelete` destructors once
 /// `ResourceOwnerRelease` has begun (`RESOURCE_RELEASE_BEFORE_LOCKS`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ResourceOwnerStamp(u64);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResourceOwnerStamp(Option<NonZeroU64>);
 
 #[derive(Clone, Copy)]
 enum StampCleanupContext {
@@ -257,28 +246,40 @@ enum StampCleanupContext {
 }
 
 impl ResourceOwnerStamp {
+    /// Stamp that opts out of `ResourceOwner` tracking (gating cleanup only on
+    /// `IsTransactionState()`).
+    ///
+    /// Use only for inert/unowned placeholder values whose `Drop` will not release a
+    /// `ResourceOwner`-tracked C resource (such as `InvalidBuffer` or `need_close == false`).
+    #[inline]
+    pub const fn untracked() -> Self {
+        Self(None)
+    }
+
     /// Record the backend's current `pg_sys::CurrentResourceOwner` on the Postgres main thread.
     #[inline]
     pub fn current() -> Self {
         if !is_main_thread() {
-            return Self(0);
+            return Self::untracked();
         }
         #[cfg(not(test))]
         {
             let owner = unsafe { pgrx::pg_sys::CurrentResourceOwner }.cast::<c_void>();
             if owner.is_null() {
-                return Self(0);
+                return Self::untracked();
             }
             let pid = unsafe { pgrx::pg_sys::MyProcPid };
-            let cached = CACHED_OWNER.get();
-            if pid != 0 && cached.pid == pid && cached.owner == owner {
-                return Self(cached.stamp);
+            if let Some(cached) = CACHED_OWNER.get()
+                && cached.pid.get() == pid
+                && cached.owner.as_ptr() == owner
+            {
+                return Self(Some(cached.stamp));
             }
             stamp_current_slow(pid, owner)
         }
         #[cfg(test)]
         {
-            Self(0)
+            Self::untracked()
         }
     }
 
@@ -323,17 +324,16 @@ impl ResourceOwnerStamp {
             if !state_ok {
                 return;
             }
-            let Some(stamp) = NonZeroU64::new(self.0) else {
+            let Some(stamp) = self.0 else {
                 f();
                 return;
             };
             let pid = unsafe { pgrx::pg_sys::MyProcPid };
             let cur_owner = unsafe { pgrx::pg_sys::CurrentResourceOwner }.cast::<c_void>();
-            let cached = CACHED_OWNER.get();
-            if pid != 0
-                && cached.pid == pid
-                && cached.stamp == stamp.get()
-                && cached.owner == cur_owner
+            if let Some(cached) = CACHED_OWNER.get()
+                && cached.pid.get() == pid
+                && cached.stamp == stamp
+                && cached.owner.as_ptr() == cur_owner
             {
                 f();
                 return;

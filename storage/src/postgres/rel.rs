@@ -142,7 +142,7 @@ impl PgSearchRelationInner {
         let owner = if need_close {
             crate::postgres::resowner::ResourceOwnerStamp::current()
         } else {
-            crate::postgres::resowner::ResourceOwnerStamp::default()
+            crate::postgres::resowner::ResourceOwnerStamp::untracked()
         };
         Arc::new(Self {
             relation,

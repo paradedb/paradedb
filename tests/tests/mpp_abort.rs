@@ -30,7 +30,9 @@
 //!    rollback and failing parallel `BaseScan` subtransactions alongside a promoted nested cursor
 //!    and an outer cursor whose `FETCH` failed inside the savepoint).
 //! 4. Non-portal `_SPI_execute_plan` aborts (`PERFORM`) inside PL/pgSQL `DO` exception blocks,
-//!    both in-memory and with `spill_to_disk = on`.
+//!    both in-memory and with `spill_to_disk = on`, plus nested-parallel aborts (PG17+) where a
+//!    `PARALLEL RESTRICTED` PL/pgSQL `EXCEPTION` function runs under an outer `Gather` (so
+//!    `IsInParallelMode()` stays `true` after `AtEOSubXact_Parallel` unmaps the inner MPP DSM).
 //! 5. Backend `proc_exit` (`pg_terminate_backend` on a paused portal holding a live
 //!    `PgTokioRuntime`), verifying `before_shmem_exit` joins worker threads cleanly without
 //!    triggering postmaster crash recovery.
@@ -483,8 +485,8 @@ async fn abort_safety_across_scan_and_lifecycle_paths(
 
     // A failing `Gather -> Parallel Custom Scan (ParadeDB Base Scan)` inside a subtransaction
     // (`SAVEPOINT` or PL/pgSQL `EXCEPTION` block) triggers `on_basescan_dsm_detach` during
-    // `AtEOSubXact_Parallel`; it must only shut down runtimes belonging to the aborting
-    // subtransaction and leave `outer_ok`'s `PgTokioRuntime` intact.
+    // `AtEOSubXact_Parallel`; it must only shut down that `BaseScan`'s runtime and leave
+    // `outer_ok`'s `PgTokioRuntime` intact.
     conn.execute("SAVEPOINT s_basescan").await?;
     let Err(basescan_err) = sqlx::query(BASESCAN_ERR_QUERY).fetch_all(&mut conn).await else {
         panic!("expected division by zero from BaseScan query inside savepoint");
@@ -570,6 +572,101 @@ async fn abort_safety_across_scan_and_lifecycle_paths(
     conn.execute(AssertSqlSafe(do_in_memory_sql)).await?;
     configure_session(&mut conn, mode, spill_work_mem, SpillMode::On).await?;
     conn.execute(AssertSqlSafe(do_spill_sql)).await?;
+
+    // 4b. Nested parallel mode abort (PG17+): a `PARALLEL RESTRICTED` PL/pgSQL `EXCEPTION`
+    //     function invoked from an outer `Aggregate -> Gather -> Parallel Seq Scan`. When the inner
+    //     MPP query errors, `AbortSubTransaction` runs `AtEOSubXact_Parallel` (unmapping the inner
+    //     DSM while `IsInParallelMode()` remains `true` for the outer `Gather`) before
+    //     `AtEOSubXact_SPI` deletes the SPI memory context and drops `CustomScanState`.
+    //     PG15/PG16 `BeginInternalSubTransaction()` rejects internal subtransactions whenever
+    //     `IsInParallelMode()` is `true`; PG17 lifted that restriction.
+    let pg_version: i32 = sqlx::query_scalar("SELECT current_setting('server_version_num')::int")
+        .fetch_one(&mut conn)
+        .await?;
+    if pg_version >= 170000 {
+        conn.execute(
+            r#"
+            CREATE TABLE abort_outer_plain AS
+            SELECT g AS id, repeat('a', 100) AS pad
+            FROM generate_series(1, 20000) AS g;
+            ANALYZE abort_outer_plain;
+            "#,
+        )
+        .await?;
+        let mpp_fail_fn_sql = format!(
+            r#"
+            CREATE FUNCTION abort_nested_mpp_fail(use_div0 bool) RETURNS int
+            LANGUAGE plpgsql PARALLEL RESTRICTED AS $fn$
+            BEGIN
+                IF use_div0 THEN
+                    PERFORM group_key, 1 / ((cnt - cnt)::int) FROM ({AGG_QUERY} OFFSET 0) sub;
+                    RAISE EXCEPTION 'expected division_by_zero';
+                ELSE
+                    PERFORM group_key, payload, cnt, sum_cat FROM ({AGG_QUERY}) sub;
+                    RAISE EXCEPTION 'expected work_mem overflow';
+                END IF;
+            EXCEPTION
+                WHEN division_by_zero THEN
+                    IF use_div0 THEN
+                        RETURN 1;
+                    END IF;
+                    RAISE;
+                WHEN OTHERS THEN
+                    IF NOT use_div0 AND (
+                        SQLERRM LIKE '%work_mem%'
+                        OR SQLERRM LIKE '%DiskManager%'
+                        OR SQLERRM LIKE '%Resources exhausted%'
+                        OR SQLERRM LIKE '%temporary files are not enabled%'
+                        OR SQLERRM LIKE '%transport receiver detached%'
+                    ) THEN
+                        RETURN 1;
+                    END IF;
+                    RAISE;
+            END;
+            $fn$;
+            "#
+        );
+        conn.execute(AssertSqlSafe(mpp_fail_fn_sql)).await?;
+
+        configure_session(&mut conn, mode, "64MB", SpillMode::Off).await?;
+        let nested_plan = explain_plan(
+            &mut conn,
+            "SELECT COUNT(*), abort_nested_mpp_fail(true) FROM abort_outer_plain",
+        )
+        .await?;
+        assert_eq!(
+            nested_plan.contains("Gather") && nested_plan.contains("Parallel Seq Scan"),
+            mode.is_mpp(),
+            "unexpected outer Gather presence for {mode:?} in nested plan:\n{nested_plan}"
+        );
+        for iter in 0..3 {
+            let (cnt, caught): (i64, i32) = sqlx::query_as(
+                "SELECT COUNT(*), abort_nested_mpp_fail(true) FROM abort_outer_plain",
+            )
+            .fetch_one(&mut conn)
+            .await?;
+            assert_eq!(
+                (cnt, caught),
+                (20_000, 1),
+                "iter {iter} ({mode:?}): nested div0 inside outer Gather"
+            );
+        }
+
+        configure_session(&mut conn, mode, "64kB", SpillMode::Off).await?;
+        for iter in 0..3 {
+            let (cnt, caught): (i64, i32) = sqlx::query_as(
+                "SELECT COUNT(*), abort_nested_mpp_fail(false) FROM abort_outer_plain",
+            )
+            .fetch_one(&mut conn)
+            .await?;
+            assert_eq!(
+                (cnt, caught),
+                (20_000, 1),
+                "iter {iter} ({mode:?}): nested work_mem overflow inside outer Gather"
+            );
+        }
+        assert_eq!(backend_pid(&mut conn).await?, initial_pid);
+    }
     configure_session(&mut conn, mode, "64MB", SpillMode::Off).await?;
 
     // 5. `proc_exit` (`pg_terminate_backend`) on a victim backend holding an open serial cursor

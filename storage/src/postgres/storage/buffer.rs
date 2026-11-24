@@ -477,7 +477,7 @@ impl BufferMut {
             &mut self.inner,
             Buffer {
                 pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
-                owner: crate::postgres::resowner::ResourceOwnerStamp::default(),
+                owner: crate::postgres::resowner::ResourceOwnerStamp::untracked(),
                 #[cfg(feature = "block_tracker")]
                 blockno: pg_sys::InvalidBlockNumber,
             },

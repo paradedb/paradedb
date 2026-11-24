@@ -82,8 +82,9 @@
 //!     `check_for_interrupts()`.
 //!   - `postmaster_alive_fds[POSTMASTER_FD_WATCH]` is monitored via a non-closing `AsyncFd` wrapper
 //!     so workers abort immediately if `postmaster` dies.
-//!   - Every DSM SPSC ring and mesh header access holds a non-reentrant [`dsm_stream::DsmReadGuard`]
-//!     acquired from [`dsm_stream::DsmLease`]; `on_dsm_detach` callbacks on both leader and workers
+//!   - Every DSM SPSC ring and mesh header pointer is wrapped in [`dsm_stream::DsmLeased`] and
+//!     can only be accessed through a non-reentrant [`dsm_stream::DsmAccessGuard`] bound to
+//!     [`dsm_stream::DsmLease`]; `on_dsm_detach` callbacks on both leader and workers
 //!     signal shutdown, detach the lease (blocking until all in-flight ring copies finish), and
 //!     join any live `PgTokioRuntime` worker threads via [`interrupt::PgTokioRuntimeShutdownHandle`]
 //!     on abnormal teardown before PostgreSQL unmaps the DSM segment.

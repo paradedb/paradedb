@@ -49,8 +49,7 @@ use pgrx::{check_for_interrupts, pg_sys};
 
 use crate::parallel_worker::builder::ParallelProcessBuilder;
 use crate::parallel_worker::{
-    ParallelProcess, ParallelState, ParallelStateManager, WorkerStyle,
-    generic_parallel_worker_entry_point,
+    ParallelProcess, ParallelState, ParallelStateManager, WorkerStyle, run_parallel_worker,
 };
 use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::{
@@ -149,10 +148,9 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker(
     seg: *mut pg_sys::dsm_segment,
     toc: *mut pg_sys::shm_toc,
 ) {
-    let (state_manager, _mq_sender) = generic_parallel_worker_entry_point(seg, toc, MPP_MQ_SIZE);
-    run_launched_worker(seg, state_manager);
-    // `_mq_sender` drops here, detaching the completion queue so the leader's `wait_for_finish`
-    // recv loop terminates.
+    run_parallel_worker(seg, toc, MPP_MQ_SIZE, |state_manager, _mq_sender| {
+        run_launched_worker(seg, state_manager);
+    });
 }
 
 /// Shared worker body: wait for the leader's go signal, attach to the SPSC ring mesh, reconstruct

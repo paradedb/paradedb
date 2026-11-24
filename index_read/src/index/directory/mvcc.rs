@@ -120,7 +120,7 @@ impl Seek for PgTempFile {
     }
 }
 
-pub use crate::postgres::storage::block::{MutableSegmentBound, MutableSegmentRange};
+pub use crate::postgres::storage::block::{MutableChunkBounds, MutableSegmentVersion};
 
 /// One segment of a [`SegmentView`], in the origin reader's ordinal position.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -137,14 +137,12 @@ pub enum SegmentViewDocs {
     /// Fixed on disk, so a replaying reader gets the same documents from the segment id alone.
     /// The counts ride along only because `EXPLAIN ANALYZE` renders per-segment doc counts out
     /// of the shared state rather than out of a reader.
-    Immutable {
-        max_doc: u32,
-        num_deleted_docs: u32,
-    },
-    /// Materialized per open from the log prefix the bound selects; every replaying reader
-    /// must use the same bound.
-    Mutable(MutableSegmentBound),
-    MutableRange(MutableSegmentRange),
+    Immutable { max_doc: u32, num_deleted_docs: u32 },
+    /// The whole mutable segment at the captured log version; every replaying reader
+    /// must use the same version.
+    MutableWhole(MutableSegmentVersion),
+    /// One independently materialized chunk of an append-only mutable segment.
+    MutableChunk(MutableChunkBounds),
     /// Nothing known: the view only pins the segment set. See
     /// [`SegmentView::from_unordered_ids`].
     IdOnly,
@@ -155,8 +153,8 @@ impl SegmentViewDocs {
     pub fn max_doc(self) -> u32 {
         match self {
             SegmentViewDocs::Immutable { max_doc, .. } => max_doc,
-            SegmentViewDocs::Mutable(bound) => bound.live_docs(),
-            SegmentViewDocs::MutableRange(range) => range.num_docs(),
+            SegmentViewDocs::MutableWhole(bound) => bound.live_docs(),
+            SegmentViewDocs::MutableChunk(range) => range.num_docs(),
             SegmentViewDocs::IdOnly => 0,
         }
     }
@@ -169,16 +167,16 @@ impl SegmentViewDocs {
             SegmentViewDocs::Immutable {
                 num_deleted_docs, ..
             } => num_deleted_docs,
-            SegmentViewDocs::Mutable(_)
-            | SegmentViewDocs::MutableRange(_)
+            SegmentViewDocs::MutableWhole(_)
+            | SegmentViewDocs::MutableChunk(_)
             | SegmentViewDocs::IdOnly => 0,
         }
     }
 
-    pub fn mutable_bound(self) -> Option<MutableSegmentBound> {
+    pub fn mutable_bound(self) -> Option<MutableSegmentVersion> {
         match self {
-            SegmentViewDocs::Mutable(bound) => Some(bound),
-            SegmentViewDocs::MutableRange(range) => Some(MutableSegmentBound {
+            SegmentViewDocs::MutableWhole(bound) => Some(bound),
+            SegmentViewDocs::MutableChunk(range) => Some(MutableSegmentVersion {
                 max_doc: range.end,
                 num_deleted_docs: 0,
             }),
@@ -190,7 +188,7 @@ impl SegmentViewDocs {
 impl SegmentViewEntry {
     pub fn source_id(&self) -> SegmentId {
         match self.docs {
-            SegmentViewDocs::MutableRange(range) => range.map_segment_id(self.id),
+            SegmentViewDocs::MutableChunk(range) => range.map_segment_id(self.id),
             _ => self.id,
         }
     }
@@ -203,7 +201,7 @@ impl SegmentViewEntry {
         self.docs.num_deleted_docs()
     }
 
-    pub fn mutable_bound(&self) -> Option<MutableSegmentBound> {
+    pub fn mutable_bound(&self) -> Option<MutableSegmentVersion> {
         self.docs.mutable_bound()
     }
 }
@@ -303,7 +301,7 @@ impl SegmentView {
         self.inner.ordinals.get(id).copied()
     }
 
-    pub fn mutable_bound(&self, id: &SegmentId) -> Option<MutableSegmentBound> {
+    pub fn mutable_bound(&self, id: &SegmentId) -> Option<MutableSegmentVersion> {
         self.entries()
             .iter()
             .filter(|entry| entry.source_id() == *id)
@@ -364,7 +362,7 @@ enum LoadedSegmentMetaEntry {
     Memory {
         meta: SegmentMetaEntry,
         tantivy_meta: SegmentMeta,
-        range: Option<MutableSegmentRange>,
+        range: Option<MutableChunkBounds>,
         entry: SegmentMetaEntryMutable,
         // Resolved lazily on first read: loaded from the shared-memory mutable segment cache if
         // present, or indexed by whichever process touches it first and published to shared memory.
@@ -482,7 +480,7 @@ impl MVCCDirectory {
     }
 
     /// The bound each loaded mutable segment was materialized from.
-    pub fn mutable_bounds(&self) -> HashMap<SegmentId, MutableSegmentBound> {
+    pub fn mutable_bounds(&self) -> HashMap<SegmentId, MutableSegmentVersion> {
         self.mutable_views()
             .into_iter()
             .filter_map(|(id, docs)| docs.mutable_bound().map(|bound| (id, bound)))
@@ -498,8 +496,8 @@ impl MVCCDirectory {
                 LoadedSegmentMetaEntry::Memory { meta, range, .. } => Some((
                     *id,
                     match range {
-                        Some(range) => SegmentViewDocs::MutableRange(*range),
-                        None => SegmentViewDocs::Mutable(meta.mutable_bound().unwrap()),
+                        Some(range) => SegmentViewDocs::MutableChunk(*range),
+                        None => SegmentViewDocs::MutableWhole(meta.mutable_bound().unwrap()),
                     },
                 )),
             })
@@ -610,7 +608,7 @@ impl MVCCDirectory {
                         );
                         if let Some(range) = range {
                             key.start_doc = range.start;
-                            key.bound = MutableSegmentBound {
+                            key.bound = MutableSegmentVersion {
                                 max_doc: range.end,
                                 num_deleted_docs: 0,
                             };
@@ -986,7 +984,7 @@ impl Directory for MVCCDirectory {
                                             captured.source_id() == entry.segment_id()
                                         }) {
                                             let range = match captured.docs {
-                                                SegmentViewDocs::MutableRange(range) => Some(range),
+                                                SegmentViewDocs::MutableChunk(range) => Some(range),
                                                 _ => None,
                                             };
                                             chunks.push((range, None));
@@ -1006,7 +1004,7 @@ impl Directory for MVCCDirectory {
                                         ));
                                         if start < entry.max_doc() {
                                             chunks.push((
-                                                Some(MutableSegmentRange {
+                                                Some(MutableChunkBounds {
                                                     start,
                                                     end: entry.max_doc(),
                                                 }),
@@ -1212,7 +1210,7 @@ pub fn index_memory_segment(
     heap_fetch_state: &HeapFetchState,
     expression_state: &ExpressionState,
     mvcc_style: &MvccSatisfies,
-    range: Option<MutableSegmentRange>,
+    range: Option<MutableChunkBounds>,
 ) -> anyhow::Result<(RamDirectory, pg_sys::TransactionId)> {
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::heap::HeapDocFetcher;

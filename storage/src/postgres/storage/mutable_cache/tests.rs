@@ -31,7 +31,7 @@ mod tests {
     use super::super::pack::{PACKED_MAGIC, pack_segment, unpack_toc};
     use super::super::*;
     use crate::postgres::storage::block::{
-        MutableSegmentBound, SegmentMetaEntry, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
+        MutableSegmentVersion, SegmentMetaEntry, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
     };
 
     fn lifecycle_key(id: i32) -> MutableCacheKey {
@@ -42,7 +42,7 @@ mod tests {
             index_oid: pg_sys::InvalidOid,
             segment_id,
             start_doc: 0,
-            bound: MutableSegmentBound {
+            bound: MutableSegmentVersion {
                 max_doc: 1,
                 num_deleted_docs: 0,
             },
@@ -221,7 +221,7 @@ mod tests {
             index_oid: pg_sys::InvalidOid,
             segment_id: *segment_id.uuid_bytes(),
             start_doc: 0,
-            bound: MutableSegmentBound {
+            bound: MutableSegmentVersion {
                 max_doc: 1,
                 num_deleted_docs: 0,
             },
@@ -256,7 +256,7 @@ mod tests {
             index_oid: pg_sys::InvalidOid,
             segment_id: *segment_id.uuid_bytes(),
             start_doc: 0,
-            bound: MutableSegmentBound {
+            bound: MutableSegmentVersion {
                 max_doc: 2,
                 num_deleted_docs: 0,
             },
@@ -273,12 +273,12 @@ mod tests {
         key.bound.max_doc = 4;
         let prefix = cached_prefix(&key);
         assert_eq!(prefix.len(), 1);
-        assert_eq!(prefix[0].0, MutableSegmentRange { start: 0, end: 2 });
+        assert_eq!(prefix[0].0, MutableChunkBounds { start: 0, end: 2 });
         assert_eq!(prefix[0].1.atomic_read(&first_path).unwrap(), [1, 2]);
         key.start_doc = 2;
         let tail_path = PathBuf::from(format!(
             "{}.fast",
-            MutableSegmentRange { start: 2, end: 4 }
+            MutableChunkBounds { start: 2, end: 4 }
                 .map_segment_id(segment_id)
                 .uuid_string()
         ));
@@ -295,8 +295,8 @@ mod tests {
         assert_eq!(
             chunks.iter().map(|(range, _)| *range).collect::<Vec<_>>(),
             [
-                MutableSegmentRange { start: 0, end: 2 },
-                MutableSegmentRange { start: 2, end: 4 }
+                MutableChunkBounds { start: 0, end: 2 },
+                MutableChunkBounds { start: 2, end: 4 }
             ]
         );
         assert_eq!(chunks[1].1.atomic_read(&tail_path).unwrap(), [3, 4]);
@@ -349,7 +349,7 @@ mod tests {
         assert_eq!(key.segment_id, *segment_id.uuid_bytes());
         assert_eq!(
             key.bound,
-            MutableSegmentBound {
+            MutableSegmentVersion {
                 max_doc: 50,
                 num_deleted_docs: 3,
             }
@@ -474,7 +474,7 @@ mod tests {
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_a,
             start_doc: 0,
-            bound: MutableSegmentBound {
+            bound: MutableSegmentVersion {
                 max_doc: 10,
                 num_deleted_docs: 0,
             },
@@ -484,7 +484,7 @@ mod tests {
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_a,
             start_doc: 0,
-            bound: MutableSegmentBound {
+            bound: MutableSegmentVersion {
                 max_doc: 20,
                 num_deleted_docs: 0,
             },
@@ -494,7 +494,7 @@ mod tests {
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_b,
             start_doc: 0,
-            bound: MutableSegmentBound {
+            bound: MutableSegmentVersion {
                 max_doc: 5,
                 num_deleted_docs: 0,
             },
@@ -504,7 +504,7 @@ mod tests {
             index_oid: pg_sys::Oid::from_u32(200),
             segment_id: seg_a,
             start_doc: 0,
-            bound: MutableSegmentBound {
+            bound: MutableSegmentVersion {
                 max_doc: 10,
                 num_deleted_docs: 0,
             },
@@ -595,7 +595,7 @@ mod tests {
             index_oid: pg_sys::Oid::from_u32(2),
             segment_id: [42u8; 16],
             start_doc: 0,
-            bound: MutableSegmentBound {
+            bound: MutableSegmentVersion {
                 max_doc: 100,
                 num_deleted_docs: 0,
             },

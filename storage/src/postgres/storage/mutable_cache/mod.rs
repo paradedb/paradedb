@@ -44,7 +44,7 @@
 //! Append-only mutable logs are cached as immutable ranges. A query reuses a contiguous
 //! cached prefix and indexes only the remaining CTIDs. Each range is exposed as a separate
 //! Tantivy segment, and parallel workers replay the leader's exact ranges.
-//! Legacy logs containing removals still require an exact [`MutableSegmentBound`].
+//! Legacy logs containing removals still require an exact [`MutableSegmentVersion`].
 //!
 //! ### Concurrency Control
 //!
@@ -119,7 +119,9 @@ use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::customscan::mpp::drop_on_main_thread;
 use crate::postgres::locks::{LWLock, LWLockExclusiveGuard};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{MutableSegmentBound, MutableSegmentRange, SegmentMetaEntry};
+use crate::postgres::storage::block::{
+    MutableChunkBounds, MutableSegmentVersion, SegmentMetaEntry,
+};
 
 /// Maximum number of tracked segment slots in the shared-memory header.
 pub const MAX_SLOTS: usize = 256;
@@ -137,7 +139,7 @@ static mut PREV_OBJECT_ACCESS_HOOK: pg_sys::object_access_hook_type = None;
 /// Unique identifier for a materialized mutable segment bound in shared memory.
 ///
 /// Keys are matched on `database_oid`, `index_oid`, and `segment_id` (a 16-byte Tantivy UUID),
-/// paired with a specific [`MutableSegmentBound`] `(max_doc, num_deleted_docs)`.
+/// paired with a specific [`MutableSegmentVersion`] `(max_doc, num_deleted_docs)`.
 ///
 /// While exact equality `==` checks for an identical snapshot prefix, [`Self::matches_segment`]
 /// checks if two keys represent the same underlying mutable segment across different bounds.
@@ -152,7 +154,7 @@ pub struct MutableCacheKey {
     pub segment_id: [u8; 16],
     pub start_doc: u32,
     /// Snapshot prefix bound (max_doc, num_deleted_docs).
-    pub bound: MutableSegmentBound,
+    pub bound: MutableSegmentVersion,
 }
 
 impl MutableCacheKey {
@@ -217,7 +219,7 @@ impl InflightBuild {
                 index_oid: pg_sys::Oid::INVALID,
                 segment_id: [0u8; 16],
                 start_doc: 0,
-                bound: MutableSegmentBound {
+                bound: MutableSegmentVersion {
                     max_doc: 0,
                     num_deleted_docs: 0,
                 },
@@ -303,7 +305,7 @@ impl CacheSlot {
                 index_oid: pg_sys::Oid::INVALID,
                 segment_id: [0u8; 16],
                 start_doc: 0,
-                bound: MutableSegmentBound {
+                bound: MutableSegmentVersion {
                     max_doc: 0,
                     num_deleted_docs: 0,
                 },
@@ -800,7 +802,7 @@ fn pin_cached_directory(
     )))
 }
 
-pub fn cached_prefix(key: &MutableCacheKey) -> Vec<(MutableSegmentRange, Arc<dyn Directory>)> {
+pub fn cached_prefix(key: &MutableCacheKey) -> Vec<(MutableChunkBounds, Arc<dyn Directory>)> {
     if !crate::gucs::enable_mutable_segment_cache() || key.bound.num_deleted_docs != 0 {
         return Vec::new();
     }
@@ -831,7 +833,7 @@ pub fn cached_prefix(key: &MutableCacheKey) -> Vec<(MutableSegmentRange, Arc<dyn
         let Some(directory) = pin_cached_directory(cache, slot_index, slot) else {
             break;
         };
-        let range = MutableSegmentRange {
+        let range = MutableChunkBounds {
             start,
             end: slot.key.bound.max_doc,
         };
@@ -930,7 +932,7 @@ pub fn get_or_build(
 
         let ram_dir = build_fn()?;
 
-        let segment_id = MutableSegmentRange {
+        let segment_id = MutableChunkBounds {
             start: key.start_doc,
             end: key.bound.max_doc,
         }

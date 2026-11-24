@@ -30,7 +30,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::gucs;
 use crate::index::mvcc::{
-    MutableSegmentBound, MutableSegmentRange, SegmentView, SegmentViewDocs, SegmentViewEntry,
+    MutableChunkBounds, MutableSegmentVersion, SegmentView, SegmentViewDocs, SegmentViewEntry,
 };
 use crate::index::reader::vector::VectorRoutingResults;
 use crate::postgres::condition_variable::ConditionVariable;
@@ -133,8 +133,8 @@ const SEGMENT_ID_SIZE: usize = 16;
 const SEGMENT_CLAIM_UNCLAIMED: i32 = -2;
 
 /// `all_docs_flags` value: `all_max_docs`/`all_deleted_docs` hold the mutable segment's bound.
-const SEGMENT_FLAG_MUTABLE: u8 = 1;
-const SEGMENT_FLAG_MUTABLE_RANGE: u8 = 2;
+const SEGMENT_FLAG_MUTABLE_WHOLE: u8 = 1;
+const SEGMENT_FLAG_MUTABLE_CHUNK: u8 = 2;
 
 /// The wire format of one [`SegmentViewDocs`] in the payload: a flag byte plus the two `u32`
 /// count slots whose meaning the flag selects. `encode_docs` and `decode_docs` are the only
@@ -149,11 +149,13 @@ fn encode_docs(docs: SegmentViewDocs) -> (u8, u32, u32) {
             max_doc,
             num_deleted_docs,
         } => (0, max_doc, num_deleted_docs),
-        SegmentViewDocs::Mutable(bound) => {
-            (SEGMENT_FLAG_MUTABLE, bound.max_doc, bound.num_deleted_docs)
-        }
-        SegmentViewDocs::MutableRange(range) => {
-            (SEGMENT_FLAG_MUTABLE_RANGE, range.end, range.start)
+        SegmentViewDocs::MutableWhole(bound) => (
+            SEGMENT_FLAG_MUTABLE_WHOLE,
+            bound.max_doc,
+            bound.num_deleted_docs,
+        ),
+        SegmentViewDocs::MutableChunk(range) => {
+            (SEGMENT_FLAG_MUTABLE_CHUNK, range.end, range.start)
         }
         SegmentViewDocs::IdOnly => {
             panic!("an id-only segment view cannot be shared: it has no documents to replay")
@@ -164,11 +166,11 @@ fn encode_docs(docs: SegmentViewDocs) -> (u8, u32, u32) {
 /// Inverse of [`encode_docs`].
 fn decode_docs(flag: u8, max_doc: u32, num_deleted_docs: u32) -> SegmentViewDocs {
     match flag {
-        SEGMENT_FLAG_MUTABLE => SegmentViewDocs::Mutable(MutableSegmentBound {
+        SEGMENT_FLAG_MUTABLE_WHOLE => SegmentViewDocs::MutableWhole(MutableSegmentVersion {
             max_doc,
             num_deleted_docs,
         }),
-        SEGMENT_FLAG_MUTABLE_RANGE => SegmentViewDocs::MutableRange(MutableSegmentRange {
+        SEGMENT_FLAG_MUTABLE_CHUNK => SegmentViewDocs::MutableChunk(MutableChunkBounds {
             start: num_deleted_docs,
             end: max_doc,
         }),

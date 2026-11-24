@@ -1,1 +1,1 @@
-DROP FUNCTION IF EXISTS paradedb.aggregate(regclass, paradedb.searchqueryinput, json, boolean, bigint, bigint, text);
+DROP FUNCTION IF EXISTS aggregate(regclass, searchqueryinput, pg_catalog.json, bool, bigint, bigint, text);

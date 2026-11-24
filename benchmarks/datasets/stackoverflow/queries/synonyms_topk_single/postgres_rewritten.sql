@@ -1,0 +1,1 @@
+SET work_mem TO '4GB'; SELECT id FROM stackoverflow_posts_fts WHERE body_tsv @@ 'exception | failure | bug | crash | fault | problem | issue | fail | warning | mistake'::tsquery ORDER BY ts_rank(body_tsv, 'exception | failure | bug | crash | fault | problem | issue | fail | warning | mistake'::tsquery) DESC LIMIT 10;

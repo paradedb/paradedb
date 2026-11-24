@@ -158,18 +158,17 @@
           rustPlatform = final.pgrxRustPlatform;
         };
         rustToolchain =
-          with inputs.fenix.packages.${prev.stdenv.hostPlatform.system};
-          combine (
-            # Use stable Rust plus pinned versions of the rest of the toolchain
-            with stable;
-            [
-              clippy
-              rustc
-              cargo
-              rustfmt
-              rust-src
-              rust-analyzer
-            ]
+          let
+            toolchain = (lib.importTOML ./rust-toolchain.toml).toolchain;
+            fenix = inputs.fenix.packages.${prev.stdenv.hostPlatform.system};
+            rust = fenix.fromToolchainName {
+              name = toolchain.channel;
+              # Checksum of the Rust distribution manifest for this channel.
+              sha256 = "sha256-MFHoWVcPZKjFrLnQnodCXbUsfZcofGfo9tV9fTTvklg=";
+            };
+          in
+          fenix.combine (
+            map (component: rust.${component}) ([ "rustc" "cargo" "rust-src" ] ++ toolchain.components)
           );
       };
     };

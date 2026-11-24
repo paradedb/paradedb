@@ -55,6 +55,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
 
     amroutine.amvalidate = Some(validate::amvalidate);
     amroutine.ambuild = Some(build::ambuild);
+    amroutine.ambuildphasename = Some(build::ambuildphasename);
     amroutine.ambuildempty = Some(build::ambuildempty);
     amroutine.aminsert = Some(insert::aminsert);
     #[cfg(any(feature = "pg17", feature = "pg18"))]

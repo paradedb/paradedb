@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795507796480,
+  "lastUpdate": 1795507823135,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -185024,6 +185024,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14798297982-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795507820397,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 152.18367097343054,
+            "unit": "median tps",
+            "extra": "avg tps: 150.180964175206, max tps: 158.69766830233613, count: 59058"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 545.700350144672,
+            "unit": "median tps",
+            "extra": "avg tps: 560.8526801722494, max tps: 4916.685091092597, count: 59058"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3067.347353749745,
+            "unit": "median tps",
+            "extra": "avg tps: 3057.1625603029966, max tps: 3164.395291389114, count: 59058"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 186.66852325126933,
+            "unit": "median tps",
+            "extra": "avg tps: 184.7111225732696, max tps: 202.51890170014408, count: 59058"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 272.4403381923217,
+            "unit": "median tps",
+            "extra": "avg tps: 376.7445694653086, max tps: 2726.173211319461, count: 118116"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 29.8751136783359,
+            "unit": "median tps",
+            "extra": "avg tps: 29.385290561380796, max tps: 46.71878115558718, count: 59058"
+          }
+        ],
+        "publication_id": "14899882835-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -235980,6 +236039,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14798297982-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795507823009,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.617021,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.018212905295437, max cpu: 38.342484, count: 59058"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 50.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.32047898093823, max mem: 52.3359375, count: 59058"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.398991082326833, max cpu: 36.38086, count: 59058"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 33.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 33.61607160810136, max mem: 33.6171875, count: 59058"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9209315659320465, max cpu: 18.35564, count: 59058"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 46.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.09853263952386, max mem: 50.578125, count: 59058"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2534,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2528.598496393376, max block_count: 2558.0, count: 59058"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.526167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7267418928705665, max cpu: 4.526167, count: 59058"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 30.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.96378897386891, max mem: 30.02734375, count: 59058"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.617037488570556, max segment_count: 36.0, count: 59058"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.18221,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.771688553974634, max cpu: 33.549675, count: 59058"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 61.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 61.11955196586407, max mem: 61.12109375, count: 59058"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6806436,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.488172061086602, max cpu: 36.38086, count: 118116"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.363803908869244, max mem: 59.890625, count: 118116"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.116809,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.182137023214539, max cpu: 18.373205, count: 59058"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 46.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.69254668080531, max mem: 46.8125, count: 59058"
+          }
+        ],
+        "publication_id": "14899882835-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

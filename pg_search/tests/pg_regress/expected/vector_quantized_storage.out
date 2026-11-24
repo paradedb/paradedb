@@ -6,7 +6,6 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
-SET paradedb.vector_clustering_threshold = 64;
 CREATE TABLE review_storage (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX review_storage_idx ON review_storage
 USING paradedb (id, vec vector_cosine_ops)

@@ -27,8 +27,7 @@ CREATE TABLE remerge (
 -- disabled while segment_count <= target); background_layer_sizes = '0'
 -- keeps every merge in the foreground, deterministic. Explicit 1000-row batches
 -- create segments of ~70kb, and a 600kb layer closes its first candidate at
--- >= 10000 docs — at or above tantivy's vector_clustering_threshold, so the
--- merge target is written IVF (clustered) under the default centroid router.
+-- >= 10000 docs. Every merge target uses IVF (clustered) storage.
 CREATE INDEX remerge_idx ON remerge
     USING paradedb (id, vec vector_l2_ops)
     WITH (

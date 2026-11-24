@@ -456,14 +456,6 @@ static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0
 /// Registered for compatibility. Nothing reads it.
 static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
-/// Minimum merged-segment row count for IVF vector storage.
-static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
-
-/// Returns the IVF clustering threshold.
-pub fn vector_clustering_threshold() -> usize {
-    VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
-}
-
 const MIN_ADAPTIVE_PROBE_BUDGET: usize = 100;
 static VECTOR_ADAPTIVE_PROBING: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -908,17 +900,6 @@ pub fn init() {
         c"Show per-segment vector scan statistics in EXPLAIN (ANALYZE, VERBOSE)",
         c"Adds the Segment Info block with per-segment probe, layer, exact-scoring, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
         &VECTOR_STATS,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_int_guc(
-        c"paradedb.vector_clustering_threshold",
-        c"Doc-count boundary at which merged segments switch from flat to IVF vector storage",
-        c"A merge whose target segment has at least this many docs writes clustered (IVF) vector storage; below it, flat. Captured into the index's stored settings at CREATE INDEX time.",
-        &VECTOR_CLUSTERING_THRESHOLD,
-        1,
-        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );

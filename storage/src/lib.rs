@@ -30,7 +30,6 @@ pub mod api {
 
         pub fn vector_metadata_fixture() -> PgSearchRelation {
             Spi::run("CREATE EXTENSION IF NOT EXISTS vector;
-                SET paradedb.vector_clustering_threshold = 64;
                 CREATE TABLE metadata_vectors(id int PRIMARY KEY, vec vector(1024));
                 INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
                     FROM generate_series(1,1024) i)::vector FROM generate_series(1,2048) g;

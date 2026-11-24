@@ -162,6 +162,10 @@ embedding: { metric: :ip }      # inner product
   is waiting for workers to finish indexing/clustering.
 </Note>
 
+Index builds and merges always write clustered vector storage, including for small
+segments. A small segment can contain a single cluster and participates in global
+routing. Newly inserted vectors remain in flat storage until merged.
+
 ## Index Options
 
 We recommend keeping the defaults, which work well for most workloads. The following options are available for development and debugging.

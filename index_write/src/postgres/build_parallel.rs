@@ -1993,7 +1993,6 @@ mod tests {
             CREATE EXTENSION IF NOT EXISTS vector;
             SET maintenance_work_mem = '128MB';
             SET max_parallel_workers = 8;
-            SET paradedb.vector_clustering_threshold = 1;
             CREATE TABLE vector_build (
                 id BIGINT, tenant_id BIGINT, name TEXT, padding TEXT,
                 empty_emb vector(3), emb vector(3)
@@ -2102,39 +2101,49 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_vector_build_preserves_clustering_threshold() {
+    fn test_small_vector_builds_are_clustered() {
         Spi::run(
-            r#"
-            CREATE EXTENSION IF NOT EXISTS vector;
-            SET paradedb.vector_clustering_threshold = 500;
-            CREATE TABLE small_vector_build (id BIGINT, emb vector(3));
-            INSERT INTO small_vector_build
-            SELECT i, ARRAY[i::real, 1.0, 1.0]::vector FROM generate_series(1, 100) i;
-            CREATE INDEX small_vector_build_idx ON small_vector_build USING paradedb
-                (id, emb vector_l2_ops) WITH (target_segment_count = 1);
-            "#,
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             SET paradedb.vector_router_audit = stored;
+             SET paradedb.vector_cluster_max_probe = 100000;
+             CREATE TABLE small_vector_build (id BIGINT, emb vector(3));",
         )
         .unwrap();
-        assert_eq!(
-            Spi::get_one::<String>(
-                "SELECT vector_format FROM paradedb.vector_info('small_vector_build_idx', 'emb')"
-            )
-            .unwrap()
-            .as_deref(),
-            Some("flat")
-        );
-        Spi::run(
-            "SET paradedb.vector_clustering_threshold = 1; REINDEX INDEX small_vector_build_idx;",
-        )
-        .unwrap();
-        assert_eq!(
-            Spi::get_one::<String>(
-                "SELECT vector_format FROM paradedb.vector_info('small_vector_build_idx', 'emb')"
-            )
-            .unwrap()
-            .as_deref(),
-            Some("ivf")
-        );
+        for (rows, segments) in [(1, 1), (100, 1), (100, 4)] {
+            Spi::run(&format!(
+                "INSERT INTO small_vector_build
+                 SELECT i, ARRAY[i::real, 1.0, 1.0]::vector FROM generate_series(1, {rows}) i;
+                 CREATE INDEX small_vector_build_idx ON small_vector_build USING paradedb
+                 (id, emb vector_l2_ops) WITH (target_segment_count = {segments});"
+            ))
+            .unwrap();
+            for rebuild in [false, true] {
+                if rebuild {
+                    Spi::run("REINDEX INDEX small_vector_build_idx").unwrap();
+                }
+                assert_eq!(
+                    Spi::get_one::<bool>(&format!(
+                        "SELECT count(*) = {segments} AND sum(vector_num_vectors) = {rows}
+                         AND bool_and(vector_format = 'ivf' AND vector_num_centroids = 1
+                         AND vector_router IS NOT NULL)
+                         FROM paradedb.vector_info('small_vector_build_idx', 'emb')"
+                    ))
+                    .unwrap(),
+                    Some(true),
+                    "rows={rows}, segments={segments}, rebuild={rebuild}"
+                );
+                assert_eq!(
+                    Spi::get_one::<i64>(&format!(
+                        "SELECT count(*) FROM (
+                         SELECT id FROM small_vector_build WHERE id @@@ pdb.all()
+                         ORDER BY emb <-> '[1,1,1]' LIMIT {rows}) matches"
+                    ))
+                    .unwrap(),
+                    Some(rows)
+                );
+            }
+            Spi::run("DROP INDEX small_vector_build_idx; TRUNCATE small_vector_build;").unwrap();
+        }
     }
 
     /// An index with `partition_by` routes each row to a kd-tree partition and builds one segment

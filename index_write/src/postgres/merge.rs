@@ -1074,6 +1074,77 @@ mod tests {
     }
 
     #[pg_test]
+    unsafe fn small_vector_merge_ignores_legacy_clustering_threshold() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             SET paradedb.vector_router_audit = stored;
+             CREATE TABLE small_vector_merge (id BIGINT, emb vector(3));
+             CREATE INDEX small_vector_merge_idx ON small_vector_merge USING paradedb
+             (id, emb vector_l2_ops) WITH (target_segment_count = 1,
+             mutable_segment_rows = 0, layer_sizes = '100mb', background_layer_sizes = '0');
+             INSERT INTO small_vector_merge VALUES (1, '[1,0,0]');
+             INSERT INTO small_vector_merge VALUES (2, '[2,0,0]');",
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>(
+                "SELECT count(*) FROM paradedb.vector_info('small_vector_merge_idx', 'emb')"
+            )
+            .unwrap(),
+            Some(2)
+        );
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'small_vector_merge_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        let mut settings = indexrel.settings().unwrap();
+        const LEGACY_CLUSTERING_THRESHOLD: usize = 500;
+        settings.vector_clustering_threshold = LEGACY_CLUSTERING_THRESHOLD;
+        MetaPage::replace_settings_for_test(&indexrel, &serde_json::to_vec(&settings).unwrap());
+        let layer_bytes = MetaPage::open(&indexrel)
+            .segment_metas()
+            .list(None)
+            .iter()
+            .map(SegmentMetaEntry::byte_size)
+            .max()
+            .unwrap();
+        drop(indexrel);
+        Spi::run(&format!(
+            "ALTER INDEX small_vector_merge_idx SET (layer_sizes = '{layer_bytes} bytes')"
+        ))
+        .unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        let xid = pg_sys::GetCurrentFullTransactionId();
+        do_merge(
+            &indexrel,
+            MergeStyle::Insert {
+                current_xid: xid,
+                next_xid: xid,
+            },
+        )
+        .unwrap();
+        drop(indexrel);
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT count(*) = 1 AND bool_and(vector_format = 'ivf'
+                 AND vector_num_centroids = 1 AND vector_num_vectors = 2
+                 AND vector_router IS NOT NULL)
+                 FROM paradedb.vector_info('small_vector_merge_idx', 'emb')"
+            )
+            .unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            Spi::get_one::<i32>(
+                "SELECT id::int FROM small_vector_merge WHERE id @@@ pdb.all()
+                 ORDER BY emb <-> '[1,0,0]' LIMIT 1"
+            )
+            .unwrap(),
+            Some(1)
+        );
+    }
+
+    #[pg_test]
     fn foreground_vector_merge_skips_unsupported_storage() {
         let indexrel = vector_metadata_fixture();
         let oid = indexrel.oid();

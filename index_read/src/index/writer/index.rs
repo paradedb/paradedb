@@ -275,8 +275,7 @@ impl SerialIndexWriter {
         }
         let build = self.build.as_ref().expect("writer must be an index build");
         let segment = if let [meta] = metas
-            && (!self.schema.has_vector_field()
-                || (meta.num_docs() as usize) < self.index.settings().vector_clustering_threshold())
+            && !self.schema.has_vector_field()
         {
             let paths = build.directory.segment_files([meta.id()]);
             anyhow::ensure!(

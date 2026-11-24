@@ -5639,8 +5639,7 @@ mod tests {
         use crate::vector::metric::VectorMetric;
         use tantivy::vector::SharedVectorWork;
         Spi::run(
-            "SET paradedb.vector_clustering_threshold = 1;
-             SET paradedb.global_mutable_segment_rows = 0;
+            "SET paradedb.global_mutable_segment_rows = 0;
              SET paradedb.vector_cluster_max_probe = 1;
              CREATE TABLE retry_vectors (id bigint PRIMARY KEY, embedding vector(3));
              CREATE INDEX retry_vectors_idx ON retry_vectors

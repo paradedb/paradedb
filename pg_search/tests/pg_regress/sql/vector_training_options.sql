@@ -1,11 +1,8 @@
 SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
--- Keep the corpus flat: Stacked IVF's hard 25% top prune means max_probe=1.0
--- is no longer an exhaustive scan, and this test only needs the index to be
--- searchable after REINDEX (training options themselves are what we assert).
-SET paradedb.vector_clustering_threshold = 1000;
 SET paradedb.vector_cluster_max_probe = 100000;
+SET paradedb.vector_router_audit = flat;
 
 CREATE TABLE training_ratio_options (id integer PRIMARY KEY, vec vector(3));
 INSERT INTO training_ratio_options

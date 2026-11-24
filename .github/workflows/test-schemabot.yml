@@ -13,9 +13,9 @@ on:
     paths:
       - ".cargo/**"
       - ".github/workflows/test-schemabot.yml"
+      - "schemabot/**"
       - "Cargo.toml"
       - "rust-toolchain.toml"
-      - "schemabot/**"
   workflow_dispatch:
 
 concurrency:

@@ -926,6 +926,7 @@ version = "0.27.0"
 dependencies = [
  "arrow-array 59.3.2",
  "datafusion",
+ "pg_cfg",
  "pgrx",
  "pgrx-tests",
  "planner",
@@ -1488,6 +1489,7 @@ dependencies = [
  "once_cell",
  "ordered-float",
  "parking_lot 0.13.0",
+ "pg_cfg",
  "pgrx",
  "pgrx-tests",
  "postcard",
@@ -4017,6 +4019,7 @@ dependencies = [
  "decimal-bytes",
  "dst",
  "parking_lot 0.13.0",
+ "pg_cfg",
  "pgrx",
  "pgrx-tests",
  "postcard",
@@ -4044,6 +4047,7 @@ dependencies = [
  "dst",
  "index_read",
  "log",
+ "pg_cfg",
  "pgrx",
  "pgrx-tests",
  "postcard",
@@ -4247,6 +4251,7 @@ dependencies = [
  "futures",
  "hyper-util",
  "parking_lot 0.13.0",
+ "pg_cfg",
  "pgrx",
  "pgrx-tests",
  "planner",
@@ -5311,6 +5316,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pg_cfg"
+version = "0.27.0"
+
+[[package]]
 name = "pg_query"
 version = "6.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5345,6 +5354,7 @@ dependencies = [
  "macros",
  "once_cell",
  "paste",
+ "pg_cfg",
  "pgrx",
  "pgrx-tests",
  "planner",
@@ -5600,6 +5610,7 @@ dependencies = [
  "index_read",
  "lazy_static",
  "parking_lot 0.13.0",
+ "pg_cfg",
  "pgrx",
  "pgrx-tests",
  "postcard",
@@ -6685,6 +6696,7 @@ dependencies = [
  "futures",
  "index_read",
  "parking_lot 0.13.0",
+ "pg_cfg",
  "pgrx",
  "pgrx-tests",
  "postcard",
@@ -7204,6 +7216,7 @@ dependencies = [
  "common",
  "dst",
  "parking_lot 0.13.0",
+ "pg_cfg",
  "pgrx",
  "pgrx-tests",
  "proptest 1.11.0 (registry+https://github.com/rust-lang/crates.io-index)",

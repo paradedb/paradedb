@@ -803,7 +803,7 @@ fn relation_needs_wal(relation: pg_sys::Relation) -> bool {
                 || ((*relation).rd_createSubid == INVALID_SUB_TRANSACTION_ID
                     && (*relation).rd_firstRelfilenodeSubid == INVALID_SUB_TRANSACTION_ID))
     }
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     unsafe {
         relation_is_permanent(relation)
             && (xlog_is_needed()

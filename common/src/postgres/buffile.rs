@@ -39,7 +39,7 @@ pub unsafe fn buffile_tell(file: *mut pg_sys::BufFile) -> (c_int, pg_sys::off_t)
 pub unsafe fn buffile_write(file: *mut pg_sys::BufFile, data: &[u8]) {
     #[cfg(feature = "pg15")]
     pg_sys::BufFileWrite(file, data.as_ptr() as *mut std::ffi::c_void, data.len());
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     pg_sys::BufFileWrite(file, data.as_ptr().cast::<std::ffi::c_void>(), data.len());
 }
 
@@ -51,7 +51,7 @@ pub unsafe fn buffile_read_exact(file: *mut pg_sys::BufFile, buf: &mut [u8]) {
         let n = unsafe { pg_sys::BufFileRead(file, buf.as_mut_ptr().cast(), buf.len()) };
         assert_eq!(n, buf.len(), "short read from spilled key file");
     }
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     {
         unsafe { pg_sys::BufFileReadExact(file, buf.as_mut_ptr().cast(), buf.len()) };
     }

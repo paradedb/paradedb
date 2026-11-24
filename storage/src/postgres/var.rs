@@ -227,7 +227,7 @@ pub enum VarContext {
 /// - The expression at that position contains exactly one Var
 ///
 /// Returns `None` otherwise, indicating the resolution should fall back to InvalidOid.
-#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+#[cfg(pg18_plus)]
 pub unsafe fn resolve_rte_group_var(
     rte: *mut pg_sys::RangeTblEntry,
     varattno: pg_sys::AttrNumber,
@@ -308,7 +308,7 @@ impl VarContext {
                     }
                 }
 
-                #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+                #[cfg(pg18_plus)]
                 if rtekind == pg_sys::RTEKind::RTE_GROUP {
                     // PG18: grouped Vars point at RTE_GROUP, not the base relation.
                     if let Some(group_var) = unsafe { resolve_rte_group_var(rte, varattno) } {
@@ -442,7 +442,7 @@ pub unsafe fn find_var_relation(
             (pg_sys::Oid::INVALID, pg_sys::InvalidAttrNumber as i16, None)
         }
 
-        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+        #[cfg(pg18_plus)]
         pg_sys::RTEKind::RTE_GROUP => {
             // PG18: resolve grouped Vars back to their originating relation/column.
             if let Some(group_var) = resolve_rte_group_var(rte, (*var).varattno) {

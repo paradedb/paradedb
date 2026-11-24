@@ -391,7 +391,7 @@ pub fn compute_nworkers(
         }
     }
 
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     unsafe {
         if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
             // force a parallel worker if the `debug_parallel_query` GUC is on
@@ -441,7 +441,7 @@ pub fn max_useful_workers(structure: ScanParallelStructure) -> usize {
     #[cfg_attr(feature = "pg15", allow(unused_mut))]
     let mut nworkers = clamp_to_gather_limits(structural);
 
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     unsafe {
         if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
             nworkers = clamp_to_gather_limits(1);

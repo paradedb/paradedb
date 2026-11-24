@@ -293,7 +293,7 @@ fn find_matching_fast_field(
     // always have `varnullingrels == NULL`. Clone the candidate query expression
     // and clear `varnullingrels` on all its `Var`s so `pg_sys::equal` can match.
     let node_copy = unsafe { pg_sys::copyObjectImpl(node.cast()) }.cast::<pg_sys::Node>();
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     for var in node_copy.collect_nodes::<pg_sys::Var>() {
         unsafe { (*var).varnullingrels = std::ptr::null_mut() };
     }

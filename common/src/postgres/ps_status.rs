@@ -29,11 +29,11 @@ pub unsafe fn set_ps_display_suffix(suffix: *const c_char) {
     #[cfg(feature = "pg15")]
     pg_sys::set_ps_display(suffix);
 
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     pg_sys::set_ps_display_suffix(suffix);
 }
 
 pub unsafe fn set_ps_display_remove_suffix() {
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     pg_sys::set_ps_display_remove_suffix();
 }

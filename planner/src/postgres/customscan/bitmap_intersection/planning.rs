@@ -1227,7 +1227,7 @@ unsafe fn make_simple_restrictinfo(
     }
 }
 
-#[cfg(not(feature = "pg15"))]
+#[cfg(pg16_plus)]
 unsafe fn make_simple_restrictinfo(
     root: *mut pg_sys::PlannerInfo,
     clause: *mut pg_sys::Expr,

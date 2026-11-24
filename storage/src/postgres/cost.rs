@@ -56,7 +56,7 @@ pub unsafe extern "C-unwind" fn amcostestimate(
     drop(indexrel);
 
     if let Some(cost) = unusable_scan_cost {
-        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+        #[cfg(pg18_plus)]
         {
             (*path).path.disabled_nodes += 1;
         }

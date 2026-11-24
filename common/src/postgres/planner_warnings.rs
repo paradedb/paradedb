@@ -337,7 +337,7 @@ unsafe extern "C-unwind" fn paradedb_explain_one_query_hook(
     if let Some(prev_hook) = PREV_EXPLAIN_ONE_QUERY_HOOK {
         prev_hook(query, cursor_options, into, es, query_string, params, query_env);
     } else {
-        #[cfg(any(feature = "pg15", feature = "pg16"))]
+        #[cfg(not(pg17_plus))]
         {
             let plan = pg_sys::pg_plan_query(query, query_string, cursor_options, params);
             pg_sys::ExplainOnePlan(
@@ -351,7 +351,7 @@ unsafe extern "C-unwind" fn paradedb_explain_one_query_hook(
                 core::ptr::null(),
             );
         }
-        #[cfg(not(any(feature = "pg15", feature = "pg16")))]
+        #[cfg(pg17_plus)]
         {
             pg_sys::standard_ExplainOneQuery(
                 query,

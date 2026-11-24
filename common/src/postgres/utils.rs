@@ -73,9 +73,9 @@ pub unsafe fn pg_getarg_datum(
 
 pub fn vacuum_delay_point() {
     unsafe {
-        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        #[cfg(not(pg18_plus))]
         pg_sys::vacuum_delay_point();
-        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+        #[cfg(pg18_plus)]
         pg_sys::vacuum_delay_point(false);
     }
 }
@@ -90,9 +90,9 @@ pub unsafe fn make_tuple_table_slot(
     ops: *const pg_sys::TupleTableSlotOps,
 ) -> *mut pg_sys::TupleTableSlot {
     unsafe {
-        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(pg19_plus))]
         return pg_sys::MakeTupleTableSlot(desc, ops);
-        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+        #[cfg(pg19_plus)]
         return pg_sys::MakeTupleTableSlot(desc, ops, 0);
     }
 }
@@ -104,9 +104,9 @@ pub unsafe fn make_tuple_table_slot(
 /// `rel` must be an open heap relation.
 pub unsafe fn table_index_fetch_begin(rel: pg_sys::Relation) -> *mut pg_sys::IndexFetchTableData {
     unsafe {
-        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(pg19_plus))]
         return pg_sys::table_index_fetch_begin(rel);
-        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+        #[cfg(pg19_plus)]
         return pg_sys::table_index_fetch_begin(rel, pg_sys::ScanOptions::SO_NONE);
     }
 }
@@ -919,7 +919,7 @@ pub unsafe fn store_att_byval(
     arg_newdatum: pg_sys::Datum,
     arg_attlen: std::ffi::c_int,
 ) {
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     unsafe {
         pg_sys::store_att_byval(arg_t, arg_newdatum, arg_attlen)
     }
@@ -947,7 +947,7 @@ pub unsafe fn fetch_att(
     arg_attbyval: bool,
     arg_attlen: ::core::ffi::c_int,
 ) -> pg_sys::Datum {
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     unsafe {
         pg_sys::fetch_att(arg_t, arg_attbyval, arg_attlen)
     }
@@ -1331,7 +1331,7 @@ pub unsafe fn strip_placeholder_vars_deep(node: *mut pg_sys::Node) -> *mut pg_sy
             pg_sys::expression_tree_mutator(node, Some(strip_phv_mutator), context)
         }
 
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         {
             pg_sys::expression_tree_mutator_impl(node, Some(strip_phv_mutator), context)
         }

@@ -868,7 +868,7 @@ unsafe fn agg_group_clauses(root: *mut pg_sys::PlannerInfo) -> PgList<pg_sys::So
     // edits `parse.groupClause`, and the Agg node groups on a pinned key too.
     #[cfg(feature = "pg15")]
     let clauses = (*(*root).parse).groupClause;
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     let clauses = (*root).processed_groupClause;
     PgList::from_pg(clauses)
 }

@@ -960,7 +960,7 @@ unsafe fn parent_clause(
                 (*child).relids,
                 (*parent).relids,
             );
-            #[cfg(not(feature = "pg15"))]
+            #[cfg(pg16_plus)]
             let translated = pg_sys::adjust_appendrel_attrs_multilevel(root, clause, child, parent);
             pg_sys::equal(translated.cast(), ri.clause.cast())
         })

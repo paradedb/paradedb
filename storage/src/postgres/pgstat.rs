@@ -35,7 +35,7 @@ pub fn count_index_scan(indexrel: &PgSearchRelation) {
         {
             counts.t_numscans += 1;
         }
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         {
             counts.numscans += 1;
         }
@@ -49,7 +49,7 @@ pub fn count_index_tuples(indexrel: &PgSearchRelation, n: i64) {
         {
             counts.t_tuples_returned += n;
         }
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         {
             counts.tuples_returned += n;
         }
@@ -64,7 +64,7 @@ pub fn count_heap_fetch(indexrel: &PgSearchRelation) {
         {
             counts.t_tuples_fetched += 1;
         }
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         {
             counts.tuples_fetched += 1;
         }
@@ -90,7 +90,7 @@ fn bump(indexrel: &PgSearchRelation, bump: impl FnOnce(&mut pg_sys::PgStat_Table
             {
                 bump(&mut status.t_counts);
             }
-            #[cfg(not(feature = "pg15"))]
+            #[cfg(pg16_plus)]
             {
                 bump(&mut status.counts);
             }

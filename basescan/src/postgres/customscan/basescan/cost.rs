@@ -446,7 +446,7 @@ pub(super) fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> WorkerPa
         0
     };
 
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     let debug_parallel_query = unsafe { pg_sys::debug_parallel_query != 0 };
     #[cfg(feature = "pg15")]
     let debug_parallel_query = false;

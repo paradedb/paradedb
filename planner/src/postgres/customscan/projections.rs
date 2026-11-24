@@ -192,7 +192,7 @@ pub fn create_placeholder_targetlist(
             pg_sys::expression_tree_mutator(node, Some(placeholder_mutator), context)
         }
 
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         {
             pg_sys::expression_tree_mutator_impl(node, Some(placeholder_mutator), context)
         }
@@ -330,7 +330,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
 
         // copy these properties up from the Var to its placeholder
         (*phv).phlevelsup = (*var).varlevelsup;
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         {
             (*phv).phnullingrels = (*var).varnullingrels;
         }
@@ -579,7 +579,7 @@ pub unsafe fn inject_placeholders(
             pg_sys::expression_tree_mutator(node, Some(walker), context)
         }
 
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         {
             pg_sys::expression_tree_mutator_impl(node, Some(walker), context)
         }

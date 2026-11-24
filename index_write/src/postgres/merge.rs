@@ -463,21 +463,21 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     // Bind the PostgreSQL symbol directly: pg_sys::die is a Rust FFI wrapper, not a
     // C signal callback, and its FFI guard must not run inside a signal handler.
     unsafe extern "C-unwind" {
-        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(pg19_plus))]
         #[link_name = "die"]
         fn merge_worker_sigterm(signal: i32);
-        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+        #[cfg(pg19_plus)]
         #[link_name = "die"]
         fn merge_worker_sigterm(signal: i32, info: *const pg_sys::pg_signal_info);
     }
 
     // PostgreSQL's waits and interrupt checks act on ProcDiePending. pgrx's SIGTERM handler
     // only sets a flag for a worker's own polling loop, and this one-shot worker has none.
-    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+    #[cfg(not(pg18_plus))]
     pg_sys::pqsignal(pg_sys::SIGTERM as i32, Some(merge_worker_sigterm));
     // Not gated on pg18: a future major whose `die` signature changes must fail to build here
     // rather than silently keep PostgreSQL's generic bgworker_die.
-    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+    #[cfg(pg18_plus)]
     pg_sys::pqsignal_be(pg_sys::SIGTERM as i32, Some(merge_worker_sigterm));
     // attach_signal_handlers unblocks signals, so install SIGTERM first.
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP);

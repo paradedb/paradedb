@@ -22,7 +22,7 @@ pub mod build_logging;
 pub mod build_parallel;
 pub mod build_partitioning;
 pub mod delete;
-#[cfg(any(feature = "pg15", feature = "pg16"))]
+#[cfg(not(pg17_plus))]
 pub mod fake_aminsertcleanup;
 pub mod insert;
 pub mod merge;

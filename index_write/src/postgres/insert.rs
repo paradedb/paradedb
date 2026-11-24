@@ -92,7 +92,7 @@ pub struct InsertState {
 impl InsertState {
     unsafe fn new(indexrel: &PgSearchRelation) -> anyhow::Result<Self> {
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
-            if cfg!(not(any(feature = "pg15", feature = "pg16"))) {
+            if cfg!(pg17_plus) {
                 if IsLogicalWorker() {
                     PgMemoryContexts::TopTransactionContext.value()
                 } else {
@@ -140,7 +140,7 @@ impl InsertState {
     }
 }
 
-#[cfg(any(feature = "pg15", feature = "pg16"))]
+#[cfg(not(pg17_plus))]
 unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: &mut pg_sys::IndexInfo,
@@ -159,7 +159,7 @@ unsafe fn init_insert_state(
     get_insert_state((*index_relation).rd_id).expect("should have a pending insert state")
 }
 
-#[cfg(not(any(feature = "pg15", feature = "pg16")))]
+#[cfg(pg17_plus)]
 #[allow(static_mut_refs)]
 unsafe fn logical_worker_state() -> &'static mut crate::api::HashMap<pg_sys::Oid, InsertState> {
     static mut LOGICAL_WORKER_STATE: Option<crate::api::HashMap<pg_sys::Oid, InsertState>> = None;
@@ -185,7 +185,7 @@ unsafe fn logical_worker_state() -> &'static mut crate::api::HashMap<pg_sys::Oid
     LOGICAL_WORKER_STATE.as_mut().unwrap()
 }
 
-#[cfg(not(any(feature = "pg15", feature = "pg16")))]
+#[cfg(pg17_plus)]
 pub unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: &mut pg_sys::IndexInfo,
@@ -250,7 +250,7 @@ unsafe fn aminsert_internal(
     ctid: pg_sys::ItemPointer,
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    #[cfg(any(feature = "pg15", feature = "pg16"))]
+    #[cfg(not(pg17_plus))]
     {
         // Postgres 17 introduced the `aminsertcleanup()` function, which is critical for logical
         // replication to work.  As such, if this isn't v17+ and we're being called from a logical
@@ -400,7 +400,7 @@ unsafe fn validate_date_fields(
     }
 }
 
-#[cfg(not(any(feature = "pg15", feature = "pg16")))]
+#[cfg(pg17_plus)]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn aminsertcleanup(
     _index_relation: pg_sys::Relation,

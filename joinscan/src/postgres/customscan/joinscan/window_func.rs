@@ -706,7 +706,7 @@ unsafe extern "C-unwind" fn placeholder_mutator(
         pg_sys::expression_tree_mutator(node, Some(placeholder_mutator), context)
     }
 
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     {
         pg_sys::expression_tree_mutator_impl(node, Some(placeholder_mutator), context)
     }
@@ -851,7 +851,7 @@ unsafe extern "C-unwind" fn sentinel_mutator(
         pg_sys::expression_tree_mutator(node, Some(sentinel_mutator), context)
     }
 
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     {
         pg_sys::expression_tree_mutator_impl(node, Some(sentinel_mutator), context)
     }

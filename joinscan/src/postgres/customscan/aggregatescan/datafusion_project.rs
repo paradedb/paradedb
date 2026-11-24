@@ -93,11 +93,11 @@ pub unsafe fn project_aggregate_row_to_slot(
         let df_col_idx = group_df_indices[pg_idx];
         let col = batch.column(df_col_idx);
         let expected_type = {
-            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+            #[cfg(not(pg18_plus))]
             {
                 (*tupdesc).attrs.as_slice(natts)[pg_idx].atttypid
             }
-            #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+            #[cfg(pg18_plus)]
             {
                 (*pg_sys::TupleDescAttr(tupdesc, pg_idx as i32)).atttypid
             }

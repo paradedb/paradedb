@@ -639,7 +639,7 @@ unsafe fn collect_join_sources_join_rel(
             sjinfo,
             &mut restrictlist,
         );
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         let _ = pg_sys::build_join_rel(
             root,
             (*rel).relids,
@@ -1089,7 +1089,7 @@ pub(crate) unsafe fn find_live_lower_path(
 
 /// Same preference order as `set_cheapest`.
 unsafe fn cheaper_path(a: *mut pg_sys::Path, b: *mut pg_sys::Path) -> bool {
-    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+    #[cfg(pg18_plus)]
     if (*a).disabled_nodes != (*b).disabled_nodes {
         return (*a).disabled_nodes < (*b).disabled_nodes;
     }
@@ -2020,7 +2020,7 @@ fn pathkey_is_window_constant(equivclass: &pg_sys::EquivalenceClass) -> bool {
 /// - All relevant ORDER BY columns have a byte-ordered (C-like) collation
 ///
 unsafe fn pathkey_is_asc(pathkey: *const pg_sys::PathKey) -> bool {
-    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+    #[cfg(not(pg18_plus))]
     {
         match (*pathkey).pk_strategy as u32 {
             pg_sys::BTLessStrategyNumber => true,
@@ -2028,7 +2028,7 @@ unsafe fn pathkey_is_asc(pathkey: *const pg_sys::PathKey) -> bool {
             _ => true,
         }
     }
-    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+    #[cfg(pg18_plus)]
     {
         match (*pathkey).pk_cmptype {
             pg_sys::CompareType::COMPARE_LT => true,

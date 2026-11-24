@@ -61,13 +61,13 @@ impl OrderByStyle {
         let pathkey = unsafe { &*pathkey };
         let nulls_first = pathkey.pk_nulls_first;
 
-        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        #[cfg(not(pg18_plus))]
         let is_asc = match pathkey.pk_strategy as u32 {
             pg_sys::BTLessStrategyNumber => true,
             pg_sys::BTGreaterStrategyNumber => false,
             value => panic!("unrecognized sort strategy number: {value}"),
         };
-        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+        #[cfg(pg18_plus)]
         let is_asc = match pathkey.pk_cmptype {
             pg_sys::CompareType::COMPARE_LT => true,
             pg_sys::CompareType::COMPARE_GT => false,

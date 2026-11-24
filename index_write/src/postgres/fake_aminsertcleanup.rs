@@ -311,11 +311,11 @@ pub unsafe fn register() {
     pg_sys::ProcessUtility_hook = Some(process_utility_hook);
 
     PREV_EXECUTOR_RUN_HOOK = pg_sys::ExecutorRun_hook;
-    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+    #[cfg(not(pg18_plus))]
     {
         pg_sys::ExecutorRun_hook = Some(executor_run_hook_pg15_17);
     }
-    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+    #[cfg(pg18_plus)]
     {
         pg_sys::ExecutorRun_hook = Some(executor_run_hook_pg18);
     }
@@ -363,7 +363,7 @@ pub unsafe fn register() {
     // level has its own frame, two aminsert calls targeting the same index at
     // different nesting depths land in different HashMaps and never collide.
     // -----------------------------------------------------------------------
-    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+    #[cfg(not(pg18_plus))]
     #[pg_guard]
     unsafe extern "C-unwind" fn executor_run_hook_pg15_17(
         query_desc: *mut QueryDesc,
@@ -382,7 +382,7 @@ pub unsafe fn register() {
         // _frame drops here → FrameGuard::drop → insertcleanup for all accumulated states.
     }
 
-    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+    #[cfg(pg18_plus)]
     #[pg_guard]
     unsafe extern "C-unwind" fn executor_run_hook_pg18(
         query_desc: *mut QueryDesc,

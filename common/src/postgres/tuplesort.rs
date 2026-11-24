@@ -99,7 +99,7 @@ impl Sorter {
     /// Free the copy PG15's `tuplesort_getdatum` handed us for the previous record. A no-op on
     /// PG16+, where `copy: false` leaves ownership with the sort and the datum is simply valid
     /// until the next call.
-    #[cfg_attr(not(feature = "pg15"), allow(clippy::unused_self))]
+    #[cfg_attr(pg16_plus, allow(clippy::unused_self))]
     unsafe fn free_last_returned(&mut self) {
         #[cfg(feature = "pg15")]
         if let Some(previous) = self.last_returned.take() {
@@ -202,7 +202,7 @@ unsafe fn tuplesort_getdatum_forward(
     {
         pg_sys::tuplesort_getdatum(state, true, val, is_null, abbrev)
     }
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     {
         pg_sys::tuplesort_getdatum(state, true, false, val, is_null, abbrev)
     }

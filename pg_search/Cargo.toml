@@ -114,6 +114,9 @@ debug-logging = [
 
 # Thin `cdylib` root crate for SQL entity registration and `_PG_init`. Keep implementation code
 # and heavy dependencies (`datafusion`, `tonic`, `arrow-*`, etc.) in the appropriate sub-crates.
+[build-dependencies]
+pg_cfg = { path = "../pg_cfg" }
+
 [dependencies]
 common = { path = "../common", default-features = false }
 index_read = { path = "../index_read", default-features = false }

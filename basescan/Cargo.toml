@@ -18,6 +18,9 @@ pg_test = ["scan/pg_test", "planner/pg_test"]
 
 # Leaf crate for single-table `BaseScan` execution. Do NOT add `datafusion-distributed`,
 # `datafusion-proto`, `tonic`, or `prost` here so `basescan` compiles in parallel with `joinscan`.
+[build-dependencies]
+pg_cfg = { path = "../pg_cfg" }
+
 [dependencies]
 scan = { path = "../scan", default-features = false }
 planner = { path = "../planner", default-features = false }

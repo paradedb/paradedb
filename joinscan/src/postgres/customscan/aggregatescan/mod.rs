@@ -3153,7 +3153,7 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
             pg_sys::expression_tree_mutator(node, Some(aggref_mutator), context)
         }
 
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         {
             pg_sys::expression_tree_mutator_impl(node, Some(aggref_mutator), context)
         }

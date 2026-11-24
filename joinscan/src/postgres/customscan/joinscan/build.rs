@@ -205,9 +205,9 @@ impl TryFrom<pg_sys::JoinType::Type> for JoinType {
             // null-aware case is constructed in `wrap_with_semi_anti` for
             // un-pulled-up `NOT IN`.
             pg_sys::JoinType::JOIN_ANTI => Ok(JoinType::Anti { null_aware: false }),
-            #[cfg(not(feature = "pg15"))]
+            #[cfg(pg16_plus)]
             pg_sys::JoinType::JOIN_RIGHT_ANTI => Ok(JoinType::RightAnti),
-            #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+            #[cfg(pg18_plus)]
             pg_sys::JoinType::JOIN_RIGHT_SEMI => Ok(JoinType::RightSemi),
             pg_sys::JoinType::JOIN_UNIQUE_OUTER => Ok(JoinType::UniqueOuter),
             pg_sys::JoinType::JOIN_UNIQUE_INNER => Ok(JoinType::UniqueInner),

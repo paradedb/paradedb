@@ -174,11 +174,11 @@ unsafe fn report_not_an_index(oid: pg_sys::Oid) -> ! {
 
 fn check_maintain(heap: &PgSearchRelation) -> Result<(), AccessDenied> {
     // Owners and pg_maintain members hold MAINTAIN implicitly.
-    #[cfg(not(any(feature = "pg15", feature = "pg16")))]
+    #[cfg(pg17_plus)]
     let acl = unsafe {
         pg_sys::pg_class_aclcheck(heap.oid(), pg_sys::GetUserId(), pg_sys::ACL_MAINTAIN as _)
     };
-    #[cfg(any(feature = "pg15", feature = "pg16"))]
+    #[cfg(not(pg17_plus))]
     let acl = if owns_table(heap) {
         pg_sys::AclResult::ACLCHECK_OK
     } else {
@@ -193,14 +193,14 @@ fn check_maintain(heap: &PgSearchRelation) -> Result<(), AccessDenied> {
     Ok(())
 }
 
-#[cfg(any(feature = "pg15", feature = "pg16"))]
+#[cfg(not(pg17_plus))]
 fn owns_table(heap: &PgSearchRelation) -> bool {
     unsafe {
         #[cfg(feature = "pg15")]
         {
             pg_sys::pg_class_ownercheck(heap.oid(), pg_sys::GetUserId())
         }
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         {
             pg_sys::object_ownercheck(pg_sys::RelationRelationId, heap.oid(), pg_sys::GetUserId())
         }
@@ -246,7 +246,7 @@ fn check_read(heap: &PgSearchRelation) -> Result<(), AccessDenied> {
         let namespace = (*heap.rd_rel).relnamespace;
         #[cfg(feature = "pg15")]
         let schema_acl = pg_sys::pg_namespace_aclcheck(namespace, user, pg_sys::ACL_USAGE);
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         let schema_acl = pg_sys::object_aclcheck(
             pg_sys::NamespaceRelationId,
             namespace,

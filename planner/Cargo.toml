@@ -24,6 +24,9 @@ pg_test = [
 # Keep this crate focused on Postgres custom-scan path planning and Tantivy aggregation. Do NOT
 # add `datafusion` here so `planner` compiles in parallel with `scan` and `index_write` without
 # waiting for DataFusion.
+[build-dependencies]
+pg_cfg = { path = "../pg_cfg" }
+
 [dependencies]
 common = { path = "../common", default-features = false }
 storage = { path = "../storage", default-features = false }

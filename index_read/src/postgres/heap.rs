@@ -1790,7 +1790,7 @@ impl<'a> HeapDocFetcher<'a> {
                             (*tuple).t_data,
                             &mut self.snapshot_conflict_horizon,
                         );
-                        #[cfg(not(feature = "pg15"))]
+                        #[cfg(pg16_plus)]
                         pg_sys::HeapTupleHeaderAdvanceConflictHorizon(
                             (*tuple).t_data,
                             &mut self.snapshot_conflict_horizon,

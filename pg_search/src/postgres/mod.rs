@@ -18,7 +18,7 @@
 
 use pgrx::*;
 
-#[cfg(any(feature = "pg15", feature = "pg16"))]
+#[cfg(not(pg17_plus))]
 pub use index_write::postgres::fake_aminsertcleanup;
 #[cfg(any(test, feature = "pg_test"))]
 pub use index_write::postgres::merge;
@@ -57,7 +57,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.ambuild = Some(build::ambuild);
     amroutine.ambuildempty = Some(build::ambuildempty);
     amroutine.aminsert = Some(insert::aminsert);
-    #[cfg(not(any(feature = "pg15", feature = "pg16")))]
+    #[cfg(pg17_plus)]
     {
         amroutine.aminsertcleanup = Some(insert::aminsertcleanup);
         amroutine.amcanbuildparallel = true;

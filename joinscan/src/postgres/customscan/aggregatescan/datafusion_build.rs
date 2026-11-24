@@ -815,7 +815,7 @@ unsafe fn is_removed_rel(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node
     // Postgres 15 keeps the entry and marks it dead; later versions clear it.
     #[cfg(feature = "pg15")]
     let dead = !rel.is_null() && (*rel).reloptkind == pg_sys::RelOptKind::RELOPT_DEADREL;
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     let dead = false;
     rel.is_null() || dead
 }
@@ -1360,10 +1360,10 @@ struct PathSearchClause {
     /// in `overlap`; PG16+ discriminates by `rinfo_serial`. Recorded on every
     /// version anyway so the constructor takes one plain parameter rather than
     /// a cfg-split `origin`/`_origin` pair.
-    #[cfg_attr(not(feature = "pg15"), allow(dead_code))]
+    #[cfg_attr(pg16_plus, allow(dead_code))]
     origin: RestrictInfoOrigin,
     // PG15 has no planner-assigned RestrictInfo identity to compare.
-    #[cfg(not(feature = "pg15"))]
+    #[cfg(pg16_plus)]
     rinfo_serial: i32,
 }
 
@@ -1407,7 +1407,7 @@ impl PathSearchClause {
             }
         }
 
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         {
             (self.rinfo_serial == other.rinfo_serial).then_some(PathSearchClauseOverlap::Duplicate)
         }
@@ -1600,7 +1600,7 @@ unsafe fn classify_path_restrictinfo(
                 let candidate = PathSearchClause {
                     clause,
                     origin,
-                    #[cfg(not(feature = "pg15"))]
+                    #[cfg(pg16_plus)]
                     rinfo_serial: (*ri).rinfo_serial,
                 };
                 let overlap = info

@@ -18,6 +18,9 @@ pg_test = ["index_read/pg_test"]
 
 # Keep this crate focused on Tantivy index building, merging, and vacuum/cleanup. Do NOT add
 # `datafusion` or `arrow-*` here so `index_write` compiles in parallel with `scan` and `planner`.
+[build-dependencies]
+pg_cfg = { path = "../pg_cfg" }
+
 [dependencies]
 index_read = { path = "../index_read", default-features = false }
 anyhow.workspace = true

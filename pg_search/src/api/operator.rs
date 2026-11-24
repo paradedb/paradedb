@@ -41,7 +41,7 @@ use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::sequentialscan::MaybeInlineRow;
 use crate::postgres::utils::ToPalloc;
-#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+#[cfg(pg18_plus)]
 use crate::postgres::var::resolve_rte_group_var;
 use crate::postgres::var::system_column_var;
 use crate::query::SearchQueryInput;
@@ -194,7 +194,7 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
             "rhs must represent a SearchQueryInput"
         );
 
-        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+        #[cfg(pg18_plus)]
         let base_var = resolve_lhs_var_for_group((*request).root, base_var);
 
         let original_lhs = lhs;
@@ -453,11 +453,11 @@ impl SearchLhs {
                 (*var).varno = (*base_var).varno;
                 (*var).varnosyn = (*base_var).varnosyn;
                 (*var).varlevelsup = (*base_var).varlevelsup;
-                #[cfg(not(feature = "pg15"))]
+                #[cfg(pg16_plus)]
                 {
                     (*var).varnullingrels = pg_sys::bms_copy((*base_var).varnullingrels);
                 }
-                #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+                #[cfg(pg18_plus)]
                 {
                     (*var).varreturningtype = (*base_var).varreturningtype;
                 }
@@ -488,7 +488,7 @@ impl SearchLhs {
     }
 }
 
-#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+#[cfg(pg18_plus)]
 #[inline]
 unsafe fn resolve_lhs_var_for_group(
     root: *mut pg_sys::PlannerInfo,

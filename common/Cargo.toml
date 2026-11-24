@@ -19,6 +19,9 @@ pg_test = ["dep:proptest"]
 # Keep this crate's dependency list minimal: every workspace crate depends on `common`, so
 # heavy dependencies added here serialize the entire build graph. In particular, do NOT add
 # `datafusion`, `tonic`, or `prost` (keep DataFusion and gRPC execution in `scan` and above).
+[build-dependencies]
+pg_cfg = { path = "../pg_cfg" }
+
 [dependencies]
 anyhow.workspace = true
 arrow-array.workspace = true

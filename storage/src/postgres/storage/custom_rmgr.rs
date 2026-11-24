@@ -113,7 +113,7 @@ pub fn emit_init_record(index: &PgSearchRelation) {
     let mut payload = InitIndexPayload {
         #[cfg(feature = "pg15")]
         locator: index.rd_node,
-        #[cfg(not(feature = "pg15"))]
+        #[cfg(pg16_plus)]
         locator: index.rd_locator,
         taint_block,
     };

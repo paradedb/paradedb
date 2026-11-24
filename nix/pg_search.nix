@@ -18,12 +18,16 @@ let
   # Attribute set representing the Cargo.toml file in the root
   rootCargoToml = builtins.fromTOML (builtins.readFile ../Cargo.toml);
 
-  # Get the current Lindera version from the root Cargo.lock
-  linderaVersion =
-    (builtins.head (
-      builtins.filter (p: p.name == "lindera")
-        (builtins.fromTOML (builtins.readFile ../Cargo.lock)).package
-    )).version;
+  cargoPackages = (builtins.fromTOML (builtins.readFile ../Cargo.lock)).package;
+  linderaVersion = (builtins.head (builtins.filter (p: p.name == "lindera") cargoPackages)).version;
+
+  # This OpenCC revision is fetchable by SHA but is no longer on an advertised ref.
+  hasUnadvertisedOpenccRevision = lib.any (
+    p:
+    p.name == "opencc-jieba-rs"
+    && p.version == "0.9.0"
+    && lib.hasSuffix "#edfe347cfba463385337893feb4f5e2ff7309c83" (p.source or "")
+  ) cargoPackages;
 
   linderaWebsite = "https://lindera.dev";
 
@@ -70,8 +74,9 @@ buildPgrxExtension (finalAttrs: {
     lockFile = ../Cargo.lock;
     # Use the Git revisions pinned in Cargo.lock alongside registry checksums.
     allowBuiltinFetchGit = true;
-    # The locked OpenCC commit is available by SHA but is no longer on an advertised ref.
-    outputHashes."opencc-jieba-rs-0.9.0" = lib.fakeHash;
+    outputHashes = lib.optionalAttrs hasUnadvertisedOpenccRevision {
+      "opencc-jieba-rs-0.9.0" = "sha256-JPBt8P0gizHCiBr6ZJhvif/ukWeqEhh5ly1d1FD1s14=";
+    };
   };
 
   inherit postgresql;

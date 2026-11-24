@@ -107,26 +107,10 @@ jobs:
           - name: Debian 12 (Bookworm)
             cpu: 8
             ram: 16
-            runner_family: c8a+c8i
-            runner_image: ubuntu26-full-x64
-            image: debian:12-slim
-            pg_version: 19
-            arch: amd64
-          - name: Debian 12 (Bookworm)
-            cpu: 8
-            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu26-full-arm64
             image: debian:12-slim
             pg_version: 18
-            arch: arm64
-          - name: Debian 12 (Bookworm)
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
-            image: debian:12-slim
-            pg_version: 19
             arch: arm64
           # Debian 13 (Trixie)
           - name: Debian 13 (Trixie)
@@ -188,26 +172,10 @@ jobs:
           - name: Debian 13 (Trixie)
             cpu: 8
             ram: 16
-            runner_family: c8a+c8i
-            runner_image: ubuntu26-full-x64
-            image: debian:13-slim
-            pg_version: 19
-            arch: amd64
-          - name: Debian 13 (Trixie)
-            cpu: 8
-            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu26-full-arm64
             image: debian:13-slim
             pg_version: 18
-            arch: arm64
-          - name: Debian 13 (Trixie)
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
-            image: debian:13-slim
-            pg_version: 19
             arch: arm64
 
     steps:

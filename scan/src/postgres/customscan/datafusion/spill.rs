@@ -469,10 +469,8 @@ mod tests {
             );
 
             CREATE INDEX mpp_spill_items_idx ON mpp_spill_items
-            USING bm25 (id, group_key, content, size_bytes)
+            USING paradedb (id, (group_key::pdb.unicode_words('columnar=true')), content, size_bytes)
             WITH (
-                numeric_fields = '{"id": {"fast": true}, "size_bytes": {"fast": true}}',
-                text_fields = '{"group_key": {"fast": true}, "content": {}}',
                 target_segment_count = 3,
                 layer_sizes = '0',
                 background_layer_sizes = '0'

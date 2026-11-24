@@ -30,6 +30,16 @@ const SWEEP_PRESSURE_SEGMENT_COUNT: i32 = SWEEP_MERGE_THRESHOLD + 1;
 const IMMUTABLE_SEGMENT_ROWS: i32 = 250;
 const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 
+// PostgreSQL 19 renamed the `BufferPin` wait event and split `BufferContent` by lock mode.
+#[cfg(not(pg19_plus))]
+const CLEANUP_LOCK_WAIT: &str = "BufferPin";
+#[cfg(pg19_plus)]
+const CLEANUP_LOCK_WAIT: &str = "BufferCleanup";
+#[cfg(not(pg19_plus))]
+const EXCLUSIVE_LOCK_WAIT: &str = "BufferContent";
+#[cfg(pg19_plus)]
+const EXCLUSIVE_LOCK_WAIT: &str = "BufferExclusive";
+
 fn connect() -> Client {
     let mut client = if let Ok(url) = std::env::var("PG_SEARCH_TEST_DATABASE_URL") {
         Client::connect(&url, NoTls).unwrap()
@@ -373,7 +383,7 @@ fn merger_error_and_termination_release_vacuum_barriers() {
         );
         fixture.stage(&holder);
         let vacuum = fixture.actor("vacuum", format!("VACUUM {table}"));
-        fixture.waiting(&vacuum, "BufferPin");
+        fixture.waiting(&vacuum, CLEANUP_LOCK_WAIT);
         if terminate {
             fixture.cancel(&holder, true);
         } else {
@@ -401,7 +411,7 @@ fn merger_admission_and_vacuum_waits_remain_interruptible() {
     );
     fixture.stage(&holder);
     let vacuum = fixture.actor("vacuum", format!("VACUUM {}", fixture.table));
-    fixture.waiting(&vacuum, "BufferPin");
+    fixture.waiting(&vacuum, CLEANUP_LOCK_WAIT);
     let newcomer = fixture.actor(
         "merge",
         format!(
@@ -415,7 +425,7 @@ fn merger_admission_and_vacuum_waits_remain_interruptible() {
     fixture.cancel(&vacuum, false);
     assert_vacuum_error(vacuum);
     let timed = fixture.actor_with_timeout("vacuum", format!("VACUUM {}", fixture.table), "500ms");
-    fixture.waiting(&timed, "BufferPin");
+    fixture.waiting(&timed, CLEANUP_LOCK_WAIT);
     assert_vacuum_error(timed);
     fixture.release(&holder);
     assert_eq!(holder.finish().1.unwrap()[0].get::<_, i32>(0), 0);
@@ -536,7 +546,7 @@ fn vacuum_exclusion_handoff_and_reader_barrier_are_preserved() {
             fixture.index
         ),
     );
-    fixture.waiting(&merger, "BufferContent");
+    fixture.waiting(&merger, EXCLUSIVE_LOCK_WAIT);
     fixture.release(&vacuum);
     fixture.stage(&merger);
     fixture.waiting(&vacuum, "page");
@@ -620,7 +630,7 @@ fn foreground_merging_does_not_queue_behind_waiting_vacuum() {
         );
         fixture.stage(&inserter);
         let vacuum = fixture.actor("vacuum", format!("VACUUM {table}"));
-        fixture.waiting(&vacuum, "BufferPin");
+        fixture.waiting(&vacuum, CLEANUP_LOCK_WAIT);
         if cancel {
             fixture.cancel(&inserter, false);
             assert_error(inserter.finish().1, "57014");
@@ -759,7 +769,7 @@ fn late_reader_does_not_cancel_autovacuum_waiting_for_merger() {
             .is_some_and(|row| {
                 matches!(
                     row.get::<_, Option<String>>(0).as_deref(),
-                    Some("BufferPin" | "page")
+                    Some(CLEANUP_LOCK_WAIT | "page")
                 )
             })
     });

@@ -781,6 +781,10 @@ mod tests {
             );",
         )
         .unwrap();
+        // Keep the rows uncompressed, so the table spans several blocks whatever
+        // `default_toast_compression` is.
+        Spi::run("ALTER TABLE basescan_reset_refresh ALTER COLUMN value SET STORAGE PLAIN;")
+            .unwrap();
         Spi::run(
             "INSERT INTO basescan_reset_refresh (value)
              SELECT repeat('beer ', 1500)

@@ -1816,8 +1816,8 @@ mod tests {
         use crate::postgres::rel::PgSearchRelation;
 
         setup_parallel_build_large_table();
-        Spi::run("CREATE EXTENSION IF NOT EXISTS vector; ALTER TABLE parallel_build_large ADD COLUMN emb vector(3);").unwrap();
-        for indexed_fields in ["id, name", "id, name, emb vector_cosine_ops"] {
+        Spi::run("ALTER TABLE parallel_build_large ADD COLUMN emb pdb.vector(3);").unwrap();
+        for indexed_fields in ["id, name", "id, name, emb pdb.vector_cosine_ops"] {
             Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
             Spi::run(&format!("CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb ({indexed_fields}) WITH (target_segment_count = 8);")).unwrap();
             let heap_oid =
@@ -1974,18 +1974,17 @@ mod tests {
     fn test_vector_build_clusters_flat_segments() {
         Spi::run(
             r#"
-            CREATE EXTENSION IF NOT EXISTS vector;
             SET maintenance_work_mem = '128MB';
             SET max_parallel_workers = 8;
             SET paradedb.vector_clustering_threshold = 1;
             CREATE TABLE vector_build (
                 id BIGINT, tenant_id BIGINT, name TEXT, padding TEXT,
-                empty_emb vector(3), emb vector(3)
+                empty_emb pdb.vector(3), emb pdb.vector(3)
             );
             INSERT INTO vector_build
             SELECT i, i % 8, CASE WHEN i % 2 = 0 THEN 'even' ELSE 'odd' END,
                    repeat('unindexed padding ', 60), NULL,
-                   ARRAY[i::real, (i % 11)::real, 1.0]::vector
+                   ARRAY[i::real, (i % 11)::real, 1.0]::pdb.vector
             FROM generate_series(1, 20000) i;
             ANALYZE vector_build;
             "#,
@@ -2013,7 +2012,7 @@ mod tests {
                 .unwrap_or_default();
             Spi::run(&format!(
                 "CREATE INDEX vector_build_idx ON vector_build USING paradedb
-                 (id, tenant_id, name, emb vector_l2_ops)
+                 (id, tenant_id, name, emb pdb.vector_l2_ops)
                  WITH (target_segment_count = {target}{partition_option});"
             ))
             .unwrap();
@@ -2061,7 +2060,7 @@ mod tests {
         for (partition_option, segments) in [("", 1), (", partition_by = 'tenant_id'", 4)] {
             Spi::run(&format!(
                 "CREATE INDEX vector_build_idx ON vector_build USING paradedb
-                 (id, tenant_id, empty_emb vector_l2_ops)
+                 (id, tenant_id, empty_emb pdb.vector_l2_ops)
                  WITH (target_segment_count = 4{partition_option});"
             ))
             .unwrap();
@@ -2089,13 +2088,12 @@ mod tests {
     fn test_vector_build_preserves_clustering_threshold() {
         Spi::run(
             r#"
-            CREATE EXTENSION IF NOT EXISTS vector;
             SET paradedb.vector_clustering_threshold = 500;
-            CREATE TABLE small_vector_build (id BIGINT, emb vector(3));
+            CREATE TABLE small_vector_build (id BIGINT, emb pdb.vector(3));
             INSERT INTO small_vector_build
-            SELECT i, ARRAY[i::real, 1.0, 1.0]::vector FROM generate_series(1, 100) i;
+            SELECT i, ARRAY[i::real, 1.0, 1.0]::pdb.vector FROM generate_series(1, 100) i;
             CREATE INDEX small_vector_build_idx ON small_vector_build USING paradedb
-                (id, emb vector_l2_ops) WITH (target_segment_count = 1);
+                (id, emb pdb.vector_l2_ops) WITH (target_segment_count = 1);
             "#,
         )
         .unwrap();
@@ -2635,14 +2633,14 @@ mod tests {
     #[pg_test]
     fn test_vector_build_merges_memory_limited_segments() {
         let nrows = 24000;
-        Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
+
         Spi::run(&format!(
             r#"
-            CREATE TABLE partitioned_passes (id SERIAL8, tenant_id BIGINT, emb vector(512));
+            CREATE TABLE partitioned_passes (id SERIAL8, tenant_id BIGINT, emb pdb.vector(512));
             ALTER TABLE partitioned_passes ALTER COLUMN emb SET STORAGE PLAIN;
             INSERT INTO partitioned_passes (tenant_id, emb)
             SELECT i % 4,
-                   ARRAY(SELECT ((i + j) % 17 + 1)::real FROM generate_series(1, 512) j)::vector
+                   ARRAY(SELECT ((i + j) % 17 + 1)::real FROM generate_series(1, 512) j)::pdb.vector
             FROM generate_series(1, {nrows}) i;
             SET max_parallel_workers = 2;
             SET parallel_leader_participation = false;
@@ -2656,7 +2654,7 @@ mod tests {
             for partition in ["", "partition_by = 'tenant_id',"] {
                 Spi::run(&format!(
                     "CREATE INDEX partitioned_passes_idx ON partitioned_passes
-                     USING paradedb (id, tenant_id, emb vector_cosine_ops)
+                     USING paradedb (id, tenant_id, emb pdb.vector_cosine_ops)
                      WITH ({partition} target_segment_count = {segments}, training_sample_ratio = 1);"
                 ))
                 .unwrap();

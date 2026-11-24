@@ -417,11 +417,8 @@ mod tests {
 
     #[pg_test]
     fn vector_index_rejects_unspecified_dimensions() {
-        Spi::run(
-            "CREATE EXTENSION IF NOT EXISTS vector;
-             CREATE TABLE unspecified_vector_dims (id BIGINT, embedding vector);",
-        )
-        .unwrap();
+        Spi::run("CREATE TABLE unspecified_vector_dims (id BIGINT, embedding pdb.vector);")
+            .unwrap();
         for rows in ["", "(1, NULL)", "(1, '[1,2,3]')"] {
             Spi::run("TRUNCATE unspecified_vector_dims").unwrap();
             if !rows.is_empty() {

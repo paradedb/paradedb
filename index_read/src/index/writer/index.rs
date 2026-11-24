@@ -831,11 +831,11 @@ mod tests {
     fn get_relation_oid(with_vector: bool) -> pg_sys::Oid {
         Spi::run("SET client_min_messages = 'debug1';").unwrap();
         if with_vector {
-            Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
-            Spi::run("CREATE TABLE t_vec (id SERIAL, data TEXT, embedding vector(3));").unwrap();
+            Spi::run("CREATE TABLE t_vec (id SERIAL, data TEXT, embedding pdb.vector(3));")
+                .unwrap();
             Spi::run("INSERT INTO t_vec (data, embedding) VALUES ('test', '[1,0,0]');").unwrap();
             Spi::run(
-                "CREATE INDEX t_vec_idx ON t_vec USING paradedb (id, data, embedding vector_l2_ops)",
+                "CREATE INDEX t_vec_idx ON t_vec USING paradedb (id, data, embedding pdb.vector_l2_ops)",
             )
             .unwrap();
             Spi::get_one::<pg_sys::Oid>(

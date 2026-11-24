@@ -4,6 +4,5 @@ header: features
 
 Added `pdb.vector(N)`, a single-precision vector type that supports ParadeDB vector
 indexes without pgvector. Existing pgvector `vector` columns remain supported,
-with binary casts between the two types registered through `pdb.setup_pgvector()`
-in either installation order. Upgrades register compatibility automatically. pgvector is no longer a required
-extension.
+with binary casts and operator classes registered automatically in either
+extension installation order. pgvector is no longer a required extension.

@@ -5178,13 +5178,13 @@ mod tests {
              SET parallel_setup_cost = 0;
              SET parallel_tuple_cost = 0;
              SET paradedb.min_rows_per_worker = 0;
-             CREATE TABLE vector_parallelism (id bigint PRIMARY KEY, category text, embedding vector(3), heap_value bigint DEFAULT 1);
+             CREATE TABLE vector_parallelism (id bigint PRIMARY KEY, category text, embedding pdb.vector(3), heap_value bigint DEFAULT 1);
              CREATE INDEX vector_parallelism_idx ON vector_parallelism
-             USING paradedb (id, (category::pdb.literal), embedding vector_l2_ops)
+             USING paradedb (id, (category::pdb.literal), embedding pdb.vector_l2_ops)
              WITH (background_layer_sizes = '0', layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO vector_parallelism (id, category, embedding) SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(1,100) g;
-             INSERT INTO vector_parallelism (id, category, embedding) SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
+             INSERT INTO vector_parallelism (id, category, embedding) SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::pdb.vector FROM generate_series(1,100) g;
+             INSERT INTO vector_parallelism (id, category, embedding) SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::pdb.vector FROM generate_series(101,200) g;
              SET vector_parallelism.filter = 'keep OR other';
              SET vector_parallelism.range = '[2 TO 100]';
              RESET paradedb.global_mutable_segment_rows;"
@@ -5211,7 +5211,7 @@ mod tests {
         ] {
             Spi::run(&format!("SET max_parallel_workers_per_gather = {workers}")).unwrap();
             let plan = Spi::get_one::<pgrx::Json>(&format!(
-                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
+                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::pdb.vector LIMIT 5"
             )).unwrap().unwrap().0;
             let mut nodes = vec![&plan[0]["Plan"]];
             let mut found = false;
@@ -5256,7 +5256,7 @@ mod tests {
         .unwrap();
         for (predicate, parallel) in [("", false), ("AND category = 'keep'", true)] {
             let plan = Spi::get_one::<pgrx::Json>(&format!(
-                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
+                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::pdb.vector LIMIT 5"
             )).unwrap().unwrap().0;
             let mut nodes = vec![&plan[0]["Plan"]];
             let mut found = false;
@@ -5340,14 +5340,13 @@ mod tests {
     #[pg_test(error = "canceling statement due to user request")]
     fn global_vector_topk_checks_for_interrupts() {
         Spi::run(
-            "CREATE EXTENSION IF NOT EXISTS vector;
-             CREATE TABLE cancel_vectors (id bigint PRIMARY KEY, embedding vector(3));
+            "CREATE TABLE cancel_vectors (id bigint PRIMARY KEY, embedding pdb.vector(3));
              CREATE INDEX cancel_vectors_idx ON cancel_vectors
-             USING paradedb (id, embedding vector_l2_ops)
+             USING paradedb (id, embedding pdb.vector_l2_ops)
              WITH (background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO cancel_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(1,10) g;
-             INSERT INTO cancel_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(11,20) g;
+             INSERT INTO cancel_vectors SELECT g, ARRAY[g::real,1,0]::pdb.vector FROM generate_series(1,10) g;
+             INSERT INTO cancel_vectors SELECT g, ARRAY[g::real,1,0]::pdb.vector FROM generate_series(11,20) g;
              RESET paradedb.global_mutable_segment_rows;",
         )
         .unwrap();
@@ -5381,9 +5380,9 @@ mod tests {
         use crate::vector::metric::VectorMetric;
         use tantivy::aggregation::{AggContextParams, AggregationLimitsGuard};
         Spi::run(
-            "CREATE TABLE vector_window (id bigint PRIMARY KEY, embedding vector(3));
-             INSERT INTO vector_window SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(1,20) g;
-             CREATE INDEX vector_window_idx ON vector_window USING paradedb (id, embedding vector_l2_ops)
+            "CREATE TABLE vector_window (id bigint PRIMARY KEY, embedding pdb.vector(3));
+             INSERT INTO vector_window SELECT g, ARRAY[g::real,1,0]::pdb.vector FROM generate_series(1,20) g;
+             CREATE INDEX vector_window_idx ON vector_window USING paradedb (id, embedding pdb.vector_l2_ops)
              WITH (background_layer_sizes = '0');
              DELETE FROM vector_window WHERE id = 1;"
         ).unwrap();
@@ -5478,13 +5477,13 @@ mod tests {
         use crate::api::QueryVector;
         use crate::vector::metric::VectorMetric;
         Spi::run(
-            "CREATE TABLE candidate_vectors (id bigint PRIMARY KEY, embedding vector(3));
+            "CREATE TABLE candidate_vectors (id bigint PRIMARY KEY, embedding pdb.vector(3));
              CREATE INDEX candidate_vectors_idx ON candidate_vectors
-             USING paradedb (id, embedding vector_l2_ops)
+             USING paradedb (id, embedding pdb.vector_l2_ops)
              WITH (partition_by = 'id', target_segment_count = 8, background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO candidate_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(1,10) g;
-             INSERT INTO candidate_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(11,20) g;
+             INSERT INTO candidate_vectors SELECT g, ARRAY[g::real,1,0]::pdb.vector FROM generate_series(1,10) g;
+             INSERT INTO candidate_vectors SELECT g, ARRAY[g::real,1,0]::pdb.vector FROM generate_series(11,20) g;
              RESET paradedb.global_mutable_segment_rows;",
         ).unwrap();
         let index_rel = open_index("candidate_vectors_idx");
@@ -5642,12 +5641,12 @@ mod tests {
             "SET paradedb.vector_clustering_threshold = 1;
              SET paradedb.global_mutable_segment_rows = 0;
              SET paradedb.vector_cluster_max_probe = 1;
-             CREATE TABLE retry_vectors (id bigint PRIMARY KEY, embedding vector(3));
+             CREATE TABLE retry_vectors (id bigint PRIMARY KEY, embedding pdb.vector(3));
              CREATE INDEX retry_vectors_idx ON retry_vectors
-             USING paradedb (id, embedding vector_l2_ops)
+             USING paradedb (id, embedding pdb.vector_l2_ops)
              WITH (partition_by = 'id', target_segment_count = 1, background_layer_sizes = '0');
-             INSERT INTO retry_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(1,10) g;
-             INSERT INTO retry_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(11,20) g;
+             INSERT INTO retry_vectors SELECT g, ARRAY[g::real,1,0]::pdb.vector FROM generate_series(1,10) g;
+             INSERT INTO retry_vectors SELECT g, ARRAY[g::real,1,0]::pdb.vector FROM generate_series(11,20) g;
              REINDEX INDEX retry_vectors_idx;",
         ).unwrap();
         let index_rel = open_index("retry_vectors_idx");

@@ -85,11 +85,6 @@ pub fn conn(database: Db) -> PgConnection {
             .await
             .expect("could not create extension pg_search");
 
-        sqlx::query("SELECT pdb.setup_pgvector();")
-            .execute(&mut conn)
-            .await
-            .expect("could not register pgvector compatibility");
-
         sqlx::query("SET log_error_verbosity TO VERBOSE;")
             .execute(&mut conn)
             .await

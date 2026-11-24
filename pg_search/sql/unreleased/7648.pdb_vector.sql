@@ -273,16 +273,25 @@ CREATE OPERATOR CLASS pdb.vector_ip_ops FOR TYPE pdb.vector USING paradedb AS ST
 
 
 
-CREATE FUNCTION pdb.setup_pgvector() RETURNS void
+CREATE FUNCTION paradedb._pgvector_extension_event() RETURNS event_trigger
+LANGUAGE c SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS 'MODULE_PATHNAME', 'pgvector_extension_event_wrapper';
+REVOKE ALL ON FUNCTION paradedb._pgvector_extension_event() FROM PUBLIC;
+
+CREATE FUNCTION paradedb._pgvector_compatibility(attach boolean) RETURNS void
 LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $compat$
 DECLARE
     vector_schema text;
     vector_type oid;
     native_type oid := 'pdb.vector'::regtype;
+    search_extension oid := (SELECT oid FROM pg_catalog.pg_extension WHERE extname = 'pg_search');
     cast_row record;
     existing_cast record;
+    class_schema text;
     metric text;
     method text;
+    object_row record;
+    is_member boolean;
 BEGIN
     SELECT n.nspname INTO vector_schema
     FROM pg_catalog.pg_extension e
@@ -292,77 +301,93 @@ BEGIN
         RETURN;
     END IF;
     vector_type := pg_catalog.format('%I.vector', vector_schema)::regtype;
-    FOR cast_row IN SELECT * FROM (VALUES
-        (vector_type, native_type, 'i', 'IMPLICIT'),
-        (native_type, vector_type, 'a', 'ASSIGNMENT')
-    ) AS casts(source_type, target_type, context, keyword)
-    LOOP
-        SELECT castmethod, castcontext INTO existing_cast
-        FROM pg_catalog.pg_cast
-        WHERE castsource = cast_row.source_type AND casttarget = cast_row.target_type;
-        IF FOUND THEN
-            IF existing_cast.castmethod <> 'b' OR existing_cast.castcontext <> cast_row.context THEN
-                RAISE EXCEPTION 'incompatible existing cast between % and %',
-                    cast_row.source_type::regtype, cast_row.target_type::regtype;
-            END IF;
-        ELSE
-            EXECUTE pg_catalog.format('CREATE CAST (%s AS %s) WITHOUT FUNCTION AS %s',
-                cast_row.source_type::regtype, cast_row.target_type::regtype, cast_row.keyword);
-        END IF;
-        IF EXISTS (
-            SELECT FROM pg_catalog.pg_depend d
-            JOIN pg_catalog.pg_cast c ON c.oid = d.objid
-            WHERE d.classid = 'pg_catalog.pg_cast'::regclass AND d.deptype = 'e'
-                AND d.refobjid = (SELECT oid FROM pg_catalog.pg_extension WHERE extname = 'pg_search')
-                AND c.castsource = cast_row.source_type AND c.casttarget = cast_row.target_type
-        ) THEN
-            EXECUTE pg_catalog.format('ALTER EXTENSION pg_search DROP CAST (%s AS %s)',
-                cast_row.source_type::regtype, cast_row.target_type::regtype);
-        END IF;
-    END LOOP;
-    FOREACH method IN ARRAY ARRAY['bm25', 'paradedb'] LOOP
-        FOREACH metric IN ARRAY ARRAY['l2', 'cosine', 'ip'] LOOP
-            IF NOT EXISTS (
-                SELECT FROM pg_catalog.pg_opclass c
-                JOIN pg_catalog.pg_am a ON a.oid = c.opcmethod
-                WHERE c.opcintype = vector_type AND c.opcname = 'vector_' || metric || '_ops'
-                    AND a.amname = method
-            ) THEN
-                EXECUTE pg_catalog.format(
-                    'CREATE OPERATOR CLASS %I.%I %s FOR TYPE %I.vector USING %I AS STORAGE %I.vector',
-                    vector_schema, 'vector_' || metric || '_ops',
-                    CASE WHEN metric = 'l2' THEN 'DEFAULT' ELSE '' END,
-                    vector_schema, method, vector_schema);
-            END IF;
-            IF EXISTS (
-                SELECT FROM pg_catalog.pg_depend d
-                JOIN pg_catalog.pg_opclass c ON c.oid = d.objid
-                JOIN pg_catalog.pg_namespace n ON n.oid = c.opcnamespace
-                JOIN pg_catalog.pg_am a ON a.oid = c.opcmethod
-                JOIN pg_catalog.pg_extension e ON e.oid = d.refobjid
-                WHERE d.classid = 'pg_catalog.pg_opclass'::regclass AND d.deptype = 'e'
-                    AND e.extname = 'pg_search' AND n.nspname = vector_schema
-                    AND c.opcname = 'vector_' || metric || '_ops' AND a.amname = method
-            ) THEN
-                EXECUTE pg_catalog.format('ALTER EXTENSION pg_search DROP OPERATOR CLASS %I.%I USING %I',
-                    vector_schema, 'vector_' || metric || '_ops', method);
-            END IF;
-            IF EXISTS (
-                SELECT FROM pg_catalog.pg_depend d
-                JOIN pg_catalog.pg_opfamily f ON f.oid = d.objid
-                JOIN pg_catalog.pg_namespace n ON n.oid = f.opfnamespace
-                JOIN pg_catalog.pg_am a ON a.oid = f.opfmethod
-                JOIN pg_catalog.pg_extension e ON e.oid = d.refobjid
-                WHERE d.classid = 'pg_catalog.pg_opfamily'::regclass AND d.deptype = 'e'
-                    AND e.extname = 'pg_search' AND n.nspname = vector_schema
-                    AND f.opfname = 'vector_' || metric || '_ops' AND a.amname = method
-            ) THEN
-                EXECUTE pg_catalog.format('ALTER EXTENSION pg_search DROP OPERATOR FAMILY %I.%I USING %I',
-                    vector_schema, 'vector_' || metric || '_ops', method);
+    IF attach THEN
+        FOR cast_row IN SELECT * FROM (VALUES
+            (vector_type, native_type, 'i', 'IMPLICIT'),
+            (native_type, vector_type, 'a', 'ASSIGNMENT')
+        ) AS casts(source_type, target_type, context, keyword)
+        LOOP
+            SELECT castmethod, castcontext INTO existing_cast
+            FROM pg_catalog.pg_cast
+            WHERE castsource = cast_row.source_type AND casttarget = cast_row.target_type;
+            IF FOUND THEN
+                IF existing_cast.castmethod <> 'b' OR existing_cast.castcontext <> cast_row.context THEN
+                    RAISE EXCEPTION 'incompatible existing cast between % and %',
+                        cast_row.source_type::regtype, cast_row.target_type::regtype;
+                END IF;
+            ELSE
+                EXECUTE pg_catalog.format('CREATE CAST (%s AS %s) WITHOUT FUNCTION AS %s',
+                    cast_row.source_type::regtype, cast_row.target_type::regtype, cast_row.keyword);
             END IF;
         END LOOP;
+        FOR class_schema IN
+            SELECT vector_schema
+            UNION ALL SELECT 'public' WHERE vector_schema <> 'public' AND to_regnamespace('public') IS NOT NULL
+        LOOP
+            FOREACH method IN ARRAY ARRAY['bm25', 'paradedb'] LOOP
+                FOREACH metric IN ARRAY ARRAY['l2', 'cosine', 'ip'] LOOP
+                    IF NOT EXISTS (
+                        SELECT FROM pg_catalog.pg_opclass c
+                        JOIN pg_catalog.pg_am a ON a.oid = c.opcmethod
+                        WHERE c.opcintype = vector_type AND c.opcname = 'vector_' || metric || '_ops'
+                            AND c.opcnamespace = class_schema::regnamespace AND a.amname = method
+                    ) THEN
+                        EXECUTE pg_catalog.format(
+                            'CREATE OPERATOR CLASS %I.%I %s FOR TYPE %I.vector USING %I AS STORAGE %I.vector',
+                            class_schema, 'vector_' || metric || '_ops',
+                            CASE WHEN metric = 'l2' AND NOT EXISTS (
+                                SELECT FROM pg_catalog.pg_opclass c
+                                JOIN pg_catalog.pg_am a ON a.oid = c.opcmethod
+                                WHERE c.opcintype = vector_type AND c.opcdefault AND a.amname = method
+                            ) THEN 'DEFAULT' ELSE '' END,
+                            vector_schema, method, vector_schema);
+                    END IF;
+                END LOOP;
+            END LOOP;
+        END LOOP;
+    END IF;
+    FOR object_row IN
+        SELECT 'pg_catalog.pg_cast'::regclass AS classid, c.oid AS objid,
+            pg_catalog.format('CAST (%s AS %s)', c.castsource::regtype, c.casttarget::regtype) AS identity
+        FROM pg_catalog.pg_cast c
+        WHERE (c.castsource = vector_type AND c.casttarget = native_type)
+           OR (c.castsource = native_type AND c.casttarget = vector_type)
+        UNION ALL
+        SELECT 'pg_catalog.pg_opclass'::regclass, c.oid,
+            pg_catalog.format('OPERATOR CLASS %I.%I USING %I', n.nspname, c.opcname, a.amname)
+        FROM pg_catalog.pg_opclass c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.opcnamespace
+        JOIN pg_catalog.pg_am a ON a.oid = c.opcmethod
+        WHERE c.opcintype = vector_type AND a.amname IN ('bm25', 'paradedb')
+            AND c.opcname IN ('vector_l2_ops', 'vector_cosine_ops', 'vector_ip_ops')
+        UNION
+        SELECT 'pg_catalog.pg_opfamily'::regclass, f.oid,
+            pg_catalog.format('OPERATOR FAMILY %I.%I USING %I', n.nspname, f.opfname, a.amname)
+        FROM pg_catalog.pg_opfamily f
+        JOIN pg_catalog.pg_namespace n ON n.oid = f.opfnamespace
+        JOIN pg_catalog.pg_am a ON a.oid = f.opfmethod
+        JOIN pg_catalog.pg_opclass c ON c.opcfamily = f.oid
+        WHERE c.opcintype = vector_type AND a.amname IN ('bm25', 'paradedb')
+            AND c.opcname IN ('vector_l2_ops', 'vector_cosine_ops', 'vector_ip_ops')
+    LOOP
+        SELECT EXISTS (
+            SELECT FROM pg_catalog.pg_depend d
+            WHERE d.classid = object_row.classid AND d.objid = object_row.objid
+                AND d.deptype = 'e' AND d.refobjid = search_extension
+        ) INTO is_member;
+        IF attach <> is_member THEN
+            EXECUTE pg_catalog.format('ALTER EXTENSION pg_search %s %s',
+                CASE WHEN attach THEN 'ADD' ELSE 'DROP' END, object_row.identity);
+        END IF;
     END LOOP;
 END;
 $compat$;
+REVOKE ALL ON FUNCTION paradedb._pgvector_compatibility(boolean) FROM PUBLIC;
 
-SELECT pdb.setup_pgvector();
+CREATE EVENT TRIGGER pdb_pgvector_install
+    ON ddl_command_end WHEN TAG IN ('CREATE EXTENSION', 'ALTER EXTENSION')
+    EXECUTE FUNCTION paradedb._pgvector_extension_event();
+CREATE EVENT TRIGGER pdb_pgvector_drop
+    ON ddl_command_start WHEN TAG IN ('DROP EXTENSION', 'DROP SCHEMA', 'DROP OWNED')
+    EXECUTE FUNCTION paradedb._pgvector_extension_event();
+DO $compat$ BEGIN PERFORM paradedb._pgvector_compatibility(true); END $compat$;

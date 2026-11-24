@@ -931,12 +931,12 @@ mod tests {
                  SET enable_seqscan = off;
                  SET paradedb.global_mutable_segment_rows = 0;
                  SET paradedb.vector_stats = on;
-                 CREATE TABLE io_accounting (id int PRIMARY KEY, body text, embedding vector(3));
+                 CREATE TABLE io_accounting (id int PRIMARY KEY, body text, embedding pdb.vector(3));
                  INSERT INTO io_accounting
-                 SELECT i, 'search engine ' || i, ARRAY[i::real, 1, 0]::vector
+                 SELECT i, 'search engine ' || i, ARRAY[i::real, 1, 0]::pdb.vector
                  FROM generate_series(1, 1000) AS i;
                  CREATE INDEX io_accounting_idx ON io_accounting
-                 USING paradedb (id, body, embedding vector_l2_ops);",
+                 USING paradedb (id, body, embedding pdb.vector_l2_ops);",
         )
         .unwrap();
 

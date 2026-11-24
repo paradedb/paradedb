@@ -146,11 +146,10 @@ mod tests {
 
         let (heap_oid, _) = get_relation_oids();
         Spi::run(
-            "CREATE EXTENSION IF NOT EXISTS vector;
-             ALTER TABLE t ADD COLUMN embedding vector(3);
+            "ALTER TABLE t ADD COLUMN embedding pdb.vector(3);
              UPDATE t SET embedding = '[1,0,0]';
              DROP INDEX t_idx;
-             CREATE INDEX t_idx ON t USING paradedb (id, embedding vector_l2_ops);",
+             CREATE INDEX t_idx ON t USING paradedb (id, embedding pdb.vector_l2_ops);",
         )
         .unwrap();
         let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 't_idx'::regclass::oid")

@@ -36,16 +36,8 @@ SELECT '[1, 2, 3]'::vector::pdb.vector;
 SELECT '[1, 2, 3]'::pdb.vector::vector;
 ```
 
-After installing both extensions, register compatibility once as a superuser:
-
-```sql
-SELECT pdb.setup_pgvector();
-```
-
-This works in either installation order and is safe to run again. Upgrades
-register compatibility automatically to preserve existing pgvector indexes.
-The registration is explicit on fresh installations so that `pg_dump` can
-restore the compatibility casts and operator classes without duplicate objects.
+Compatibility is registered automatically in either extension installation order,
+including when pgvector is installed in a different schema.
 Existing pgvector columns and their ParadeDB indexes do not need to be rebuilt.
 
 ## Creating the Index

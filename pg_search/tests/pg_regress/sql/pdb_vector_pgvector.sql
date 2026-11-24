@@ -2,7 +2,6 @@ SET client_min_messages = warning;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 CREATE EXTENSION IF NOT EXISTS vector;
 SET max_parallel_workers_per_gather = 0;
-SELECT pdb.setup_pgvector();
 SELECT '[1,2,3]'::vector::pdb.vector AS native,
        '[1,2,3]'::pdb.vector::vector AS pgvector;
 SELECT '[1,2,3]'::vector::pdb.vector(2);

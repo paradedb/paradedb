@@ -18,7 +18,16 @@ SELECT id FROM native_vectors WHERE id @@@ pdb.all()
 ORDER BY embedding <=> '[1,0,0]' LIMIT 2;
 
 CREATE EXTENSION vector;
-SELECT pdb.setup_pgvector();
+CREATE ROLE pdb_vector_dropper;
+SET ROLE pdb_vector_dropper;
+DROP OWNED BY CURRENT_USER;
+RESET ROLE;
+DROP ROLE pdb_vector_dropper;
+SELECT count(*) AS extension_owned_casts
+FROM pg_cast c JOIN pg_depend d ON d.classid = 'pg_cast'::regclass AND d.objid = c.oid
+WHERE d.deptype = 'e' AND d.refobjid = (SELECT oid FROM pg_extension WHERE extname = 'pg_search')
+  AND ((c.castsource = 'vector'::regtype AND c.casttarget = 'pdb.vector'::regtype)
+    OR (c.castsource = 'pdb.vector'::regtype AND c.casttarget = 'vector'::regtype));
 CREATE TABLE compatible_vectors (id integer PRIMARY KEY, embedding vector(3));
 INSERT INTO compatible_vectors SELECT * FROM native_vectors;
 CREATE INDEX compatible_vectors_idx ON compatible_vectors
@@ -42,7 +51,6 @@ DROP EXTENSION vector CASCADE;
 SELECT id FROM native_vectors WHERE id @@@ pdb.all()
 ORDER BY embedding <=> '[1,0,0]' LIMIT 2;
 CREATE EXTENSION vector;
-SELECT pdb.setup_pgvector();
 SELECT '[1,2,3]'::vector::pdb.vector AS native;
 DROP EXTENSION pg_search CASCADE;
 SELECT EXISTS (SELECT FROM pg_extension WHERE extname = 'vector') AS pgvector_preserved;
@@ -52,7 +60,6 @@ SELECT EXISTS (SELECT FROM pg_extension WHERE extname = 'vector') AS pgvector_pr
 \set QUIET 0
 SET client_min_messages = warning;
 CREATE EXTENSION pg_search;
-SELECT pdb.setup_pgvector();
 SELECT '[1,2,3]'::vector::pdb.vector AS native;
 DROP EXTENSION pg_search CASCADE;
 DROP EXTENSION vector;
@@ -65,8 +72,10 @@ SET max_parallel_workers_per_gather = 0;
 CREATE SCHEMA vector_ext;
 CREATE EXTENSION vector WITH SCHEMA vector_ext;
 CREATE EXTENSION pg_search;
-SELECT pdb.setup_pgvector();
-SELECT pdb.setup_pgvector();
+CREATE SCHEMA vector_moved;
+ALTER EXTENSION vector SET SCHEMA vector_moved;
+SELECT '[1,2,3]'::vector_moved.vector::pdb.vector AS native;
+ALTER EXTENSION vector SET SCHEMA vector_ext;
 CREATE TABLE relocated_vectors (id integer PRIMARY KEY, embedding vector_ext.vector(3));
 INSERT INTO relocated_vectors VALUES (1, '[1,0,0]'), (2, '[0,1,0]');
 CREATE INDEX relocated_vectors_idx ON relocated_vectors
@@ -86,8 +95,12 @@ DROP EXTENSION vector CASCADE;
 SELECT id FROM relocated_native_vectors WHERE id @@@ pdb.all()
 ORDER BY embedding <=> '[1,0,0]' LIMIT 2;
 CREATE EXTENSION vector WITH SCHEMA vector_ext;
-SELECT pdb.setup_pgvector();
 SELECT '[1,2,3]'::vector_ext.vector::pdb.vector AS native;
+DROP SCHEMA vector_ext CASCADE;
+SELECT id FROM relocated_native_vectors WHERE id @@@ pdb.all()
+ORDER BY embedding <=> '[1,0,0]' LIMIT 2;
+CREATE SCHEMA vector_ext;
+CREATE EXTENSION vector WITH SCHEMA vector_ext;
 DROP EXTENSION pg_search CASCADE;
 SELECT EXISTS (SELECT FROM pg_extension WHERE extname = 'vector') AS pgvector_preserved;
 

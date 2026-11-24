@@ -34,10 +34,24 @@ ORDER BY embedding <=> '[1,0,0]' LIMIT 2;
 
 CREATE EXTENSION vector;
 CREATE EXTENSION
-SELECT pdb.setup_pgvector();
- setup_pgvector 
-----------------
- 
+CREATE ROLE pdb_vector_dropper;
+CREATE ROLE
+SET ROLE pdb_vector_dropper;
+SET
+DROP OWNED BY CURRENT_USER;
+DROP OWNED
+RESET ROLE;
+RESET
+DROP ROLE pdb_vector_dropper;
+DROP ROLE
+SELECT count(*) AS extension_owned_casts
+FROM pg_cast c JOIN pg_depend d ON d.classid = 'pg_cast'::regclass AND d.objid = c.oid
+WHERE d.deptype = 'e' AND d.refobjid = (SELECT oid FROM pg_extension WHERE extname = 'pg_search')
+  AND ((c.castsource = 'vector'::regtype AND c.casttarget = 'pdb.vector'::regtype)
+    OR (c.castsource = 'pdb.vector'::regtype AND c.casttarget = 'vector'::regtype));
+ extension_owned_casts 
+-----------------------
+                     2
 (1 row)
 
 CREATE TABLE compatible_vectors (id integer PRIMARY KEY, embedding vector(3));
@@ -104,12 +118,6 @@ ORDER BY embedding <=> '[1,0,0]' LIMIT 2;
 
 CREATE EXTENSION vector;
 CREATE EXTENSION
-SELECT pdb.setup_pgvector();
- setup_pgvector 
-----------------
- 
-(1 row)
-
 SELECT '[1,2,3]'::vector::pdb.vector AS native;
  native  
 ---------
@@ -131,12 +139,6 @@ SET client_min_messages = warning;
 SET
 CREATE EXTENSION pg_search;
 CREATE EXTENSION
-SELECT pdb.setup_pgvector();
- setup_pgvector 
-----------------
- 
-(1 row)
-
 SELECT '[1,2,3]'::vector::pdb.vector AS native;
  native  
 ---------
@@ -160,18 +162,18 @@ CREATE EXTENSION vector WITH SCHEMA vector_ext;
 CREATE EXTENSION
 CREATE EXTENSION pg_search;
 CREATE EXTENSION
-SELECT pdb.setup_pgvector();
- setup_pgvector 
-----------------
- 
+CREATE SCHEMA vector_moved;
+CREATE SCHEMA
+ALTER EXTENSION vector SET SCHEMA vector_moved;
+ALTER EXTENSION
+SELECT '[1,2,3]'::vector_moved.vector::pdb.vector AS native;
+ native  
+---------
+ [1,2,3]
 (1 row)
 
-SELECT pdb.setup_pgvector();
- setup_pgvector 
-----------------
- 
-(1 row)
-
+ALTER EXTENSION vector SET SCHEMA vector_ext;
+ALTER EXTENSION
 CREATE TABLE relocated_vectors (id integer PRIMARY KEY, embedding vector_ext.vector(3));
 CREATE TABLE
 INSERT INTO relocated_vectors VALUES (1, '[1,0,0]'), (2, '[0,1,0]');
@@ -230,18 +232,26 @@ ORDER BY embedding <=> '[1,0,0]' LIMIT 2;
 
 CREATE EXTENSION vector WITH SCHEMA vector_ext;
 CREATE EXTENSION
-SELECT pdb.setup_pgvector();
- setup_pgvector 
-----------------
- 
-(1 row)
-
 SELECT '[1,2,3]'::vector_ext.vector::pdb.vector AS native;
  native  
 ---------
  [1,2,3]
 (1 row)
 
+DROP SCHEMA vector_ext CASCADE;
+DROP SCHEMA
+SELECT id FROM relocated_native_vectors WHERE id @@@ pdb.all()
+ORDER BY embedding <=> '[1,0,0]' LIMIT 2;
+ id 
+----
+  1
+  2
+(2 rows)
+
+CREATE SCHEMA vector_ext;
+CREATE SCHEMA
+CREATE EXTENSION vector WITH SCHEMA vector_ext;
+CREATE EXTENSION
 DROP EXTENSION pg_search CASCADE;
 DROP EXTENSION
 SELECT EXISTS (SELECT FROM pg_extension WHERE extname = 'vector') AS pgvector_preserved;

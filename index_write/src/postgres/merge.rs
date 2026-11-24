@@ -1091,7 +1091,7 @@ mod tests {
             .map(|entry| entry.segment_id())
             .collect::<Vec<_>>();
         Spi::run(
-            "INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,1024) i)::vector FROM generate_series(2049,4096) g",
+            "INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,1024) i)::pdb.vector FROM generate_series(2049,4096) g",
         ).unwrap();
         let current = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) };
         assert!(old.iter().all(|id| {

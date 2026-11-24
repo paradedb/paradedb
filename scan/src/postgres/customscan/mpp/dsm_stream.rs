@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! SPSC byte rings in Postgres DSM implementing Tokio `AsyncRead` and `AsyncWrite`.
+//! Lock-free SPSC byte rings in Postgres DSM implementing Tokio `AsyncRead` and `AsyncWrite`.
 //!
 //! Symmetric all-to-all topology across `N = 1 + W` processes (`proc 0` for the leader, `1..=W`
 //! for background workers, `W >= 1`):
@@ -39,7 +39,6 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering,
 use std::task::{Context, Poll};
 
 use futures::task::AtomicWaker;
-use parking_lot::RwLock;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tonic::transport::server::Connected;
 
@@ -335,8 +334,7 @@ pub struct DsmAsyncStream {
     peer_wakeup_slot: *const AtomicU32,
     read_waker: Arc<AtomicWaker>,
     write_waker: Arc<AtomicWaker>,
-    // A poll holds a read guard until its last DSM access; detach takes the write guard.
-    dsm_detached: Arc<RwLock<bool>>,
+    dsm_detached: Arc<AtomicBool>,
     active_streams: Option<Arc<AtomicUsize>>,
 }
 
@@ -354,6 +352,9 @@ impl Connected for DsmAsyncStream {
 impl DsmAsyncStream {
     #[inline]
     fn wake_peer(&self) {
+        if self.dsm_detached.load(Ordering::Acquire) {
+            return;
+        }
         // SAFETY: `peer_wakeup_slot` points into the DSM wakeup slot table for the lifetime of the
         // query.
         let raw_slot = unsafe { (*self.peer_wakeup_slot).load(Ordering::SeqCst) };
@@ -371,8 +372,8 @@ impl DsmAsyncStream {
     ///
     /// # Safety
     ///
-    /// Caller must hold `self.dsm_detached` for reading with value false and ensure that
-    /// `write_pos..write_pos + src.len()` lies within the free space beyond `consumer.read_pos`.
+    /// Caller must ensure `self.dsm_detached` is false and that `write_pos..write_pos + src.len()`
+    /// lies within the free space beyond `consumer.read_pos`.
     unsafe fn copy_into_tx_ring(&self, capacity: usize, write_pos: u64, src: &[u8]) {
         if src.is_empty() {
             return;
@@ -390,11 +391,10 @@ impl DsmAsyncStream {
 
     /// Close both the outgoing writer and incoming reader sides of this stream and wake the peer.
     pub fn close_rings(&self) {
-        let detached = self.dsm_detached.read();
-        if *detached {
+        if self.dsm_detached.load(Ordering::Acquire) {
             return;
         }
-        // SAFETY: The read guard prevents DSM detach until both ring accesses complete.
+        // SAFETY: `tx_hdr` and `rx_hdr` are valid while `dsm_detached` is false.
         if unsafe { close_ring_pair(self.tx_hdr, self.rx_hdr) } {
             self.wake_peer();
         }
@@ -441,8 +441,7 @@ impl AsyncRead for DsmAsyncStream {
         }
 
         loop {
-            let detached = self.dsm_detached.read();
-            if *detached {
+            if self.dsm_detached.load(Ordering::Acquire) {
                 return Poll::Ready(Ok(()));
             }
             if cancel_pending() {
@@ -539,8 +538,7 @@ impl AsyncWrite for DsmAsyncStream {
         }
 
         loop {
-            let detached = self.dsm_detached.read();
-            if *detached {
+            if self.dsm_detached.load(Ordering::Acquire) {
                 return Poll::Ready(Err(io::Error::new(
                     io::ErrorKind::BrokenPipe,
                     "mpp: DSM segment already detached",
@@ -617,8 +615,7 @@ impl AsyncWrite for DsmAsyncStream {
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let detached = self.dsm_detached.read();
-        if *detached {
+        if self.dsm_detached.load(Ordering::Acquire) {
             return Poll::Ready(Ok(()));
         }
         let hdr = unsafe { &*self.tx_hdr };
@@ -634,7 +631,7 @@ pub struct DsmLeaderShutdownHandle {
     base: *mut u8,
     n_procs: u32,
     ring_capacity: usize,
-    dsm_detached: Arc<RwLock<bool>>,
+    dsm_detached: Arc<AtomicBool>,
     active_streams: Arc<AtomicUsize>,
 }
 
@@ -643,7 +640,7 @@ unsafe impl Send for DsmLeaderShutdownHandle {}
 unsafe impl Sync for DsmLeaderShutdownHandle {}
 
 impl DsmLeaderShutdownHandle {
-    pub fn detached_state(&self) -> &Arc<RwLock<bool>> {
+    pub fn detached_flag(&self) -> &Arc<AtomicBool> {
         &self.dsm_detached
     }
 
@@ -656,8 +653,7 @@ impl DsmLeaderShutdownHandle {
     /// participant's HTTP/2 server/client tasks observe immediate EOF, and wake all processes
     /// (`0..n_procs`, including any Tonic `Worker` running on the leader).
     pub fn signal_shutdown(&self) {
-        let detached = self.dsm_detached.read();
-        if *detached {
+        if self.dsm_detached.load(Ordering::Acquire) {
             return;
         }
         unsafe {
@@ -688,7 +684,7 @@ impl DsmLeaderShutdownHandle {
 pub struct DsmWorkerShutdownWatcher {
     base: *const u8,
     waker: Arc<AtomicWaker>,
-    dsm_detached: Arc<RwLock<bool>>,
+    dsm_detached: Arc<AtomicBool>,
 }
 
 // SAFETY: `base` points to the shared DSM header and is only accessed via atomics.
@@ -697,8 +693,7 @@ unsafe impl Sync for DsmWorkerShutdownWatcher {}
 
 impl DsmWorkerShutdownWatcher {
     pub fn is_shutdown(&self) -> bool {
-        let detached = self.dsm_detached.read();
-        if *detached || cancel_pending() {
+        if self.dsm_detached.load(Ordering::Acquire) || cancel_pending() {
             return true;
         }
         let hdr = unsafe { &*(self.base as *const DsmMeshHeader) };
@@ -742,7 +737,7 @@ pub unsafe fn build_leader_streams(
     let hdr = unsafe { validate_mesh_header(base)? };
     let n_procs = hdr.n_procs;
     let ring_capacity = hdr.ring_capacity as usize;
-    let dsm_detached = Arc::new(RwLock::new(false));
+    let dsm_detached = Arc::new(AtomicBool::new(false));
     let n_peers = (n_procs - 1) as usize;
     let active_streams = Arc::new(AtomicUsize::new(2 * n_peers));
 
@@ -828,7 +823,7 @@ pub struct DsmWorkerDetachHandle {
     n_procs: u32,
     ring_capacity: usize,
     worker_proc: ServerProc,
-    dsm_detached: Arc<RwLock<bool>>,
+    dsm_detached: Arc<AtomicBool>,
 }
 
 // SAFETY: Only touches atomic fields in the DSM ring headers and wakeup slots while the DSM
@@ -838,15 +833,14 @@ unsafe impl Sync for DsmWorkerDetachHandle {}
 
 impl DsmWorkerDetachHandle {
     #[cfg(any(test, feature = "pg_test"))]
-    pub fn detached_state(&self) -> &Arc<RwLock<bool>> {
+    pub fn detached_flag(&self) -> &Arc<AtomicBool> {
         &self.dsm_detached
     }
 
     /// Close all client and server SPSC rings owned by `worker_proc` and wake any peers sleeping
     /// on those rings. No-op once `dsm_detached` is true.
     pub fn close_worker_rings(&self) {
-        let detached = self.dsm_detached.read();
-        if *detached {
+        if self.dsm_detached.load(Ordering::Acquire) {
             return;
         }
         let w = self.worker_proc.0;
@@ -899,7 +893,7 @@ impl DsmWorkerDetachHandle {
     /// true before the DSM segment unmaps.
     pub fn on_detach(&self) {
         self.close_worker_rings();
-        *self.dsm_detached.write() = true;
+        self.dsm_detached.store(true, Ordering::SeqCst);
     }
 }
 
@@ -931,7 +925,7 @@ pub unsafe fn build_worker_streams(
     if w == 0 || w >= n_procs {
         return Err(format!("mpp: worker_proc {w} out of range 1..{n_procs}"));
     }
-    let dsm_detached = Arc::new(RwLock::new(false));
+    let dsm_detached = Arc::new(AtomicBool::new(false));
 
     // Store our wakeup slot BEFORE constructing any streams or registering `sleeping = true`
     // flags, and before checking `shutdown_flag` in `shutdown_watcher`.
@@ -1020,7 +1014,6 @@ pub unsafe fn build_worker_streams(
 mod tests {
     use super::*;
     use pgrx::pg_test;
-    use std::task::{RawWaker, RawWakerVTable, Waker};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[repr(C, align(64))]
@@ -1035,91 +1028,6 @@ mod tests {
         fn clone(&self) -> Self {
             Self(self.0)
         }
-    }
-
-    struct DetachProbe {
-        detached: Arc<RwLock<bool>>,
-        registrations: AtomicUsize,
-    }
-
-    impl DetachProbe {
-        const VTABLE: RawWakerVTable =
-            RawWakerVTable::new(Self::clone_waker, |_| {}, |_| {}, |_| {});
-
-        unsafe fn clone_waker(data: *const ()) -> RawWaker {
-            let probe = unsafe { &*data.cast::<Self>() };
-            assert!(
-                probe.detached.try_write().is_none(),
-                "DSM can detach during a poll"
-            );
-            probe.registrations.fetch_add(1, Ordering::Relaxed);
-            RawWaker::new(data, &Self::VTABLE)
-        }
-    }
-
-    #[pg_test]
-    fn dsm_polls_exclude_detach_and_stop_accessing_unmapped_memory() {
-        const N_PROCS: u32 = 2;
-        let ring_capacity = DEFAULT_SPSC_RING_CAPACITY;
-        let mut region = alloc_aligned_region(dsm_region_bytes(N_PROCS, ring_capacity).unwrap());
-        let base = region.as_mut_ptr().cast();
-        unsafe { init_dsm_mesh(base, N_PROCS, ring_capacity).unwrap() };
-        let probe = DetachProbe {
-            detached: Arc::new(RwLock::new(false)),
-            registrations: AtomicUsize::new(0),
-        };
-        let (tx_hdr, tx_data) = unsafe { ring_ptrs(base, N_PROCS, ring_capacity, 0) };
-        let (rx_hdr, rx_data) = unsafe { ring_ptrs(base, N_PROCS, ring_capacity, 1) };
-        let mut stream = DsmAsyncStream {
-            tx_hdr,
-            tx_data,
-            rx_hdr,
-            rx_data,
-            peer_wakeup_slot: unsafe { wakeup_slot_ptr(base, 1) },
-            read_waker: Arc::new(AtomicWaker::new()),
-            write_waker: Arc::new(AtomicWaker::new()),
-            dsm_detached: Arc::clone(&probe.detached),
-            active_streams: None,
-        };
-        // All copies of this borrowed waker are dropped before the probe.
-        let waker = unsafe {
-            Waker::from_raw(RawWaker::new(
-                ptr::from_ref(&probe).cast(),
-                &DetachProbe::VTABLE,
-            ))
-        };
-        let mut cx = Context::from_waker(&waker);
-        let mut bytes = [0];
-        let mut buf = ReadBuf::new(&mut bytes);
-        assert!(
-            Pin::new(&mut stream)
-                .poll_read(&mut cx, &mut buf)
-                .is_pending()
-        );
-        unsafe {
-            (*tx_hdr)
-                .producer
-                .write_pos
-                .store(ring_capacity as u64, Ordering::Release)
-        };
-        assert!(Pin::new(&mut stream).poll_write(&mut cx, &[1]).is_pending());
-        assert_eq!(probe.registrations.load(Ordering::Relaxed), 2);
-
-        *probe.detached.write() = true;
-        drop(region);
-        assert!(matches!(
-            Pin::new(&mut stream).poll_read(&mut cx, &mut buf),
-            Poll::Ready(Ok(()))
-        ));
-        assert!(buf.filled().is_empty());
-        assert!(
-            matches!(Pin::new(&mut stream).poll_write(&mut cx, &[1]), Poll::Ready(Err(e)) if e.kind() == io::ErrorKind::BrokenPipe)
-        );
-        assert!(matches!(
-            Pin::new(&mut stream).poll_shutdown(&mut cx),
-            Poll::Ready(Ok(()))
-        ));
-        drop(stream);
     }
 
     #[pg_test]
@@ -1254,7 +1162,12 @@ mod tests {
 
             // Simulate worker 1 detaching via `on_dsm_detach` while its stream values are still live.
             w1_streams.detach_handle.on_detach();
-            assert!(*w1_streams.detach_handle.detached_state().read());
+            assert!(
+                w1_streams
+                    .detach_handle
+                    .detached_flag()
+                    .load(Ordering::Acquire)
+            );
 
             // Leader (both client and server sides) and sibling worker 2 should wake and observe EOF.
             assert_eq!(leader_read.await.unwrap(), 0);

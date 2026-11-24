@@ -55,7 +55,9 @@ use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
-use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions};
+use datafusion::physical_plan::{
+    ChildrenPropertiesMode, ExecutionPlan, LimitBehavior, ReplaceChildrenOptions,
+};
 
 use crate::gucs;
 use crate::index::fast_fields_helper::FieldCardinality;
@@ -418,7 +420,7 @@ fn try_inject_below_lookup(
         // (ProjectionExec, CoalescePartitionsExec, SortPreservingMergeExec, CooperativeExec, etc.)
         // Do not recurse into multi-child join nodes (HashJoinExec) or non-transparent barriers (AggregateExec).
         if child.children().len() == 1
-            && child.supports_limit_pushdown()
+            && !matches!(child.limit_behavior(), LimitBehavior::Stops)
             && let Some(rewritten) =
                 try_inject_below_lookup(child, sort_exprs.clone(), k, parent_filter.clone())?
         {

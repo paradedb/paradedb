@@ -76,7 +76,7 @@ use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
-use datafusion::physical_plan::{ExecutionPlan, Partitioning};
+use datafusion::physical_plan::{ExecutionPlan, LimitBehavior, Partitioning};
 use pgrx::pg_sys;
 
 use crate::api::{HashMap, HashSet};
@@ -678,7 +678,8 @@ fn is_streaming_limit(node: &Arc<dyn ExecutionPlan>) -> bool {
 /// Nodes a limit passes through, the same set `SegmentedTopKRule` descends through, so the
 /// two rules see the same consumer.
 fn is_transparent(node: &Arc<dyn ExecutionPlan>) -> bool {
-    node.supports_limit_pushdown() || node.is::<FilterPassthroughExec>()
+    let supports_limit_pushdown = !matches!(node.limit_behavior(), LimitBehavior::Stops);
+    supports_limit_pushdown || node.is::<FilterPassthroughExec>()
 }
 
 fn moved(

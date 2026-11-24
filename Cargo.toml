@@ -105,10 +105,10 @@ async-trait = "0.1.92"
 stable_deref_trait = "1.2.1"
 anyhow = { version = "1.0.102", features = ["backtrace"] }
 # Keep direct Arrow dependencies on DataFusion's major version.
-arrow-array = "59.1.0"
-arrow-buffer = "59.1.0"
-arrow-schema = "59.1.0"
-arrow-select = "59.1.0"
+arrow-array = "60.1.0"
+arrow-buffer = "60.1.0"
+arrow-schema = "60.1.0"
+arrow-select = "60.1.0"
 base64 = "0.23.1"
 bitpacking = "0.9.3"
 chrono = "0.4.45"
@@ -172,9 +172,9 @@ libc = "0.2"
 bytes = { version = "1", features = ["serde"] }
 # Here and the equivalent in our datafusion-distributed fork will need to be updated in sync so that
 # both point to the same datafusion ref.
-datafusion = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
-datafusion-proto = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed.git", tag = "snapshot-main-2026-11-11-230252", default-features = false, features = [
+datafusion = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-56", default-features = false }
+datafusion-proto = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-56", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed.git", rev = "snapshot-main-2026-11-24-221933", default-features = false, features = [
   "grpc",
 ] }
 futures = "0.3.34"

@@ -53,10 +53,11 @@ use arrow_select::filter::filter_record_batch;
 use arrow_select::interleave::interleave_record_batch;
 use arrow_select::take::take;
 use datafusion::arrow::compute::SortColumn;
+use datafusion::common::float_semantics::normalize_floats;
 use datafusion::common::internal_err;
 use datafusion::common::tree_node::{Transformed, TreeNode};
+use datafusion::common::utils::SingleRowListArrayBuilder;
 use datafusion::common::utils::memory::RecordBatchMemoryCounter;
-use datafusion::common::utils::{SingleRowListArrayBuilder, normalize_float_zero};
 use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::expr::AggregateFunction;
 use datafusion::logical_expr::function::{AccumulatorArgs, StateFieldsArgs};
@@ -656,7 +657,7 @@ impl FusedTopK {
         let columns: Vec<_> = self
             .sort
             .iter()
-            .map(|(i, _)| normalize_float_zero(&batch_cols[*i]))
+            .map(|(i, _)| normalize_floats(&batch_cols[*i]))
             .collect();
 
         let options = RecordBatchOptions::new().with_row_count(Some(batch.num_rows()));

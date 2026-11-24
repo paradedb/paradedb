@@ -63,12 +63,12 @@ use datafusion::logical_expr::expr::AggregateFunctionParams;
 use datafusion::logical_expr::function::{AccumulatorArgs, StateFieldsArgs};
 use datafusion::logical_expr::{
     Accumulator, Aggregate, AggregateUDF, AggregateUDFImpl, EmitTo, Expr, GroupsAccumulator,
-    Signature, Volatility, lit, udaf_default_human_display,
+    Signature, UdafHumanDisplayBuilder, Volatility, lit,
 };
 use datafusion::physical_expr::aggregate::{AggregateExprBuilder, AggregateFunctionExpr};
 use datafusion::physical_expr::{GroupsAccumulatorAdapter, PhysicalExpr};
 use datafusion::physical_plan::aggregates::group_values::{GroupValues, new_group_values};
-use datafusion::physical_plan::aggregates::order::GroupOrdering;
+use datafusion::physical_plan::aggregates::order::GroupClustering;
 use datafusion::physical_plan::expressions::{
     Column as PhysicalColumn, Literal as PhysicalLiteral,
 };
@@ -464,7 +464,7 @@ impl PdbAggAccumulator {
                     keys.iter().map(|&k| Arc::clone(&key_fields[k])).collect();
                 Some(new_group_values(
                     Arc::new(Schema::new(fields)),
-                    &GroupOrdering::None,
+                    &GroupClustering::None,
                 )?)
             };
             let level_metrics = level_metrics
@@ -857,7 +857,7 @@ fn pdb_udaf_human_display<U: AggregateUDFImpl>(
                 .unwrap_or_default();
             Ok(format!("{}({}){filter}", udf.name(), request.agg_json))
         }
-        _ => udaf_default_human_display(udf, params),
+        _ => UdafHumanDisplayBuilder::new(udf.name(), params).build(),
     }
 }
 

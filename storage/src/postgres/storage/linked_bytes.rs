@@ -318,16 +318,19 @@ impl LinkedBytesList {
     /// blocks: `blocks` is [`LinkedBytesListWriter::blocks`] at some point of the write.
     ///
     /// The list caches the pages it reads as immutable, so it is dropped before the writer
-    /// writes again.
+    /// writes again. Its reads use the bulk-read buffer strategy: a pass over a file its writer
+    /// just filled recycles a ring of buffers and leaves the rest of shared buffers in place.
     pub fn open_unfinished(
         rel: &PgSearchRelation,
         header_blockno: pg_sys::BlockNumber,
         blocks: Arc<Vec<pg_sys::BlockNumber>>,
     ) -> Self {
-        Self {
+        let mut list = Self {
             unfinished_blocks: Some(blocks),
             ..Self::open(rel, header_blockno)
-        }
+        };
+        list.bman.set_bulk_read();
+        list
     }
 
     /// The list must be finalized and `total_bytes` must be its complete file length.

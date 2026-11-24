@@ -70,11 +70,7 @@ buildPgrxExtension (finalAttrs: {
   # If maintainers forget to do so, Nix will throw an error message that begins
   # like this and then provides the correct new hash:
   # error: hash mismatch in fixed-output derivation '...'
-<<<<<<< HEAD
-  cargoHash = "sha256-3Szz6cLIn13KPU4mrdMzGsOJihJlh4sxtya5ZjtazS0=";
-=======
   cargoHash = "sha256-G3TPa9DDjv8mpqaYOy9BNCBNXEnIUn8IkFmW717FnwI=";
->>>>>>> fa1cf1a (perf: Add support for pushing dynamic hash expression filters into Tantivy (#7549))
 
   inherit postgresql;
   # The Nix builder also passes cargoPgrxFlags to `stop`, which does not accept

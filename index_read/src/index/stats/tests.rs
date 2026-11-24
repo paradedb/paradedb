@@ -604,9 +604,9 @@ mod tests {
         Spi::run(
             r#"
             CREATE TABLE stats_text_norm (id BIGSERIAL PRIMARY KEY, name TEXT);
-            CREATE INDEX stats_text_norm_idx ON stats_text_norm USING paradedb (id, name)
-                WITH (target_segment_count = 8, background_layer_sizes = '0',
-                      text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true, "normalizer": "lowercase"}}');
+            CREATE INDEX stats_text_norm_idx ON stats_text_norm USING paradedb
+                (id, (name::pdb.literal_normalized('lowercase=false', 'normalizer=lowercase')))
+                WITH (target_segment_count = 8, background_layer_sizes = '0');
             SET paradedb.global_mutable_segment_rows = 0;
             INSERT INTO stats_text_norm (name) SELECT 'Zed' || i FROM generate_series(1, 10) i;
             INSERT INTO stats_text_norm (name) SELECT 'alice' || i FROM generate_series(1, 10) i;

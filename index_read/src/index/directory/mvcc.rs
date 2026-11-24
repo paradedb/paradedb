@@ -1257,7 +1257,7 @@ mod tests {
                     CASE WHEN i % 3 = 0 THEN 'b' END, CASE WHEN i % 7 = 0 THEN 'c' END, 'all')
                 FROM generate_series(0, 2302) i;
             CREATE INDEX bitmap_counts_idx ON bitmap_counts USING paradedb
-                (id, (data::pdb.simple)) WITH (key_field='id');",
+                (id, (data::pdb.simple));",
         )
         .unwrap();
         let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'bitmap_counts_idx'::regclass::oid")

@@ -261,7 +261,7 @@ impl SegmentView {
 
     /// A view that only pins the segment set. Ordinal order is the iterator's (arbitrary for a
     /// set), and it carries no replay data, so it is only for readers whose addresses never
-    /// leave the process (a `paradedb.aggregate` worker).
+    /// leave the process (an aggregation worker).
     pub fn from_unordered_ids(ids: impl IntoIterator<Item = SegmentId>) -> Self {
         Self::new(
             ids.into_iter()
@@ -1267,7 +1267,7 @@ mod tests {
                     CASE WHEN i % 3 = 0 THEN 'b' END, CASE WHEN i % 7 = 0 THEN 'c' END, 'all')
                 FROM generate_series(0, 2302) i;
             CREATE INDEX bitmap_counts_idx ON bitmap_counts USING paradedb
-                (id, (data::pdb.simple)) WITH (key_field='id');",
+                (id, (data::pdb.simple));",
         )
         .unwrap();
         let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'bitmap_counts_idx'::regclass::oid")

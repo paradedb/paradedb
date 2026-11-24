@@ -24,11 +24,6 @@ fn direct_reads(index: &str) -> Vec<String> {
         format!("SELECT * FROM paradedb.index_info({index})"),
         format!("SELECT * FROM paradedb.index_info({index}, true)"),
         format!("SELECT * FROM pdb.index_segments({index})"),
-        format!(
-            r#"SELECT paradedb.aggregate(
-                {index}, paradedb.all(),
-                '{{"emails":{{"terms":{{"field":"email","size":100}}}}}}')"#
-        ),
     ]
 }
 
@@ -201,12 +196,6 @@ fn standalone_index_reads_enforce_permissions(mut conn: PgConnection) {
     for query in by_name.iter().chain(&by_oid) {
         query.execute(&mut conn);
     }
-    let (result,) = format!(
-        r#"SELECT paradedb.aggregate({oid}::regclass, paradedb.all(),
-            '{{"emails":{{"terms":{{"field":"email","size":100}}}}}}')"#
-    )
-    .fetch_one::<(serde_json::Value,)>(&mut conn);
-    assert_eq!(result["emails"]["buckets"][0]["key"], "private@example.com");
     "RESET ROLE".execute(&mut conn);
 
     // Numeric OIDs bypass name resolution, but must not bypass schema USAGE.

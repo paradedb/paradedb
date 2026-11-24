@@ -76,7 +76,6 @@ WHERE 'regclass'::regtype::oid = ANY (p.proargtypes::oid[])
 ORDER BY 1;
                                                                                 regclass_function                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- paradedb.aggregate(index regclass, query paradedb.searchqueryinput, agg json, solve_mvcc boolean, memory_limit bigint, bucket_limit bigint, visibility text)
  paradedb.background_layer_sizes(index regclass)
  paradedb.bgmerger_state(index regclass)
  paradedb.combined_layer_sizes(index regclass)
@@ -108,7 +107,7 @@ ORDER BY 1;
  pdb.index_segments(index regclass)
  pdb.synonym_expansion(index regclass, input text)
  pdb.verify_index(index regclass, heapallindexed boolean, sample_rate double precision, report_progress boolean, "verbose" boolean, on_error_stop boolean, segment_ids integer[])
-(32 rows)
+(31 rows)
 
 SET ROLE permission_access_reader;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS no_grant_denials;

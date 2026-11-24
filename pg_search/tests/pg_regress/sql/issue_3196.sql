@@ -12,28 +12,28 @@ CREATE INDEX on mock_items USING paradedb (id, description, rating, category, (m
 INSERT INTO mock_items (rating, metadata) VALUES (null, null), (null, null);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(*) FROM mock_items WHERE id @@@ pdb.all();
 
-SELECT COUNT(*) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(rating) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
-
-SELECT COUNT(rating) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(*) FROM mock_items WHERE id @@@ pdb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(rating) FROM mock_items WHERE id @@@ pdb.all();
 
-SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
-
-SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(rating) FROM mock_items WHERE id @@@ pdb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ pdb.all();
 
-SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ pdb.all();
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ pdb.all();
+
+SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ pdb.all();
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ pdb.all();
+
+SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ pdb.all();
 
 DROP TABLE mock_items;

@@ -440,18 +440,18 @@ SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last
 
 -- pdb.term() on composite field from type A
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 === 'first_a';
-SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 === 'first_a';
+SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
+SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
 
 -- pdb.term() on composite field from type B
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 === 'first_b';
-SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 === 'first_b';
+SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
+SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
 
 -- pdb.match() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 ||| 'mid_a';
-SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 ||| 'mid_a';
+SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a');
+SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a');
 
 -- pdb.regex() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -460,12 +460,12 @@ SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*
 
 -- Test pdb functions on MVCC test table composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content === 'unique_gamma_three';
-SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content === 'unique_gamma_three';
+SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');
+SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content ||| 'unique_delta_updated';
-SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content ||| 'unique_delta_updated';
+SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content @@@ pdb.match('unique_delta_updated');
+SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content @@@ pdb.match('unique_delta_updated');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS mvcc_regex FROM mvcc_test WHERE content @@@ pdb.regex('unique_.*_new');
@@ -473,21 +473,21 @@ SELECT COUNT(*) AS mvcc_regex FROM mvcc_test WHERE content @@@ pdb.regex('unique
 
 -- Test pdb functions on parallel test table composite fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 === 'field1_100';
-SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 === 'field1_100';
+SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field1_100');
+SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field1_100');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 ||| 'field2_500';
-SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 ||| 'field2_500';
+SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('field2_500');
+SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('field2_500');
 
 -- Test pdb functions on fast fields table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 === 'first_text';
-SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 === 'first_text';
+SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text');
+SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 ||| 'middle_text';
-SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 ||| 'middle_text';
+SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_text');
+SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_text');
 
 ------------------------------------------------------------
 -- TEST: Top K queries with pdb functions on composite fields
@@ -496,28 +496,28 @@ SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 ||| 'middle_text';
 -- Top K with pdb.term() on composite field, ORDER BY score
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, t01, pdb.score(id) as score
-FROM fast_test_50 WHERE t01 === 'first_text'
+FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text')
 ORDER BY score DESC, id LIMIT 2;
 SELECT id, t01, pdb.score(id) as score
-FROM fast_test_50 WHERE t01 === 'first_text'
+FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text')
 ORDER BY score DESC, id LIMIT 2;
 
 -- Top K with pdb.match() on composite field, ORDER BY n01 (fast numeric field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, t01, n01
-FROM fast_test_50 WHERE t01 ||| 'first_text OR alpha'
+FROM fast_test_50 WHERE t01 @@@ pdb.match('first_text OR alpha')
 ORDER BY n01 DESC, id LIMIT 3;
 SELECT id, t01, n01
-FROM fast_test_50 WHERE t01 ||| 'first_text OR alpha'
+FROM fast_test_50 WHERE t01 @@@ pdb.match('first_text OR alpha')
 ORDER BY n01 DESC, id LIMIT 3;
 
 -- Top K with pdb functions on parallel test (large table)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id) as score
-FROM parallel_test WHERE f1 === 'field1_1000'
+FROM parallel_test WHERE f1 @@@ pdb.term('field1_1000')
 ORDER BY score DESC, id LIMIT 1;
 SELECT id, pdb.score(id) as score
-FROM parallel_test WHERE f1 === 'field1_1000'
+FROM parallel_test WHERE f1 @@@ pdb.term('field1_1000')
 ORDER BY score DESC, id LIMIT 1;
 
 ------------------------------------------------------------

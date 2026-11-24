@@ -34,6 +34,34 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ||| ARRAY['running', 'walking', 'hiking'];
 
 -- ============================================================================
+-- STAGE 3: BOOLEAN RECURSIVE ESTIMATES
+-- Expected: Parent and child estimates, including negation.
+-- ============================================================================
+
+-- Test 3.1: Two required terms
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT * FROM recursive_test.estimate_items
+WHERE description === 'shoes' AND description === 'running';
+
+-- Test 3.2: Two alternative terms
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT * FROM recursive_test.estimate_items
+WHERE description === 'running' OR description === 'walking';
+
+-- Test 3.3: Boolean with MUST and SHOULD mixed
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT * FROM recursive_test.estimate_items
+WHERE description @@@ paradedb.boolean(
+    must := ARRAY[paradedb.term('description', 'shoes')],
+    should := ARRAY[paradedb.term('description', 'running'), paradedb.term('description', 'athletic')]
+);
+
+-- Test 3.4: One required term and one excluded term
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT * FROM recursive_test.estimate_items
+WHERE description === 'shoes' AND NOT (description === 'athletic');
+
+-- ============================================================================
 -- STAGE 4: COMPLEX NESTED QUERIES (Four+ Level Nesting)
 -- Expected: Deep recursion with estimates at each nested level
 -- ============================================================================
@@ -146,6 +174,11 @@ SELECT * FROM recursive_test.estimate_items
 WHERE created_at @@@ pdb.range(range => tsrange('2023-01-01', '2023-12-31'));
 
 
+-- Test 5.22: TermSet builder
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT * FROM recursive_test.estimate_items
+WHERE description @@@ pdb.term_set(ARRAY['shoes', 'boots', 'sandals']);
+
 -- ============================================================================
 -- STAGE 5B: NESTED WRAPPER QUERIES
 -- Expected: Wrapper queries (Boost, ConstScore) containing other query types
@@ -164,14 +197,14 @@ WHERE description ||| 'running walking'::pdb.const(1);
 -- Test 5B.3: Boolean containing Boost queries
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description === 'shoes'::pdb.boost(2) OR description === 'running'::pdb.boost(1.5);
+WHERE description === 'shoes'::pdb.boost(2) AND description === 'running'::pdb.boost(1.5);
 
 -- Test 5B.5: Nested boolean clauses with multiple wrapper types
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE (description === 'running'::pdb.const(1)::pdb.query::pdb.boost(2)
    OR description === 'walking'::pdb.boost(2))
-  AND description === 'athletic';
+  AND description === 'shoes';
 
 -- ============================================================================
 -- STAGE 6: GUC TOGGLE TEST
@@ -216,7 +249,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM recursive_test.estimate_items WHERE descriptio
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ||| 'nonexistentterm123456';
 
 -- Test 8.2: Match all query (very broad)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ pdb.all()::pdb.const(0);
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ pdb.all();
 
 -- Test 8.3: Many AND clauses (wide tree)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -278,10 +311,10 @@ EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE description &&& 'shoes running';
 
--- Test 10.3: Nested AND/OR query in JSON format
+-- Test 10.3: Conjunction in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE (description === 'running' AND description === 'shoes') OR description === 'athletic';
+WHERE description === 'running' AND description === 'shoes' AND description === 'athletic';
 
 -- Test 10.4: Range query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)

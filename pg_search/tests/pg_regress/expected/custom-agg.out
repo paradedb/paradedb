@@ -1117,20 +1117,20 @@ WHERE (description ||| 'error') OR (NOT (description ||| 'error'));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0);
-                                               QUERY PLAN                                               
---------------------------------------------------------------------------------------------------------
+WHERE id @@@ pdb.all();
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"terms":{"field":"category"}}}
 (6 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
                                                                                                                                agg                                                                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "database", "doc_count": 6}, {"key": "api", "doc_count": 5}, {"key": "application", "doc_count": 4}, {"key": "network", "doc_count": 4}, {"key": "security", "doc_count": 3}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -1140,7 +1140,7 @@ WHERE id @@@ pdb.all()::pdb.const(0);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY category
 ORDER BY category;
                                                                                          QUERY PLAN                                                                                          
@@ -1148,7 +1148,7 @@ ORDER BY category;
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -1156,7 +1156,7 @@ ORDER BY category;
 
 SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY category
 ORDER BY category;
   category   |              agg              
@@ -1256,13 +1256,13 @@ SELECT pdb.agg('{"range": {"field": "status_code", "ranges": [
     {"from": 500, "to": 600, "key": "5xx"}
 ]}}'::jsonb) AS status_code_buckets
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
                                                                                                                      QUERY PLAN                                                                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: CUSTOM_AGG({"range":{"field":"status_code","ranges":[{"to":300,"key":"2xx","from":200},{"to":400,"key":"3xx","from":300},{"to":500,"key":"4xx","from":400},{"to":600,"key":"5xx","from":500}]}})
      Aggregate Definition: {"0":{"range":{"field":"status_code","keyed":false,"ranges":[{"from":200.0,"key":"2xx","to":300.0},{"from":300.0,"key":"3xx","to":400.0},{"from":400.0,"key":"4xx","to":500.0},{"from":500.0,"key":"5xx","to":600.0}]}}}
 (6 rows)
@@ -1274,7 +1274,7 @@ SELECT pdb.agg('{"range": {"field": "status_code", "ranges": [
     {"from": 500, "to": 600, "key": "5xx"}
 ]}}'::jsonb) AS status_code_buckets
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
                                                                                                                                                                       status_code_buckets                                                                                                                                                                       
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"to": 200.0, "key": "*-200", "doc_count": 0}, {"to": 300.0, "key": "2xx", "from": 200.0, "doc_count": 1}, {"to": 400.0, "key": "3xx", "from": 300.0, "doc_count": 0}, {"to": 500.0, "key": "4xx", "from": 400.0, "doc_count": 8}, {"to": 600.0, "key": "5xx", "from": 500.0, "doc_count": 13}, {"key": "600-*", "from": 600.0, "doc_count": 0}]}

@@ -29,12 +29,12 @@ ANALYZE test_metadata_scale;
 -- Test 1: Scalar subquery with large dataset (benchmark pattern)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM test_pages_scale 
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id 
 LIMIT 100;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: test_pages_scale.id, test_pages_scale.content
    InitPlan 1
@@ -53,11 +53,11 @@ LIMIT 100;
                Scores: false
                   TopK Order By: id asc
                   TopK Limit: 100
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '>='::text, $1)"}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '>='::text, $1)"}}}]}}
 (19 rows)
 
 SELECT * FROM test_pages_scale 
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id 
 LIMIT 100;
@@ -167,7 +167,7 @@ LIMIT 100;
 
 -- Test 2: Verify result count
 SELECT COUNT(*) FROM test_pages_scale 
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max');
  count 
 -------
@@ -177,12 +177,12 @@ WHERE id @@@ pdb.all()::pdb.const(0)
 -- Test 3: Test with DESC ordering (reverse scan)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM test_pages_scale 
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id DESC 
 LIMIT 100;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: test_pages_scale.id, test_pages_scale.content
    InitPlan 1
@@ -201,11 +201,11 @@ LIMIT 100;
                Scores: false
                   TopK Order By: id desc
                   TopK Limit: 100
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '>='::text, $1)"}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '>='::text, $1)"}}}]}}
 (19 rows)
 
 SELECT * FROM test_pages_scale 
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id DESC 
 LIMIT 100;

@@ -23,34 +23,34 @@ USING paradedb (id, category_id, deleted_at);
 -- IS NOT NULL works (pushes to index via PushdownIsNotNull)
 -- Should show Custom Scan with Tantivy Query containing "exists"
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT * FROM products WHERE deleted_at IS NOT NULL AND id @@@ pdb.all()::pdb.const(0);
+SELECT * FROM products WHERE deleted_at IS NOT NULL AND id @@@ pdb.all();
 
-SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ pdb.all();
 
 -- IS NULL should also be pushed to the index (as NOT EXISTS)
 -- Should show Custom Scan with Tantivy Query containing "must_not exists"
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT * FROM products WHERE deleted_at IS NULL AND id @@@ pdb.all()::pdb.const(0);
+SELECT * FROM products WHERE deleted_at IS NULL AND id @@@ pdb.all();
 
-SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND id @@@ pdb.all();
 
 -- Combined test: verify counts are complementary (should sum to total)
 SELECT 
-    (SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND id @@@ pdb.all()::pdb.const(0)) AS null_count,
-    (SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ pdb.all()::pdb.const(0)) AS not_null_count,
-    (SELECT COUNT(*) FROM products WHERE id @@@ pdb.all()::pdb.const(0)) AS total_count;
+    (SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND id @@@ pdb.all()) AS null_count,
+    (SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ pdb.all()) AS not_null_count,
+    (SELECT COUNT(*) FROM products WHERE id @@@ pdb.all()) AS total_count;
 
 -- Test IS NULL with additional predicates
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM products 
 WHERE deleted_at IS NULL 
   AND category_id = 5 
-  AND id @@@ pdb.all()::pdb.const(0);
+  AND id @@@ pdb.all();
 
 SELECT COUNT(*) FROM products 
 WHERE deleted_at IS NULL 
   AND category_id = 5 
-  AND id @@@ pdb.all()::pdb.const(0);
+  AND id @@@ pdb.all();
 
 DROP INDEX idx_products_bm25;
 
@@ -69,12 +69,12 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM products 
 WHERE deleted_at IS NULL 
   AND category_id = 5 
-  AND id @@@ pdb.all()::pdb.const(0);
+  AND id @@@ pdb.all();
 
 SELECT COUNT(*) FROM products 
 WHERE deleted_at IS NULL 
   AND category_id = 5 
-  AND id @@@ pdb.all()::pdb.const(0);
+  AND id @@@ pdb.all();
 
 -- Cleanup
 DROP TABLE products CASCADE;

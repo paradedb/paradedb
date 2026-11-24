@@ -49,10 +49,10 @@ EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id FROM et_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM et_exclusions e
-    WHERE e.id @@@ pdb.all()::pdb.const(0)
+    WHERE e.id @@@ pdb.all()
       AND e.pattern || '_x' = i.name
 )
-AND i.id @@@ pdb.all()::pdb.const(0)
+AND i.id @@@ pdb.all()
 LIMIT 5;
 
 -- =====================================================================
@@ -64,10 +64,10 @@ EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id FROM et_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM et_exclusions e
-    WHERE e.id @@@ pdb.all()::pdb.const(0)
+    WHERE e.id @@@ pdb.all()
       AND md5(e.pattern) = i.name
 )
-AND i.id @@@ pdb.all()::pdb.const(0)
+AND i.id @@@ pdb.all()
 LIMIT 5;
 
 -- =====================================================================
@@ -84,10 +84,10 @@ EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id FROM et_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM et_exclusions e
-    WHERE e.id @@@ pdb.all()::pdb.const(0)
+    WHERE e.id @@@ pdb.all()
       AND CAST(i.value AS text) = e.pattern
 )
-AND i.id @@@ pdb.all()::pdb.const(0)
+AND i.id @@@ pdb.all()
 LIMIT 5;
 
 -- Cleanup

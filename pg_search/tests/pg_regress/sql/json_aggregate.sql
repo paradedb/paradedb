@@ -256,11 +256,11 @@ WHERE (metadata -> 'nonexistent') === 'value';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 -- =========================================
 -- Test 10: Deep nested JSON aggregates

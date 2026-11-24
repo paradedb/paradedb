@@ -31,20 +31,20 @@ Test 1: no GROUP BY -> one row
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0);
-                                               QUERY PLAN                                               
---------------------------------------------------------------------------------------------------------
+WHERE id @@@ pdb.all();
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.ordered_agg_items
    Output: pdb.agg_fn('COUNT'::text)
    Index: ordered_agg_items_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(id)
      Aggregate Definition: {"0":{"value_count":{"field":"id","missing":null}}}
 (6 rows)
 
 SELECT COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
  count 
 -------
    120
@@ -55,7 +55,7 @@ Test 2: GROUP BY -> one row for each group
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
                                                                                          QUERY PLAN                                                                                         
@@ -63,7 +63,7 @@ ORDER BY account_id;
  Custom Scan (ParadeDB Aggregate Scan) on public.ordered_agg_items
    Output: account_id, pdb.agg_fn('COUNT'::text)
    Index: ordered_agg_items_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(id)
      Group By: account_id
      Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"id","missing":null}}},"terms":{"field":"account_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -71,7 +71,7 @@ ORDER BY account_id;
 
 SELECT account_id, COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
  account_id | count 
@@ -86,7 +86,7 @@ Test 3: other aggregates, and a sort key that is not in the index
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, SUM(price ORDER BY kind), MIN(price ORDER BY kind), MAX(price ORDER BY upper(kind))
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
                                                                                                                                                QUERY PLAN                                                                                                                                                
@@ -94,7 +94,7 @@ ORDER BY account_id;
  Custom Scan (ParadeDB Aggregate Scan) on public.ordered_agg_items
    Output: account_id, pdb.agg_fn('SUM'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
    Index: ordered_agg_items_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: SUM(price), MIN(price), MAX(price)
      Group By: account_id
      Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null,"none_if_no_match":true}},"1":{"min":{"field":"price","missing":null}},"2":{"max":{"field":"price","missing":null}}},"terms":{"field":"account_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -102,7 +102,7 @@ ORDER BY account_id;
 
 SELECT account_id, SUM(price ORDER BY kind), MIN(price ORDER BY kind), MAX(price ORDER BY upper(kind))
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
  account_id | sum | min | max 
@@ -117,7 +117,7 @@ Test 4: the sort key is also a GROUP BY key
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT kind, COUNT(id ORDER BY kind, account_id)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY kind
 ORDER BY kind;
                                                                                       QUERY PLAN                                                                                      
@@ -125,7 +125,7 @@ ORDER BY kind;
  Custom Scan (ParadeDB Aggregate Scan) on public.ordered_agg_items
    Output: kind, pdb.agg_fn('COUNT'::text)
    Index: ordered_agg_items_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(id)
      Group By: kind
      Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"id","missing":null}}},"terms":{"field":"kind","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -133,7 +133,7 @@ ORDER BY kind;
 
 SELECT kind, COUNT(id ORDER BY kind, account_id)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY kind
 ORDER BY kind;
  kind | count 
@@ -149,12 +149,12 @@ Test 5: DISTINCT aggregate -> declined
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, COUNT(DISTINCT kind)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
 WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  GroupAggregate
    Group Key: account_id
    ->  Sort
@@ -166,12 +166,12 @@ WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github
                Columnar: account_id, kind
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (12 rows)
 
 SELECT account_id, COUNT(DISTINCT kind)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
 WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
@@ -186,7 +186,7 @@ WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github
 Test 6: pdb.agg() -> one row
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
        agg        
 ------------------
  {"value": 120.0}
@@ -199,12 +199,12 @@ Test 7: DataFusion backend, sort key with a nondeterministic collation -> declin
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id <= 12 AND id @@@ pdb.all()::pdb.const(0)
+WHERE id <= 12 AND id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
 WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
-                                                                                                     QUERY PLAN                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Group Key: account_id
    ->  Sort
@@ -214,12 +214,12 @@ WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key w
                Index: ordered_agg_items_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":12}}},{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":12}}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
 (10 rows)
 
 SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id <= 12 AND id @@@ pdb.all()::pdb.const(0)
+WHERE id <= 12 AND id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
 WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
@@ -233,10 +233,10 @@ WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key w
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Aggregate
    ->  Sort
          Sort Key: kind COLLATE ordered_agg_case_insensitive
@@ -247,12 +247,12 @@ WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key w
                Columnar: amount, kind
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 
 SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
   sum   | count 
 --------+-------
@@ -264,7 +264,7 @@ Same results from PostgreSQL
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
  count 
 -------
    120
@@ -272,7 +272,7 @@ WHERE id @@@ pdb.all()::pdb.const(0);
 
 SELECT account_id, COUNT(id ORDER BY kind)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
  account_id | count 
@@ -284,7 +284,7 @@ ORDER BY account_id;
 
 SELECT account_id, SUM(price ORDER BY kind), MIN(price ORDER BY kind), MAX(price ORDER BY upper(kind))
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
  account_id | sum | min | max 
@@ -296,7 +296,7 @@ ORDER BY account_id;
 
 SELECT kind, COUNT(id ORDER BY kind, account_id)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY kind
 ORDER BY kind;
  kind | count 
@@ -309,7 +309,7 @@ ORDER BY kind;
 
 SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id <= 12 AND id @@@ pdb.all()::pdb.const(0)
+WHERE id <= 12 AND id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
  account_id |  sum  | string_agg 
@@ -321,7 +321,7 @@ ORDER BY account_id;
 
 SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
   sum   | count 
 --------+-------
  300.00 |     4

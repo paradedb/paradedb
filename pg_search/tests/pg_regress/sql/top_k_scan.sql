@@ -91,7 +91,7 @@ WHERE tenant_id = 'tenant-1'
   AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
   AND (notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true'))
   AND (NOT removed_at @@@ pdb.exists())
-  AND (id @@@ pdb.all()::pdb.const(0))
+  AND (id @@@ pdb.all())
 ORDER BY time_period DESC
 LIMIT 25;
 
@@ -113,7 +113,7 @@ LIMIT 25;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, notes
 FROM records
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 25;
 
@@ -171,7 +171,7 @@ WHERE tenant_id = 'tenant-1'
   AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
   AND (notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true'))
   AND (NOT removed_at @@@ pdb.exists())
-  AND (id @@@ pdb.all()::pdb.const(0))
+  AND (id @@@ pdb.all())
 ORDER BY time_period DESC
 LIMIT 25;
 
@@ -191,7 +191,7 @@ LIMIT 25;
 EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
 SELECT state, id
 FROM records
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
   AND state IS NULL
 ORDER BY state, id
 LIMIT 10000;
@@ -201,7 +201,7 @@ LIMIT 10000;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code
 FROM records
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY state, flow_type, currency_code, id
     LIMIT 25;
 
@@ -210,7 +210,7 @@ ORDER BY state, flow_type, currency_code, id
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code, tenant_id
 FROM records
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, id
     LIMIT 25;
 
@@ -219,7 +219,7 @@ ORDER BY state, flow_type, currency_code, tenant_id, id
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code, tenant_id, source_id
 FROM records
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, source_id, id
     LIMIT 25;
 

@@ -1050,14 +1050,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
-WHERE i.id @@@ pdb.all()::pdb.const(0)
+WHERE i.id @@@ pdb.all()
 GROUP BY i.metadata->>'category';
 
 -- Test 17.2: JSON sub-field GROUP BY results
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
-WHERE i.id @@@ pdb.all()::pdb.const(0)
+WHERE i.id @@@ pdb.all()
 GROUP BY i.metadata->>'category'
 ORDER BY category;
 
@@ -1066,7 +1066,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
-WHERE i.id @@@ pdb.all()::pdb.const(0)
+WHERE i.id @@@ pdb.all()
 GROUP BY i.metadata->>'category'
 ORDER BY category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -1174,7 +1174,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category,
        COUNT(*) FILTER (WHERE p.description ||| 'gaming') AS gaming,
        COUNT(*) FILTER (WHERE p.description &&& 'laptop kids') AS kids_laptops,
-       MAX(p.price) FILTER (WHERE p.description === 'laptop') AS max_laptop_price,
+       MAX(p.price) FILTER (WHERE p.description @@@ pdb.term('laptop')) AS max_laptop_price,
        COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') AS tech_tags,
        COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
 FROM agg_join_products p
@@ -1184,7 +1184,7 @@ GROUP BY p.category;
 SELECT p.category,
        COUNT(*) FILTER (WHERE p.description ||| 'gaming') AS gaming,
        COUNT(*) FILTER (WHERE p.description &&& 'laptop kids') AS kids_laptops,
-       MAX(p.price) FILTER (WHERE p.description === 'laptop') AS max_laptop_price,
+       MAX(p.price) FILTER (WHERE p.description @@@ pdb.term('laptop')) AS max_laptop_price,
        COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') AS tech_tags,
        COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
 FROM agg_join_products p
@@ -1197,7 +1197,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category,
        COUNT(*) FILTER (WHERE p.description ||| 'gaming') AS gaming,
        COUNT(*) FILTER (WHERE p.description &&& 'laptop kids') AS kids_laptops,
-       MAX(p.price) FILTER (WHERE p.description === 'laptop') AS max_laptop_price,
+       MAX(p.price) FILTER (WHERE p.description @@@ pdb.term('laptop')) AS max_laptop_price,
        COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') AS tech_tags,
        COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
 FROM agg_join_products p

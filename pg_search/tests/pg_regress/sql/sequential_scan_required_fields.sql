@@ -42,7 +42,7 @@ WHERE lower(body)::pdb.alias('lower_body') @@@ pdb.exists()::pdb.boost(2)
 SELECT id, lower(body) @@@ pdb.empty() AS empty_match,
        lower(body)::pdb.alias('lower_body') === 'alpha' AS term_match
 FROM required_fields ORDER BY id;
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.all();
 
 SELECT array_agg(id ORDER BY id) FROM required_fields
 WHERE id @@@ pdb.more_like_this(document => '{"body":"alpha"}', min_doc_frequency => 1, min_term_frequency => 1);

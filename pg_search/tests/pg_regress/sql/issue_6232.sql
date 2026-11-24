@@ -14,11 +14,11 @@ ANALYZE mixed_check;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ pdb.all()::pdb.const(0)
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY category ORDER BY category;
 
 SELECT category, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ pdb.all()::pdb.const(0)
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY category ORDER BY category;
 
 -- Grouping column is heap attribute 3.
@@ -29,16 +29,16 @@ ANALYZE mixed_check3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, COUNT(*)::text || category AS mixed
-FROM mixed_check3 WHERE mixed_check3 @@@ pdb.all()::pdb.const(0)
+FROM mixed_check3 WHERE mixed_check3 @@@ pdb.all()
 GROUP BY category ORDER BY category;
 
 SELECT category, COUNT(*)::text || category AS mixed
-FROM mixed_check3 WHERE mixed_check3 @@@ pdb.all()::pdb.const(0)
+FROM mixed_check3 WHERE mixed_check3 @@@ pdb.all()
 GROUP BY category ORDER BY category;
 
 -- Mixed expression before the grouping column in the target list.
 SELECT COUNT(*)::text || category AS mixed, category
-FROM mixed_check WHERE mixed_check @@@ pdb.all()::pdb.const(0)
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY category ORDER BY category;
 
 -- category is not a grouping column. Postgres accepts it because id is the
@@ -47,11 +47,11 @@ GROUP BY category ORDER BY category;
 -- aggregation. Grouping only by category would collapse the two 'a' rows.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ pdb.all()::pdb.const(0)
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY id ORDER BY id;
 
 SELECT id, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ pdb.all()::pdb.const(0)
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY id ORDER BY id;
 
 -- Grouping by an indexed expression. The slot already holds reverse(category), so the
@@ -94,11 +94,11 @@ SET paradedb.enable_aggregate_custom_scan = off;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ pdb.all()::pdb.const(0)
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY id ORDER BY id;
 
 SELECT id, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ pdb.all()::pdb.const(0)
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY id ORDER BY id;
 
 SELECT reverse(category), COUNT(*)::text || reverse(category) AS mixed

@@ -9,17 +9,25 @@ INSERT INTO issue_7166 VALUES
     (5, '{"n": 6.5}'),
     (6, '{"n": 8}');
 CREATE INDEX issue_7166_idx ON issue_7166
-USING paradedb (id, (payload::pdb.unicode_words('columnar=true')));
+USING paradedb (id, payload)
+WITH (json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}');
 ANALYZE issue_7166;
 
 SET paradedb.planner_warnings = 'off';
 SET paradedb.enable_custom_scan = on;
 
 -- Integer bounds on a JSON path that also holds fractional values keep their kind
-SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE (payload -> 'n') @@@ '[5 TO 5]';
-SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE (payload -> 'n') @@@ '{5 TO 6]';
-SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE (payload -> 'n') @@@ '{5 TO 6}';
-SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE (payload -> 'n') @@@ '[5 TO 6}';
+SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE id @@@ paradedb.range('payload.n', '[5,5]'::numrange);
+SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE id @@@ paradedb.range('payload.n', '(5,6]'::numrange);
+SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE id @@@ paradedb.range('payload.n', '(5,6)'::numrange);
+SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE id @@@ paradedb.range('payload.n', '[5,6)'::numrange);
+SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE id @@@ '{
+    "range": {
+        "field": "payload.n",
+        "lower_bound": {"included": 5},
+        "upper_bound": {"included": 5}
+    }
+}'::jsonb;
 
 -- PostgreSQL's answers for the same ranges
 SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE '[5,5]'::numrange @> (payload->>'n')::numeric;
@@ -29,9 +37,9 @@ SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE '[5,6)'::numrange @> (pay
 
 -- Same results with the Custom Scan off
 SET paradedb.enable_custom_scan = off;
-SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE (payload -> 'n') @@@ '[5 TO 5]';
-SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE (payload -> 'n') @@@ '{5 TO 6]';
-SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE (payload -> 'n') @@@ '{5 TO 6}';
+SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE id @@@ paradedb.range('payload.n', '[5,5]'::numrange);
+SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE id @@@ paradedb.range('payload.n', '(5,6]'::numrange);
+SELECT array_agg(id ORDER BY id) FROM issue_7166 WHERE id @@@ paradedb.range('payload.n', '(5,6)'::numrange);
 RESET paradedb.enable_custom_scan;
 RESET paradedb.planner_warnings;
 

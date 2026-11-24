@@ -89,7 +89,7 @@ FROM required_fields ORDER BY id;
   4 |             | 
 (4 rows)
 
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.all();
  array_agg 
 -----------
  {1,2,3,4}

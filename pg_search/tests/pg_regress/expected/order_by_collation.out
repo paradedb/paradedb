@@ -88,11 +88,11 @@ ANALYZE collation_test;
 Test 1.1: ORDER BY C-collation text column -> TopK pushdown (no Sort node)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_c FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY name_c
 LIMIT 5;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on collation_test
          Table: collation_test
@@ -102,19 +102,19 @@ LIMIT 5;
             TopK Order By: name_c asc
             TopK Limit: 5
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 \echo 'Test 1.2: ORDER BY ICU-collation text column -> Sort node expected'
 Test 1.2: ORDER BY ICU-collation text column -> Sort node expected
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_icu FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY name_icu
 LIMIT 5;
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: name_icu COLLATE test_icu
@@ -125,18 +125,18 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead)
                Columnar: id, name_icu
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 
 \echo 'Test 1.3: ORDER BY integer column -> TopK pushdown (collation is InvalidOid for non-text)'
 Test 1.3: ORDER BY integer column -> TopK pushdown (collation is InvalidOid for non-text)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY priority
 LIMIT 5;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on collation_test
          Table: collation_test
@@ -146,18 +146,18 @@ LIMIT 5;
             TopK Order By: priority asc
             TopK Limit: 5
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 \echo 'Test 1.4: ORDER BY with explicit COLLATE "C" on ICU column -> TopK pushdown'
 Test 1.4: ORDER BY with explicit COLLATE "C" on ICU column -> TopK pushdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_icu FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY name_icu COLLATE "C"
 LIMIT 5;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on collation_test
          Table: collation_test
@@ -167,19 +167,19 @@ LIMIT 5;
             TopK Order By: name_icu asc
             TopK Limit: 5
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 \echo 'Test 1.5: ORDER BY with explicit COLLATE "test_icu" on C column -> Sort node expected'
 Test 1.5: ORDER BY with explicit COLLATE "test_icu" on C column -> Sort node expected
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_c FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY name_c COLLATE "test_icu"
 LIMIT 5;
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: name_c COLLATE test_icu
@@ -189,7 +189,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 -- =============================================================================
@@ -202,14 +202,14 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 Test 2.1: GROUP BY + ORDER BY C-collation text -> aggregate pushdown (no Sort node)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*) FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_c
 ORDER BY name_c;
                                                          QUERY PLAN                                                          
 -----------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on collation_test
    Index: collation_test_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: name_c
      Aggregate Definition: {"grouped":{"terms":{"field":"name_c","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -219,7 +219,7 @@ ORDER BY name_c;
 Test 2.2: deterministic ICU GROUP BY stays pushed down; ORDER BY stays above
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_icu
 ORDER BY name_icu;
                                                   QUERY PLAN                                                  
@@ -228,7 +228,7 @@ ORDER BY name_icu;
    Sort Key: name_icu COLLATE test_icu
    ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
          Index: collation_test_idx
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
            Applies to Aggregates: COUNT(*)
            Group By: name_icu
            Aggregate Definition: {"grouped":{"terms":{"field":"name_icu","segment_size":65000,"size":65000}}}
@@ -239,7 +239,7 @@ ORDER BY name_icu;
 -- cannot execute its placeholder.
 SELECT name_icu, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_icu
 ORDER BY name_icu;
   name_icu  |      agg       
@@ -255,14 +255,14 @@ ORDER BY name_icu;
 Test 2.3: GROUP BY + ORDER BY integer -> aggregate pushdown (collation is InvalidOid)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT priority, COUNT(*) FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY priority
 ORDER BY priority;
                                                           QUERY PLAN                                                           
 -------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on collation_test
    Index: collation_test_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: priority
      Aggregate Definition: {"grouped":{"terms":{"field":"priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -272,7 +272,7 @@ ORDER BY priority;
 Test 2.4: safe GROUP BY + unsafe ORDER BY -> Sort above AggregateScan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*) FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_c
 ORDER BY name_c COLLATE "test_icu";
                                                             QUERY PLAN                                                             
@@ -281,7 +281,7 @@ ORDER BY name_c COLLATE "test_icu";
    Sort Key: name_c COLLATE test_icu
    ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
          Index: collation_test_idx
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
            Applies to Aggregates: COUNT(*)
            Group By: name_c
            Aggregate Definition: {"grouped":{"terms":{"field":"name_c","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -292,12 +292,12 @@ Test 2.5: nondeterministic ICU GROUP BY -> PostgreSQL combines equivalent values
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT lower(name_case_insensitive) AS name, COUNT(*)
 FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
-                                                        QUERY PLAN                                                        
---------------------------------------------------------------------------------------------------------------------------
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
  Sort
    Sort Key: (lower(name_case_insensitive)) COLLATE test_icu_case_insensitive
    ->  GroupAggregate
@@ -310,12 +310,12 @@ WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. T
                      Exec Method: NormalScanExecState
                      Scores: false
                      Full Index Scan: true
-                     Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+                     Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (13 rows)
 
 SELECT lower(name_case_insensitive) AS name, COUNT(*)
 FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
@@ -331,11 +331,11 @@ Test 2.6: GROUPING SETS with a deterministic key -> AggregateScan declined
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*)
 FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY GROUPING SETS ((name_c), ());
 WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  MixedAggregate
    Hash Key: name_c
    Group Key: ()
@@ -346,14 +346,14 @@ WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable t
          Columnar: name_c
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 
 SELECT COUNT(*) AS group_count
 FROM (
     SELECT name_c
     FROM collation_test
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
     GROUP BY GROUPING SETS ((name_c), ())
 ) AS grouped;
 WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
@@ -364,7 +364,7 @@ WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable t
 
 SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY GROUPING SETS ((name_c), ());
 ERROR:  Cannot execute pdb.agg: GROUPING SETS are not supported
 \echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan reads the key from a row'
@@ -372,10 +372,10 @@ Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan reads
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*)
 FROM collation_test
-WHERE name_c = 'apple' AND id @@@ pdb.all()::pdb.const(0)
+WHERE name_c = 'apple' AND id @@@ pdb.all()
 GROUP BY name_c;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                    QUERY PLAN                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: collation_test_idx (collation_test)
@@ -384,12 +384,12 @@ GROUP BY name_c;
      : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(collation_test_0.name_c) ORDER BY [collation_test_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, name_c@1 as name_c]
      :     CooperativeExec
-     :       PgSearchScan: table=collation_test, segments=1, visibility=eager, query={"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}]}},"always_filters":[{"heap_filter":"(name_c = 'apple'::text)"}]}}]}}
+     :       PgSearchScan: table=collation_test, segments=1, visibility=eager, query={"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(name_c = 'apple'::text)"}]}}]}}
 (9 rows)
 
 SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
-WHERE name_c = 'apple' AND id @@@ pdb.all()::pdb.const(0)
+WHERE name_c = 'apple' AND id @@@ pdb.all()
 GROUP BY name_c;
  name_c |      agg       
 --------+----------------
@@ -402,11 +402,11 @@ SET enable_sort TO off;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_case_insensitive, COUNT(*)
 FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_case_insensitive;
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  HashAggregate
    Group Key: name_case_insensitive
    ->  Custom Scan (ParadeDB Base Scan) on collation_test
@@ -416,14 +416,14 @@ WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. T
          Columnar: name_case_insensitive
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 SELECT COUNT(*) AS group_count
 FROM (
     SELECT name_case_insensitive
     FROM collation_test
-    WHERE id @@@ pdb.all()::pdb.const(0)
+    WHERE id @@@ pdb.all()
     GROUP BY name_case_insensitive
 ) AS grouped;
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
@@ -438,19 +438,19 @@ Test 2.9: pdb.agg() with a nondeterministic grouping collation warns before fail
 SELECT lower(name_case_insensitive) AS name,
        pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_case_insensitive;
 ERROR:  Cannot execute pdb.agg: GROUP BY uses a nondeterministic collation
 \echo 'Test 2.10: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
 Test 2.10: mixed safe and unsafe GROUP BY keys -> AggregateScan declined
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_c, name_case_insensitive
 ORDER BY name_c, name_case_insensitive;
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  GroupAggregate
    Group Key: name_c, name_case_insensitive
    ->  Sort
@@ -462,7 +462,7 @@ WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. T
                Columnar: name_c, name_case_insensitive
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (12 rows)
 
 RESET paradedb.enable_aggregate_custom_scan;
@@ -490,10 +490,10 @@ ANALYZE collation_sortby_test;
 Test 3.1: ORDER BY city (C collation, matches sort_by) -> no Sort node
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, city FROM collation_sortby_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY city ASC NULLS FIRST;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Sort
    Sort Key: city COLLATE "C" NULLS FIRST
    ->  Custom Scan (ParadeDB Base Scan) on collation_sortby_test
@@ -503,17 +503,17 @@ ORDER BY city ASC NULLS FIRST;
          Columnar: city, id
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 \echo 'Test 3.2: ORDER BY city with explicit COLLATE "test_icu" -> Sort node expected'
 Test 3.2: ORDER BY city with explicit COLLATE "test_icu" -> Sort node expected
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, city FROM collation_sortby_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Sort
    Sort Key: city COLLATE test_icu NULLS FIRST
    ->  Custom Scan (ParadeDB Base Scan) on collation_sortby_test
@@ -522,7 +522,7 @@ ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
 -- =============================================================================
@@ -533,7 +533,7 @@ ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
 \echo 'Test 4.1: C collation ORDER BY -> byte order (uppercase before lowercase in ASCII)'
 Test 4.1: C collation ORDER BY -> byte order (uppercase before lowercase in ASCII)
 SELECT id, city FROM collation_sortby_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY city ASC NULLS FIRST;
  id |   city    
 ----+-----------
@@ -547,7 +547,7 @@ ORDER BY city ASC NULLS FIRST;
 \echo 'Test 4.2: ICU collation ORDER BY -> linguistic order (case-insensitive from Postgres Sort)'
 Test 4.2: ICU collation ORDER BY -> linguistic order (case-insensitive from Postgres Sort)
 SELECT id, city FROM collation_sortby_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
  id |   city    
 ----+-----------
@@ -719,7 +719,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 Test 6.1: GROUP BY + ORDER BY C-collation text + LIMIT -> aggregate TopK pushdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*) FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_c
 ORDER BY name_c
 LIMIT 3;
@@ -728,7 +728,7 @@ LIMIT 3;
  Limit
    ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
          Index: collation_test_idx
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
            Applies to Aggregates: COUNT(*)
            Group By: name_c
            Limit: 3
@@ -740,12 +740,12 @@ Test 6.2: deterministic ICU GROUP BY + LIMIT -> grouping pushed down, ordering r
 SET paradedb.max_term_agg_buckets = 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_icu
 ORDER BY name_icu
 LIMIT 3;
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: name_icu COLLATE test_icu
@@ -757,7 +757,7 @@ LIMIT 3;
                DataFusion Physical Plan: 
                  : AggregateExec: mode=Single, gby=[name_icu@0 as name_icu], aggr=[count(1) as agg_0]
                  :   CooperativeExec
-                 :     PgSearchScan: table=collation_test, segments=1, eager=[name_icu], visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+                 :     PgSearchScan: table=collation_test, segments=1, eager=[name_icu], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (12 rows)
 
 RESET paradedb.max_term_agg_buckets;
@@ -765,7 +765,7 @@ RESET paradedb.max_term_agg_buckets;
 Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT priority, COUNT(*) FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY priority
 ORDER BY priority
 LIMIT 3;
@@ -774,7 +774,7 @@ LIMIT 3;
  Limit
    ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
          Index: collation_test_idx
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
            Applies to Aggregates: COUNT(*)
            Group By: priority
            Limit: 3
@@ -792,11 +792,11 @@ RESET paradedb.enable_aggregate_custom_scan;
 Test 7.1: ORDER BY default-collation text column -> TopK pushdown (default is C.UTF-8, safe)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_default FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY name_default
 LIMIT 5;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on collation_test
          Table: collation_test
@@ -806,7 +806,7 @@ LIMIT 5;
             TopK Order By: name_default asc
             TopK Limit: 5
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -814,14 +814,14 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 Test 7.2: GROUP BY + ORDER BY default-collation text -> aggregate pushdown (no Sort node)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_default, COUNT(*) FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_default
 ORDER BY name_default;
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on collation_test
    Index: collation_test_idx
-   Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: name_default
      Aggregate Definition: {"grouped":{"terms":{"field":"name_default","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -831,7 +831,7 @@ ORDER BY name_default;
 Test 7.3: GROUP BY + ORDER BY default-collation text + LIMIT -> aggregate TopK pushdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_default, COUNT(*) FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY name_default
 ORDER BY name_default
 LIMIT 3;
@@ -840,7 +840,7 @@ LIMIT 3;
  Limit
    ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
          Index: collation_test_idx
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
            Applies to Aggregates: COUNT(*)
            Group By: name_default
            Limit: 3
@@ -857,12 +857,12 @@ RESET paradedb.enable_aggregate_custom_scan;
 Test 8.1: ORDER BY safe_col (C), unsafe_col (ICU) -> Sort node (mixed is unsafe)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_c, name_icu FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY name_c, name_icu
 LIMIT 5;
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: name_c COLLATE "C", name_icu COLLATE test_icu
@@ -872,19 +872,19 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 \echo 'Test 8.2: ORDER BY safe_col (integer), unsafe_col (ICU) -> Sort node (mixed is unsafe)'
 Test 8.2: ORDER BY safe_col (integer), unsafe_col (ICU) -> Sort node (mixed is unsafe)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority, name_icu FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY priority, name_icu
 LIMIT 5;
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: priority, name_icu COLLATE test_icu
@@ -894,18 +894,18 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 \echo 'Test 8.3: ORDER BY safe_col (C), safe_col (default) -> TopK pushdown (both safe)'
 Test 8.3: ORDER BY safe_col (C), safe_col (default) -> TopK pushdown (both safe)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_c, name_default FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY name_c, name_default
 LIMIT 5;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on collation_test
          Table: collation_test
@@ -915,18 +915,18 @@ LIMIT 5;
             TopK Order By: name_c asc, name_default asc
             TopK Limit: 5
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 \echo 'Test 8.4: ORDER BY safe_col (integer), safe_col (default) -> TopK pushdown (both safe)'
 Test 8.4: ORDER BY safe_col (integer), safe_col (default) -> TopK pushdown (both safe)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority, name_default FROM collation_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 ORDER BY priority, name_default
 LIMIT 5;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on collation_test
          Table: collation_test
@@ -936,7 +936,7 @@ LIMIT 5;
             TopK Order By: priority asc, name_default asc
             TopK Limit: 5
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 -- =============================================================================

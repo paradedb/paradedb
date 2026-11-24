@@ -87,14 +87,14 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ pdb.all()::pdb.const(0)
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
-                                                                              QUERY PLAN                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id
    Relation Tree: i ANTI e
@@ -122,8 +122,8 @@ LIMIT 5000;
      :     ┌───── Stage 1 ── tasks=2, partitions=8
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=4, output_partitions=4
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
-     :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+     :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :     └──────────────────────────────────────────────────
 (30 rows)
 
@@ -132,7 +132,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ pdb.all()::pdb.const(0)
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -144,7 +144,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ pdb.all()::pdb.const(0)
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -207,7 +207,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ pdb.all()::pdb.const(0)
+    WHERE e.id @@@ pdb.all()
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name
@@ -217,8 +217,8 @@ WHERE EXISTS (
 AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
-                                                                              QUERY PLAN                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id
    Relation Tree: i SEMI e
@@ -246,8 +246,8 @@ LIMIT 5000;
      :     ┌───── Stage 1 ── tasks=2, partitions=8
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=4, output_partitions=4
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
-     :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"const_score":{"query":{"all":{"field":"id"}},"score":0.0}}}}
+     :     │     t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t1: PgSearchScan: table=e, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :     └──────────────────────────────────────────────────
 (30 rows)
 
@@ -256,7 +256,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ pdb.all()::pdb.const(0)
+    WHERE e.id @@@ pdb.all()
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name
@@ -272,7 +272,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ pdb.all()::pdb.const(0)
+    WHERE e.id @@@ pdb.all()
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name

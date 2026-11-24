@@ -79,6 +79,16 @@ EXECUTE lookup('bob');
 EXECUTE lookup('alice');
 DEALLOCATE lookup;
 
+-- Rebinding must not discard a user-supplied index expression with side effects.
+CREATE SEQUENCE index_lookup_calls;
+SELECT count(*) FROM products
+WHERE id @@@ paradedb.with_index(
+    CASE WHEN nextval('index_lookup_calls') > 0
+         THEN 'products_search'::regclass ELSE 'orders_search'::regclass END,
+    paradedb.term('color', 'blue')
+);
+SELECT is_called FROM index_lookup_calls;
+
 CREATE VIEW saved_exists AS
 SELECT products.id FROM products
 WHERE EXISTS (SELECT 1 FROM orders

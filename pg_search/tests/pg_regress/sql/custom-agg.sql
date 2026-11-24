@@ -564,23 +564,23 @@ WHERE (description ||| 'error') OR (NOT (description ||| 'error'));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 -- Test 40: pdb.agg() with GROUP BY and all() query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY category
 ORDER BY category;
 
 SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ pdb.all()
 GROUP BY category
 ORDER BY category;
 
@@ -643,7 +643,7 @@ SELECT pdb.agg('{"range": {"field": "status_code", "ranges": [
     {"from": 500, "to": 600, "key": "5xx"}
 ]}}'::jsonb) AS status_code_buckets
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 SELECT pdb.agg('{"range": {"field": "status_code", "ranges": [
     {"from": 200, "to": 300, "key": "2xx"},
@@ -652,7 +652,7 @@ SELECT pdb.agg('{"range": {"field": "status_code", "ranges": [
     {"from": 500, "to": 600, "key": "5xx"}
 ]}}'::jsonb) AS status_code_buckets
 FROM logs
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ pdb.all();
 
 -- Test 44: Multiple range histograms in one query
 -- Get both response time and status code distributions

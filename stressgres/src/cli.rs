@@ -108,7 +108,7 @@ pub struct UiArgs {
     #[arg(long, default_value = "false")]
     pub paused: bool,
 
-    /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
+    /// PostgreSQL version to use (pg15, pg16, pg17, pg18, or pg19).
     #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
 
@@ -131,7 +131,7 @@ pub struct HeadlessArgs {
     /// Runtime (in milliseconds)
     #[arg(long, default_value = "600000")]
     pub runtime: u128,
-    /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
+    /// PostgreSQL version to use (pg15, pg16, pg17, pg18, or pg19).
     #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
     /// Build the schema (run the `setup` job) and exit, running no workload. Lets a caller

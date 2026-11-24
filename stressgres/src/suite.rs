@@ -121,6 +121,7 @@ pub enum PgVersion {
     V17,
     #[default]
     V18,
+    V19,
 }
 
 impl fmt::Display for PgVersion {
@@ -130,6 +131,7 @@ impl fmt::Display for PgVersion {
             PgVersion::V16 => write!(f, "pg16"),
             PgVersion::V17 => write!(f, "pg17"),
             PgVersion::V18 => write!(f, "pg18"),
+            PgVersion::V19 => write!(f, "pg19"),
         }
     }
 }
@@ -143,8 +145,9 @@ impl FromStr for PgVersion {
             "pg16" | "16" => Ok(PgVersion::V16),
             "pg17" | "17" => Ok(PgVersion::V17),
             "pg18" | "18" => Ok(PgVersion::V18),
+            "pg19" | "19" => Ok(PgVersion::V19),
             _ => Err(format!(
-                "Invalid PostgreSQL version: {}. Expected one of 'pg15', 'pg16', 'pg17', or 'pg18'",
+                "Invalid PostgreSQL version: {}. Expected one of 'pg15', 'pg16', 'pg17', 'pg18', or 'pg19'",
                 s
             )),
         }

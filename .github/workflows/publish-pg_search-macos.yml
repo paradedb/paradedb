@@ -48,6 +48,9 @@ jobs:
           - name: macOS 15 (Sequoia)
             runner: macos-15
             pg_version: 18
+          - name: macOS 15 (Sequoia)
+            runner: macos-15
+            pg_version: 19
           # macOS 26 (Tahoe)
           - name: macOS 26 (Tahoe)
             runner: macos-26
@@ -61,6 +64,9 @@ jobs:
           - name: macOS 26 (Tahoe)
             runner: macos-26
             pg_version: 18
+          - name: macOS 26 (Tahoe)
+            runner: macos-26
+            pg_version: 19
 
     steps:
       # gettext provides envsubst, which sigstore/cosign-installer needs and which

@@ -30,7 +30,7 @@ WHERE description @@@ (SELECT 'sofa'::pdb.fuzzy(1)::pdb.query);
    Columnar: id
    Scores: false
    Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('issue_7402_idx'::regclass, paradedb.to_search_query_input('description'::paradedb.fieldname, $1))"}}}
-   InitPlan 1
+   InitPlan expr_1
      ->  Result
            Output: '{"unclassified_string":{"string":"sofa","fuzzy_data":{"distance":1,"prefix":false,"transposition_cost_one":false}}}'::pdb.query
 (12 rows)

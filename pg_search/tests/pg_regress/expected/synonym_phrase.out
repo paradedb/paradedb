@@ -35,7 +35,7 @@ WARNING:  a `pdb.expand` subquery reads its rules from the table on every query,
    Columnar: id
    Scores: false
    Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('phrase_products_idx'::regclass, paradedb.phrase_search_query_input('description'::paradedb.fieldname, $1))"}}}
-   InitPlan 1
+   InitPlan expr_1
      ->  Aggregate
            Output: pdb.expand('red sofa'::text, (phrase_synonyms.rule)::text)
            ->  Seq Scan on public.phrase_synonyms

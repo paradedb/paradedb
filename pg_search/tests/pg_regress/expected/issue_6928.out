@@ -43,7 +43,7 @@ WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup));
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   InitPlan 1
+   InitPlan expr_1
      ->  Seq Scan on issue_6928_lookup
    ->  Custom Scan (ParadeDB Base Scan) on issue_6928_docs
          Table: issue_6928_docs

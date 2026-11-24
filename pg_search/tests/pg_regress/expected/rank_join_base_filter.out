@@ -123,9 +123,9 @@ $$);
      :           PgSearchScan: table=c, segments=1, lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"postgres_expression":{"expr":{"expr_desc":"paradedb.terms_with_operator('division'::paradedb.fieldname, '='::text, ($2)::integer[], false)"}}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
      :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"postgres_expression":{"expr":{"expr_desc":"paradedb.terms_with_operator('division'::paradedb.fieldname, '='::text, ($1)::integer[], false)"}}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-   InitPlan 1
+   InitPlan expr_1
      ->  Result
-   InitPlan 2
+   InitPlan expr_2
      ->  Result
 (19 rows)
 
@@ -580,7 +580,7 @@ $$);
      :           PgSearchScan: table=c, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
      :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('rjf_jobs_bm25'::regclass, paradedb.to_search_query_input('id'::paradedb.fieldname, pdb.parse($1, NULL::boolean, NULL::boolean)))"}}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-   InitPlan 1
+   InitPlan expr_1
      ->  Aggregate
            ->  Function Scan on unnest r
 (18 rows)

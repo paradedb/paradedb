@@ -214,13 +214,13 @@ WARNING:  JoinScan not used: window functions are not supported with an OR-neste
          ->  WindowAgg
                Window: w1 AS ()
                ->  Custom Scan (ParadeDB Base Scan) on products_4531 p
-                     Filter: ((supplier_id IS NULL) OR (ANY (supplier_id = (hashed SubPlan 1).col1)))
+                     Filter: ((supplier_id IS NULL) OR (ANY (supplier_id = (hashed SubPlan any_1).col1)))
                      Table: products_4531
                      Index: products_4531_id_name_description_supplier_id_idx
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-                     SubPlan 1
+                     SubPlan any_1
                        ->  Seq Scan on suppliers_4531 s
 (14 rows)
 

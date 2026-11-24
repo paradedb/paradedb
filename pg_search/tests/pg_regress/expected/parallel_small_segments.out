@@ -62,15 +62,16 @@ SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 F
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
-   InitPlan 2
+   InitPlan expr_1
      ->  Result
-           Output: ((InitPlan 1).col1 + 1)
-           InitPlan 1
+           Output: ((InitPlan minmax_1).col1 + 1)
+           Replaces: MinMaxAggregate
+           InitPlan minmax_1
              ->  Limit
                    Output: items_1.id
                    ->  Index Only Scan Backward using items_pkey on public.items items_1
                          Output: items_1.id
-(16 rows)
+(17 rows)
 
 -- Test 2: min_rows_per_worker=500 -> 1000/500 = 2 workers -> parallel
 SET paradedb.min_rows_per_worker = 500;
@@ -81,10 +82,11 @@ SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 F
  Gather
    Output: items.id, items.name
    Workers Planned: 2
-   InitPlan 2
+   InitPlan expr_1
      ->  Result
-           Output: ((InitPlan 1).col1 + 1)
-           InitPlan 1
+           Output: ((InitPlan minmax_1).col1 + 1)
+           Replaces: MinMaxAggregate
+           InitPlan minmax_1
              ->  Limit
                    Output: items_1.id
                    ->  Index Only Scan Backward using items_pkey on public.items items_1
@@ -97,7 +99,7 @@ SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 F
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
-(19 rows)
+(20 rows)
 
 -- Test 3: min_rows_per_worker=0 -> no cap -> parallel by segment count
 SET paradedb.min_rows_per_worker = 0;
@@ -108,10 +110,11 @@ SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 F
  Gather
    Output: items.id, items.name
    Workers Planned: 2
-   InitPlan 2
+   InitPlan expr_1
      ->  Result
-           Output: ((InitPlan 1).col1 + 1)
-           InitPlan 1
+           Output: ((InitPlan minmax_1).col1 + 1)
+           Replaces: MinMaxAggregate
+           InitPlan minmax_1
              ->  Limit
                    Output: items_1.id
                    ->  Index Only Scan Backward using items_pkey on public.items items_1
@@ -124,7 +127,7 @@ SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 F
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
-(19 rows)
+(20 rows)
 
 -- Test 4: TopK sorted scan bypasses min_rows_per_worker
 -- Even with a high min_rows_per_worker threshold, TopK queries that declare sorted

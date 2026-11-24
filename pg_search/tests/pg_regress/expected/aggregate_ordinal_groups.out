@@ -281,18 +281,21 @@ GROUP BY p.category
 ORDER BY p.category;
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Output: p.category, (count(*)), (sum(r.stars))
-   Sort Key: p.category
-   ->  HashAggregate
-         Output: p.category, count(*), sum(r.stars)
-         Group Key: p.category
+ Finalize GroupAggregate
+   Output: p.category, count(*), sum(r.stars)
+   Group Key: p.category
+   ->  Sort
+         Output: p.category, (PARTIAL count(*)), (PARTIAL sum(r.stars))
+         Sort Key: p.category
          ->  Hash Join
-               Output: p.category, r.stars
+               Output: p.category, (PARTIAL count(*)), (PARTIAL sum(r.stars))
                Inner Unique: true
                Hash Cond: (r.product_id = p.id)
-               ->  Seq Scan on public.aog_reviews r
-                     Output: r.id, r.product_id, r.stars
+               ->  Partial HashAggregate
+                     Output: r.product_id, PARTIAL count(*), PARTIAL sum(r.stars)
+                     Group Key: r.product_id
+                     ->  Seq Scan on public.aog_reviews r
+                           Output: r.id, r.product_id, r.stars
                ->  Hash
                      Output: p.category, p.id
                      ->  Custom Scan (ParadeDB Base Scan) on public.aog_products p
@@ -304,7 +307,7 @@ ORDER BY p.category;
                            Columnar: category, id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+(26 rows)
 
 SELECT p.category, COUNT(*), SUM(r.stars)
 FROM aog_products p JOIN aog_reviews r ON r.product_id = p.id

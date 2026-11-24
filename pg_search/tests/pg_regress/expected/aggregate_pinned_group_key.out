@@ -911,7 +911,7 @@ GROUP BY account_id;
                                                                                                                                 QUERY PLAN                                                                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pinned_key_items.account_id, (count(*))
+   Output: account_id, (count(*))
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(*)
@@ -920,7 +920,7 @@ GROUP BY account_id;
      :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('account_id'::paradedb.fieldname, '='::text, $1)"}}}]}}
-   InitPlan 1
+   InitPlan expr_1
      ->  Result
            Output: 3
 (13 rows)

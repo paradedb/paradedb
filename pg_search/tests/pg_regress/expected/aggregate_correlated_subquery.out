@@ -79,17 +79,17 @@ ORDER BY d.id;
                                                                                                                                                                      QUERY PLAN                                                                                                                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: d.id, d.title, ((SubPlan 1))
+   Output: d.id, d.title, ((SubPlan expr_1))
    Sort Key: d.id
    ->  Custom Scan (ParadeDB Base Scan) on public.documents d
-         Output: d.id, d.title, (SubPlan 1)
+         Output: d.id, d.title, (SubPlan expr_1)
          Table: documents
          Index: documents_search
          Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"parents","value":"Factures","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-         SubPlan 1
+         SubPlan expr_1
            ->  Custom Scan (ParadeDB Aggregate Scan) on public.files f
                  Output: pdb.agg_fn('COUNT(*)'::text)
                  Index: files_search
@@ -175,23 +175,25 @@ ORDER BY d.id;
                                                                                                QUERY PLAN                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: d.id, d.title, ((SubPlan 1))
+   Output: d.id, d.title, ((SubPlan expr_1))
    Sort Key: d.id
    ->  Custom Scan (ParadeDB Base Scan) on public.documents d
-         Output: d.id, d.title, (SubPlan 1)
+         Output: d.id, d.title, (SubPlan expr_1)
          Table: documents
          Index: documents_search
          Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"parents","value":"Factures","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-         SubPlan 1
+         SubPlan expr_1
            ->  Aggregate
                  Output: count(*)
-                 ->  Seq Scan on public.files f
-                       Output: f.id, f.documentid, f.title, f.file_path, f.file_size, f.created_at
-                       Filter: ((f.file_size > 500) AND (f.documentid = d.id))
-(17 rows)
+                 ->  Bitmap Heap Scan on public.files f
+                       Recheck Cond: (f.documentid = d.id)
+                       Filter: (f.file_size > 500)
+                       ->  Bitmap Index Scan on files_pkey
+                             Index Cond: (f.documentid = d.id)
+(19 rows)
 
 -- Execute the query
 SELECT d.id, d.title,

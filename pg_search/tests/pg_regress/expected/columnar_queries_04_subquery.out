@@ -93,14 +93,14 @@ ORDER BY invoice_file_count DESC, d.id;
                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                          
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: ((SubPlan 1)) DESC, d.id
+   Sort Key: ((SubPlan expr_1)) DESC, d.id
    ->  Custom Scan (ParadeDB Base Scan) on documents d
          Table: documents
          Index: documents_search
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"parents","value":"Factures","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-         SubPlan 1
+         SubPlan expr_1
            ->  Aggregate
                  ->  Custom Scan (ParadeDB Base Scan) on files f
                        Table: files
@@ -157,10 +157,10 @@ ORDER BY invoice_file_count DESC, d.id;
                                              QUERY PLAN                                             
 ----------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: ((SubPlan 1)) DESC, d.id
+   Sort Key: ((SubPlan expr_1)) DESC, d.id
    ->  Seq Scan on documents d
          Filter: (parents = 'Factures'::text)
-         SubPlan 1
+         SubPlan expr_1
            ->  Aggregate
                  ->  Bitmap Heap Scan on files f
                        Recheck Cond: (documentid = d.id)

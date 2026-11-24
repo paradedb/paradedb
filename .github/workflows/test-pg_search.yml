@@ -71,15 +71,15 @@ jobs:
           # apt.postgresql.org are release builds where Assert() compiles to a no-op,
           # and there is no runtime toggle or debug apt package — cassert is compile-time
           # only. This run is the only way we get Postgres assertion coverage in CI.
-          - pg_version: 18
+          - pg_version: 19
             pg_impl: pgrx
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu26-full-arm64
             arch: arm64
-          # Add AMD run for PG 18 (system Postgres)
-          - pg_version: 18
+          # Add AMD run for PG 19 (system Postgres)
+          - pg_version: 19
             pg_impl: system
             cpu: 8
             ram: 16
@@ -214,7 +214,7 @@ jobs:
         working-directory: pg_search/
         run: cargo pgrx install --sudo --features block_tracker --pg-config="${{ steps.postgres-system.outputs.pg_config }}"
 
-      # Coverage instrumentation runs on schedule + push-to-main, plus PG 18
+      # Coverage instrumentation runs on schedule + push-to-main, plus PG 19
       # entries on PRs (so Codecov has fresh data per PR). Older-version PR
       # entries run plain cargo test for ~30-40% wall-clock reduction.
       #
@@ -224,7 +224,7 @@ jobs:
       # pgrx regress`) pick up the coverage instrumentation instructions via
       # RUSTFLAGS, and write to the correct output path (LLVM_PROFILE_FILE).
       - name: Source LLVM coverage environment (pgrx)
-        if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 18)
+        if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 19)
         run: |
           source <(cargo llvm-cov show-env --export-prefix)
           cargo llvm-cov clean --workspace
@@ -262,7 +262,7 @@ jobs:
         run: |
           export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "19" ]]; then
             RUST_BACKTRACE=1 cargo test --jobs $(nproc) --package tests --package tokenizers
           else
             RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --package tests --package tokenizers --lcov --output-path coverage-integration-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
@@ -275,7 +275,7 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
           export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/postgres
           CRATES=(-p basescan -p common -p index_read -p index_write -p joinscan -p pg_search -p planner -p scan -p storage)
-          if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "19" ]]; then
             RUST_BACKTRACE=1 cargo test --jobs $(nproc) "${CRATES[@]}" --features pg${{ matrix.pg_version }} --no-default-features
           else
             # A #[pg_test] body runs inside the Postgres backend, from the pg_search.so that pgrx-tests
@@ -322,11 +322,11 @@ jobs:
         run: cargo pgrx stop pg${{ matrix.pg_version }}
 
       - name: Generate combined LCOV report (pgrx)
-        if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
+        if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 19) && always()
         run: cargo llvm-cov report --lcov --output-path coverage-combined-pgrx-${{ matrix.pg_version }}.lcov
 
       - name: Upload Coverage Artifact
-        if: (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
+        if: (github.event_name != 'pull_request' || matrix.pg_version == 19) && always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           overwrite: true

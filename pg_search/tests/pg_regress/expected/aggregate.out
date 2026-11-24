@@ -714,14 +714,14 @@ SET paradedb.enable_aggregate_custom_scan = on;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id, COUNT(*), COUNT(id) FROM count_array_test
 WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
-                                                                                     QUERY PLAN                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on count_array_test
    Index: count_array_test_idx
    Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-     Applies to Aggregates: COUNT(*), COUNT(id)
+     Applies to Aggregates: COUNT(*), COUNT(*)
      Group By: id
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"id","missing":null}}},"terms":{"field":"id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+     Aggregate Definition: {"grouped":{"terms":{"field":"id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (6 rows)
 
 SELECT id, COUNT(*), COUNT(id) FROM count_array_test

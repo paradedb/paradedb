@@ -104,13 +104,13 @@ LIMIT 50;
    ->  Sort
          Sort Key: (paradedb.score(lp_items.id)) DESC
          ->  Custom Scan (ParadeDB Base Scan) on lp_items
-               Filter: ((category_id IS NULL) OR (ANY (category_id = (hashed SubPlan 1).col1)))
+               Filter: ((category_id IS NULL) OR (ANY (category_id = (hashed SubPlan any_1).col1)))
                Table: lp_items
                Index: lp_items_bm25
                Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-               SubPlan 1
+               SubPlan any_1
                  ->  Seq Scan on lp_categories
                        Filter: (name = 'rare_category'::text)
 (13 rows)
@@ -218,13 +218,13 @@ LIMIT 100;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on lp_items_part_1
-         Filter: ((status IS NULL) OR (ANY (status = (hashed SubPlan 1).col1)))
+         Filter: ((status IS NULL) OR (ANY (status = (hashed SubPlan any_1).col1)))
          Table: lp_items_part_1
          Index: lp_items_part_1_bm25
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"partitioned","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-         SubPlan 1
+         SubPlan any_1
            ->  Seq Scan on lp_active_statuses
 (10 rows)
 
@@ -422,13 +422,13 @@ LIMIT 100;
    ->  Sort
          Sort Key: (paradedb.score(lp_items.id)) DESC
          ->  Custom Scan (ParadeDB Base Scan) on lp_items
-               Filter: (ANY (tenant_id = (hashed SubPlan 1).col1))
+               Filter: (ANY (tenant_id = (hashed SubPlan any_1).col1))
                Table: lp_items
                Index: lp_items_bm25
                Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-               SubPlan 1
+               SubPlan any_1
                  ->  Seq Scan on lp_allowed_tenants
                        Filter: (user_id = CURRENT_USER)
 (13 rows)

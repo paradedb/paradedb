@@ -18,7 +18,6 @@ on:
       - ".github/workflows/test-pg_search-upgrade.yml"
       - "basescan/**"
       - "common/**"
-      - "dst/**"
       - "index_read/**"
       - "index_write/**"
       - "joinscan/**"

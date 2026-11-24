@@ -66,11 +66,11 @@ buildPgrxExtension (finalAttrs: {
   version = rootCargoToml.workspace.package.version;
   src = self;
 
-  # This hash needs to change any time the Rust dependencies are updated.
-  # If maintainers forget to do so, Nix will throw an error message that begins
-  # like this and then provides the correct new hash:
-  # error: hash mismatch in fixed-output derivation '...'
-  cargoHash = "sha256-LDkHfb20o4fqG9v12JAPscJRqNcqA3EdNGvQ+uXIk9E=";
+  cargoLock = {
+    lockFile = ../Cargo.lock;
+    # Use the Git revisions pinned in Cargo.lock alongside registry checksums.
+    allowBuiltinFetchGit = true;
+  };
 
   inherit postgresql;
   # The Nix builder also passes cargoPgrxFlags to `stop`, which does not accept

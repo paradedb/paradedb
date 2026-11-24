@@ -1,5 +1,4 @@
-# Release preparation refreshes the hash via scripts/release.sh set-version.
-# Run this check manually to diagnose a stale hash on a specific ref.
+# Build the Nix package on demand. Its Rust dependencies come from Cargo.lock.
 
 name: Test pg_search (Nix)
 
@@ -14,8 +13,8 @@ permissions:
   contents: read
 
 jobs:
-  nix-cargo-hash-check:
-    name: Verify Nix Cargo Hash
+  nix-build:
+    name: Build pg_search with Nix
     runs-on: ubuntu-latest
     env:
       PG_MAJOR_VERSION: "18"
@@ -29,5 +28,5 @@ jobs:
       - name: Install Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3.24.1
 
-      - name: Verify Nix Cargo Hash
-        run: nix build --no-link ".#pg_search-pg${PG_MAJOR_VERSION}.cargoDeps"
+      - name: Build pg_search with Nix
+        run: nix build --no-link ".#pg_search-pg${PG_MAJOR_VERSION}"

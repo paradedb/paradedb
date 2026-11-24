@@ -677,8 +677,8 @@ def assemble_changelog_files(
 # ==============================================================================
 
 
-def set_cargo_version(repo_root, version, skip_nix=False, if_newer=False):
-    """Update workspace package version in Cargo.toml, sync Cargo.lock, and update Nix hash."""
+def set_cargo_version(repo_root, version, if_newer=False):
+    """Update the workspace package version and sync Cargo.lock."""
     cargo_toml = repo_root / "Cargo.toml"
     if not cargo_toml.exists():
         print(f"❌ Error: {cargo_toml} not found", file=sys.stderr)
@@ -723,12 +723,6 @@ def set_cargo_version(repo_root, version, skip_nix=False, if_newer=False):
 
     print("Syncing Cargo.lock via cargo update --workspace...")
     subprocess.run(["cargo", "update", "--workspace"], cwd=repo_root, check=True)
-
-    if not skip_nix:
-        nix_script = repo_root / "scripts" / "update-nix-cargo-hash.sh"
-        if nix_script.exists():
-            print("Updating Nix cargo hash...")
-            subprocess.run(["bash", str(nix_script), "18"], cwd=repo_root, check=True)
 
     return True
 
@@ -912,7 +906,6 @@ def handle_set_version_command(args, repo_root):
     set_cargo_version(
         repo_root,
         target_version,
-        skip_nix=args.skip_nix,
         if_newer=args.if_newer,
     )
 
@@ -1244,14 +1237,9 @@ def build_parser():
 
     set_ver_parser = subparsers.add_parser(
         "set-version",
-        help="Update version in Cargo.toml, Cargo.lock, and nix/pg_search.nix",
+        help="Update version in Cargo.toml and Cargo.lock",
     )
     add_common_args(set_ver_parser)
-    set_ver_parser.add_argument(
-        "--skip-nix",
-        action="store_true",
-        help="Skip updating Nix cargo hash",
-    )
     set_ver_parser.add_argument(
         "--if-newer",
         action="store_true",

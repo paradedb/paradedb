@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+- Replaced the `paradedb.*_inlist_pushdown_max_*` settings with `paradedb.hash_join_filter_pushdown` (`auto`, `inlist`, `hash`, `off`) to control or disable index pushdown of join filters, and `paradedb.hash_join_inlist_max_distinct_values` / `paradedb.hash_join_inlist_max_size` to set when joins switch from an `IN` list to a hash-table lookup.

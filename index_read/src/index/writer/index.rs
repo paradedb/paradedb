@@ -17,6 +17,7 @@
 
 use crate::api::{HashMap, HashSet};
 use anyhow::Result;
+use common::dst;
 use pgrx::pg_sys;
 use std::num::NonZeroUsize;
 use std::sync::Arc;

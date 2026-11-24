@@ -14,6 +14,7 @@ pg16 = ["pgrx/pg16"]
 pg17 = ["pgrx/pg17"]
 pg18 = ["pgrx/pg18"]
 pg_test = ["dep:proptest"]
+dst = ["dep:dst", "dst/enabled"]
 
 # Keep this crate's dependency list minimal: every workspace crate depends on `common`, so
 # heavy dependencies added here serialize the entire build graph. In particular, do NOT add
@@ -26,6 +27,7 @@ arrow-schema.workspace = true
 bytemuck.workspace = true
 chrono.workspace = true
 decimal-bytes.workspace = true
+dst = { path = "../dst", optional = true }
 futures.workspace = true
 libc.workspace = true
 once_cell.workspace = true

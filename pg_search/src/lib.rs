@@ -158,7 +158,8 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     }
 
     // Register the DST assertion catalog for this process (a no-op outside `--features dst`)
-    dst::init();
+    #[cfg(feature = "dst")]
+    common::dst::init();
 
     postgres::options::init();
     postgres::build_logging::init();

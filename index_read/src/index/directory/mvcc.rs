@@ -261,7 +261,7 @@ impl SegmentView {
 
     /// A view that only pins the segment set. Ordinal order is the iterator's (arbitrary for a
     /// set), and it carries no replay data, so it is only for readers whose addresses never
-    /// leave the process (a `paradedb.aggregate` worker).
+    /// leave the process (an aggregation worker).
     pub fn from_unordered_ids(ids: impl IntoIterator<Item = SegmentId>) -> Self {
         Self::new(
             ids.into_iter()

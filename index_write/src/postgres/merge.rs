@@ -1091,9 +1091,14 @@ mod tests {
             .filter(|entry| !entry.is_deleted())
             .map(|entry| entry.segment_id())
             .collect::<Vec<_>>();
-        Spi::run(
-            "INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,1024) i)::vector FROM generate_series(2049,4096) g",
-        ).unwrap();
+        let total_rows = VECTOR_METADATA_ROWS * 2;
+        let first_inserted_row = VECTOR_METADATA_ROWS + 1;
+        Spi::run(&format!(
+            "INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
+             FROM generate_series(1,{VECTOR_METADATA_DIMENSIONS}) i)::vector
+             FROM generate_series({first_inserted_row},{total_rows}) g",
+        ))
+        .unwrap();
         let current = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) };
         assert!(old.iter().all(|id| {
             current
@@ -1102,7 +1107,10 @@ mod tests {
         }));
         assert!(WARNED_VECTOR_INDEXES.with(|warned| warned.borrow().contains(&oid)));
         // A repeated write keeps the same backend warning state while skipping the unsupported segment.
-        Spi::run("UPDATE metadata_vectors SET vec = vec WHERE id = 4096").unwrap();
+        Spi::run(&format!(
+            "UPDATE metadata_vectors SET vec = vec WHERE id = {total_rows}"
+        ))
+        .unwrap();
         assert!(WARNED_VECTOR_INDEXES.with(|warned| warned.borrow().contains(&oid)));
         expect_reindex(&vector_query());
         drop(indexrel);
@@ -1110,7 +1118,7 @@ mod tests {
         Spi::run(&vector_query()).unwrap();
         assert_eq!(
             Spi::get_one::<i64>("SELECT count(*) FROM metadata_vectors").unwrap(),
-            Some(4096)
+            Some(total_rows)
         );
     }
 

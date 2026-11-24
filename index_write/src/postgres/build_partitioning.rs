@@ -947,16 +947,23 @@ mod tests {
 
     #[pg_test]
     fn vector_partitions_group_neighbors_and_keep_nulls() {
-        Spi::run(
+        const PARTITIONS: usize = 2;
+        const ROWS_PER_PARTITION: usize = VECTOR_MIN_SAMPLES_PER_PARTITION * 2;
+        const SOURCE_ROWS: usize = PARTITIONS * ROWS_PER_PARTITION;
+        const TOTAL_ROWS: i64 = SOURCE_ROWS as i64 + 2;
+        const CLUSTERING_THRESHOLD: usize = ROWS_PER_PARTITION / 2;
+
+        Spi::run(&format!(
             r#"
             CREATE EXTENSION IF NOT EXISTS vector;
+            SET paradedb.vector_clustering_threshold = {CLUSTERING_THRESHOLD};
             CREATE TABLE vector_partition_src (id BIGINT, region INTEGER, emb vector(2));
             INSERT INTO vector_partition_src
             SELECT i, i % 2, ARRAY[CASE WHEN i % 2 = 0 THEN -10 ELSE 10 END, (i % 7) * 0.01]::vector
-            FROM generate_series(1, 4000) i;
-            INSERT INTO vector_partition_src VALUES (4001, NULL, NULL), (4002, NULL, '[0,0]');
+            FROM generate_series(1, {SOURCE_ROWS}) i;
+            INSERT INTO vector_partition_src VALUES ({SOURCE_ROWS} + 1, NULL, NULL), ({TOTAL_ROWS}, NULL, '[0,0]');
         "#,
-        )
+        ))
         .unwrap();
         for workers in [0, 2] {
             Spi::run("SET parallel_leader_participation = false").unwrap();
@@ -970,7 +977,7 @@ mod tests {
                         r#"
                     CREATE INDEX vector_partition_idx ON vector_partition_src
                     USING paradedb (id, region, emb {metric})
-                    WITH (target_segment_count = 2{partition_option});
+                    WITH (target_segment_count = {PARTITIONS}{partition_option});
                 "#
                     ))
                     .unwrap();
@@ -983,14 +990,20 @@ mod tests {
                                 "SELECT count(*) FROM paradedb.index_info('vector_partition_idx')"
                             )
                             .unwrap(),
-                            Some(2)
+                            Some(PARTITIONS as i64)
                         );
                         assert_eq!(
                             Spi::get_one::<i64>(
                                 "SELECT count(*) FROM vector_partition_src WHERE id @@@ pdb.all()"
                             )
                             .unwrap(),
-                            Some(4002)
+                            Some(TOTAL_ROWS)
+                        );
+                        assert_eq!(
+                            Spi::get_one::<bool>(
+                                "SELECT bool_and(vector_format = 'ivf') FROM paradedb.vector_info('vector_partition_idx', 'emb')"
+                            ).unwrap(),
+                            Some(true)
                         );
                         let (_, indexrel) =
                             open_rels("vector_partition_src", "vector_partition_idx");

@@ -32,6 +32,7 @@ use anyhow::{Result, bail};
 use std::ptr::addr_of_mut;
 use std::sync::Arc;
 
+use crate::postgres::build::BuildPhase;
 use crate::postgres::utils::item_pointer_set_all;
 use pgrx::cmacros::c::Pointer;
 use pgrx::{FromDatum, PgMemoryContexts, check_for_interrupts, pg_sys};
@@ -352,6 +353,7 @@ pub(super) fn plan_partition_boundaries(
         }));
     }
 
+    BuildPhase::Sampling.report(true);
     let sample_rows = vector.map_or(MAX_SAMPLE_ROWS, |(dimensions, _)| {
         let budget = (unsafe { pg_sys::maintenance_work_mem } as usize).saturating_mul(1024);
         vector_training_sample_rows(dimensions, target_partitions, budget)
@@ -370,6 +372,7 @@ pub(super) fn plan_partition_boundaries(
                 |row, vector, _| sample.insert(row, vector),
             )?
         };
+        BuildPhase::Training.report(true);
         return Ok(Some(BuildPartitioning::Vector(VectorPartitioning::train(
             partition_by[0].clone(),
             metric,

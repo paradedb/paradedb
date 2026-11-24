@@ -1146,9 +1146,9 @@ mod tests {
             "SELECT i.id FROM prop_items i \
              WHERE NOT EXISTS ( \
                  SELECT 1 FROM prop_exclusions e \
-                 WHERE e.id @@@ paradedb.all() AND ({expr}) \
+                 WHERE e.id @@@ pdb.all()::pdb.const(0) AND ({expr}) \
              ) \
-             AND i.id @@@ paradedb.all() \
+             AND i.id @@@ pdb.all()::pdb.const(0) \
              ORDER BY i.id LIMIT 10"
         )
     }

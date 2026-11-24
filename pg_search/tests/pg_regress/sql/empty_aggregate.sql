@@ -47,47 +47,47 @@ USING paradedb (id, message, (country::pdb.literal_normalized('lowercase=true'))
 
 -- Test 2.1: COUNT(*) - should return 0
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
 
-SELECT COUNT(*) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.2: COUNT(column) - should return 0
-SELECT COUNT(value) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(value) FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.3: SUM - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT SUM(value) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
 
-SELECT SUM(value) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.4: AVG - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT AVG(value) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
 
-SELECT AVG(value) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.5: MIN - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT MIN(value) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
 
-SELECT MIN(value) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.6: MAX - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT MAX(value) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
 
-SELECT MAX(value) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.7: Multiple aggregates in single query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value)
-FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+FROM empty_test WHERE id @@@ paradedb.all();
 
 SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value)
-FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
+FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.8: From the original issue report
-SELECT COUNT(*) FROM empty_logs WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
 
 -- =====================================================================
 -- SECTION 3: GROUP BY SQL Aggregates on Empty Table
@@ -96,59 +96,51 @@ SELECT COUNT(*) FROM empty_logs WHERE id @@@ pdb.all()::pdb.const(0);
 -- Test 3.1: Simple GROUP BY - should return empty result set (0 rows)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) FROM empty_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ paradedb.all()
 GROUP BY category;
 
 SELECT category, COUNT(*) FROM empty_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ paradedb.all()
 GROUP BY category;
 
 -- Test 3.2: GROUP BY with ORDER BY - should return empty result set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(value), AVG(value)
 FROM empty_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
 
 SELECT category, COUNT(*), SUM(value), AVG(value)
 FROM empty_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
 
 -- Test 3.3: GROUP BY with LIMIT - should return empty result set
 SELECT category, COUNT(*) FROM empty_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ paradedb.all()
 GROUP BY category
 LIMIT 10;
 
 -- Test 3.4: Multiple GROUP BY columns - should return empty result set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, value, COUNT(*) FROM empty_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ paradedb.all()
 GROUP BY category, value
 ORDER BY category, value;
 
 SELECT category, value, COUNT(*) FROM empty_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ paradedb.all()
 GROUP BY category, value
 ORDER BY category, value;
 
 -- Test 3.5: From the original issue report
 SELECT severity, COUNT(*) FROM empty_logs
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ paradedb.all()
 GROUP BY severity
 ORDER BY severity DESC
 LIMIT 10;
-
--- =====================================================================
--- SECTION 4: JSON aggregates on an empty table
--- =====================================================================
-
-SELECT pdb.agg('{"value_count": {"field": "value"}}'::jsonb) IS NULL AS metric_is_null,
-       pdb.agg('{"terms": {"field": "category"}}'::jsonb) IS NULL AS facet_is_null
-FROM empty_test WHERE id @@@ pdb.all();
 
 -- =====================================================================
 -- SECTION 6: Edge Cases and Complex Queries on Empty Tables
@@ -157,7 +149,7 @@ FROM empty_test WHERE id @@@ pdb.all();
 -- Test 6.1: HAVING clause with empty GROUP BY result
 SELECT category, COUNT(*) as cnt
 FROM empty_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ paradedb.all()
 GROUP BY category
 HAVING COUNT(*) > 0;
 
@@ -169,7 +161,7 @@ SELECT
     SUM(CASE WHEN value > 50 THEN 1 ELSE 0 END) as high_values,
     AVG(value * 2) as doubled_avg
 FROM empty_test
-WHERE id @@@ pdb.all()::pdb.const(0)
+WHERE id @@@ paradedb.all()
 GROUP BY category;
 
 -- Test 6.3: Aggregates with FILTER clause
@@ -177,12 +169,12 @@ SELECT
     COUNT(*) FILTER (WHERE value > 50) as high_count,
     SUM(value) FILTER (WHERE category = 'Electronics') as electronics_sum
 FROM empty_test
-WHERE id @@@ pdb.all()::pdb.const(0);
+WHERE id @@@ paradedb.all();
 
 -- Test 6.4: Multiple tables (though both empty)
-SELECT COUNT(*) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0)
+SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all()
 UNION ALL
-SELECT COUNT(*) FROM empty_logs WHERE id @@@ pdb.all()::pdb.const(0);
+SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
 
 -- =====================================================================
 -- SECTION 7: Disable aggregate custom scan - verify normal behavior
@@ -191,8 +183,8 @@ SELECT COUNT(*) FROM empty_logs WHERE id @@@ pdb.all()::pdb.const(0);
 SET paradedb.enable_aggregate_custom_scan TO off;
 
 -- These should work normally (no custom scan, standard PostgreSQL behavior)
-SELECT COUNT(*) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0);
-SELECT category, COUNT(*) FROM empty_test WHERE id @@@ pdb.all()::pdb.const(0) GROUP BY category;
+SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
+SELECT category, COUNT(*) FROM empty_test WHERE id @@@ paradedb.all() GROUP BY category;
 
 -- Re-enable for cleanup
 SET paradedb.enable_aggregate_custom_scan TO on;

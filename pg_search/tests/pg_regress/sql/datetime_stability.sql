@@ -98,18 +98,14 @@ ORDER BY occurred_at;
 --    key_as_string format must remain stable
 -- =====================================================================
 
-SELECT pdb.agg(
-    '{"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}}'::jsonb
-)
+SELECT jsonb_build_object('by_day', pdb.agg('{"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}}'::jsonb)) AS aggregate
 FROM events WHERE id @@@ pdb.all();
 
 -- =====================================================================
 -- 7. terms aggregation over a datetime field
 -- =====================================================================
 
-SELECT pdb.agg(
-    '{"terms": {"field": "occurred_at"}}'::jsonb
-)
+SELECT jsonb_build_object('by_dt', pdb.agg('{"terms": {"field": "occurred_at"}}'::jsonb)) AS aggregate
 FROM events WHERE id @@@ pdb.all();
 
 -- =====================================================================
@@ -127,9 +123,7 @@ LIMIT 3;
 -- 9. date_histogram with a nested sub-agg — sub-bucket structure preserved
 -- =====================================================================
 
-SELECT pdb.agg(
-    '{"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}, "aggs": {"count": {"value_count": {"field": "id"}}}}'::jsonb
-)
+SELECT jsonb_build_object('by_day', pdb.agg('{"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}, "aggs": {"count": {"value_count": {"field": "id"}}}}'::jsonb)) AS aggregate
 FROM events WHERE id @@@ pdb.all();
 
 -- Cleanup

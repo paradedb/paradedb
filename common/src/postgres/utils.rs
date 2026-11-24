@@ -176,7 +176,7 @@ pub trait PgMemoryContextsExt {
     /// std, tokio, tantivy and DataFusion types: there is no `Drop` of ours on them to put
     /// `impl_safe_drop!` on. Our own `Drop`s are checked by `.github/scripts/check_impl_drop.py`.
     ///
-    /// The body mirrors pgrx 0.20.0's `leak_and_drop_on_delete` (`memcxt.rs`) plus the
+    /// The body mirrors pgrx 0.20.1's `leak_and_drop_on_delete` (`memcxt.rs`) plus the
     /// `proc_exit` check; keep it in sync when bumping pgrx.
     fn leak_and_drop_unless_exiting<T>(&mut self, v: T) -> *mut T;
 }

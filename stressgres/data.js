@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795507767342,
+  "lastUpdate": 1795507796480,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -519628,6 +519628,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14799253055-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795507793390,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.37517188429662,
+            "unit": "median tps",
+            "extra": "avg tps: 57.07764739658201, max tps: 530.7532658859666, count: 58769"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.1385178120362,
+            "unit": "median tps",
+            "extra": "avg tps: 31.29839451453527, max tps: 340.3502030010277, count: 58769"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.80259361590407,
+            "unit": "median tps",
+            "extra": "avg tps: 129.9339244755998, max tps: 1127.111179344181, count: 58769"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.159706605732477,
+            "unit": "median tps",
+            "extra": "avg tps: 30.35869636911959, max tps: 265.9189442176223, count: 58769"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.101107323933014,
+            "unit": "median tps",
+            "extra": "avg tps: 59.18312495504479, max tps: 563.3481365104208, count: 58769"
+          }
+        ],
+        "publication_id": "14900573018-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -534090,6 +534143,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14799253055-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "32ba4b5c3a516927ec246af7b76220616a1af794",
+          "message": "test: migrate Rust test fixtures to V2 syntax (#7637)\n\n## Changes\n\nUse V2 predicates and index definitions in the in-server Rust test\nfixtures for index reads, planner filtering, spills, and storage.\n\nThe catalog test still creates a legacy `bm25` index so it covers\ndiscovery of both access methods. The analyzed UUID segment-pruning case\nstill needs the legacy field configuration to retain the UUID field\ntype.\n\n## Tests\n\nAll 10 targeted in-server Rust tests passed on PostgreSQL 18.4 across\n`index_read`, `joinscan`, `scan`, and `storage`.",
+          "timestamp": "2026-11-24T01:23:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/32ba4b5c3a516927ec246af7b76220616a1af794"
+        },
+        "date": 1795507796347,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 19.796875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 20.456558597006925, max partition_index_size:MB: 26.0390625, count: 58769"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.911695,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.232630091992863, max cpu: 32.230217, count: 58769"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 50.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.74792813015791, max mem: 58.08984375, count: 58769"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.021584,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.920963164469136, max cpu: 36.887608, count: 58769"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 69.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 69.65636120073934, max mem: 77.3671875, count: 58769"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.694721,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.13835851474723, max cpu: 23.244553, count: 58769"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 43.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.933779660620395, max mem: 48.52734375, count: 58769"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.021584,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.922538084917736, max cpu: 36.887608, count: 58769"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 65.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 65.71367517845293, max mem: 75.1171875, count: 58769"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.911695,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.24388978996304, max cpu: 32.32323, count: 58769"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 62.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.965659377180145, max mem: 70.84765625, count: 58769"
+          }
+        ],
+        "publication_id": "14900573018-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

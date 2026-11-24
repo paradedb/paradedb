@@ -38,10 +38,10 @@
 //! on the main thread as a Rust panic and is caught and propagated by `run_on_main_thread`;
 //! nothing here may add a second guard around such a call, since a panic cannot cross the
 //! outer guard's C trampoline. Closing is guarded on top of that: Postgres may
-//! release the owner's files before the Rust holder drops ([`buffile::BufFileReleaseGuard`]),
-//! and `BufFileClose` flushes, so a call that raised mid-flush leaves the file poisoned
-//! (the close would raise again). A poisoned or released file, or one dropped from
-//! abort processing, is left to the owner.
+//! release the owner's files before the Rust holder drops ([`crate::postgres::resowner::ResourceOwnerStamp`]
+//! inside [`TempFileOwner`]), and `BufFileClose` flushes, so a call that raised mid-flush leaves
+//! the file poisoned (the close would raise again). A poisoned or released file, or one dropped
+//! from abort processing, is left to the owner.
 //!
 //! # Cursor tracking
 //!
@@ -56,19 +56,17 @@
 //! `BufFileWrite`/`BufFileRead` call — never relying on the shared cursor's position
 //! surviving between calls, only ever setting it explicitly right before each use.
 
-use crate::postgres::buffile::{self, BufFileReleaseGuard, TempFileOwner};
+use crate::postgres::buffile::{self, TempFileOwner};
 use bytes::Bytes;
 use datafusion::common::exec_datafusion_err;
 use datafusion::execution::disk_manager::DiskManagerMode;
 use datafusion::execution::spill_file::{SpillFile, SpillWriter, TempFileFactory};
 use futures::Stream;
 use pgrx::pg_sys;
-use std::cell::OnceCell;
 use std::io;
 use std::os::raw::c_int;
 use std::path::Path;
 use std::pin::Pin;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -93,7 +91,6 @@ pub fn buffile_disk_manager_mode(on_spill: SpillNotify) -> DiskManagerMode {
     DiskManagerMode::Custom(Arc::new(BufFileTempFileFactory {
         on_spill,
         notified: AtomicBool::new(false),
-        release_guard: crate::postgres::customscan::mpp::MainThread::new(OnceCell::new()),
     }))
 }
 
@@ -102,11 +99,6 @@ struct BufFileTempFileFactory {
     on_spill: SpillNotify,
     /// Guards `on_spill` to fire at most once per factory (once per scan node execution).
     notified: AtomicBool,
-    /// Registered on the first spill, under the owner every file of this factory shares.
-    /// Wrapped in [`crate::postgres::customscan::mpp::MainThread`] so `UnregisterResourceReleaseCallback`
-    /// always runs on the Postgres main thread even when DataFusion drops the `RuntimeEnv` on a
-    /// background Tokio worker thread.
-    release_guard: crate::postgres::customscan::mpp::MainThread<OnceCell<Rc<BufFileReleaseGuard>>>,
 }
 
 impl std::fmt::Debug for BufFileTempFileFactory {
@@ -122,27 +114,19 @@ impl TempFileFactory for BufFileTempFileFactory {
         &self,
         _description: &str,
     ) -> datafusion::common::Result<Arc<dyn SpillFile>> {
-        if self
-            .notified
-            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
-        {
-            (self.on_spill)();
-        }
-        crate::postgres::customscan::mpp::try_run_on_main_thread(|token| {
-            let shared = self
-                .release_guard
-                .get(token)
-                .get_or_init(BufFileReleaseGuard::register);
-            // A file under another owner would never see that owner's release.
-            let release_guard = if shared.owner() == unsafe { pg_sys::CurrentResourceOwner } {
-                Rc::clone(shared)
-            } else {
-                BufFileReleaseGuard::register()
-            };
-            let file = unsafe { buffile::create_temp_buffile() };
+        crate::postgres::customscan::mpp::try_run_on_main_thread(|_| {
+            let file = Arc::new(TempFileOwner::new(unsafe {
+                buffile::create_temp_buffile()
+            }));
+            if self
+                .notified
+                .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                (self.on_spill)();
+            }
             Ok(Arc::new(BufFileSpillFile {
-                file: Arc::new(TempFileOwner::new(file, release_guard)),
+                file,
                 size: Arc::new(AtomicU64::new(0)),
                 writer_opened: AtomicBool::new(false),
             }) as Arc<dyn SpillFile>)
@@ -308,7 +292,6 @@ mod tests {
                 notify_clone.fetch_add(1, Ordering::Relaxed);
             }),
             notified: AtomicBool::new(false),
-            release_guard: crate::postgres::customscan::mpp::MainThread::new(OnceCell::new()),
         });
 
         // 1. Basic shared-ownership and sequential read/write cursor interleaving.

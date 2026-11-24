@@ -245,6 +245,8 @@ runs:
           psql -v ON_ERROR_STOP=1 -h localhost -p "288${INPUTS_PG_VERSION}" "$db" -f "$case_dir/queries.sql"
         done
 
+    # TODO: Expand post-upgrade tests to cover the entire ParadeDB SQL API.
+    # Track expanded tokenizer coverage in https://github.com/paradedb/paradedb/issues/6954.
     - name: Smoke Test New Indexes After Upgrade
       shell: bash
       env:

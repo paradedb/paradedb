@@ -9,8 +9,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/workflows/classify-cargo-lock.yml"
-      - ".github/scripts/ci_lockfile_scope.py"
       - ".cargo/config.toml"
       - "macros/**"
       - "tokenizers/**"
@@ -32,7 +30,6 @@ on:
       - "planner/**"
       - "scan/**"
       - "storage/**"
-      - "Cargo.lock"
       - "Cargo.toml"
   workflow_dispatch:
 

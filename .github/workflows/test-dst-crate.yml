@@ -11,12 +11,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/workflows/classify-cargo-lock.yml"
-      - ".github/scripts/ci_lockfile_scope.py"
       - ".cargo/config.toml"
       - ".github/workflows/test-dst-crate.yml"
       - "dst/**"
-      - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
   workflow_dispatch:
@@ -29,12 +26,7 @@ permissions:
   contents: read
 
 jobs:
-  changes:
-    uses: ./.github/workflows/classify-cargo-lock.yml
-
   test-dst-crate:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.standalone_only != 'true') }}
     name: Lint & Test DST Crate
     runs-on: ubuntu-latest
 

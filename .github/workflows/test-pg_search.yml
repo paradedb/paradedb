@@ -12,8 +12,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/workflows/classify-cargo-lock.yml"
-      - ".github/scripts/ci_lockfile_scope.py"
       - ".github/actions/setup-postgres/**"
       - ".github/scripts/setup_crashdumps.sh"
       - ".github/scripts/render_crashdump.sh"
@@ -34,7 +32,6 @@ on:
       - "storage/**"
       - "tests/**"
       - "tokenizers/**"
-      - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
   workflow_dispatch:
@@ -47,12 +44,7 @@ permissions:
   contents: read
 
 jobs:
-  changes:
-    uses: ./.github/workflows/classify-cargo-lock.yml
-
   test-pg_search:
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.standalone_only != 'true') }}
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
     # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
@@ -65,6 +57,7 @@ jobs:
       - image=${{ matrix.runner_image }}
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:

@@ -21,6 +21,7 @@ use super::buffer::{Buffer, BufferManager, BufferMut, init_new_buffer};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use anyhow::Result;
+use common::dst;
 use pgrx::pg_sys;
 use pgrx::pg_sys::BlockNumber;
 use std::fmt::Debug;

@@ -395,6 +395,27 @@ WHERE u.id <= 1 AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(p.id) DESC, p.id ASC
 LIMIT 5;
 
+-- Same query with build size above `hash_join_inlist_max_distinct_values` (= 0) -> still plans
+-- HashJoinExec(fetch=5) over lazy_sort probe with HashTableLookupExpr pushdown
+SET paradedb.hash_join_inlist_max_distinct_values = 0;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY paradedb.score(p.id) DESC, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY paradedb.score(p.id) DESC, p.id ASC
+LIMIT 5;
+
+RESET paradedb.hash_join_inlist_max_distinct_values;
+
 -- Non-selective RA side (u.bio @@@ 'rust' matches 25/50 = 0.50 >= 0.08) -> RankJoinExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT u.id AS u_id, p.id AS p_id

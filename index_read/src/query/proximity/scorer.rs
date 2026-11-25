@@ -148,6 +148,9 @@ impl Iterator for ProxIter<'_> {
     }
 }
 
+// TODO: Override `DocSet::cost()` (scaled drive cost + `ProbeCost::POSITIONAL`, matching
+// `PhraseScorer`) and `DocSet::seek_danger()` (so a miss does not walk forward to the next
+// proximity match).
 impl DocSet for ProximityScorer {
     fn advance(&mut self) -> DocId {
         loop {

@@ -24,6 +24,7 @@
 use std::collections::VecDeque;
 use std::io;
 use std::ops::{Deref, Range};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use crate::api::HashMap;
@@ -39,8 +40,8 @@ use crate::postgres::utils;
 use crate::scan::deferred_encode::DeferredCtid;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use parking_lot::Mutex;
-use pgrx::pg_sys::{self, BlockNumber};
-use pgrx::{PgList, PgTupleDesc, check_for_interrupts};
+use pgrx::pg_sys::{self, BlockNumber, ResourceReleasePhase, TransactionId};
+use pgrx::{PgList, PgSqlErrorCode, PgTryBuilder, PgTupleDesc, check_for_interrupts};
 use tantivy::SegmentReader;
 use tantivy::index::SegmentId;
 use tantivy::{DocId, Order, SegmentOrdinal, TantivyDocument};
@@ -53,7 +54,10 @@ pub const BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY: u64 = 256;
 /// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
 /// pin would collide with the index's tracked blocks under the `block_tracker` feature, and a
 /// `CREATE INDEX` reads the heap while its own index buffers are tracked.
-pub struct HeapBufferPin(pg_sys::Buffer);
+pub struct HeapBufferPin {
+    pg_buffer: pg_sys::Buffer,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
+}
 
 impl HeapBufferPin {
     /// Reads and pins `blockno` of `heaprel`'s main fork.
@@ -61,28 +65,34 @@ impl HeapBufferPin {
     /// # Safety
     /// `heaprel` must stay open for the lifetime of the returned pin.
     pub unsafe fn read(heaprel: &PgSearchRelation, blockno: BlockNumber) -> Self {
-        Self(pg_sys::ReadBufferExtended(
-            heaprel.as_ptr(),
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-            blockno,
-            pg_sys::ReadBufferMode::RBM_NORMAL,
-            std::ptr::null_mut(),
-        ))
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
+        Self {
+            pg_buffer: pg_sys::ReadBufferExtended(
+                heaprel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+                blockno,
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                std::ptr::null_mut(),
+            ),
+            owner,
+        }
     }
 
     pub fn buffer(&self) -> pg_sys::Buffer {
-        self.0
+        self.pg_buffer
     }
 }
 
-struct ReleaseHeapBufferOnMainThread(pg_sys::Buffer);
+struct ReleaseHeapBufferOnMainThread {
+    pg_buffer: pg_sys::Buffer,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
+}
 
 crate::impl_safe_drop!(ReleaseHeapBufferOnMainThread, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            pg_sys::ReleaseBuffer(self.0);
-        }
-    }
+    let pg_buffer = self.pg_buffer;
+    self.owner.run_if_live(|| unsafe {
+        pg_sys::ReleaseBuffer(pg_buffer);
+    });
 });
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the inner
@@ -90,9 +100,10 @@ crate::impl_safe_drop!(ReleaseHeapBufferOnMainThread, |self| {
 // `impl_safe_drop!`.
 impl Drop for HeapBufferPin {
     fn drop(&mut self) {
-        crate::postgres::customscan::mpp::drop_on_main_thread(ReleaseHeapBufferOnMainThread(
-            self.0,
-        ));
+        crate::postgres::customscan::mpp::drop_on_main_thread(ReleaseHeapBufferOnMainThread {
+            pg_buffer: self.pg_buffer,
+            owner: self.owner,
+        });
     }
 }
 
@@ -213,6 +224,7 @@ pub struct VisibilityChecker {
     scan: *mut pg_sys::IndexFetchTableData,
     snapshot: pg_sys::Snapshot,
     tid: pg_sys::ItemPointerData,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 
     // we hold onto this b/c `scan` points to the relation this does
     heaprel: PgSearchRelation,
@@ -264,20 +276,21 @@ impl Clone for VisibilityChecker {
 struct VisibilityCheckerCleanupOnMainThread {
     vmbuff: pg_sys::Buffer,
     scan: usize,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     _heaprel: PgSearchRelation,
 }
 
 crate::impl_safe_drop!(VisibilityCheckerCleanupOnMainThread, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            if self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                pg_sys::ReleaseBuffer(self.vmbuff);
-            }
-            if self.scan != 0 {
-                pg_sys::table_index_fetch_end(self.scan as *mut pg_sys::IndexFetchTableData);
-            }
+    let vmbuff = self.vmbuff;
+    let scan = self.scan;
+    self.owner.run_if_live(|| unsafe {
+        if vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer {
+            pg_sys::ReleaseBuffer(vmbuff);
         }
-    }
+        if scan != 0 {
+            pg_sys::table_index_fetch_end(scan as *mut pg_sys::IndexFetchTableData);
+        }
+    });
 });
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the cleanup
@@ -291,6 +304,7 @@ impl Drop for VisibilityChecker {
             VisibilityCheckerCleanupOnMainThread {
                 vmbuff,
                 scan,
+                owner: self.owner,
                 _heaprel: self.heaprel.clone(),
             },
         );
@@ -394,6 +408,7 @@ impl VisibilityChecker {
     /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
     /// `relation` and `snapshot`
     pub fn with_rel_and_snap(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) -> Self {
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             let nblocks =
                 pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), heaprel.fork_number());
@@ -401,6 +416,7 @@ impl VisibilityChecker {
                 scan: utils::table_index_fetch_begin(heaprel.as_ptr()),
                 snapshot,
                 tid: pg_sys::ItemPointerData::default(),
+                owner,
                 heaprel: Clone::clone(heaprel),
                 bman: BufferManager::new(heaprel),
                 vm_block_no: None,
@@ -1366,6 +1382,7 @@ pub struct HeapFetchState {
     // A virtual view of the fetched tuple, handed to expression evaluation by
     // `fetch_eval_slot`. See that method for why a virtual slot is required.
     virtual_slot: *mut pg_sys::TupleTableSlot,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     // Hold a reference to the heap relation to keep it open for the lifetime of the scan.
     // The scan stores an internal pointer to the relation, so it must not be closed early.
     _heaprel: PgSearchRelation,
@@ -1378,6 +1395,7 @@ pub struct HeapFetchState {
 impl HeapFetchState {
     /// Create a HeapFetchState which will fetch the entire content of the given relation.
     pub fn new(heaprel: &PgSearchRelation) -> Self {
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             let scan = utils::table_index_fetch_begin(heaprel.as_ptr());
             let slot = utils::make_tuple_table_slot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
@@ -1388,6 +1406,7 @@ impl HeapFetchState {
                 scan,
                 slot: slot.cast(),
                 virtual_slot,
+                owner,
                 _heaprel: heaprel.clone(),
                 nblocks,
             }
@@ -1448,14 +1467,28 @@ impl HeapFetchState {
         // `ExecCopySlot`, which would materialize (palloc + copy) every varlena
         // column on every row.
         let src = self.slot();
-        let dst = self.virtual_slot;
-
-        pg_sys::ExecClearTuple(dst);
         pg_sys::slot_getallattrs(src);
-
         let natts = (*src).tts_nvalid as usize;
-        std::ptr::copy_nonoverlapping((*src).tts_values, (*dst).tts_values, natts);
-        std::ptr::copy_nonoverlapping((*src).tts_isnull, (*dst).tts_isnull, natts);
+        Some(self.eval_slot(
+            std::slice::from_raw_parts((*src).tts_values, natts),
+            std::slice::from_raw_parts((*src).tts_isnull, natts),
+        ))
+    }
+
+    /// Present values from the fetched tuple for immediate expression evaluation.
+    /// By-reference datums must remain valid until evaluation finishes.
+    unsafe fn eval_slot(
+        &self,
+        values: &[pg_sys::Datum],
+        isnull: &[bool],
+    ) -> *mut pg_sys::TupleTableSlot {
+        let src = self.slot();
+        let dst = self.virtual_slot;
+        assert_eq!(values.len(), (*(*dst).tts_tupleDescriptor).natts as usize);
+        assert_eq!(values.len(), isnull.len());
+        pg_sys::ExecClearTuple(dst);
+        std::ptr::copy_nonoverlapping(values.as_ptr(), (*dst).tts_values, values.len());
+        std::ptr::copy_nonoverlapping(isnull.as_ptr(), (*dst).tts_isnull, isnull.len());
 
         // `slot_getsysattr` reads `ctid` and `tableoid` from the slot itself, not
         // from a tuple. Clearing the virtual slot set its `ctid` to an invalid
@@ -1463,7 +1496,7 @@ impl HeapFetchState {
         (*dst).tts_tid = (*src).tts_tid;
         (*dst).tts_tableOid = (*src).tts_tableOid;
 
-        Some(pg_sys::ExecStoreVirtualTuple(dst))
+        pg_sys::ExecStoreVirtualTuple(dst)
     }
 
     /// Wrapper around `table_index_fetch_tuple` that guards against stale ctids
@@ -1502,25 +1535,25 @@ struct HeapFetchStateCleanupOnMainThread {
     slot: usize,
     virtual_slot: usize,
     scan: usize,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     _heaprel: PgSearchRelation,
 }
 
 crate::impl_safe_drop!(HeapFetchStateCleanupOnMainThread, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            if self.slot != 0 {
-                pg_sys::ExecDropSingleTupleTableSlot(self.slot as *mut pg_sys::TupleTableSlot);
-            }
-            if self.virtual_slot != 0 {
-                pg_sys::ExecDropSingleTupleTableSlot(
-                    self.virtual_slot as *mut pg_sys::TupleTableSlot,
-                );
-            }
-            if self.scan != 0 {
-                pg_sys::table_index_fetch_end(self.scan as *mut pg_sys::IndexFetchTableData);
-            }
+    let slot = self.slot;
+    let virtual_slot = self.virtual_slot;
+    let scan = self.scan;
+    self.owner.run_if_live(|| unsafe {
+        if slot != 0 {
+            pg_sys::ExecDropSingleTupleTableSlot(slot as *mut pg_sys::TupleTableSlot);
         }
-    }
+        if virtual_slot != 0 {
+            pg_sys::ExecDropSingleTupleTableSlot(virtual_slot as *mut pg_sys::TupleTableSlot);
+        }
+        if scan != 0 {
+            pg_sys::table_index_fetch_end(scan as *mut pg_sys::IndexFetchTableData);
+        }
+    });
 });
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the cleanup
@@ -1535,6 +1568,7 @@ impl Drop for HeapFetchState {
             slot,
             virtual_slot,
             scan,
+            owner: self.owner,
             _heaprel: self._heaprel.clone(),
         });
     }
@@ -1643,6 +1677,96 @@ pub struct HeapDocFetcher<'a> {
     isnull: Vec<bool>,
 }
 
+/// Helper matching PostgreSQL's `HeapTupleHeaderGetRawXmax` macro.
+/// In `pgrx`, `HeapTupleHeaderGetRawXmin` is provided in `htup.rs`, but
+/// `HeapTupleHeaderGetRawXmax` is only available in `pg_sys` starting with PostgreSQL 18.
+#[inline(always)]
+unsafe fn heap_tuple_header_get_raw_xmax(
+    tup: *const pg_sys::HeapTupleHeaderData,
+) -> pg_sys::TransactionId {
+    unsafe { (*tup).t_choice.t_heap.t_xmax }
+}
+
+/// Helper matching PostgreSQL's `MultiXactIdGetUpdateXid` logic.
+/// Returns the transaction ID that deleted or updated this tuple, or `InvalidTransactionId`
+/// if the tuple's xmax is invalid, lock-only, or belongs to a MultiXact without an update member.
+unsafe fn heap_tuple_get_update_xid(
+    tup: *const pg_sys::HeapTupleHeaderData,
+) -> pg_sys::TransactionId {
+    let infomask = u32::from((*tup).t_infomask);
+    if infomask & pg_sys::HEAP_XMAX_INVALID != 0 {
+        return pg_sys::InvalidTransactionId;
+    }
+    if infomask & pg_sys::HEAP_XMAX_LOCK_ONLY != 0 {
+        return pg_sys::InvalidTransactionId;
+    }
+    let raw_xmax = heap_tuple_header_get_raw_xmax(tup);
+    if raw_xmax == pg_sys::InvalidTransactionId {
+        return pg_sys::InvalidTransactionId;
+    }
+    if infomask & pg_sys::HEAP_XMAX_IS_MULTI != 0 {
+        let mut members: *mut pg_sys::MultiXactMember = std::ptr::null_mut();
+        let nmembers = pg_sys::GetMultiXactIdMembers(raw_xmax, &mut members, false, false);
+        if nmembers <= 0 || members.is_null() {
+            return pg_sys::InvalidTransactionId;
+        }
+        let mut update_xid = pg_sys::InvalidTransactionId;
+        for i in 0..nmembers as usize {
+            let member = *members.add(i);
+            if member.status >= pg_sys::MultiXactStatus::MultiXactStatusNoKeyUpdate {
+                update_xid = member.xid;
+                break;
+            }
+        }
+        pg_sys::pfree(members as *mut std::ffi::c_void);
+        update_xid
+    } else {
+        raw_xmax
+    }
+}
+
+/// A recently-dead tuple can lose its TOAST chunks when another backend releases
+/// the snapshot retaining it. Only suppress corruption once its deleter is removable.
+unsafe fn detoast_recently_dead(
+    heaprel: &PgSearchRelation,
+    xmax: TransactionId,
+    detoast: impl FnOnce(),
+) -> bool {
+    unsafe {
+        let heaprel = heaprel.as_ptr();
+        let parent = pg_sys::CurrentResourceOwner;
+        let owner = pg_sys::ResourceOwnerCreate(parent, c"mutable segment detoast".as_ptr());
+        pg_sys::CurrentResourceOwner = owner;
+        PgTryBuilder::new(AssertUnwindSafe(|| {
+            detoast();
+            true
+        }))
+        .catch_when(PgSqlErrorCode::ERRCODE_DATA_CORRUPTED, |error| {
+            if xmax != pg_sys::InvalidTransactionId {
+                // GlobalVisCheckRemovableXid can reuse this query's earlier horizon.
+                pg_sys::GetOldestNonRemovableTransactionId(heaprel);
+                if pg_sys::GlobalVisCheckRemovableXid(heaprel, xmax) {
+                    return false;
+                }
+            }
+            error.rethrow()
+        })
+        .finally(|| {
+            pg_sys::CurrentResourceOwner = parent;
+            // A failed detoast can leave TOAST pins and relation locks behind.
+            for phase in [
+                ResourceReleasePhase::RESOURCE_RELEASE_BEFORE_LOCKS,
+                ResourceReleasePhase::RESOURCE_RELEASE_LOCKS,
+                ResourceReleasePhase::RESOURCE_RELEASE_AFTER_LOCKS,
+            ] {
+                pg_sys::ResourceOwnerRelease(owner, phase, false, false);
+            }
+            pg_sys::ResourceOwnerDelete(owner);
+        })
+        .execute()
+    }
+}
+
 impl<'a> HeapDocFetcher<'a> {
     pub fn new(
         fetch_state: &'a HeapFetchState,
@@ -1738,13 +1862,9 @@ impl<'a> HeapDocFetcher<'a> {
                     return None;
                 }
 
-                if self.query_visible {
-                    // Visible to the snapshot: skip the SnapshotAny dead-tuple filtering below and
-                    // index it.
-                    break;
-                }
-
-                let (mut htsv_result, hot_updated) = {
+                let (mut htsv_result, hot_updated) = if self.query_visible {
+                    (pg_sys::HTSV_Result::HEAPTUPLE_LIVE, false)
+                } else {
                     let buffer = (*self.fetch_state.buffer_heap_slot()).buffer;
                     let _lock = BorrowedBuffer::from_pg(buffer);
                     let tuple = (*self.fetch_state.buffer_heap_slot()).base.tuple;
@@ -1755,26 +1875,76 @@ impl<'a> HeapDocFetcher<'a> {
                 };
 
                 if htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
-                    // Our `oldest_xmin` might be stale compared to a concurrent VACUUM.
-                    // If VACUUM saw this tuple as DEAD and deleted its TOAST chunks, we
-                    // must also see it as DEAD, otherwise we'll crash trying to read them.
-                    //
-                    // A single re-check is sufficient (no loop needed) because
-                    // `GetOldestNonRemovableTransactionId` returns the current global
-                    // XID horizon. If the tuple is still RECENTLY_DEAD under this fresh
-                    // horizon, then no concurrent VACUUM could have considered it DEAD
-                    // (VACUUM uses the same or an older horizon), so its TOAST data is
-                    // guaranteed to still exist.
-                    let fresh_oldest_xmin =
-                        pg_sys::GetOldestNonRemovableTransactionId(self.heaprel.as_ptr());
-                    if fresh_oldest_xmin != self.oldest_xmin {
-                        let buffer = (*self.fetch_state.buffer_heap_slot()).buffer;
-                        let _lock = BorrowedBuffer::from_pg(buffer);
-                        htsv_result = pg_sys::HeapTupleSatisfiesVacuum(
-                            (*self.fetch_state.buffer_heap_slot()).base.tuple,
-                            fresh_oldest_xmin,
-                            buffer,
-                        );
+                    // Check if the tuple's deleter is actually removable under the current global
+                    // visibility horizon. `self.oldest_xmin` might be stale or conservative
+                    // compared to on-access pruning or concurrent VACUUM, which use
+                    // `GlobalVisTestIsRemovableXid`. If the deleting XID is removable according to
+                    // `GlobalVisCheckRemovableXid`, VACUUM / pruning could have already freed its
+                    // TOAST chunks and marked line pointers LP_DEAD. Thus, we must treat it as
+                    // DEAD to avoid attempting to detoast missing chunks.
+                    let tuple = (*self.fetch_state.buffer_heap_slot()).base.tuple;
+                    let xmax = heap_tuple_get_update_xid((*tuple).t_data);
+                    if xmax != pg_sys::InvalidTransactionId
+                        && pg_sys::GlobalVisCheckRemovableXid(self.heaprel.as_ptr(), xmax)
+                    {
+                        htsv_result = pg_sys::HTSV_Result::HEAPTUPLE_DEAD;
+                    }
+                }
+
+                // The raw HOT bit is enough here. `HeapTupleHeaderIsHotUpdated` also wants a
+                // valid xmax and xmin, and under the visibility check taken in the same locked
+                // block an aborted updater reads as LIVE and an aborted inserter as DEAD, so
+                // neither reaches this branch.
+                if self.root_ctids
+                    && hot_updated
+                    && (htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
+                        || htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_DELETE_IN_PROGRESS)
+                {
+                    // This member survives for old snapshots, but a newer HOT member carries
+                    // the values the build callback delivered for this root. Skip forward so
+                    // the segment holds the live version, matching what
+                    // heapam_index_build_range_scan indexes for a broken HOT chain. A member
+                    // that was deleted outright (not HOT-updated) is indexed below instead,
+                    // as heapam does: a pre-existing snapshot may still need to see it. Under
+                    // SnapshotAny `call_again` is set after every fetch, so it says nothing
+                    // about whether the chain goes on; the tuple's own HOT flag does.
+                    pg_sys::ExecClearTuple(self.fetch_state.slot());
+                    continue 'next_hot_chain;
+                }
+
+                if htsv_result != pg_sys::HTSV_Result::HEAPTUPLE_DEAD {
+                    // Keep the heap tuple pinned until all values have been read. A separate
+                    // TOAST vacuum can still remove chunks of a tuple that becomes DEAD.
+                    let htup = pg_sys::ExecFetchSlotHeapTuple(
+                        self.fetch_state.slot(),
+                        false,
+                        std::ptr::null_mut(),
+                    );
+                    pg_sys::heap_deform_tuple(
+                        htup,
+                        self.heaptupdesc.as_ptr(),
+                        self.values.as_mut_ptr(),
+                        self.isnull.as_mut_ptr(),
+                    );
+                    let mut detoast = || {
+                        for i in 0..self.heaptupdesc.len() {
+                            if !self.isnull[i] {
+                                let att = self.heaptupdesc.get(i).expect("valid attribute");
+                                if att.attlen == -1 {
+                                    let ptr = self.values[i].cast_mut_ptr();
+                                    self.values[i] =
+                                        pg_sys::Datum::from(pg_sys::pg_detoast_datum(ptr));
+                                }
+                            }
+                        }
+                    };
+                    if htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
+                        let xmax = heap_tuple_get_update_xid((*htup).t_data);
+                        if !detoast_recently_dead(self.heaprel, xmax, detoast) {
+                            htsv_result = pg_sys::HTSV_Result::HEAPTUPLE_DEAD;
+                        }
+                    } else {
+                        detoast();
                     }
                 }
 
@@ -1801,81 +1971,27 @@ impl<'a> HeapDocFetcher<'a> {
                     // skip so the slot releases its buffer pin.
                     pg_sys::ExecClearTuple(self.fetch_state.slot());
 
-                    // This copy of the tuple is no longer visible to any transaction. Are there
-                    // more in the HOT chain?
-                    if call_again {
-                        // There are more entries in the hot chain: find the first one that is
-                        // visible.
+                    // If this tuple was HOT-updated, the chain continues to a newer member: find
+                    // the first one that is live. Otherwise, the tuple was deleted outright (or
+                    // updated non-HOT, where the new version has its own ctid), so there is no
+                    // live version for this ctid.
+                    if hot_updated {
                         continue 'next_hot_chain;
                     } else {
-                        // There are no more entries in the HOT chain, so no copy of the tuple is
-                        // visible in any transaction.
                         return None;
                     }
                 }
 
-                // The raw HOT bit is enough here. `HeapTupleHeaderIsHotUpdated` also wants a
-                // valid xmax and xmin, and under the visibility check taken in the same locked
-                // block an aborted updater reads as LIVE and an aborted inserter as DEAD, so
-                // neither reaches this branch.
-                if self.root_ctids
-                    && hot_updated
-                    && (htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD
-                        || htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_DELETE_IN_PROGRESS)
-                {
-                    // This member survives for old snapshots, but a newer HOT member carries
-                    // the values the build callback delivered for this root. Skip forward so
-                    // the segment holds the live version, matching what
-                    // heapam_index_build_range_scan indexes for a broken HOT chain. A member
-                    // that was deleted outright (not HOT-updated) is indexed below instead,
-                    // as heapam does: a pre-existing snapshot may still need to see it. Under
-                    // SnapshotAny `call_again` is set after every fetch, so it says nothing
-                    // about whether the chain goes on; the tuple's own HOT flag does.
-                    pg_sys::ExecClearTuple(self.fetch_state.slot());
-                    continue 'next_hot_chain;
-                }
-
-                // We successfully fetched a tuple. Break out to fetch and deform it.
+                // The tuple and its TOAST values are ready to index.
                 break;
             }
 
-            // We have a completely valid tuple to index: fetch and deform it.
-            //
-            // NOTE: We intentionally pass `false` (don't materialize) to keep the
-            // buffer pin held by the BufferHeapTupleTableSlot. This pin blocks
-            // VACUUM's LockBufferForCleanup, which prevents it from removing the
-            // heap tuple and deleting its TOAST chunks while we read them below.
-            // See: https://github.com/paradedb/paradedb/issues/5076
-            let htup = pg_sys::ExecFetchSlotHeapTuple(
-                self.fetch_state.slot(),
-                false,
-                std::ptr::null_mut(),
-            );
-
-            pg_sys::heap_deform_tuple(
-                htup,
-                self.heaptupdesc.as_ptr(),
-                self.values.as_mut_ptr(),
-                self.isnull.as_mut_ptr(),
-            );
-
-            // Eagerly detoast all variable-length (varlena) datums while the
-            // buffer pin is still held. Without this, the lazy detoasting in
-            // row_to_search_document can race with VACUUM deleting TOAST chunks
-            // after we release the pin (the "missing chunk number 0" crash).
-            // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
-            for i in 0..self.heaptupdesc.len() {
-                if !self.isnull[i] {
-                    let att = self.heaptupdesc.get(i).expect("valid attribute");
-                    if att.attlen == -1 {
-                        self.values[i] = pg_sys::Datum::from(pg_sys::pg_detoast_datum(
-                            self.values[i].cast_mut_ptr(),
-                        ));
-                    }
-                }
-            }
-
-            let expr_results = self.expression_state.evaluate(self.fetch_state.slot());
+            let expr_results = if self.expression_state.expr_states.is_empty() {
+                Vec::new()
+            } else {
+                let eval_slot = self.fetch_state.eval_slot(&self.values, &self.isnull);
+                self.expression_state.evaluate(eval_slot)
+            };
 
             let mut doc = TantivyDocument::new();
 
@@ -2127,7 +2243,73 @@ mod unit_tests {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::pg_sys::Oid;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    fn recently_dead_toast_error_cleanup() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS pg_surgery;
+             CREATE TABLE recently_dead_toast(body text) WITH(autovacuum_enabled=false);
+             ALTER TABLE recently_dead_toast ALTER COLUMN body SET STORAGE EXTERNAL;
+             INSERT INTO recently_dead_toast VALUES (repeat(md5('toast') || ' ', 200));
+             DO $$
+             DECLARE toast_relation regclass;
+             BEGIN
+                 SELECT reltoastrelid INTO toast_relation FROM pg_class
+                 WHERE oid='recently_dead_toast'::regclass;
+                 EXECUTE format('SELECT heap_force_kill(%L::regclass, array_agg(ctid)) FROM %s',
+                                toast_relation, toast_relation);
+             END $$;",
+        )
+        .unwrap();
+        let oid = Spi::get_one::<Oid>("SELECT 'recently_dead_toast'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let relation = PgSearchRelation::open(oid);
+        let toast = PgSearchRelation::open(unsafe {
+            (*relation.as_ptr()).rd_rel.as_ref().unwrap().reltoastrelid
+        });
+        Spi::connect(|client| {
+            let row = client
+                .select("SELECT body FROM recently_dead_toast", None, &[])
+                .unwrap()
+                .first();
+            let datum = row.get_datum_by_ordinal(1).unwrap().unwrap();
+            unsafe {
+                let parent = pg_sys::CurrentResourceOwner;
+                let refcount = (*toast.as_ptr()).rd_refcnt;
+                // Exercise both outcomes with an actual missing TOAST chunk. The frozen XID
+                // models a deleter that became removable between the first check and detoast.
+                for removable in [false, true] {
+                    let xmax = if removable {
+                        pg_sys::FrozenTransactionId
+                    } else {
+                        pg_sys::GetCurrentTransactionId()
+                    };
+                    let skipped = PgTryBuilder::new(AssertUnwindSafe(|| {
+                        !detoast_recently_dead(&relation, xmax, || {
+                            pg_sys::pg_detoast_datum(datum.cast_mut_ptr());
+                        })
+                    }))
+                    .catch_when(PgSqlErrorCode::ERRCODE_DATA_CORRUPTED, |_| false)
+                    .execute();
+                    assert_eq!(skipped, removable);
+                    assert_eq!({ pg_sys::CurrentResourceOwner }, parent);
+                    assert_eq!((*toast.as_ptr()).rd_refcnt, refcount);
+                }
+                let healthy = "healthy".into_datum().unwrap();
+                assert!(detoast_recently_dead(
+                    &relation,
+                    pg_sys::FrozenTransactionId,
+                    || {
+                        pg_sys::pg_detoast_datum(healthy.cast_mut_ptr());
+                    }
+                ));
+                assert_eq!({ pg_sys::CurrentResourceOwner }, parent);
+            }
+        });
+    }
 
     #[pg_test]
     fn bitmap_window_visibility_partition() {

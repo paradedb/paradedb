@@ -3,7 +3,7 @@
 # - Minimum 2 CPU cores for compilation
 #
 # This image pre-builds the `qgen` property test binary and bundles it with
-# Antithesis singleton driver scripts. The binary is invoked in a loop against
+# DST singleton driver scripts. The binary is invoked in a loop against
 # the in-cluster ParadeDB primary by the driver script (see
 # tests/antithesis/singleton_driver_property-tests.sh).
 
@@ -14,7 +14,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install build and runtime dependencies. `jq` is used during build to extract
 # the test binary path from cargo's JSON output; `curl` is needed by the
-# antithesis-instrumentation build script, which `--features dst` pulls in.
+# DST coverage shim build script, which `--features dst` pulls in.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     lld \
@@ -39,7 +39,7 @@ WORKDIR /home/app
 # is built).
 COPY --chown=app:app . .
 
-# Configure Antithesis test singletons.
+# Configure DST test singletons.
 RUN mkdir -p /opt/antithesis/test/v1/quickstart
 COPY tests/antithesis/ /opt/antithesis/test/v1/quickstart/
 RUN chmod +x /opt/antithesis/test/v1/quickstart/*.sh
@@ -50,7 +50,7 @@ ENV RUST_LOG=info
 ENV PGCLIENTENCODING=UTF8
 
 # Prefetch deps and build the qgen test binary while we have Internet. This
-# Docker image will run in an air-gapped environment in Antithesis, so the
+# Docker image will run in an air-gapped DST environment, so the
 # binary must already exist on disk. The `--message-format=json` output lets
 # us pick out the unhashed test executable path and copy it to a stable
 # location.
@@ -62,7 +62,7 @@ RUN cargo fetch --locked --manifest-path /home/app/Cargo.toml && \
     QGEN_BIN=$(jq -r 'select(.profile.test == true and .target.name == "qgen") | .executable' /tmp/build.json | tail -n 1) && \
     test -x "$QGEN_BIN" && \
     cp "$QGEN_BIN" /home/app/qgen && \
-    /home/app/qgen --exact antithesis_sdk_initializes && \
+    /home/app/qgen --exact dst_sdk_initializes && \
     rm /tmp/build.json
 
 CMD ["sleep", "infinity"]

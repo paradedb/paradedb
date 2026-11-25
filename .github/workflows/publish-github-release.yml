@@ -120,10 +120,6 @@ jobs:
           cache: false
           rustflags: ""
 
-      - name: Install Determinate Nix
-        if: github.repository == 'paradedb/paradedb'
-        uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3.24.1
-
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
         env:
@@ -160,7 +156,7 @@ jobs:
           fi
           ./scripts/release.sh all "$RELEASE_VERSION" "${FLAGS[@]}"
 
-      - name: Update Cargo Version, Lockfile, and Nix Hash
+      - name: Update Cargo Version and Lockfile
         if: github.repository == 'paradedb/paradedb'
         env:
           INPUTS_VERSION: ${{ github.event.inputs.version }}
@@ -470,7 +466,7 @@ jobs:
       - name: Record Cargo Tree Fingerprint
         id: cargo_fingerprint
         run: |
-          FINGERPRINT=$(git rev-parse HEAD:Cargo.toml HEAD:Cargo.lock HEAD:nix/pg_search.nix | tr '\n' ' ')
+          FINGERPRINT=$(git rev-parse HEAD:Cargo.toml HEAD:Cargo.lock | tr '\n' ' ')
           echo "fingerprint=${FINGERPRINT% }" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
@@ -479,10 +475,6 @@ jobs:
         with:
           cache: false
           rustflags: ""
-
-      - name: Install Determinate Nix
-        if: needs.prepare-release.outputs.is_latest == 'true'
-        uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3.24.1
 
       - name: Stage Release Artifacts on Main
         env:
@@ -549,7 +541,7 @@ jobs:
             ./scripts/release.sh changelog "${CLEAN_VERSION}" --register-only --no-is-latest
           fi
 
-      - name: Update Cargo Version, Lockfile, and Nix Hash on Main
+      - name: Update Cargo Version and Lockfile on Main
         if: needs.prepare-release.outputs.is_latest == 'true'
         env:
           RELEASE_VERSION: ${{ github.event.inputs.version }}
@@ -596,10 +588,10 @@ jobs:
         env:
           EXPECTED_FINGERPRINT: ${{ needs.prepare-main-sync.outputs.cargo_tree_fingerprint }}
         run: |
-          CURRENT_FINGERPRINT=$(git rev-parse HEAD:Cargo.toml HEAD:Cargo.lock HEAD:nix/pg_search.nix | tr '\n' ' ')
+          CURRENT_FINGERPRINT=$(git rev-parse HEAD:Cargo.toml HEAD:Cargo.lock | tr '\n' ' ')
           CURRENT_FINGERPRINT="${CURRENT_FINGERPRINT% }"
           if [[ "$CURRENT_FINGERPRINT" != "$EXPECTED_FINGERPRINT" ]]; then
-            echo "::error::Cargo.toml, Cargo.lock, or nix/pg_search.nix changed on main while preparing the sync patch. Re-sync main with the updated Nix cargoHash."
+            echo "::error::Cargo.toml or Cargo.lock changed on main while preparing the sync patch. Prepare a new sync patch."
             exit 1
           fi
 

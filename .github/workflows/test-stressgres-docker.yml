@@ -11,9 +11,15 @@ on:
     branches:
       - main
     paths:
+      - ".cargo/config.toml"
       - ".github/workflows/test-stressgres-docker.yml"
       - "docker/Dockerfile.stressgres"
+      - "dst/**"
       - "stressgres/**"
+      - ".dockerignore"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
   workflow_dispatch:
 
 concurrency:

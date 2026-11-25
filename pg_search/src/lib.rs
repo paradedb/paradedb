@@ -18,7 +18,7 @@
 // Direct dep, not just via `dst`: a cdylib drops the transitively-referenced shim, so reference it
 // here to keep its `.init_array` constructor.
 #[cfg(feature = "dst")]
-use antithesis_instrumentation as _;
+use dst_instrumentation as _;
 
 pub use common::{
     DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, DEFAULT_STARTUP_COST, EXPENSIVE_QUERY_COST_FACTOR,
@@ -128,9 +128,15 @@ extension_sql!(
     finalize
 );
 
-/// Initializes option parsing
+/// Services Postgres interrupts from Tantivy callbacks when executing on the Postgres main thread.
 fn check_for_interrupts() {
-    pgrx::check_for_interrupts();
+    debug_assert!(
+        common::postgres::customscan::mpp::interrupt::is_main_thread(),
+        "Tantivy interrupt callback invoked off the Postgres main thread"
+    );
+    if common::postgres::customscan::mpp::interrupt::is_main_thread() {
+        pgrx::check_for_interrupts();
+    }
 }
 
 #[allow(clippy::missing_safety_doc)]
@@ -158,7 +164,8 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     }
 
     // Register the DST assertion catalog for this process (a no-op outside `--features dst`)
-    dst::init();
+    #[cfg(feature = "dst")]
+    common::dst::init();
 
     postgres::options::init();
     postgres::build_logging::init();
@@ -175,6 +182,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     // was loaded via plain CREATE EXTENSION (no preload), skip
     if pg_sys::process_shared_preload_libraries_in_progress {
         postgres::storage::custom_rmgr::register();
+        postgres::storage::mutable_cache::init();
     }
 
     #[cfg(not(pg17_plus))]

@@ -29,6 +29,7 @@ use std::os::raw::c_int;
 /// Wraps a `Tuplesortstate` over `bytea` datums: `memcmp` order, caller-provided memory budget.
 pub struct Sorter {
     state: *mut pg_sys::Tuplesortstate,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     /// PG15's `tuplesort_getdatum` has no `copy` flag and always hands back a copy palloc'd in
     /// the caller's context, which the caller owns. Held here so [`Self::next_sorted`] can free
     /// the previous record instead of leaking one allocation per record into a context that may
@@ -40,6 +41,7 @@ pub struct Sorter {
 impl Sorter {
     /// `budget` is in bytes; the sort spills to temporary files beyond it.
     pub fn new(budget: usize) -> Self {
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             // `<` operator for bytea, so the sort orders by memcmp of the serialized keys.
             let tcache =
@@ -56,6 +58,7 @@ impl Sorter {
             );
             Sorter {
                 state,
+                owner,
                 #[cfg(feature = "pg15")]
                 last_returned: None,
             }
@@ -108,25 +111,27 @@ impl Sorter {
     }
 }
 
-// Outside a transaction the sort's memory context is already gone, so there is nothing to end.
+// Outside a live originating resource owner / transaction the sort's memory context and temp files
+// are already gone, so there is nothing to end.
 crate::impl_safe_drop!(Sorter, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            self.free_last_returned();
-            pg_sys::tuplesort_end(self.state);
-        }
-    }
+    let owner = self.owner;
+    owner.run_if_live(|| unsafe {
+        self.free_last_returned();
+        pg_sys::tuplesort_end(self.state);
+    });
 });
 
 /// Wraps a `Tuplesortstate` over by-value `int8` datums. No allocation per record on either side
 /// of the sort, and about a third of the sort memory a `bytea` record of the same size takes.
 pub struct Int8Sorter {
     state: *mut pg_sys::Tuplesortstate,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 impl Int8Sorter {
     /// `budget` is in bytes; the sort spills to temporary files beyond it.
     pub fn new(budget: usize) -> Self {
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             let tcache =
                 pg_sys::lookup_type_cache(pg_sys::INT8OID, pg_sys::TYPECACHE_LT_OPR as c_int);
@@ -140,7 +145,7 @@ impl Int8Sorter {
                 std::ptr::null_mut(),
                 0,
             );
-            Int8Sorter { state }
+            Int8Sorter { state, owner }
         }
     }
 
@@ -168,11 +173,10 @@ impl Int8Sorter {
 }
 
 crate::impl_safe_drop!(Int8Sorter, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            pg_sys::tuplesort_end(self.state);
-        }
-    }
+    let state = self.state;
+    self.owner.run_if_live(|| unsafe {
+        pg_sys::tuplesort_end(state);
+    });
 });
 
 /// Build a transient `bytea` Datum from `bytes` (palloc'd in the current context).

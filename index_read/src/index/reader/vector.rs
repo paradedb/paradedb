@@ -18,7 +18,7 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
 use pgrx::pg_sys;
-use tantivy::query::Scorer;
+use tantivy::query::UnpositionedScorer;
 use tantivy::vector::{
     AtomicVectorWork, Candidate, ClusterRef, LocatedPath, PostFilterStage, ProbeParams,
     SharedVectorWork, VectorFilterStrategy, VectorRoutingStats, VectorSearchBudget,
@@ -250,13 +250,15 @@ impl tantivy::query::Weight for VectorFilterWeight {
         &self,
         reader: &SegmentReader,
         boost: Score,
-        candidate_size: u32,
-    ) -> TantivyResult<Box<dyn Scorer>> {
+        candidate_hint: tantivy::query::CandidateHint,
+    ) -> TantivyResult<UnpositionedScorer> {
         if self.visible_docs.contains_key(&reader.segment_id()) {
-            self.scorer(reader, boost)
+            Ok(UnpositionedScorer::from_positioned(
+                self.scorer(reader, boost)?,
+            ))
         } else {
             self.get(reader)
-                .scorer_for_candidates_unpositioned(reader, boost, candidate_size)
+                .scorer_for_candidates_unpositioned(reader, boost, candidate_hint)
         }
     }
 

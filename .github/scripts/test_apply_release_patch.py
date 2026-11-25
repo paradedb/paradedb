@@ -106,7 +106,6 @@ class ReleasePatchTests(unittest.TestCase):
     def test_main_sync_patch_with_version_bump_and_changelog_round_trip(self):
         """Main sync patches with version bumps, docs, and fragment cleanup apply cleanly."""
         self.write("Cargo.lock", 'name = "pg_search"\nversion = "0.26.0"\n')
-        self.write("nix/pg_search.nix", 'cargoHash = "sha256-old";\n')
         self.write("docs/docs.json", '{"version": "v0.26.8"}\n')
         self.write("docs/project/changelog/0.26.8.mdx", '---\ntitle: "0.26.8"\n---\n')
         self.write("docs/project/changelog/unreleased/123.bugfix.mdx", "Fix\n")
@@ -115,7 +114,6 @@ class ReleasePatchTests(unittest.TestCase):
 
         self.write("Cargo.toml", 'version = "0.27.0"\n')
         self.write("Cargo.lock", 'name = "pg_search"\nversion = "0.27.0"\n')
-        self.write("nix/pg_search.nix", 'cargoHash = "sha256-new";\n')
         self.write("docs/docs.json", '{"version": "v0.27.0"}\n')
         self.write(
             "docs/project/changelog/0.26.8.mdx",
@@ -130,7 +128,7 @@ class ReleasePatchTests(unittest.TestCase):
         apply_patch(self.repo, self.patch, "0.27.0")
         self.assertEqual((self.repo / "Cargo.toml").read_text(), 'version = "0.27.0"\n')
         self.assertEqual(
-            (self.repo / "nix/pg_search.nix").read_text(), 'cargoHash = "sha256-new";\n'
+            (self.repo / "Cargo.lock").read_text(), 'name = "pg_search"\nversion = "0.27.0"\n'
         )
         self.assertTrue(
             (self.repo / "pg_search/sql/pg_search--0.26.8--0.27.0.sql").is_file()

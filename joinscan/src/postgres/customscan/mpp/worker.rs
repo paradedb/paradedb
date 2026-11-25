@@ -47,7 +47,7 @@ use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::datafusion::memory::{WorkMemMemoryPool, build_runtime_env};
 use crate::postgres::customscan::datafusion::{all_pg_search_udafs, all_pg_search_udfs};
 use crate::postgres::customscan::mpp::dsm_stream::{
-    DsmAsyncStream, ServerProc, build_worker_streams, proc_wakeup_slot,
+    DsmAsyncStream, DsmLease, DsmLeased, ServerProc, build_worker_streams, proc_wakeup_slot,
 };
 use crate::postgres::customscan::mpp::glue::{
     BgWorkerCount, MppBudget, MppLeaderState, WorkerSession, register_worker_streams_on_dsm_detach,
@@ -371,16 +371,31 @@ fn build_mpp_session_context(
     SessionContext::new_with_state(state_builder.build())
 }
 
-#[derive(Clone, Copy)]
-struct SpillNotifier(*mut ParallelScanState);
+#[derive(Clone)]
+struct SpillNotifier {
+    parallel_state: DsmLeased<std::ptr::NonNull<ParallelScanState>>,
+}
 
-// SAFETY: `ParallelScanState::mark_spilled` only stores to an `AtomicU32` inside the DSM segment.
+// SAFETY: `ParallelScanState::mark_spilled` only stores to an `AtomicU32` inside the DSM segment,
+// and `DsmLeased::try_access` holds a `DsmAccessGuard` across that store so `on_dsm_detach` cannot
+// unmap the segment concurrently or beforehand (even if `shutdown_timeout` expires).
 unsafe impl Send for SpillNotifier {}
 unsafe impl Sync for SpillNotifier {}
 
 impl SpillNotifier {
-    fn mark_spilled(self) {
-        unsafe { (*self.0).mark_spilled() }
+    fn new(parallel_state: *mut ParallelScanState, dsm_lease: &DsmLease) -> Self {
+        let ptr = std::ptr::NonNull::new(parallel_state)
+            .expect("ParallelScanState pointer must be non-null");
+        Self {
+            parallel_state: dsm_lease.bind(ptr),
+        }
+    }
+
+    fn mark_spilled(&self) {
+        let Some(parallel_state) = self.parallel_state.try_access() else {
+            return;
+        };
+        unsafe { parallel_state.as_ref().mark_spilled() }
     }
 }
 
@@ -412,15 +427,10 @@ pub fn init_worker_base_session_state() {
 /// Process-wide base [`SessionState`] for MPP workers: pre-registers DataFusion's default
 /// function registries plus `pg_search` UDFs/UDAFs with empty analyzer/optimizer rule lists so
 /// neither `Worker` creation nor per-task `coordinator_channel` setup rebuilds them, and applies
-/// current GUC settings (`apply_paradedb_session_config` plus `inlist_mode`) once per query.
-fn worker_base_session_state(inlist_mode: crate::gucs::InListPushdownMode) -> SessionState {
+/// current GUC settings (`apply_paradedb_session_config`) once per query.
+fn worker_base_session_state() -> SessionState {
     let mut cfg = WORKER_BASE_SESSION_STATE.config().clone();
     crate::postgres::customscan::joinscan::scan_state::apply_paradedb_session_config(&mut cfg);
-    if inlist_mode == crate::gucs::InListPushdownMode::LazySortProbe {
-        cfg.options_mut()
-            .optimizer
-            .hash_join_inlist_pushdown_max_distinct_values = inlist_mode.max_distinct_values();
-    }
     SessionStateBuilder::new_from_existing(WORKER_BASE_SESSION_STATE.clone())
         .with_config(cfg)
         .build()
@@ -472,7 +482,6 @@ fn build_mpp_worker(
 
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
-    let inlist_mode = unsafe { (*parallel_state).inlist_pushdown_mode };
     let codec = PgSearchPhysicalExtensionCodec::new_worker(
         Some(parallel_state),
         index_segment_views,
@@ -507,7 +516,7 @@ fn build_mpp_worker(
                 .build())
         }
     })
-    .with_base_session_state(worker_base_session_state(inlist_mode))
+    .with_base_session_state(worker_base_session_state())
 }
 
 /// When `leader.leader_participation.is_participating()`, attach an in-process `Worker` at
@@ -537,7 +546,7 @@ fn setup_leader_worker(
         .take()
         .expect("participating leader must have inbound DSM server streams");
 
-    let spill_notifier = SpillNotifier(scan_ptr);
+    let spill_notifier = SpillNotifier::new(scan_ptr, leader.session.shutdown_handle.lease());
     let on_spill: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
         spill_notifier.mark_spilled();
         leader_spilled.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -610,9 +619,6 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
             }
         };
     let detach_handle = streams.detach_handle;
-    unsafe {
-        register_worker_streams_on_dsm_detach(worker_session.dsm_seg, detach_handle.clone());
-    }
 
     // In the symmetric mesh across `0..n_procs`, every background worker sees `n_procs - 1` peers
     // (`0` plus `n_procs - 2` sibling background workers), so total background workers is
@@ -623,8 +629,16 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
         dispatcher,
         streams.client_streams,
     ));
+    unsafe {
+        register_worker_streams_on_dsm_detach(
+            worker_session.dsm_seg,
+            detach_handle.clone(),
+            Arc::clone(&peer_resolver),
+            runtime.shutdown_handle(),
+        );
+    }
 
-    let spill_state = SpillNotifier(parallel_state);
+    let spill_state = SpillNotifier::new(parallel_state, detach_handle.lease());
     let worker = build_mpp_worker(
         parallel_state,
         Some(expr_context_guard.as_ptr()),

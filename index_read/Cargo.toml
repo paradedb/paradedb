@@ -33,7 +33,6 @@ arrow-schema.workspace = true
 base64.workspace = true
 bytemuck.workspace = true
 decimal-bytes.workspace = true
-dst = { path = "../dst" }
 parking_lot.workspace = true
 pgrx.workspace = true
 postcard.workspace = true

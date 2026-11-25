@@ -2,6 +2,23 @@ SET plpgsql.check_asserts = on;
 -- Exercise immutable segment writes to the existing, legacy-named index.
 SET paradedb.global_mutable_segment_rows = 0;
 
+CREATE VIEW regex_results AS
+SELECT 'digits_term' AS query, ARRAY(
+    SELECT id FROM regex_patterns WHERE digits === '123' ORDER BY id
+) AS ids
+UNION ALL
+SELECT 'letters_term', ARRAY(
+    SELECT id FROM regex_patterns WHERE letters === 'abc' ORDER BY id
+)
+UNION ALL
+SELECT 'digits_parse', ARRAY(
+    SELECT id FROM regex_patterns WHERE digits @@@ pdb.parse_with_field('abc123') ORDER BY id
+)
+UNION ALL
+SELECT 'letters_parse', ARRAY(
+    SELECT id FROM regex_patterns WHERE letters @@@ pdb.parse_with_field('abc123') ORDER BY id
+);
+
 DO $$
 BEGIN
     ASSERT NOT EXISTS (

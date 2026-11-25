@@ -427,10 +427,10 @@ impl ExecMethod for ColumnarExecState {
         // Create Postgres-integrated Tokio runtime on first use (same pattern as JoinScan)
         // to drive DataFusion's async streams while servicing main-thread Postgres FFI.
         if self.runtime.is_none() {
-            self.runtime = Some(
-                PgTokioRuntime::new()
-                    .expect("Failed to create tokio runtime for DataFusion stream execution"),
-            );
+            let runtime = PgTokioRuntime::new()
+                .expect("Failed to create tokio runtime for DataFusion stream execution");
+            state.register_runtime_for_dsm_detach(&runtime);
+            self.runtime = Some(runtime);
         }
 
         loop {
@@ -567,6 +567,7 @@ impl ExecMethod for ColumnarExecState {
         self.current_record_batch = None;
         self.current_batch_row_idx = 0;
         self.runtime = None;
+        state.clear_runtime_for_dsm_detach();
 
         // Reset inner FastFieldExecState
         self.inner.reset(state);

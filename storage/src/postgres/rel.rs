@@ -119,6 +119,7 @@ struct PgSearchRelationInner {
     relation: NonNull<pg_sys::RelationData>,
     need_close: bool,
     lockmode: Option<pg_sys::LOCKMODE>,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     schema: parking_lot::Mutex<Option<Result<SearchIndexSchema, SchemaError>>>,
     options: BM25IndexOptions,
     index_type: OnceLock<IndexType>,
@@ -138,10 +139,16 @@ impl PgSearchRelationInner {
         need_close: bool,
         lockmode: Option<pg_sys::LOCKMODE>,
     ) -> Arc<Self> {
+        let owner = if need_close {
+            crate::postgres::resowner::ResourceOwnerStamp::current()
+        } else {
+            crate::postgres::resowner::ResourceOwnerStamp::untracked()
+        };
         Arc::new(Self {
             relation,
             need_close,
             lockmode,
+            owner,
             schema: parking_lot::Mutex::new(None),
             options: unsafe { BM25IndexOptions::from_relation(relation.as_ptr()) },
             index_type: OnceLock::new(),
@@ -155,25 +162,26 @@ impl PgSearchRelationInner {
 struct RelationCloseOnMainThread {
     relation: usize,
     lockmode: Option<pg_sys::LOCKMODE>,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 crate::impl_safe_drop!(RelationCloseOnMainThread, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            let rel = self.relation as pg_sys::Relation;
-            match self.lockmode {
-                Some(lockmode) => pg_sys::relation_close(rel, lockmode),
-                None => pg_sys::RelationClose(rel),
-            }
+    let rel = self.relation as pg_sys::Relation;
+    let lockmode = self.lockmode;
+    self.owner.run_if_live(|| unsafe {
+        match lockmode {
+            Some(lockmode) => pg_sys::relation_close(rel, lockmode),
+            None => pg_sys::RelationClose(rel),
         }
-    }
+    });
 });
 
 /// Represents an opened Postgres relation to be used by pg_search.
 ///
 /// [`PgSearchRelation`] is atomically reference counted and will close the underlying
 /// [`pg_sys::Relation`] on the Postgres main thread when the last reference is dropped,
-/// accounting for the state of the current transaction.
+/// skipping cleanup once the originating `ResourceOwner` has started release or outside a
+/// live transaction.
 ///
 /// Instances of [`PgSearchRelation`] can be closed as necessary.
 #[derive(Clone)]
@@ -204,6 +212,7 @@ impl Drop for PgSearchRelation {
             crate::postgres::customscan::mpp::drop_on_main_thread(RelationCloseOnMainThread {
                 relation: inner.relation.as_ptr() as usize,
                 lockmode: inner.lockmode,
+                owner: inner.owner,
             });
         }
     }

@@ -604,7 +604,7 @@ impl SuiteRunner {
     /// Create a new SuiteRunner in the given [`SetupMode`], run whatever startup that mode
     /// needs (setup and/or the version probe), then spawn a thread per job and monitor.
     ///
-    /// Antithesis builds the schema before fault injection. Its `SkipSetup` driver
+    /// The DST setup builds the schema before fault injection. Its `SkipSetup` driver
     /// starts workers without waiting for a version probe or schema setup.
     pub fn new(
         suite: Suite,

@@ -69,7 +69,9 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::directory::error::Incompatibility;
 use tantivy::index::{Index, Order, SegmentId, SegmentMetaInventory};
-use tantivy::query::{ConstScoreQuery, EnableScoring, QueryParser, Scorer, Weight};
+use tantivy::query::{
+    ConstScoreQuery, EnableScoring, QueryParser, Scorer, UnpositionedScorer, Weight,
+};
 use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::{
@@ -141,7 +143,7 @@ fn scorer_estimate(weight: &dyn Weight, reader: &SegmentReader) -> (u64, u64) {
         .scorer(reader, 1.0)
         .expect("creating scorer for estimation should not fail");
     let mut count = scorer.size_hint() as u64;
-    let mut cost = scorer.cost();
+    let mut cost = scorer.cost().drive.0;
     if count == 0 {
         count = scorer.count_including_deleted() as u64;
         cost = cost.max(count);
@@ -403,11 +405,14 @@ impl<'a> DisjunctScorer<'a> {
 }
 
 /// Lazily initialized per-segment base filter for `RA` lookups.
+// TODO: When the base filter scorer has `cost().probe.prefers_batching()` (e.g. a pushed-down
+// `TermPredicateQuery`), batch candidate `DocId`s in `collect_lookup_only_segment` and
+// `intersect_scorer_with_lookup` via `DocSet::seek_danger_batch` instead of scalar `seek_danger`.
 struct SegmentBaseFilter<'a> {
     segment_reader: &'a SegmentReader,
     weight: Option<&'a Arc<LazyWeight>>,
     candidate_size: u32,
-    state: Option<(Box<dyn Scorer>, DocId)>,
+    state: Option<(UnpositionedScorer, DocId)>,
 }
 
 impl<'a> SegmentBaseFilter<'a> {
@@ -428,22 +433,23 @@ impl<'a> SegmentBaseFilter<'a> {
         let Some(weight) = self.weight else {
             return true;
         };
-        // Non-`TermSetQuery` weights (such as `RangeQuery` or `BooleanQuery` from
-        // `and_query`) fall back to `Weight::scorer`, which positions the scorer at its first
-        // matching document (`scorer.doc()`) and records `last_seek_pos_opt` on any child
-        // `RangeDocSet`. Tracking `min_doc` avoids calling `seek_danger` with a `target_doc`
-        // below the scorer's current lower bound (which would underflow `new_seek -
-        // last_seek_pos` in `RangeDocSet::is_last_seek_distance_large`).
+        // Weights without an unpositioned candidate fast path (such as inverted-index
+        // `RangeQuery` or multi-clause `BooleanQuery` from `and_query`) fall back to
+        // `Weight::scorer`, which positions the scorer at its first matching document
+        // (`scorer.lower_bound()`) and records `last_seek_pos_opt` on any child `RangeDocSet`.
+        // Tracking `min_doc` avoids calling `seek_danger` with a `target_doc` below the
+        // scorer's current lower bound (which would underflow `new_seek - last_seek_pos`
+        // in `RangeDocSet::is_last_seek_distance_large`).
         let (scorer, min_doc) = self.state.get_or_insert_with(|| {
             let scorer = weight
                 .get()
                 .scorer_for_candidates_unpositioned(
                     self.segment_reader,
                     1.0,
-                    self.candidate_size.max(1),
+                    tantivy::query::CandidateHint::Estimated(self.candidate_size.max(1)),
                 )
                 .expect("base filter scorer should be constructable");
-            let first_doc = scorer.doc();
+            let first_doc = scorer.lower_bound();
             (scorer, first_doc)
         });
         if target_doc < *min_doc {
@@ -525,10 +531,45 @@ fn intersect_scorer_with_lookup<S: Scorer + ?Sized>(
         return;
     }
     let candidate_size = driver.size_hint().max(1);
-    let mut lookup_scorer = lookup_weight
-        .scorer_for_candidates_unpositioned(segment_reader, 1.0, candidate_size)
+    enum LookupProbe {
+        FastBitset(Box<dyn Scorer>),
+        Unpositioned(UnpositionedScorer),
+    }
+
+    impl LookupProbe {
+        fn seek_danger(&mut self, target: DocId) -> tantivy::SeekDangerResult {
+            match self {
+                Self::FastBitset(scorer) => scorer.seek_danger(target),
+                Self::Unpositioned(scorer) => scorer.seek_danger(target),
+            }
+        }
+
+        fn advance_fast_bitset(&mut self) -> Option<DocId> {
+            match self {
+                Self::FastBitset(scorer) => Some(scorer.advance()),
+                Self::Unpositioned(_) => None,
+            }
+        }
+    }
+
+    let lookup_scorer = lookup_weight
+        .scorer_for_candidates_unpositioned(
+            segment_reader,
+            1.0,
+            tantivy::query::CandidateHint::Estimated(candidate_size),
+        )
         .expect("lookup scorer should be constructable");
-    let first_lookup_doc = lookup_scorer.doc();
+    if lookup_scorer.is_empty() {
+        return;
+    }
+    let (mut lookup_probe, first_lookup_doc) = if lookup_scorer.has_fast_bitset() {
+        let scorer = lookup_scorer.into_positioned();
+        let first_doc = scorer.doc();
+        (LookupProbe::FastBitset(scorer), first_doc)
+    } else {
+        let first_doc = lookup_scorer.lower_bound();
+        (LookupProbe::Unpositioned(lookup_scorer), first_doc)
+    };
     if first_lookup_doc == tantivy::TERMINATED {
         return;
     }
@@ -543,7 +584,7 @@ fn intersect_scorer_with_lookup<S: Scorer + ?Sized>(
         doc_id = driver.seek(first_lookup_doc);
     }
     while doc_id != tantivy::TERMINATED {
-        match lookup_scorer.seek_danger(doc_id) {
+        match lookup_probe.seek_danger(doc_id) {
             tantivy::SeekDangerResult::Found => {
                 let addr = DocAddress::new(segment_ord, doc_id);
                 if alive_bitset.is_none_or(|b| b.is_alive(doc_id))
@@ -561,8 +602,7 @@ fn intersect_scorer_with_lookup<S: Scorer + ?Sized>(
                         results.push((SearchIndexScore::new(score), addr));
                     }
                 }
-                if lookup_scorer.has_fast_bitset() {
-                    let next_target = lookup_scorer.advance();
+                if let Some(next_target) = lookup_probe.advance_fast_bitset() {
                     if next_target == tantivy::TERMINATED {
                         break;
                     }
@@ -5193,13 +5233,13 @@ mod tests {
             ("", 2, false),
             ("AND category = 'keep'", 2, false),
             (
-                "AND id @@@ paradedb.parse_with_field('category', current_setting('vector_parallelism.filter'))",
+                "AND category @@@ pdb.parse_with_field(current_setting('vector_parallelism.filter'))",
                 2,
                 false,
             ),
             ("AND id > 1", 2, true),
             (
-                "AND id @@@ paradedb.parse_with_field('id', current_setting('vector_parallelism.range'))",
+                "AND id @@@ pdb.parse_with_field(current_setting('vector_parallelism.range'))",
                 2,
                 true,
             ),

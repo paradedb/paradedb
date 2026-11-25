@@ -1039,7 +1039,8 @@ fn term_set(
             index_created_by_version,
         )
         .expect("could not convert argument to search term")
-    })))
+    }))
+    .with_exact_fast_field(search_field.exact_fast_field_for_term_set()))
 }
 
 fn term(
@@ -3641,7 +3642,7 @@ mod tests {
 
         Spi::run(
             "CREATE TABLE term_positions (id BIGINT, title TEXT);
-             CREATE INDEX term_positions_idx ON term_positions USING bm25 (id, title);",
+             CREATE INDEX term_positions_idx ON term_positions USING paradedb (id, title);",
         )
         .unwrap();
         let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'term_positions_idx'::regclass::oid")

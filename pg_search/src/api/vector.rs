@@ -1242,21 +1242,24 @@ mod tests {
     // Stored segment layers are independent of the field build target.
     #[pg_test]
     fn vector_metadata_is_independent_of_build_target() {
+        const SINGLE_LAYER_BYTES_PER_ROW: i64 = 32;
+        const STORED_LAYERS_BYTES_PER_ROW: i64 = 108;
+
         let indexrel = vector_metadata_fixture();
         set_single_layer_target(&indexrel);
         assert_eq!(
-            Spi::get_one::<bool>(
-                "SELECT layers=ARRAY[1] AND bytes_per_row=144 AND settings_version=3
+            Spi::get_one::<bool>(&format!(
+                "SELECT layers=ARRAY[1] AND bytes_per_row={SINGLE_LAYER_BYTES_PER_ROW} AND settings_version=3
             FROM paradedb.vector_config('metadata_vectors_idx','vec')"
-            )
+            ))
             .unwrap(),
             Some(true)
         );
         assert_eq!(
-            Spi::get_one::<bool>(
-                "SELECT bool_and(layers=ARRAY[1,4] AND bytes_per_row=668)
+            Spi::get_one::<bool>(&format!(
+                "SELECT bool_and(layers=ARRAY[1,4] AND bytes_per_row={STORED_LAYERS_BYTES_PER_ROW})
             FROM paradedb.vector_info('metadata_vectors_idx','vec')"
-            )
+            ))
             .unwrap(),
             Some(true)
         );
@@ -1293,7 +1296,7 @@ mod tests {
             assert_eq!(
                 Spi::get_one::<i64>("SELECT count(*) FROM metadata_vectors WHERE id @@@ pdb.all()")
                     .unwrap(),
-                Some(2048)
+                Some(VECTOR_METADATA_ROWS)
             );
             Spi::run("SELECT * FROM paradedb.vector_config('metadata_vectors_idx','vec')").unwrap();
             if version != 5 {

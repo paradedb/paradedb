@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use std::cell::{OnceCell, UnsafeCell};
+use std::cell::{OnceCell, RefCell, UnsafeCell};
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, Varno};
@@ -33,6 +34,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::WindowAggreg
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
+use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, PgTokioRuntimeShutdownHandle};
 use crate::postgres::customscan::projections::{PlaceholderColumn, PlaceholderProjection};
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -66,6 +68,10 @@ pub struct BaseScanState {
     pub telemetry: ScanTelemetry,
     /// Set when this scan is parallel-aware (DSM attached).
     pub parallel: Option<ParallelScanHandle>,
+    /// Shared slot populated with this scan's [`PgTokioRuntimeShutdownHandle`] while an async exec
+    /// method (`TopKScanExecState` or `ColumnarExecState`) holds a `PgTokioRuntime` under a `Gather`
+    /// DSM segment, so `on_basescan_dsm_detach` shuts down only this scan's runtime on abort.
+    dsm_runtime_shutdown: Option<Rc<RefCell<Option<PgTokioRuntimeShutdownHandle>>>>,
     /// Workers wait for the leader to publish this plan when they first need it.
     pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
     pub vector_routing_pending: bool,
@@ -176,6 +182,26 @@ impl CustomScanState for BaseScanState {
 }
 
 impl BaseScanState {
+    pub(super) fn alloc_dsm_runtime_shutdown_slot(
+        &mut self,
+    ) -> Rc<RefCell<Option<PgTokioRuntimeShutdownHandle>>> {
+        let slot = Rc::new(RefCell::new(None));
+        self.dsm_runtime_shutdown = Some(Rc::clone(&slot));
+        slot
+    }
+
+    pub(super) fn register_runtime_for_dsm_detach(&self, runtime: &PgTokioRuntime) {
+        if let Some(slot) = &self.dsm_runtime_shutdown {
+            *slot.borrow_mut() = Some(runtime.shutdown_handle());
+        }
+    }
+
+    pub(super) fn clear_runtime_for_dsm_detach(&self) {
+        if let Some(slot) = &self.dsm_runtime_shutdown {
+            *slot.borrow_mut() = None;
+        }
+    }
+
     pub fn open_relations(&mut self, lockmode: pg_sys::LOCKMODE) {
         self.lockmode = lockmode;
         if self.heaprel.is_none() {

@@ -179,9 +179,11 @@ embedding: { metric: :ip }      # inner product
 <Note>
   If you track index build progress with
   [`pg_stat_progress_create_index`](https://www.postgresql.org/docs/current/progress-reporting.html#CREATE-INDEX-PROGRESS-REPORTING),
-  you may notice progress appear to "stop" at intervals. This is expected:
-  vectors are clustered with k-means at these points, which is computationally
-  expensive.
+  the `phase` column identifies partition sampling, vector partition training,
+  and vector clustering. Row counters pause during training and clustering,
+  which can be computationally expensive. These phases do not currently report a
+  completion percentage. A leader that has finished its own work reports that it
+  is waiting for workers to finish indexing/clustering.
 </Note>
 
 ## Index Options

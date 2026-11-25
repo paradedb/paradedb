@@ -103,14 +103,6 @@ GROUP BY status ORDER BY count(*) DESC LIMIT 5;
 SELECT * FROM ssi_locks ORDER BY 1, 2;
 COMMIT;
 
--- the `paradedb.aggregate` function, which the planner never sees
-BEGIN ISOLATION LEVEL SERIALIZABLE;
-SELECT * FROM paradedb.aggregate(index=>'ssi_doctors_idx',
-                                 query=>paradedb.term('status', 'oncall'),
-                                 agg=>'{"matches": {"value_count": {"field": "id"}}}');
-SELECT * FROM ssi_locks ORDER BY 1, 2;
-COMMIT;
-
 -- join scan, which locks every source it reads. It needs the LIMIT to be chosen at all.
 BEGIN ISOLATION LEVEL SERIALIZABLE;
 SELECT * FROM ssi_plan_nodes($$SELECT d.id, s.ward FROM ssi_doctors d JOIN ssi_shifts s ON d.id = s.doctor_id

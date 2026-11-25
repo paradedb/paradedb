@@ -136,15 +136,32 @@ struct PgExprState {
     estate: *mut pg_sys::EState,
     econtext: *mut pg_sys::ExprContext,
     slot: *mut pg_sys::TupleTableSlot,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
     json_doc_datums: RefCell<HashMap<usize, (pg_sys::Datum, bool)>>,
 }
 
 crate::impl_safe_drop!(PgExprState, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            pg_sys::ExecDropSingleTupleTableSlot(self.slot);
-            pg_sys::FreeExprContext(self.econtext, true);
-            pg_sys::FreeExecutorState(self.estate);
+    let slot = self.slot;
+    let econtext = self.econtext;
+    let estate = self.estate;
+    let mut cleaned = false;
+    self.owner.run_if_live(|| unsafe {
+        pg_sys::ExecDropSingleTupleTableSlot(slot);
+        pg_sys::FreeExprContext(econtext, true);
+        pg_sys::FreeExecutorState(estate);
+        cleaned = true;
+    });
+    // We intentionally call `IsTransactionState()` here (rather than `ResourceOwnerStamp`) because
+    // this fallback only runs after `self.owner.run_if_live(...)` saw that the originating
+    // `ResourceOwner` was already released (e.g. a subtransaction or cursor failed), while
+    // `TopTransactionContext` is still live: reclaim the `TopTransactionContext` allocations
+    // without running `isCommit=true` `ExprContext` callbacks or `ResourceOwner` tupledesc
+    // release.
+    if !cleaned && unsafe { crate::postgres::utils::IsTransactionState() } {
+        unsafe {
+            pg_sys::FreeExprContext(econtext, false);
+            pg_sys::MemoryContextDelete((*estate).es_query_cxt);
+            pg_sys::pfree(slot.cast());
         }
     }
 });
@@ -266,12 +283,14 @@ impl PgExprUdf {
                         let expr_state =
                             pg_sys::ExecInitExpr(prepared.as_ptr(), std::ptr::null_mut());
 
+                        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
                         let json_doc_datums = RefCell::new(HashMap::new());
                         crate::postgres::customscan::mpp::MainThread::new(PgExprState {
                             expr_state,
                             estate,
                             econtext,
                             slot,
+                            owner,
                             json_doc_datums,
                         })
                     })

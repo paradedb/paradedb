@@ -55,19 +55,17 @@ SELECT '[1,2,3]'::vector::pdb.vector AS native;
 DROP EXTENSION pg_search CASCADE;
 SELECT EXISTS (SELECT FROM pg_extension WHERE extname = 'vector') AS pgvector_preserved;
 
-\set QUIET 1
-\c pdb_vector_lifecycle
-\set QUIET 0
-SET client_min_messages = warning;
 CREATE EXTENSION pg_search;
 SELECT '[1,2,3]'::vector::pdb.vector AS native;
+CREATE TABLE recreated_native_vectors (id integer PRIMARY KEY, embedding pdb.vector(3));
+INSERT INTO recreated_native_vectors VALUES (1, '[1,0,0]');
+CREATE INDEX recreated_native_vectors_idx ON recreated_native_vectors
+USING paradedb (id, embedding pdb.vector_cosine_ops);
+SELECT id FROM recreated_native_vectors WHERE id @@@ pdb.all()
+ORDER BY embedding <=> '[1,0,0]' LIMIT 1;
 DROP EXTENSION pg_search CASCADE;
 DROP EXTENSION vector;
 
-\set QUIET 1
-\c pdb_vector_lifecycle
-\set QUIET 0
-SET client_min_messages = warning;
 SET max_parallel_workers_per_gather = 0;
 CREATE SCHEMA vector_ext;
 CREATE EXTENSION vector WITH SCHEMA vector_ext;

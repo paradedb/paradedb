@@ -26,16 +26,18 @@ pub trait OidExt {
 
 impl OidExt for pg_sys::Oid {
     fn is_paradedb_am(&self) -> bool {
-        static AM_OIDS: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-        *self != pg_sys::InvalidOid
-            && AM_OIDS
-                .get_or_init(|| unsafe {
-                    [
-                        pg_sys::get_index_am_oid(c"bm25".as_ptr(), true),
-                        pg_sys::get_index_am_oid(c"paradedb".as_ptr(), true),
-                    ]
+        if *self == pg_sys::InvalidOid {
+            return false;
+        }
+        unsafe {
+            SysCacheEntry::search1(pg_sys::SysCacheIdentifier::AMOID, (*self).into())
+                .and_then(|entry| {
+                    entry
+                        .attr::<&CStr>(pg_sys::Anum_pg_am_amname)
+                        .map(|name| matches!(name.to_bytes(), b"bm25" | b"paradedb"))
                 })
-                .contains(self)
+                .unwrap_or(false)
+        }
     }
 }
 

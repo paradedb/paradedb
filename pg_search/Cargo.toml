@@ -93,7 +93,7 @@ pg_test = [
   "joinscan/pg_test",
 ]
 # direct dep so the coverage shim survives into the cdylib (see lib.rs)
-dst = ["dst/enabled", "dep:antithesis-instrumentation"]
+dst = ["common/dst", "dep:dst-instrumentation"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = [
   "index_read/block_tracker",
@@ -111,9 +111,8 @@ index_write = { path = "../index_write", default-features = false }
 planner = { path = "../planner", default-features = false }
 basescan = { path = "../basescan", default-features = false }
 joinscan = { path = "../joinscan", default-features = false }
-antithesis-instrumentation = { version = "0.1", optional = true }   # coverage shim; see lib.rs
+dst-instrumentation = { package = "antithesis-instrumentation", version = "0.1", optional = true } # coverage shim; see lib.rs
 anyhow.workspace = true
-dst = { path = "../dst" }
 env_logger = { workspace = true, optional = true }
 half.workspace = true
 macros = { path = "../macros" }

@@ -24,7 +24,6 @@ pub mod parameterized_value;
 
 use pgrx::{IntoDatum, direct_function_call, pg_sys};
 use std::ffi::CString;
-use std::sync::OnceLock;
 
 pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
     direct_function_call::<pg_sys::Oid>(
@@ -35,46 +34,34 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
 }
 
 pub fn score_funcoids() -> [pg_sys::Oid; 2] {
-    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-    *OID_CACHE.get_or_init(|| {
-        [
-            unsafe {
-                direct_function_call::<pg_sys::Oid>(
-                    pg_sys::regprocedurein,
-                    &[c"pdb.score(anyelement)".into_datum()],
-                )
-                .expect("the `pdb.score(anyelement)` function should exist")
-            },
-            unsafe {
-                direct_function_call::<pg_sys::Oid>(
-                    pg_sys::regprocedurein,
-                    &[c"paradedb.score(anyelement)".into_datum()],
-                )
-                .expect("the `paradedb.score(anyelement)` function should exist")
-            },
-        ]
-    })
+    [
+        unsafe {
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"pdb.score(anyelement)".into_datum()],
+            )
+            .expect("the `pdb.score(anyelement)` function should exist")
+        },
+        unsafe {
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"paradedb.score(anyelement)".into_datum()],
+            )
+            .expect("the `paradedb.score(anyelement)` function should exist")
+        },
+    ]
 }
 
 /// The oid of `pdb.explain_score(anyelement)`. It is `InvalidOid` in a database that still has
 /// the SQL objects of an older release, and no call has that oid.
 pub fn explain_score_funcoid() -> pg_sys::Oid {
-    static OID_CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
-    if let Some(funcoid) = OID_CACHE.get() {
-        return *funcoid;
-    }
-    let funcoid = unsafe {
+    unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::to_regprocedure,
             &["pdb.explain_score(anyelement)".into_datum()],
         )
-    };
-    // Only a found oid is cached. `ALTER EXTENSION pg_search UPDATE` creates the function, and a
-    // session that is open at that time must find it afterwards.
-    match funcoid {
-        Some(funcoid) => *OID_CACHE.get_or_init(|| funcoid),
-        None => pg_sys::InvalidOid,
     }
+    .unwrap_or(pg_sys::InvalidOid)
 }
 
 pub mod orderby {

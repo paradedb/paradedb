@@ -656,6 +656,7 @@ pub mod v2 {
         BufferManager, BufferMut, Page, PageMut, init_new_buffer,
     };
     use crate::postgres::storage::fsm::{FSMBlockHeader, FSMBlockKind, FreeSpaceManager};
+    use common::dst;
     use pgrx::pg_sys;
     use std::iter::Peekable;
     use std::time::Duration;

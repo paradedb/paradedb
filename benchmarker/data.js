@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795615594189,
+  "lastUpdate": 1795620594342,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -109986,6 +109986,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14934151016-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795620588464,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 8.038,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 9.107,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 9.438,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.707,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 12.333,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 13.003,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 21.084,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 24.424,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 25.517,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 6.324,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 7.898,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 8.419,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 9.622,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 12.391,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 12.793,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 30.19,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 38.169,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 39.821,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.793,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 4.621,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 4.968,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 6.537,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.873,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.683,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 15.469,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 17.748,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 18.532,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "15038145514-latency"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (throughput)": [
@@ -110600,6 +110758,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14934151016-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795620589902,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 124.34407990019864,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 93.78590628845008,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 47.9496025419454,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 157.63006480276266,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 101.54651635725135,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 32.60399122314493,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 258.12749402999845,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 151.47920174888017,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 71.62348616440775,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "15038145514-throughput"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (buffers)": [
@@ -111214,6 +111440,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14934151016-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795620591030,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 2779.27,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 4435.27,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 10657.02,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 2937.43,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 5224.73,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 18009,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1394.38,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2461.42,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 5612.93,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "15038145514-buffers"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (router)": [
@@ -111640,6 +111934,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14934151016-router"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795620592126,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 router vs flat, clusters",
+            "value": 0.9421989239895158,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 adaptive on vs off, vectors probed",
+            "value": 1,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vs flat, clusters",
+            "value": 1.2055348505273173,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 adaptive on vs off, vectors probed",
+            "value": 0.9726217342847056,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vs flat, clusters",
+            "value": 1.125858237834869,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 adaptive on vs off, vectors probed",
+            "value": 0.849427433408016,
+            "unit": "ratio"
+          }
+        ],
+        "publication_id": "15038145514-router"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (router detail)": [
@@ -112186,6 +112533,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14934151016-router-detail"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795620593254,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 flat vectors probed",
+            "value": 36256.75,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router vectors probed, adaptive on",
+            "value": 34234.4,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router routing time",
+            "value": 0.36211955,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 flat vectors probed",
+            "value": 62882.42,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vectors probed, adaptive on",
+            "value": 73567.26,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router routing time",
+            "value": 0.66069265,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 flat vectors probed",
+            "value": 198493.99,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vectors probed, adaptive on",
+            "value": 189715.54,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router routing time",
+            "value": 1.64231584,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "15038145514-router-detail"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (index build)": [
@@ -112485,6 +112900,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14934151016-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795620594321,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 9.5792534261,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 45935.921875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "15038145514-index"
       }
     ],
     "benchmarker hackernews-vector-28m-8cpu-32gb (latency)": [

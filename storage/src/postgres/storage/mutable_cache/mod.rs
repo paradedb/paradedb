@@ -830,17 +830,30 @@ pub fn cached_prefix(key: &MutableCacheKey) -> Vec<(MutableChunkBounds, Arc<dyn 
         let Some((slot_index, slot)) = candidate else {
             break;
         };
-        let Some(directory) = pin_cached_directory(cache, slot_index, slot) else {
-            break;
-        };
         let range = MutableChunkBounds {
             start,
             end: slot.key.bound.max_doc,
         };
-        chunks.push((range, directory));
+        chunks.push((range, slot_index));
         start = range.end;
     }
+
+    // Rebuild the suffix when it is at least as large as a preceding chunk, keeping
+    // a growing mutable segment from becoming one Tantivy segment per write.
+    if let Some(index) = chunks
+        .iter()
+        .position(|(range, _)| key.bound.max_doc - range.end >= range.num_docs())
+    {
+        chunks.truncate(index);
+    }
+
     chunks
+        .into_iter()
+        .map_while(|(range, slot_index)| {
+            pin_cached_directory(cache, slot_index, &slots[slot_index])
+                .map(|directory| (range, directory))
+        })
+        .collect()
 }
 
 /// Reuse an exact range or build it, publishing unless another backend already owns the build.
@@ -1014,7 +1027,7 @@ pub fn get_or_build(
             if i != slot_idx
                 && other_slot.state() == SlotState::Ready
                 && other_slot.key.matches_segment(key)
-                && other_slot.key.start_doc == key.start_doc
+                && other_slot.key.start_doc >= key.start_doc
                 && other_slot.key.bound.max_doc <= key.bound.max_doc
                 && other_slot.key.bound.num_deleted_docs <= key.bound.num_deleted_docs
             {

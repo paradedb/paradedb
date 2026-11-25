@@ -1528,7 +1528,7 @@ mod tests {
         );
 
         // The mutable segment's log grows past the captured view.
-        Spi::run("INSERT INTO t (data) SELECT 'd' FROM generate_series(1, 7);").unwrap();
+        Spi::run("INSERT INTO t (data) SELECT 'd' FROM generate_series(1, 3);").unwrap();
         let fresh =
             SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open fresh");
         let fresh_view = fresh.segment_view();
@@ -1542,16 +1542,40 @@ mod tests {
                 .iter()
                 .map(|entry| entry.max_doc())
                 .sum::<u32>(),
-            12,
+            8,
             "a plain snapshot sees the new rows"
         );
         if crate::gucs::enable_mutable_segment_cache() {
             assert_eq!(fresh_mutable.len(), 2, "reuse the prefix and add a tail");
-            let tail = SegmentView::new(vec![fresh_mutable[1].clone()]);
+            let tail = fresh_mutable
+                .into_iter()
+                .find(|entry| {
+                    matches!(entry.docs, SegmentViewDocs::MutableChunk(range)
+                        if range.start == mutable[0].max_doc())
+                })
+                .expect("uncached tail")
+                .clone();
+            let tail = SegmentView::new(vec![tail]);
             let replay = SearchIndexReader::empty(&indexrel, MvccSatisfies::ParallelWorker(tail))
                 .expect("replay a worker assigned only the uncached tail");
             assert_eq!(replay.segment_readers().len(), 1);
-            assert_eq!(replay.segment_readers()[0].max_doc(), 7);
+            assert_eq!(replay.segment_readers()[0].max_doc(), 3);
+
+            Spi::run("INSERT INTO t (data) SELECT 'e' FROM generate_series(1, 5);").unwrap();
+            let combined = SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot)
+                .expect("open combined");
+            let combined_view = combined.segment_view();
+            let combined_mutable = combined_view
+                .entries()
+                .iter()
+                .filter(|entry| entry.source_id() == mutable[0].source_id())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                combined_mutable.len(),
+                1,
+                "combine the cached prefix and tail"
+            );
+            assert_eq!(combined_mutable[0].max_doc(), 13);
         }
 
         // A replaying reader sees what the origin saw.

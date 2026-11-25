@@ -17,6 +17,7 @@
 
 #[pgrx::pg_schema]
 mod tests {
+    use std::iter::repeat_n;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -257,7 +258,7 @@ mod tests {
             segment_id: *segment_id.uuid_bytes(),
             start_doc: 0,
             bound: MutableSegmentVersion {
-                max_doc: 2,
+                max_doc: 4,
                 num_deleted_docs: 0,
             },
         };
@@ -265,27 +266,28 @@ mod tests {
         drop(
             get_or_build(&key, || {
                 let directory = RamDirectory::default();
-                directory.atomic_write(&first_path, &[1, 2])?;
+                directory.atomic_write(&first_path, &[1, 2, 3, 4])?;
                 Ok(directory)
             })
             .unwrap(),
         );
-        key.bound.max_doc = 4;
+        key.bound.max_doc = 5;
         let prefix = cached_prefix(&key);
         assert_eq!(prefix.len(), 1);
-        assert_eq!(prefix[0].0, MutableChunkBounds { start: 0, end: 2 });
-        assert_eq!(prefix[0].1.atomic_read(&first_path).unwrap(), [1, 2]);
-        key.start_doc = 2;
+        assert_eq!(prefix[0].0, MutableChunkBounds { start: 0, end: 4 });
+        assert_eq!(prefix[0].1.atomic_read(&first_path).unwrap(), [1, 2, 3, 4]);
+        key.start_doc = 4;
+        key.bound.max_doc = 6;
         let tail_path = PathBuf::from(format!(
             "{}.fast",
-            MutableChunkBounds { start: 2, end: 4 }
+            MutableChunkBounds { start: 4, end: 6 }
                 .map_segment_id(segment_id)
                 .uuid_string()
         ));
         drop(
             get_or_build(&key, || {
                 let directory = RamDirectory::default();
-                directory.atomic_write(&tail_path, &[3, 4])?;
+                directory.atomic_write(&tail_path, &[5, 6])?;
                 Ok(directory)
             })
             .unwrap(),
@@ -295,19 +297,91 @@ mod tests {
         assert_eq!(
             chunks.iter().map(|(range, _)| *range).collect::<Vec<_>>(),
             [
-                MutableChunkBounds { start: 0, end: 2 },
-                MutableChunkBounds { start: 2, end: 4 }
+                MutableChunkBounds { start: 0, end: 4 },
+                MutableChunkBounds { start: 4, end: 6 }
             ]
         );
-        assert_eq!(chunks[1].1.atomic_read(&tail_path).unwrap(), [3, 4]);
+        assert_eq!(chunks[1].1.atomic_read(&tail_path).unwrap(), [5, 6]);
+
+        key.bound.max_doc = 7;
+        assert_eq!(cached_prefix(&key).len(), 2);
+        key.bound.max_doc = 8;
+        assert!(cached_prefix(&key).is_empty());
+        drop(
+            get_or_build(&key, || {
+                let directory = RamDirectory::default();
+                directory.atomic_write(&first_path, &[1, 2, 3, 4, 5, 6, 7, 8])?;
+                Ok(directory)
+            })
+            .unwrap(),
+        );
+        let combined = cached_prefix(&key);
+        assert_eq!(combined.len(), 1);
+        assert_eq!(combined[0].0, MutableChunkBounds { start: 0, end: 8 });
+        assert_eq!(
+            combined[0].1.atomic_read(&first_path).unwrap(),
+            [1, 2, 3, 4, 5, 6, 7, 8]
+        );
+        assert_eq!(chunks[0].1.atomic_read(&first_path).unwrap(), [1, 2, 3, 4]);
+        assert_eq!(chunks[1].1.atomic_read(&tail_path).unwrap(), [5, 6]);
+        key.bound.max_doc = 6;
+        assert!(cached_prefix(&key).is_empty());
+        key.bound.max_doc = 8;
         key.bound.num_deleted_docs = 1;
         assert!(cached_prefix(&key).is_empty());
         invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
-        assert_eq!(chunks[0].1.atomic_read(&first_path).unwrap(), [1, 2]);
+        assert_eq!(chunks[0].1.atomic_read(&first_path).unwrap(), [1, 2, 3, 4]);
         drop(prefix);
         drop(chunks);
+        drop(combined);
         key.bound.num_deleted_docs = 0;
         assert!(cached_prefix(&key).is_empty());
+
+        const APPEND_COUNT: u32 = 128;
+        key.bound.max_doc = 0;
+        for batch in repeat_n(1, APPEND_COUNT as usize).chain((1..=APPEND_COUNT).rev()) {
+            key.bound.max_doc += batch;
+            let max_doc = key.bound.max_doc;
+            let prefix = cached_prefix(&key);
+            key.start_doc = prefix.last().map_or(0, |(range, _)| range.end);
+            let range = MutableChunkBounds {
+                start: key.start_doc,
+                end: max_doc,
+            };
+            let path = PathBuf::from(format!(
+                "{}.fast",
+                range.map_segment_id(segment_id).uuid_string()
+            ));
+            let contents: Vec<u8> = (range.start..range.end).map(|doc| doc as u8).collect();
+            drop(
+                get_or_build(&key, || {
+                    let directory = RamDirectory::default();
+                    directory.atomic_write(&path, &contents)?;
+                    Ok(directory)
+                })
+                .unwrap(),
+            );
+            key.start_doc = 0;
+            let chunks = cached_prefix(&key);
+            assert!(chunks.len() <= max_doc.ilog2() as usize + 1);
+            assert!(
+                chunks
+                    .iter()
+                    .all(|(range, _)| range.num_docs() > max_doc - range.end)
+            );
+            assert_eq!(
+                chunks.last().unwrap().1.atomic_read(&path).unwrap(),
+                contents
+            );
+            assert_eq!(
+                chunks
+                    .iter()
+                    .map(|(range, _)| range.num_docs())
+                    .sum::<u32>(),
+                max_doc
+            );
+        }
+        invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
     }
 
     #[pg_test]

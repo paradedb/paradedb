@@ -766,6 +766,10 @@ impl CustomScan for AggregateScan {
                             // rejects DATE(timestamptz) and non-bare timestamp expressions.
                             || (!has_paradedb_agg && builder.args().has_date_group())
                             || groupby::has_ungrouped_column(builder.args())
+                            // The Tantivy backend writes only the key into its slot, so it
+                            // cannot return a cast of the key. Its own check still declines
+                            // a cast that this routing misses.
+                            || groupby::has_undecodable_key_cast(builder.args())
                     };
                 let use_datafusion = use_datafusion && (!has_paradedb_agg || pdb_route.is_some());
                 if use_datafusion {

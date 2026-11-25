@@ -16,13 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
 
+use crate::postgres::catalog::is_ltree_oid;
 use crate::postgres::customscan::aggregatescan::{
     CustomScanBuildError, CustomScanClause, GroupingPushdownDeclineReason,
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
+use crate::postgres::customscan::pullup::{Access, ResTarget, ResolvedFastField, SourceContext};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
-use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
+use crate::postgres::node::{NodeExt, WalkControl};
+use crate::postgres::utils::{is_unnest_func, strip_relabel, strip_unnest_and_relabel};
 use crate::postgres::var::{VarContext, find_one_resolved_var_and_fieldname};
 use crate::schema::{FieldSource, SearchFieldType};
 use pgrx::pg_sys;
@@ -47,6 +49,82 @@ impl GroupByClause {
     pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
         self.grouping_columns.clone()
     }
+}
+
+/// Returns true when the Tantivy result decoder can evaluate this I/O cast of a group key.
+pub fn can_decode_group_key_cast(
+    original_typoid: pg_sys::Oid,
+    expected_typoid: pg_sys::Oid,
+) -> bool {
+    expected_typoid == pg_sys::TEXTOID
+        && (matches!(
+            original_typoid,
+            pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID | pg_sys::UUIDOID
+        ) || is_ltree_oid(original_typoid))
+}
+
+/// Reject stripped casts that the backend's result decoder cannot evaluate.
+pub unsafe fn validate_grouping_casts(
+    expr: *mut pg_sys::Node,
+    stripped: *mut pg_sys::Node,
+    supports_io_cast: impl Fn(pg_sys::Oid, pg_sys::Oid) -> bool,
+) -> Result<(), String> {
+    let expected_type = unsafe { pg_sys::exprType(expr) };
+    let needs_evaluation = expr.walk(|node| unsafe {
+        if node == stripped {
+            return WalkControl::SkipChildren;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_RelabelType | pg_sys::NodeTag::T_PlaceHolderVar => {
+                WalkControl::Continue
+            }
+            pg_sys::NodeTag::T_FuncExpr
+                if is_unnest_func((*node.cast::<pg_sys::FuncExpr>()).funcid) =>
+            {
+                WalkControl::Continue
+            }
+            pg_sys::NodeTag::T_CoerceViaIO => {
+                let cast = &*node.cast::<pg_sys::CoerceViaIO>();
+                if cast.resulttype == expected_type
+                    && supports_io_cast(pg_sys::exprType(cast.arg.cast()), expected_type)
+                {
+                    WalkControl::Continue
+                } else {
+                    WalkControl::Break
+                }
+            }
+            _ => WalkControl::Break,
+        }
+    });
+    if needs_evaluation {
+        return Err("grouping cast requires PostgreSQL evaluation".into());
+    }
+    Ok(())
+}
+
+/// Validate a Tantivy grouping cast, using an indexed expression when required.
+pub(super) fn resolve_grouping_cast(
+    expr: *mut pg_sys::Node,
+    stripped: *mut pg_sys::Node,
+    context: &SourceContext,
+    access: Access,
+) -> Result<Option<ResolvedFastField>, String> {
+    // The scan replaces `unnest()` with a placeholder of the element type and PostgreSQL
+    // evaluates any cast above it, so the decoder must not apply that cast too.
+    let supports_io_cast = |source, target| {
+        !matches!(access, Access::List) && can_decode_group_key_cast(source, target)
+    };
+    let cast_validation = unsafe { validate_grouping_casts(expr, stripped, supports_io_cast) };
+    let indexed_field = if cast_validation.is_err() {
+        context.resolve_fast_field(ResTarget::Expr(expr), access)
+    } else {
+        None
+    };
+    if indexed_field.is_some() {
+        return Ok(indexed_field);
+    }
+    cast_validation?;
+    Ok(None)
 }
 
 impl CustomScanClause for GroupByClause {
@@ -101,18 +179,34 @@ impl CustomScanClause for GroupByClause {
                     Access::Scalar
                 };
 
-                let var_context = VarContext::from_planner(args.root);
-
-                let (resolved, field_name) = unsafe {
-                    find_one_resolved_var_and_fieldname(var_context, context, expr, access)
-                };
-                let Some(resolved) = resolved else {
-                    last_error = Some(match field_name {
-                        Some(name) => unresolved_reason(context, &name, is_unnest)?,
-                        None => "could not resolve grouping column from expression".to_string(),
-                    });
-                    continue;
-                };
+                let resolved =
+                    match resolve_grouping_cast(member.em_expr.cast(), expr, context, access) {
+                        Ok(Some(resolved)) => resolved,
+                        Ok(None) => {
+                            let var_context = VarContext::from_planner(args.root);
+                            let (resolved, field_name) = unsafe {
+                                find_one_resolved_var_and_fieldname(
+                                    var_context,
+                                    context,
+                                    expr,
+                                    access,
+                                )
+                            };
+                            let Some(resolved) = resolved else {
+                                last_error = Some(match field_name {
+                                    Some(name) => unresolved_reason(context, &name, is_unnest)?,
+                                    None => "could not resolve grouping column from expression"
+                                        .to_string(),
+                                });
+                                continue;
+                            };
+                            resolved
+                        }
+                        Err(error) => {
+                            last_error = Some(error);
+                            continue;
+                        }
+                    };
 
                 let field_type = resolved
                     .field
@@ -226,32 +320,73 @@ fn unresolved_reason(
 /// all of these from one row of the group. The Tantivy backend has no row to
 /// read, so such a query goes to the DataFusion backend.
 pub unsafe fn has_ungrouped_column(args: &CreateUpperPathsHookArgs) -> bool {
-    let parse = (*args.root).parse;
-    if parse.is_null() || (*parse).groupClause.is_null() {
+    let Some(keys) = group_keys(args) else {
         return false;
-    }
-    let keys: Vec<*mut pg_sys::Node> = args
-        .group_by_pathkeys()
-        .into_iter()
-        .filter(|pathkey| !(**pathkey).pk_eclass.is_null())
-        .flat_map(|pathkey| {
-            PgList::<pg_sys::EquivalenceMember>::from_pg((*(*pathkey).pk_eclass).ec_members)
-                .iter_ptr()
-                .map(|member| strip_relabel((*member).em_expr.cast()))
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    };
     if keys.is_empty() {
         return true;
     }
+    output_exprs(args)
+        .into_iter()
+        .any(|expr| has_ungrouped_var(expr, &keys))
+}
 
+/// Returns true if an output column is a cast of a GROUP BY key that the
+/// Tantivy backend cannot write into its slot, such as `d::text` over
+/// `GROUP BY d`. The DataFusion backend returns the key, and PostgreSQL
+/// evaluates the cast above the scan.
+///
+/// A key of a domain type stays on the Tantivy backend, which declines it:
+/// the DataFusion backend cannot read a domain type.
+pub unsafe fn has_undecodable_key_cast(args: &CreateUpperPathsHookArgs) -> bool {
+    let Some(keys) = group_keys(args) else {
+        return false;
+    };
+    output_exprs(args).into_iter().any(|expr| {
+        let (stripped, is_unnest) = strip_unnest_and_relabel(expr);
+        !stripped.is_null()
+            && !is_unnest
+            && keys
+                .iter()
+                .any(|key| pg_sys::equal((*key).cast(), stripped.cast()))
+            && !is_domain_type(pg_sys::exprType(stripped))
+            && validate_grouping_casts(expr, stripped, can_decode_group_key_cast).is_err()
+    })
+}
+
+/// Returns the GROUP BY keys, or `None` if the query has no GROUP BY.
+unsafe fn group_keys(args: &CreateUpperPathsHookArgs) -> Option<Vec<*mut pg_sys::Node>> {
+    let parse = (*args.root).parse;
+    if parse.is_null() || (*parse).groupClause.is_null() {
+        return None;
+    }
+    Some(
+        args.group_by_pathkeys()
+            .into_iter()
+            .filter(|pathkey| !(**pathkey).pk_eclass.is_null())
+            .flat_map(|pathkey| {
+                PgList::<pg_sys::EquivalenceMember>::from_pg((*(*pathkey).pk_eclass).ec_members)
+                    .iter_ptr()
+                    .map(|member| strip_relabel((*member).em_expr.cast()))
+                    .collect::<Vec<_>>()
+            })
+            .collect(),
+    )
+}
+
+/// Returns the output expressions of the grouped relation.
+unsafe fn output_exprs(args: &CreateUpperPathsHookArgs) -> Vec<*mut pg_sys::Node> {
     let reltarget = args.output_rel().reltarget;
     if reltarget.is_null() {
-        return false;
+        return Vec::new();
     }
     PgList::<pg_sys::Node>::from_pg((*reltarget).exprs)
         .iter_ptr()
-        .any(|expr| has_ungrouped_var(expr, &keys))
+        .collect()
+}
+
+unsafe fn is_domain_type(typoid: pg_sys::Oid) -> bool {
+    pg_sys::getBaseType(typoid) != typoid
 }
 
 /// Returns true if `expr` reads a column outside of the GROUP BY keys and the

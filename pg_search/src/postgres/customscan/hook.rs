@@ -516,7 +516,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     // still as written, for the scans planned inside this call.
     let result = search_operator_relations::record_during(parse, || {
         if let Some(prev_hook) = PREV_PLANNER_HOOK {
-            prev_hook(parse, query_string, cursor_options, bound_params)
+            pg_sys::ffi::pg_guard_ffi_boundary(|| {
+                prev_hook(parse, query_string, cursor_options, bound_params)
+            })
         } else {
             pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
         }

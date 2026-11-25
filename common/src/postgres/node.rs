@@ -246,23 +246,43 @@ impl<T: pg_sys::PgNode> NodeExt for *mut T {
 
     fn walk<F: FnMut(*mut pg_sys::Node) -> WalkControl>(self, mut visitor: F) -> bool {
         #[pg_guard]
-        unsafe extern "C-unwind" fn walker<F: FnMut(*mut pg_sys::Node) -> WalkControl>(
+        unsafe extern "C-unwind" fn push_child(
             node: *mut pg_sys::Node,
             context: *mut core::ffi::c_void,
         ) -> bool {
-            if node.is_null() {
-                return false;
+            if !node.is_null() {
+                (*context.cast::<Vec<*mut pg_sys::Node>>()).push(node);
             }
-            match (&mut *context.cast::<F>())(node) {
-                WalkControl::Continue => {
-                    pg_sys::expression_tree_walker(node, Some(walker::<F>), context)
-                }
-                WalkControl::SkipChildren => false,
-                WalkControl::Break => true,
-            }
+            false
         }
 
-        unsafe { walker::<F>(self.cast(), std::ptr::from_mut(&mut visitor).cast()) }
+        if self.is_null() {
+            return false;
+        }
+        // The planner hook sees nested Boolean expressions before Postgres flattens them.
+        let mut pending = Vec::<*mut pg_sys::Node>::new();
+        let mut node = self.cast();
+        loop {
+            match visitor(node) {
+                WalkControl::Break => return true,
+                WalkControl::SkipChildren => {}
+                WalkControl::Continue => {
+                    let start = pending.len();
+                    unsafe {
+                        pg_sys::expression_tree_walker(
+                            node,
+                            Some(push_child),
+                            std::ptr::from_mut(&mut pending).cast(),
+                        );
+                    }
+                    pending[start..].reverse();
+                }
+            }
+            let Some(next) = pending.pop() else {
+                return false;
+            };
+            node = next;
+        }
     }
 }
 
@@ -304,6 +324,23 @@ mod tests {
             assert_eq!(tree.find_single_node::<pg_sys::Var>(), None);
             assert_eq!(vars[0].find_single_node::<pg_sys::Var>(), Some(vars[0]));
             assert!(!std::ptr::null_mut::<pg_sys::Node>().any(|_| panic!("visited null")));
+        }
+    }
+
+    #[pg_test]
+    fn node_walk_visits_every_branch_of_a_deep_boolean_expression() {
+        const DEPTH: usize = 4096;
+        unsafe {
+            let var = pg_sys::makeVar(1, 1, pg_sys::BOOLOID, -1, pg_sys::InvalidOid, 0);
+            let mut tree = var.cast::<pg_sys::Node>();
+            for _ in 0..DEPTH {
+                let mut args = PgList::new();
+                args.push(tree);
+                args.push(var.cast());
+                tree =
+                    pg_sys::makeBoolExpr(pg_sys::BoolExprType::OR_EXPR, args.into_pg(), -1).cast();
+            }
+            assert_eq!(tree.collect_nodes::<pg_sys::Var>().len(), DEPTH + 1);
         }
     }
 

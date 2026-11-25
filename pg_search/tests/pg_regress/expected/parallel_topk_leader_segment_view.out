@@ -65,14 +65,14 @@ WARNING:  Aggregate Scan not used: could not extract search query from quals. To
  Aggregate
    Output: count(*)
    ->  Custom Scan (ParadeDB Base Scan) on public.psv_outer
-         Filter: (NOT (ANY (psv_outer.age = (hashed SubPlan any_1).col1)))
+         Filter: (NOT (ANY (psv_outer.age = (hashed SubPlan 1).col1)))
          Table: psv_outer
          Index: psv_outer_idx
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"exists":{"field":"age"}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
-         SubPlan any_1
+         SubPlan 1
            ->  Limit
                  Output: psv_inner.age, psv_inner.uuid
                  ->  Gather Merge
@@ -122,7 +122,7 @@ ORDER BY id;
    Sort Key: psv_outer.id
    ->  Hash Semi Join
          Output: psv_outer.id, psv_outer.age
-         Hash Cond: (psv_outer.age = unnamed_subquery.age)
+         Hash Cond: (psv_outer.age = "ANY_subquery".age)
          ->  Custom Scan (ParadeDB Base Scan) on public.psv_outer
                Output: psv_outer.id, psv_outer.age
                Table: psv_outer
@@ -134,9 +134,9 @@ ORDER BY id;
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
          ->  Hash
-               Output: unnamed_subquery.age
-               ->  Subquery Scan on unnamed_subquery
-                     Output: unnamed_subquery.age
+               Output: "ANY_subquery".age
+               ->  Subquery Scan on "ANY_subquery"
+                     Output: "ANY_subquery".age
                      ->  Limit
                            Output: psv_inner.age, psv_inner.uuid
                            ->  Gather Merge

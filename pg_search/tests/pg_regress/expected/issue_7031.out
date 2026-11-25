@@ -12,11 +12,11 @@ SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term('state', 'active')
   AND i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_items WHERE id < 0))
 $$);
-                                                                                                                          explain_redact_oid                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       explain_redact_oid                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using issue_7031_idx on issue_7031_items i
-   Index Cond: ((id @@@ '{"with_index":{"oid":N,"query":{"term":{"field":"state","value":"active"}}}}'::paradedb.searchqueryinput) AND (id @@@ paradedb.with_index('issue_7031_idx'::regclass, paradedb.term_set('id'::paradedb.fieldname, (InitPlan expr_1).col1))))
-   InitPlan expr_1
+   Index Cond: ((id @@@ '{"with_index":{"oid":N,"query":{"term":{"field":"state","value":"active"}}}}'::paradedb.searchqueryinput) AND (id @@@ paradedb.with_index('issue_7031_idx'::regclass, paradedb.term_set('id'::paradedb.fieldname, (InitPlan 1).col1))))
+   InitPlan 1
      ->  Aggregate
            ->  Index Only Scan using issue_7031_items_pkey on issue_7031_items
                  Index Cond: (id < 0)
@@ -47,11 +47,11 @@ SET enable_seqscan = off;
 SET enable_bitmapscan = off;
 EXPLAIN (COSTS OFF) SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_items WHERE id < 0));
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using issue_7031_idx on issue_7031_items i
-   Index Cond: (id @@@ paradedb.with_index('issue_7031_idx'::regclass, paradedb.term_set('id'::paradedb.fieldname, (InitPlan expr_1).col1)))
-   InitPlan expr_1
+   Index Cond: (id @@@ paradedb.with_index('issue_7031_idx'::regclass, paradedb.term_set('id'::paradedb.fieldname, (InitPlan 1).col1)))
+   InitPlan 1
      ->  Aggregate
            ->  Index Only Scan using issue_7031_items_pkey on issue_7031_items
                  Index Cond: (id < 0)
@@ -80,18 +80,18 @@ RESET enable_bitmapscan;
 SET enable_indexscan = off;
 EXPLAIN (COSTS OFF) SELECT i.id FROM issue_7031_items i
 WHERE i.id @@@ paradedb.term_set('id', (SELECT array_agg(id) FROM issue_7031_items WHERE id < 0));
-                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Bitmap Heap Scan on issue_7031_items i
-   Filter: paradedb.search_with_query_input_ctid_or_row_strict(id, paradedb.with_index('issue_7031_idx'::regclass, paradedb.term_set('id'::paradedb.fieldname, (InitPlan expr_1).col1)), ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[i.*])::record[] WHEN (paradedb.xmin_is_visible(xmin, tableoid, ctid) IS NOT TRUE) THEN (ARRAY[i.*])::record[] ELSE '{}'::record[] END, ROW())
-   InitPlan expr_1
+   Filter: paradedb.search_with_query_input_ctid_or_row_strict(id, paradedb.with_index('issue_7031_idx'::regclass, paradedb.term_set('id'::paradedb.fieldname, (InitPlan 1).col1)), ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[i.*])::record[] WHEN (paradedb.xmin_is_visible(xmin, tableoid, ctid) IS NOT TRUE) THEN (ARRAY[i.*])::record[] ELSE '{}'::record[] END, ROW())
+   InitPlan 1
      ->  Aggregate
            ->  Bitmap Heap Scan on issue_7031_items
                  Recheck Cond: (id < 0)
                  ->  Bitmap Index Scan on issue_7031_items_pkey
                        Index Cond: (id < 0)
    ->  Bitmap Index Scan on issue_7031_idx
-         Index Cond: (id @@@ paradedb.with_index('issue_7031_idx'::regclass, paradedb.term_set('id'::paradedb.fieldname, (InitPlan expr_1).col1)))
+         Index Cond: (id @@@ paradedb.with_index('issue_7031_idx'::regclass, paradedb.term_set('id'::paradedb.fieldname, (InitPlan 1).col1)))
 (10 rows)
 
 SELECT i.id FROM issue_7031_items i

@@ -645,7 +645,7 @@ ORDER BY id;
  Sort
    Output: id
    Sort Key: id
-   InitPlan array_1
+   InitPlan 1
      ->  Gather
            Output: mpp_files.id
            Workers Planned: 1
@@ -729,7 +729,7 @@ ORDER BY f.title;
  Sort
    Output: title, (count(*)), (sum(size_bytes))
    Sort Key: title
-   InitPlan array_1
+   InitPlan 1
      ->  Gather
            Output: mpp_files.id
            Workers Planned: 1
@@ -808,7 +808,7 @@ ORDER BY f.title;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: title
-   InitPlan array_1
+   InitPlan 1
      ->  Custom Scan (ParadeDB Base Scan) on mpp_files
            Table: mpp_files
            Index: mpp_files_idx

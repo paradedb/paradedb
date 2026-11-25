@@ -390,15 +390,15 @@ ORDER BY id;
  Sort
    Sort Key: s.id
    ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_stack s
-         Filter: ((ANY (org_id = (hashed SubPlan any_1).col1)) AND leaky_rls_stack_org_check(org_id) AND ((SubPlan expr_1) > 0))
+         Filter: ((ANY (org_id = (hashed SubPlan 2).col1)) AND leaky_rls_stack_org_check(org_id) AND ((SubPlan 1) > 0))
          Table: leaky_rls_stack
          Index: leaky_rls_stack_bm25
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}}
-         SubPlan any_1
+         SubPlan 2
            ->  Seq Scan on leaky_rls_stack_orgs o
-         SubPlan expr_1
+         SubPlan 1
            ->  Result
 (13 rows)
 
@@ -538,13 +538,13 @@ SELECT id FROM leaky_rls_indexed WHERE body @@@ 'sheriff' AND secret::int > 0 OR
    ->  Sort
          Sort Key: leaky_rls_indexed.id
          ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_indexed
-               Filter: ((ANY (org_id = (hashed SubPlan any_1).col1)) AND ((secret)::integer > 0))
+               Filter: ((ANY (org_id = (hashed SubPlan 1).col1)) AND ((secret)::integer > 0))
                Table: leaky_rls_indexed
                Index: leaky_rls_indexed_bm25
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"const_score":{"query":{"term":{"field":"org_id","value":1}},"score":0.0}}]}}
-               SubPlan any_1
+               SubPlan 1
                  ->  Seq Scan on leaky_rls_members m
                        Filter: (role_name = CURRENT_USER)
 (13 rows)
@@ -586,13 +586,13 @@ SELECT id FROM leaky_rls_partial WHERE body @@@ 'sheriff' AND tag LIKE 'yes%' OR
    ->  Sort
          Sort Key: leaky_rls_partial.id
          ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_partial
-               Filter: (ANY (org_id = (hashed SubPlan any_1).col1))
+               Filter: (ANY (org_id = (hashed SubPlan 1).col1))
                Table: leaky_rls_partial
                Index: leaky_rls_partial_bm25
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}}
-               SubPlan any_1
+               SubPlan 1
                  ->  Seq Scan on leaky_rls_members m
                        Filter: (role_name = CURRENT_USER)
 (13 rows)

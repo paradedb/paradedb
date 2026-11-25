@@ -43,7 +43,7 @@ files = [
 ]
 
 [features]
-default = ["pg19"]
+default = ["pg18"]
 pg15 = [
   "pgrx/pg15",
   "pgrx-tests/pg15",

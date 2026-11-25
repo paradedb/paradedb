@@ -110,7 +110,7 @@ ParadeDB has four main test categories. For a full overview of how and when to u
 Located in `pg_search/tests/pg_regress`.
 
 - **Purpose:** These are golden-output tests, useful when the output is small enough to inspect visually for correctness.
-- **Running:** From `pg_search/`, run them with `cargo pgrx regress --auto`. To run a specific test, pass its name, for example `cargo pgrx regress --auto pg19 PREFIX_your_test`. There is no need to manually install the extension: it is handled automatically.
+- **Running:** From `pg_search/`, run them with `cargo pgrx regress --auto`. To run a specific test, pass its name, for example `cargo pgrx regress --auto pg18 PREFIX_your_test`. There is no need to manually install the extension: it is handled automatically.
 - **Details:** See [`pg_search/tests/pg_regress/README.md`](pg_search/tests/pg_regress/README.md) for more details.
 
 #### 2. Integration tests

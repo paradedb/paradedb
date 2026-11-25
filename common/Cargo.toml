@@ -8,7 +8,7 @@ license = { workspace = true }
 workspace = true
 
 [features]
-default = ["pg19"]
+default = ["pg18"]
 pg15 = ["pgrx/pg15"]
 pg16 = ["pgrx/pg16"]
 pg17 = ["pgrx/pg17"]

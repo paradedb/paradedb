@@ -66,10 +66,10 @@ WHERE "Parent"."owner" = 'user-1';
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: repro_5525_parent_idx (Parent), repro_5525_child_idx (Child)
-   Aggregates: COUNT(*)
+   Aggregates: COUNT(id)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@0)], projection=[]
+     : AggregateExec: mode=Single, gby=[], aggr=[count(parent_0.id) as agg_0]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1]
      :     CooperativeExec
      :       PgSearchScan: table=Child, segments=1, visibility=eager, query={"term":{"field":"state","value":"active"}}
      :     CooperativeExec
@@ -260,14 +260,14 @@ LIMIT 5;
          Backend: DataFusion
          Indexes: repro_5525_parent_idx (123), repro_5525_child_idx (456)
          Group By: owner
-         Aggregates: COUNT(*)
+         Aggregates: COUNT(id)
          DataFusion Physical Plan: 
            : SortExec: TopK(fetch=5), expr=[owner@0 ASC NULLS LAST], preserve_partitioning=[false]
-           :   AggregateExec: mode=Final, gby=[owner@0 as owner], aggr=[count(1) as agg_0]
+           :   AggregateExec: mode=Final, gby=[owner@0 as owner], aggr=[count(_123_0.id) as agg_0]
            :     TantivyDecodeExec: decode=[owner]
-           :       AggregateExec: mode=Partial, gby=[owner@0 as owner], aggr=[count(1) as agg_0]
+           :       AggregateExec: mode=Partial, gby=[owner@0 as owner], aggr=[count(_123_0.id) as agg_0]
            :         TantivyFetchExec: fetch=[owner]
-           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[owner@1]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@2)], projection=[owner@1, id@2]
            :             CooperativeExec
            :               PgSearchScan: table=456, segments=1, visibility=eager, query={"term":{"field":"state","value":"active"}}
            :             CooperativeExec

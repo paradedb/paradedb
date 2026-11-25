@@ -47,22 +47,22 @@ ORDER BY (id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = ANY(ARRAY
          paradedb.score(id) DESC,
          id
 LIMIT 5;
-                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, (paradedb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer)), (round((paradedb.score(issue_6582_chunks.id))::numeric, 6)), ((ANY (issue_6582_chunks.id = (hashed SubPlan any_1).col1))), ((issue_6582_chunks.name = 'fn_84'::text)), ((issue_6582_chunks.kind = 'file'::text)), (paradedb.score(issue_6582_chunks.id))
+   Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, (paradedb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer)), (round((paradedb.score(issue_6582_chunks.id))::numeric, 6)), ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))), ((issue_6582_chunks.name = 'fn_84'::text)), ((issue_6582_chunks.kind = 'file'::text)), (paradedb.score(issue_6582_chunks.id))
    ->  Sort
-         Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, (paradedb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer)), (round((paradedb.score(issue_6582_chunks.id))::numeric, 6)), ((ANY (issue_6582_chunks.id = (hashed SubPlan any_1).col1))), ((issue_6582_chunks.name = 'fn_84'::text)), ((issue_6582_chunks.kind = 'file'::text)), (paradedb.score(issue_6582_chunks.id))
-         Sort Key: ((ANY (issue_6582_chunks.id = (hashed SubPlan any_1).col1))) DESC, ((issue_6582_chunks.name = 'fn_84'::text)) DESC, ((issue_6582_chunks.kind = 'file'::text)), (paradedb.score(issue_6582_chunks.id)) DESC, issue_6582_chunks.id
+         Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, (paradedb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer)), (round((paradedb.score(issue_6582_chunks.id))::numeric, 6)), ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))), ((issue_6582_chunks.name = 'fn_84'::text)), ((issue_6582_chunks.kind = 'file'::text)), (paradedb.score(issue_6582_chunks.id))
+         Sort Key: ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))) DESC, ((issue_6582_chunks.name = 'fn_84'::text)) DESC, ((issue_6582_chunks.kind = 'file'::text)), (paradedb.score(issue_6582_chunks.id)) DESC, issue_6582_chunks.id
          ->  Custom Scan (ParadeDB Base Scan) on public.issue_6582_chunks
-               Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, paradedb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer), round((paradedb.score(issue_6582_chunks.id))::numeric, 6), (ANY (issue_6582_chunks.id = (hashed SubPlan any_1).col1)), (issue_6582_chunks.name = 'fn_84'::text), (issue_6582_chunks.kind = 'file'::text), paradedb.score(issue_6582_chunks.id)
+               Output: issue_6582_chunks.id, issue_6582_chunks.name, issue_6582_chunks.kind, paradedb.snippet(issue_6582_chunks.body, ''::text, ''::text, 64, NULL::integer, NULL::integer), round((paradedb.score(issue_6582_chunks.id))::numeric, 6), (ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1)), (issue_6582_chunks.name = 'fn_84'::text), (issue_6582_chunks.kind = 'file'::text), paradedb.score(issue_6582_chunks.id)
                Table: issue_6582_chunks
                Index: issue_6582_chunks_idx
                Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"fred","lenient":null,"conjunction_mode":null}}}}
-               SubPlan any_1
+               SubPlan 1
                  ->  Seq Scan on public.issue_6582_terms
                        Output: issue_6582_terms.chunk_id
                        Filter: (issue_6582_terms.term_id = ANY ('{1}'::integer[]))
@@ -125,16 +125,16 @@ FROM (
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   Output: count(*), sum(((SubPlan expr_1))), count(*) FILTER (WHERE ((paradedb.score(c.id)) > '0'::double precision))
+   Output: count(*), sum(((SubPlan 1))), count(*) FILTER (WHERE ((paradedb.score(c.id)) > '0'::double precision))
    ->  Custom Scan (ParadeDB Base Scan) on public.issue_6582_chunks c
-         Output: (SubPlan expr_1), paradedb.score(c.id)
+         Output: (SubPlan 1), paradedb.score(c.id)
          Table: issue_6582_chunks
          Index: issue_6582_chunks_idx
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"swing","lenient":null,"conjunction_mode":null}}}}
-         SubPlan expr_1
+         SubPlan 1
            ->  Aggregate
                  Output: count(*)
                  ->  Seq Scan on public.issue_6582_terms t
@@ -165,19 +165,19 @@ LIMIT 5;
                                                                                                                         QUERY PLAN                                                                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: issue_6582_chunks.id, ((ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan all_1).col1)))
+   Output: issue_6582_chunks.id, ((ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan 1).col1)))
    ->  Sort
-         Output: issue_6582_chunks.id, ((ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan all_1).col1)))
-         Sort Key: ((ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan all_1).col1))) DESC, issue_6582_chunks.id
+         Output: issue_6582_chunks.id, ((ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan 1).col1)))
+         Sort Key: ((ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan 1).col1))) DESC, issue_6582_chunks.id
          ->  Custom Scan (ParadeDB Base Scan) on public.issue_6582_chunks
-               Output: issue_6582_chunks.id, (ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan all_1).col1))
+               Output: issue_6582_chunks.id, (ALL (paradedb.score(issue_6582_chunks.id) > (SubPlan 1).col1))
                Table: issue_6582_chunks
                Index: issue_6582_chunks_idx
                Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"fred","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":60}}}]}}
-               SubPlan all_1
+               SubPlan 1
                  ->  Materialize
                        Output: (((issue_6582_terms.term_id)::real / '4'::double precision))
                        ->  Seq Scan on public.issue_6582_terms
@@ -209,9 +209,9 @@ LIMIT 5;
                                                                                                                      QUERY PLAN                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: issue_6582_chunks.id, (paradedb.score(issue_6582_chunks.id)), ((ANY (issue_6582_chunks.id = (hashed SubPlan any_1).col1)))
+   Output: issue_6582_chunks.id, (paradedb.score(issue_6582_chunks.id)), ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1)))
    ->  Custom Scan (ParadeDB Base Scan) on public.issue_6582_chunks
-         Output: issue_6582_chunks.id, paradedb.score(issue_6582_chunks.id), (ANY (issue_6582_chunks.id = (hashed SubPlan any_1).col1))
+         Output: issue_6582_chunks.id, paradedb.score(issue_6582_chunks.id), (ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))
          Table: issue_6582_chunks
          Index: issue_6582_chunks_idx
          Worker Selection: Cost model
@@ -220,7 +220,7 @@ LIMIT 5;
             TopK Order By: pdb.score() desc, id asc
             TopK Limit: 5
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"fred","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":60}}}]}}
-         SubPlan any_1
+         SubPlan 1
            ->  Seq Scan on public.issue_6582_terms
                  Output: (issue_6582_terms.chunk_id - 4)
                  Filter: (issue_6582_terms.term_id = 2)
@@ -266,19 +266,19 @@ ORDER BY k, x.id;
                Output: k.k
                Function Call: generate_series(1, 2)
          ->  Limit
-               Output: c.id, (paradedb.score(c.id)), ((ANY (c.id = (hashed SubPlan any_1).col1)))
+               Output: c.id, (paradedb.score(c.id)), ((ANY (c.id = (hashed SubPlan 1).col1)))
                ->  Sort
-                     Output: c.id, (paradedb.score(c.id)), ((ANY (c.id = (hashed SubPlan any_1).col1)))
-                     Sort Key: ((ANY (c.id = (hashed SubPlan any_1).col1))) DESC, (paradedb.score(c.id)) DESC, c.id
+                     Output: c.id, (paradedb.score(c.id)), ((ANY (c.id = (hashed SubPlan 1).col1)))
+                     Sort Key: ((ANY (c.id = (hashed SubPlan 1).col1))) DESC, (paradedb.score(c.id)) DESC, c.id
                      ->  Custom Scan (ParadeDB Base Scan) on public.issue_6582_chunks c
-                           Output: c.id, paradedb.score(c.id), (ANY (c.id = (hashed SubPlan any_1).col1))
+                           Output: c.id, paradedb.score(c.id), (ANY (c.id = (hashed SubPlan 1).col1))
                            Table: issue_6582_chunks
                            Index: issue_6582_chunks_idx
                            Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: true
                            Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"fred","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":100}}}]}}
-                           SubPlan any_1
+                           SubPlan 1
                              ->  Seq Scan on public.issue_6582_terms
                                    Output: issue_6582_terms.chunk_id
                                    Filter: (issue_6582_terms.term_id = k.k)
@@ -314,12 +314,12 @@ FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY id
 LIMIT 5;
-                                                                                                                          QUERY PLAN                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                        QUERY PLAN                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: issue_6582_chunks.id, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), ((ANY (issue_6582_chunks.id = (hashed SubPlan any_1).col1)))
+   Output: issue_6582_chunks.id, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), ((ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1)))
    ->  Custom Scan (ParadeDB Base Scan) on public.issue_6582_chunks
-         Output: issue_6582_chunks.id, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), (ANY (issue_6582_chunks.id = (hashed SubPlan any_1).col1))
+         Output: issue_6582_chunks.id, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), (ANY (issue_6582_chunks.id = (hashed SubPlan 1).col1))
          Table: issue_6582_chunks
          Index: issue_6582_chunks_idx
          Worker Selection: Cost model
@@ -328,7 +328,7 @@ LIMIT 5;
             TopK Order By: id asc
             TopK Limit: 5
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"fred","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":60}}}]}}
-         SubPlan any_1
+         SubPlan 1
            ->  Seq Scan on public.issue_6582_terms
                  Output: (issue_6582_terms.chunk_id - 18)
                  Filter: (issue_6582_terms.term_id = 2)
@@ -372,16 +372,16 @@ LIMIT 5;
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: category, ((pdb.agg_fn('COUNT(*)'::text) + 1)), ((ANY (pdb.agg_fn('COUNT(*)'::text) = (hashed SubPlan any_1).col1)))
+   Output: category, ((pdb.agg_fn('COUNT(*)'::text) + 1)), ((ANY (pdb.agg_fn('COUNT(*)'::text) = (hashed SubPlan 1).col1)))
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6582_logs
-         Output: category, (pdb.agg_fn('COUNT(*)'::text) + 1), (ANY (pdb.agg_fn('COUNT(*)'::text) = (hashed SubPlan any_1).col1))
+         Output: category, (pdb.agg_fn('COUNT(*)'::text) + 1), (ANY (pdb.agg_fn('COUNT(*)'::text) = (hashed SubPlan 1).col1))
          Index: issue_6582_logs_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
            Applies to Aggregates: COUNT(*), COUNT(*)
            Group By: category
            Limit: 5
            Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-         SubPlan any_1
+         SubPlan 1
            ->  Seq Scan on public.issue_6582_terms
                  Output: issue_6582_terms.term_id
 (13 rows)

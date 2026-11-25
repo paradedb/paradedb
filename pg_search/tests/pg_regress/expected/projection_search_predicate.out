@@ -204,15 +204,15 @@ SELECT (SELECT count(*) FROM projection_search_predicate WHERE body === 'keyboar
                                                            QUERY PLAN                                                           
 --------------------------------------------------------------------------------------------------------------------------------
  Result
-   Output: (InitPlan expr_1).col1, (InitPlan expr_2).col1
-   InitPlan expr_1
+   Output: (InitPlan 1).col1, (InitPlan 2).col1
+   InitPlan 1
      ->  Custom Scan (ParadeDB Aggregate Scan) on public.projection_search_predicate
            Output: pdb.agg_fn('COUNT(*)'::text)
            Index: projection_search_predicate_idx
            Tantivy Query: {"with_index":{"query":{"term":{"field":"body","value":"keyboard"}}}}
              Applies to Aggregates: COUNT(*)
              Aggregate Definition: {"0":{"filter":"*"}}
-   InitPlan expr_2
+   InitPlan 2
      ->  Aggregate
            Output: count(*)
            ->  Seq Scan on public.projection_search_predicate

@@ -25,12 +25,12 @@ LIMIT 1;
                                                                                                  QUERY PLAN                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   InitPlan expr_1
+   InitPlan 1
      ->  Result
    ->  Result
-         One-Time Filter: (InitPlan expr_1).col1
+         One-Time Filter: (InitPlan 1).col1
          ->  Custom Scan (ParadeDB Base Scan) on animals
-               Filter: (InitPlan expr_1).col1
+               Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
                Exec Method: TopKScanExecState
@@ -58,12 +58,12 @@ LIMIT 1;
                                                                                                  QUERY PLAN                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   InitPlan expr_1
+   InitPlan 1
      ->  Result
    ->  Result
-         One-Time Filter: (InitPlan expr_1).col1
+         One-Time Filter: (InitPlan 1).col1
          ->  Custom Scan (ParadeDB Base Scan) on animals
-               Filter: (InitPlan expr_1).col1
+               Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
                Exec Method: TopKScanExecState
@@ -102,12 +102,12 @@ LIMIT 1;
                                                                                                  QUERY PLAN                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   InitPlan expr_1
+   InitPlan 1
      ->  Result
    ->  Result
-         One-Time Filter: (InitPlan expr_1).col1
+         One-Time Filter: (InitPlan 1).col1
          ->  Custom Scan (ParadeDB Base Scan) on animals
-               Filter: (InitPlan expr_1).col1
+               Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
                Exec Method: TopKScanExecState
@@ -138,14 +138,14 @@ LIMIT 1;
                                                                                                  QUERY PLAN                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   InitPlan expr_1
+   InitPlan 1
      ->  Limit
            ->  Seq Scan on config
                  Filter: (name = 'enabled'::text)
    ->  Result
-         One-Time Filter: (InitPlan expr_1).col1
+         One-Time Filter: (InitPlan 1).col1
          ->  Custom Scan (ParadeDB Base Scan) on animals
-               Filter: (InitPlan expr_1).col1
+               Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
                Exec Method: TopKScanExecState
@@ -212,7 +212,7 @@ LIMIT 5;
      :           PgSearchScan: table=a, segments=1, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"description","value":"dog","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"name","value":"cat","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-   InitPlan expr_1
+   InitPlan 1
      ->  Result
            One-Time Filter: (current_setting('server_version_num'::text) <> ''::text)
 (18 rows)

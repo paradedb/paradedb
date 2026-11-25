@@ -127,8 +127,8 @@ WHERE p.id NOT IN (
        OR p.company_id IN (SELECT c.id FROM issue_4719_companies c))
 ORDER BY p.id DESC
 LIMIT 26;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id
    ->  Sort
@@ -136,12 +136,12 @@ LIMIT 26;
          Sort Key: p.id DESC
          ->  Seq Scan on public.issue_4719_people p
                Output: p.id
-               Filter: ((NOT (ANY (p.id = (hashed SubPlan any_1).col1))) AND ((p.company_id IS NULL) OR (ANY (p.company_id = (hashed SubPlan any_2).col1))))
-               SubPlan any_1
+               Filter: ((NOT (ANY (p.id = (hashed SubPlan 1).col1))) AND ((p.company_id IS NULL) OR (ANY (p.company_id = (hashed SubPlan 2).col1))))
+               SubPlan 1
                  ->  Seq Scan on public.issue_4719_experiences x
                        Output: x.person_id
                        Filter: (x.company_id = ANY ('{10,20,50}'::integer[]))
-               SubPlan any_2
+               SubPlan 2
                  ->  Seq Scan on public.issue_4719_companies c
                        Output: c.id
 (15 rows)

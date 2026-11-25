@@ -313,14 +313,14 @@ RETURNING t.*;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on contacts t
    ->  Nested Loop Semi Join
-         Join Filter: ((t.id)::text = (unnamed_subquery.id)::text)
+         Join Filter: ((t.id)::text = ("ANY_subquery".id)::text)
          ->  Custom Scan (ParadeDB Base Scan) on contacts t
                Table: contacts
                Index: contacts_search_idx
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"const_score":{"query":{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('app.contacts_search_idx'::regclass, paradedb.\"boolean\"((ARRAY[paradedb.term('org_id'::paradedb.fieldname, current_setting('app.org_id'::text))] || CASE WHEN (current_setting('app.has_full_contacts_access'::text) = 'true'::text) THEN '{}'::paradedb.searchqueryinput[] ELSE ARRAY[paradedb.term('assignee'::paradedb.fieldname, (app.current_actor_id())::text)] END), '{}'::paradedb.searchqueryinput[], '{}'::paradedb.searchqueryinput[], NULL::bigint))"}}},"score":0.0}}
-         ->  Subquery Scan on unnamed_subquery
+         ->  Subquery Scan on "ANY_subquery"
                ->  Limit
                      ->  Custom Scan (ParadeDB Base Scan) on contacts
                            Table: contacts

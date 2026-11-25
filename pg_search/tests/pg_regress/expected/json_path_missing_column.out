@@ -227,22 +227,22 @@ FROM ju RIGHT JOIN jp ON ju.id = jp.id
 WHERE jp.name IS NOT NULL
 GROUP BY 1
 ORDER BY 1;
-                                                     QUERY PLAN                                                      
----------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: ((ju.metadata ->> 'brand'::text)), (count(*))
+   Output: ((ju.metadata ->> 'brand'::text)), (count(jp.id))
    Sort Key: ((ju.metadata ->> 'brand'::text))
    ->  Custom Scan (ParadeDB Aggregate Scan)
-         Output: ((ju.metadata ->> 'brand'::text)), (count(*))
+         Output: ((ju.metadata ->> 'brand'::text)), (count(jp.id))
          Backend: DataFusion
          Indexes: jp_idx (jp), ju_idx (ju)
          Group By: metadata.brand
-         Aggregates: COUNT(*)
+         Aggregates: COUNT(id)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[metadata.brand@0 as metadata.brand], aggr=[count(1) as agg_0]
+           : AggregateExec: mode=Final, gby=[metadata.brand@0 as metadata.brand], aggr=[count(jp_0.id) as agg_0]
            :   TantivyDecodeExec: decode=[metadata.brand]
-           :     AggregateExec: mode=Partial, gby=[metadata.brand@0 as metadata.brand], aggr=[count(1) as agg_0]
-           :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, id@0)], projection=[metadata.brand@0]
+           :     AggregateExec: mode=Partial, gby=[metadata.brand@1 as metadata.brand], aggr=[count(jp_0.id) as agg_0]
+           :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, id@0)], projection=[id@2, metadata.brand@0]
            :         CooperativeExec
            :           PgSearchScan: table=ju, segments=3, fetch=[metadata.brand], visibility=eager, query="all"
            :         CooperativeExec

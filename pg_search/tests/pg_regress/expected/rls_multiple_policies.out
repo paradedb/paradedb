@@ -129,13 +129,13 @@ WHERE title ||| 'sheriff';
                                                                                           QUERY PLAN                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on documents
-   Filter: (((NOT document_has_tags(id)) OR EXISTS(SubPlan exists_1)) AND check_org_access(org_id))
+   Filter: (((NOT document_has_tags(id)) OR EXISTS(SubPlan 1)) AND check_org_access(org_id))
    Table: documents
    Index: documents_bm25
    Exec Method: NormalScanExecState
    Scores: true
    Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-   SubPlan exists_1
+   SubPlan 1
      ->  Nested Loop
            ->  Function Scan on unnest tag_id
            ->  Index Scan using access_tags_pkey on access_tags
@@ -164,13 +164,13 @@ LIMIT 2;
    ->  Sort
          Sort Key: (pdb.score(documents.id)) DESC, documents.id
          ->  Custom Scan (ParadeDB Base Scan) on documents
-               Filter: (((NOT document_has_tags(id)) OR EXISTS(SubPlan exists_1)) AND check_org_access(org_id))
+               Filter: (((NOT document_has_tags(id)) OR EXISTS(SubPlan 1)) AND check_org_access(org_id))
                Table: documents
                Index: documents_bm25
                Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-               SubPlan exists_1
+               SubPlan 1
                  ->  Nested Loop
                        ->  Function Scan on unnest tag_id
                        ->  Index Scan using access_tags_pkey on access_tags
@@ -199,13 +199,13 @@ ORDER BY id;
  Sort
    Sort Key: documents.id
    ->  Custom Scan (ParadeDB Base Scan) on documents
-         Filter: (((NOT document_has_tags(id)) OR EXISTS(SubPlan exists_1)) AND check_org_access(org_id))
+         Filter: (((NOT document_has_tags(id)) OR EXISTS(SubPlan 1)) AND check_org_access(org_id))
          Table: documents
          Index: documents_bm25
          Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-         SubPlan exists_1
+         SubPlan 1
            ->  Nested Loop
                  ->  Function Scan on unnest tag_id
                  ->  Index Scan using access_tags_pkey on access_tags

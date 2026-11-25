@@ -250,14 +250,13 @@ Test 7: a constant false HAVING on an aggregate without GROUP BY stays in HAVING
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 2;
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
-               QUERY PLAN               
-----------------------------------------
+           QUERY PLAN           
+--------------------------------
  Aggregate
    Filter: false
    ->  Result
-         Replaces: Scan on having_items
          One-Time Filter: false
-(5 rows)
+(4 rows)
 
 SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 2;
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)

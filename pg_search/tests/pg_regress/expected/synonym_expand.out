@@ -37,7 +37,7 @@ WARNING:  a `pdb.expand` subquery reads its rules from the table on every query,
    Columnar: id
    Scores: false
    Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('products_idx'::regclass, paradedb.match_disjunction_search_query_input('description'::paradedb.fieldname, $1))"}}}
-   InitPlan expr_1
+   InitPlan 1
      ->  Aggregate
            ->  Seq Scan on shop_synonyms
                  Filter: (shop = 'main'::text)
@@ -329,7 +329,7 @@ WARNING:  a `pdb.expand` subquery reads its rules from the table on every query,
    Columnar: id
    Scores: false
    Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('cased_products_idx'::regclass, paradedb.match_disjunction_search_query_input('label'::paradedb.fieldname, $1))"}}}
-   InitPlan expr_1
+   InitPlan 1
      ->  Aggregate
            Output: pdb.expand('Sofa'::text, (shop_synonyms.rule)::text)
            ->  Seq Scan on public.shop_synonyms

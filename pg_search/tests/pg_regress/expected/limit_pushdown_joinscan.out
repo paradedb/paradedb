@@ -287,14 +287,14 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
                      Filter: (user_id = 1)
                ->  Hash
                      ->  Custom Scan (ParadeDB Base Scan) on lj_people p
-                           Filter: ((company_id IS NULL) OR (ANY (company_id = (hashed SubPlan any_1).col1)))
+                           Filter: ((company_id IS NULL) OR (ANY (company_id = (hashed SubPlan 1).col1)))
                            Table: lj_people
                            Index: lj_people_bm25
                            Exec Method: NormalScanExecState
                            Scores: false
                            Full Index Scan: true
                            Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
-                           SubPlan any_1
+                           SubPlan 1
                              ->  Seq Scan on lj_companies c
 (18 rows)
 

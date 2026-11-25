@@ -163,8 +163,8 @@ WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id ||| '
   AND job_title ||| 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-                                                                                                                                             QUERY PLAN                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_cccf.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -176,14 +176,14 @@ ORDER BY doc_count DESC, job_title;
            : AggregateExec: mode=Final, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
            :   TantivyDecodeExec: decode=[job_title]
            :     AggregateExec: mode=Partial, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@1, ldf_id@0)], projection=[job_title@0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@1, ldf_id@0)]
+           :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@1, ldf_id@0)], projection=[job_title@0]
+           :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@1, ldf_id@0)], null_aware
            :           CooperativeExec
            :             PgSearchScan: table=asa_cccf, segments=1, fetch=[job_title], visibility=eager, query={"with_index":{"query":{"match":{"field":"job_title","value":"Senior","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
            :           CooperativeExec
-           :             PgSearchScan: table=asa_contact_list, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"list_id","value":"list-A","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :             PgSearchScan: table=asa_contact_list, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"list_id","value":"list-B","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
            :         CooperativeExec
-           :           PgSearchScan: table=asa_contact_list, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"list_id","value":"list-B","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :           PgSearchScan: table=asa_contact_list, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"list_id","value":"list-A","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (19 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
@@ -267,30 +267,29 @@ WHERE id IN (SELECT id FROM asa_pair_include)
   AND label ||| 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
-WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not columnar (table: join)
-                                                                                                            QUERY PLAN                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  Aggregate Scan (DataFusion) not used: multi-column NOT IN cannot be pushed into the scan (table: join)
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_pair_outer.label
    ->  GroupAggregate
          Group Key: asa_pair_outer.label
          ->  Sort
                Sort Key: asa_pair_outer.label
-               ->  Nested Loop Anti Join
-                     Join Filter: ((asa_pair_outer.a = asa_pair_inner.x) AND (asa_pair_outer.b = asa_pair_inner.y))
-                     ->  Hash Right Semi Join
-                           Hash Cond: (asa_pair_include.id = asa_pair_outer.id)
-                           ->  Seq Scan on asa_pair_include
-                           ->  Hash
-                                 ->  Custom Scan (ParadeDB Base Scan) on asa_pair_outer
-                                       Table: asa_pair_outer
-                                       Index: asa_pair_outer_idx
-                                       Exec Method: NormalScanExecState
-                                       Scores: false
-                                       Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"Senior","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-                     ->  Materialize
-                           ->  Seq Scan on asa_pair_inner
-(20 rows)
+               ->  Hash Right Semi Join
+                     Hash Cond: (asa_pair_include.id = asa_pair_outer.id)
+                     ->  Seq Scan on asa_pair_include
+                     ->  Hash
+                           ->  Custom Scan (ParadeDB Base Scan) on asa_pair_outer
+                                 Filter: (NOT (ANY ((a = (hashed SubPlan 1).col1) AND (b = (hashed SubPlan 1).col2))))
+                                 Table: asa_pair_outer
+                                 Index: asa_pair_outer_idx
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"Senior","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                                 SubPlan 1
+                                   ->  Seq Scan on asa_pair_inner
+(19 rows)
 
 SELECT label, COUNT(*) AS doc_count
 FROM asa_pair_outer
@@ -299,7 +298,7 @@ WHERE id IN (SELECT id FROM asa_pair_include)
   AND label ||| 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
-WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not columnar (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: multi-column NOT IN cannot be pushed into the scan (table: join)
        label       | doc_count 
 -------------------+-----------
  Senior Programmer |         1

@@ -19,7 +19,6 @@
 use crate::api::operator::anyelement_search_opoids;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
-use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::basescan::projections::window_agg;
 use crate::postgres::customscan::builders::custom_path::{
@@ -28,13 +27,14 @@ use crate::postgres::customscan::builders::custom_path::{
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
-use crate::postgres::node::NodeExt;
+use crate::postgres::node::{MutateControl, NodeExt};
 use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::search_operator_relations;
 use crate::postgres::utils::pg_search_extension_installed;
 use once_cell::sync::Lazy;
 use pgrx::{PgList, PgMemoryContexts, pg_guard, pg_sys};
+use planner::postgres::customscan::{QueryWalk, walk_query_levels};
 use std::collections::{HashMap, hash_map::Entry};
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
@@ -489,25 +489,7 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         return result;
     }
 
-    // Check if we should replace window functions and do so if needed
-    // This checks the OUTER query level
-    if should_replace_window_functions(parse) {
-        replace_windowfuncs_recursively(parse);
-    } else {
-        // Even if the outer query doesn't need replacement, CTEs might!
-        // Process CTEs directly here
-        if !(*parse).cteList.is_null() {
-            let ctelist = PgList::<pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
-            for cte in ctelist.iter_ptr() {
-                if !(*cte).ctequery.is_null() {
-                    let cte_query = (*cte).ctequery.cast::<pg_sys::Query>();
-                    if should_replace_window_functions(cte_query) {
-                        replace_windowfuncs_recursively(cte_query);
-                    }
-                }
-            }
-        }
-    }
+    replace_window_functions(parse);
 
     // Call the previous planner hook (e.g., Citus) or standard planner
     // PREV_PLANNER_HOOK is defined at module level to ensure proper hook chaining
@@ -530,171 +512,56 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     result
 }
 
-/// Check if the query (or any subquery/CTE) contains window functions (WindowFunc nodes)
-/// This is called BEFORE window function replacement in the planner hook
-/// Recursively checks subqueries and CTEs
 fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
-    if parse.is_null() {
-        return false;
-    }
-    let parse = unsafe { &*parse };
-
-    // Check the current query's target list
-    if !parse.targetList.is_null() && parse.targetList.contains_window_func() {
-        return true;
-    }
-
-    // Check subqueries in RTEs
-    if !parse.rtable.is_null() {
-        let rtable = unsafe { PgList::<pg_sys::RangeTblEntry>::from_pg(parse.rtable) };
-        for rte in rtable.iter_ptr() {
-            let rte = unsafe { &*rte };
-            if rte.rtekind == pg_sys::RTEKind::RTE_SUBQUERY
-                && !rte.subquery.is_null()
-                && query_has_window_func_nodes(rte.subquery)
-            {
-                return true;
+    unsafe {
+        walk_query_levels(parse, |query| {
+            if (*query).targetList.contains_window_func() {
+                QueryWalk::Break
+            } else {
+                QueryWalk::Descend
             }
-        }
+        })
     }
-
-    // Check CTEs (Common Table Expressions)
-    if !parse.cteList.is_null() {
-        let ctelist = unsafe { PgList::<pg_sys::CommonTableExpr>::from_pg(parse.cteList) };
-        for cte in ctelist.iter_ptr() {
-            let cte = unsafe { &*cte };
-            if !cte.ctequery.is_null() && query_has_window_func_nodes(cte.ctequery.cast()) {
-                return true;
-            }
-        }
-    }
-
-    false
 }
 
-/// Check if the query contains any ParadeDB search operator.
-///
-/// Detects: `@@@`, `|||`, `&&&`, `===`, `###`, and proximity operators (`##`, `##>`).
-/// Covers all argument type variants (text, text[], pdb.query, pdb.boost, pdb.fuzzy, proximityclause).
-/// This indicates that our custom scans will likely handle this query.
-/// Recursively checks subqueries and CTEs.
-///
-/// Note: This function checks for the *presence* of search operators anywhere in the query,
-/// while `extract_quals` in qual_inspect.rs attempts to *extract and convert* those operators
-/// into executable quals. They serve different purposes:
-/// - This function: Quick boolean check for planner decisions
-/// - extract_quals: Detailed extraction and validation for execution
 pub(crate) unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
-    // We still need to check for the @@@(anyelement, searchqueryinput) variant
-    // because it's the most common and we want fast-path for it
     let target_ops = anyelement_search_opoids();
-
-    // Helper closure to check if expression contains our operators
-    let contains_search_op = |node: *mut pg_sys::Node| -> bool {
-        // Fast path: check for common @@@(anyelement, searchqueryinput) first
-        if node.contains_operators(&target_ops) {
-            return true;
-        }
-
-        // Slow path: walk the expression tree and check operator names
-        node.contains_paradedb_operator()
+    let contains_search_op = |node: *mut pg_sys::Node| {
+        node.contains_operators(&target_ops) || node.contains_paradedb_operator()
     };
-
-    // Check WHERE clause (jointree->quals)
-    if !(*parse).jointree.is_null() {
-        let jointree = (*parse).jointree;
-        if !(*jointree).quals.is_null() && contains_search_op((*jointree).quals) {
-            return true;
+    walk_query_levels(parse, |query| {
+        let jointree = (*query).jointree;
+        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*query).targetList);
+        if (!jointree.is_null() && contains_search_op((*jointree).quals))
+            || contains_search_op((*query).havingQual)
+            || target_list
+                .iter_ptr()
+                .any(|te| contains_search_op((*te).expr.cast()))
+        {
+            QueryWalk::Break
+        } else {
+            QueryWalk::Descend
         }
-    }
-
-    // Check HAVING clause
-    if !(*parse).havingQual.is_null() && contains_search_op((*parse).havingQual) {
-        return true;
-    }
-
-    // Check target list (for search operators in SELECT expressions, aggregates, window functions)
-    if !(*parse).targetList.is_null() {
-        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
-        for te in target_list.iter_ptr() {
-            if !(*te).expr.is_null() && contains_search_op((*te).expr as *mut pg_sys::Node) {
-                return true;
-            }
-        }
-    }
-
-    // Check subqueries recursively
-    if !(*parse).rtable.is_null() {
-        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
-        for rte in rtable.iter_ptr() {
-            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
-                && !(*rte).subquery.is_null()
-                && query_has_search_operator((*rte).subquery)
-            {
-                return true;
-            }
-        }
-    }
-
-    // Check CTEs (Common Table Expressions) recursively
-    if !(*parse).cteList.is_null() {
-        let ctelist = PgList::<pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
-        for cte in ctelist.iter_ptr() {
-            if !(*cte).ctequery.is_null() && query_has_search_operator((*cte).ctequery.cast()) {
-                return true;
-            }
-        }
-    }
-
-    false
+    })
 }
 
 pub use planner::postgres::customscan::query_has_paradedb_agg;
 
-/// Recursively replace window functions in the query and all subqueries/CTEs
-fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
-    if parse.is_null() {
-        return;
-    }
-
-    // Extract window functions from current query
-    let window_tls = unsafe { window_agg::extract_and_convert_window_functions(parse) };
-    if !window_tls.is_empty() {
-        // Replace window functions in current query
-        unsafe { replace_windowfuncs_in_query(parse, &window_tls) };
-    }
-    let parse = unsafe { &*parse };
-
-    // Recursively process subqueries in RTEs
-    if !parse.rtable.is_null() {
-        let rtable = unsafe { PgList::<pg_sys::RangeTblEntry>::from_pg(parse.rtable) };
-        for rte in rtable.iter_ptr() {
-            let rte = unsafe { &*rte };
-            if rte.rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !rte.subquery.is_null() {
-                // For subqueries, check if they should have window functions replaced
-                // Each subquery is independent and may have its own Top K context
-                if should_replace_window_functions(rte.subquery) {
-                    replace_windowfuncs_recursively(rte.subquery);
-                }
-            }
+unsafe fn replace_window_functions(root: *mut pg_sys::Query) {
+    walk_query_levels(root, |query| {
+        if !should_replace_window_functions(query) {
+            return if query == root {
+                QueryWalk::CtesOnly
+            } else {
+                QueryWalk::SkipChildren
+            };
         }
-    }
-
-    // Recursively process CTEs (Common Table Expressions)
-    if !parse.cteList.is_null() {
-        let ctelist = unsafe { PgList::<pg_sys::CommonTableExpr>::from_pg(parse.cteList) };
-        for cte in ctelist.iter_ptr() {
-            let cte = unsafe { &*cte };
-            if !cte.ctequery.is_null() {
-                let cte_query = cte.ctequery.cast::<pg_sys::Query>();
-                // For CTEs, check if they should have window functions replaced
-                // Each CTE is independent and may have its own Top K context
-                if should_replace_window_functions(cte_query) {
-                    replace_windowfuncs_recursively(cte_query);
-                }
-            }
+        let windows = window_agg::extract_and_convert_window_functions(query);
+        if !windows.is_empty() {
+            replace_windowfuncs_in_query(query, &windows);
         }
-    }
+        QueryWalk::Descend
+    });
 }
 
 /// Replace WindowFunc nodes in the Query's target list with placeholder functions
@@ -744,73 +611,24 @@ unsafe fn replace_windowfuncs_in_query(
     (*parse).targetList = new_targetlist.into_pg();
 }
 
-// Helper function to recursively replace WindowFunc nodes in an expression
-//
-// Note: This follows a similar recursive pattern to replace_window_agg_with_placeholder() in mod.rs,
-// but operates at a different stage:
-// - This function: Planning stage - replaces WindowFunc → window_agg() placeholder
-// - That function: Execution stage - replaces window_agg() → Var placeholder for value injection
-//
-// TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
-// See https://github.com/paradedb/paradedb/issues/3455
 fn replace_in_node(node: *mut pg_sys::Node, window_tl: &TargetList) -> *mut pg_sys::Node {
-    if node.is_null() {
-        return node;
-    }
-
-    // Check if this is a WindowFunc
-    if unsafe { nodecast!(WindowFunc, node) }.is_some() {
-        // Replace with a window_agg(json) placeholder call
-        let json =
-            serde_json::to_string(window_tl).expect("Failed to serialize WindowSpecification");
-
-        match crate::api::window_aggregate::make_window_agg_placeholder(
-            &json,
-            None,
-            window_tl.singleton_result_type_oid(),
-            pg_sys::InvalidOid,
-        ) {
-            Some(placeholder) => return placeholder.cast(),
-            // The caller checked the placeholder function exists; an
-            // interior NUL in serialized JSON cannot happen.
-            None => return node,
-        }
-    }
-
-    // Check if this is a FuncExpr that might contain a WindowFunc
-    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, node) } {
-        let funcexpr = unsafe { &*funcexpr };
-        let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
-        let mut new_args = PgList::<pg_sys::Node>::new();
-        let mut modified = false;
-
-        // Recursively process arguments
-        for arg in args.iter_ptr() {
-            let new_arg = replace_in_node(arg, window_tl);
-            if new_arg != arg {
-                modified = true;
+    unsafe {
+        node.mutate(|node| match (*node).type_ {
+            pg_sys::NodeTag::T_FuncExpr | pg_sys::NodeTag::T_List => MutateControl::Continue,
+            pg_sys::NodeTag::T_WindowFunc => {
+                let json = serde_json::to_string(window_tl)
+                    .expect("Failed to serialize WindowSpecification");
+                let placeholder = crate::api::window_aggregate::make_window_agg_placeholder(
+                    &json,
+                    None,
+                    window_tl.singleton_result_type_oid(),
+                    pg_sys::InvalidOid,
+                );
+                MutateControl::Replace(placeholder.map_or(node, |func| func.cast()))
             }
-            new_args.push(new_arg);
-        }
-
-        if modified {
-            // Create a new FuncExpr with the modified arguments
-            let new_funcexpr = unsafe {
-                pg_sys::makeFuncExpr(
-                    funcexpr.funcid,
-                    funcexpr.funcresulttype,
-                    new_args.into_pg(),
-                    funcexpr.funccollid,
-                    funcexpr.inputcollid,
-                    funcexpr.funcformat,
-                )
-            };
-            return new_funcexpr.cast();
-        }
+            _ => MutateControl::Replace(node),
+        })
     }
-
-    // No replacement needed
-    node
 }
 
 /// Register a `set_rel_pathlist_hook` callback that checks for SubPlan-based

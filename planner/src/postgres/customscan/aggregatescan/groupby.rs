@@ -22,11 +22,11 @@ use crate::postgres::customscan::aggregatescan::{
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
+use crate::postgres::node::{NodeExt, WalkControl};
 use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
 use crate::postgres::var::{VarContext, find_one_resolved_var_and_fieldname};
 use crate::schema::{FieldSource, SearchFieldType};
-use pgrx::pg_sys;
-use pgrx::{PgList, pg_guard};
+use pgrx::{PgList, pg_sys};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GroupingColumn {
@@ -257,31 +257,18 @@ pub unsafe fn has_ungrouped_column(args: &CreateUpperPathsHookArgs) -> bool {
 /// Returns true if `expr` reads a column outside of the GROUP BY keys and the
 /// aggregates. A key can be a whole expression, so the walk stops at one.
 unsafe fn has_ungrouped_var(expr: *mut pg_sys::Node, keys: &[*mut pg_sys::Node]) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        let keys = &*(context as *const &[*mut pg_sys::Node]);
+    expr.walk(|node| {
         let stripped = strip_relabel(node);
         if keys
             .iter()
             .any(|key| pg_sys::equal((*key).cast(), stripped.cast()))
         {
-            return false;
+            return WalkControl::SkipChildren;
         }
         match (*node).type_ {
-            pg_sys::NodeTag::T_Aggref => false,
-            pg_sys::NodeTag::T_Var => true,
-            _ => pg_sys::expression_tree_walker(node, Some(walker), context),
+            pg_sys::NodeTag::T_Aggref => WalkControl::SkipChildren,
+            pg_sys::NodeTag::T_Var => WalkControl::Break,
+            _ => WalkControl::Continue,
         }
-    }
-
-    walker(
-        expr,
-        (&keys as *const &[*mut pg_sys::Node]) as *mut core::ffi::c_void,
-    )
+    })
 }

@@ -28,7 +28,7 @@ pub mod telemetry;
 
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::deparse::node_to_string_owned;
-use crate::postgres::node::NodeExt;
+use crate::postgres::node::{MutateControl, NodeExt};
 use cost::{
     CostMemo, DriveCost, EstimationQuery, ScanParallelismInputs, WorkerDecisionReason,
     WorkerPathPolicy, costable_drive_cost, decide_scan_parallelism, estimate_path_cost,
@@ -3110,76 +3110,30 @@ unsafe fn inject_window_aggregate_placeholders(
     (new_tlist.into_pg(), placeholders)
 }
 
-// Helper function to recursively search and replace window_agg calls
-//
-// Note: This follows a similar recursive pattern to replace_in_node() in hook.rs,
-// but operates at a different stage:
-// - That function: Planning stage - replaces WindowFunc → window_agg() placeholder
-// - This function: Execution stage - replaces window_agg() → Var placeholder for value injection
-//
-// TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
-// See https://github.com/paradedb/paradedb/issues/3455
 fn replace_window_agg_with_placeholder(
     node: *mut pg_sys::Node,
     window_agg_procid: pg_sys::Oid,
     result_type_oid: pg_sys::Oid,
     columns: &mut PlaceholderColumns,
 ) -> (*mut pg_sys::Node, Option<PlaceholderColumn>) {
-    if node.is_null() {
-        return (node, None);
-    }
-
-    // Check if this is the window_agg FuncExpr
-    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, node) } {
-        let funcexpr = unsafe { &*funcexpr };
-        if funcexpr.funcid == window_agg_procid {
-            // Found it! Replace with a placeholder Var node
-            let (column, var) =
-                unsafe { columns.add(result_type_oid, pg_sys::DEFAULT_COLLATION_OID) };
-
-            return (var.cast(), Some(column));
-        }
-
-        // Not window_agg, but might have window_agg as an argument
-        let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
-        let mut new_args = PgList::<pg_sys::Node>::new();
-        let mut found_placeholder = None;
-        let mut modified = false;
-
-        for arg in args.iter_ptr() {
-            let (new_arg, placeholder_opt) = replace_window_agg_with_placeholder(
-                arg,
-                window_agg_procid,
-                result_type_oid,
-                columns,
-            );
-            if placeholder_opt.is_some() {
-                found_placeholder = placeholder_opt;
-                modified = true;
+    let mut placeholder = None;
+    let expr = unsafe {
+        node.mutate(|node| match (*node).type_ {
+            pg_sys::NodeTag::T_FuncExpr
+                if (*node.cast::<pg_sys::FuncExpr>()).funcid == window_agg_procid =>
+            {
+                let (column, var) = columns.add(result_type_oid, pg_sys::DEFAULT_COLLATION_OID);
+                placeholder = Some(column);
+                MutateControl::Replace(var.cast())
             }
-            if new_arg != arg {
-                modified = true;
-            }
-            new_args.push(new_arg);
-        }
-
-        if modified {
-            // Create a new FuncExpr with modified arguments
-            let new_funcexpr = unsafe {
-                pg_sys::makeFuncExpr(
-                    funcexpr.funcid,
-                    funcexpr.funcresulttype,
-                    new_args.into_pg(),
-                    funcexpr.funccollid,
-                    funcexpr.inputcollid,
-                    funcexpr.funcformat,
-                )
-            };
-            return (new_funcexpr.cast(), found_placeholder);
-        }
+            pg_sys::NodeTag::T_FuncExpr | pg_sys::NodeTag::T_List => MutateControl::Continue,
+            _ => MutateControl::Replace(node),
+        })
+    };
+    match placeholder {
+        Some(column) => (expr, Some(column)),
+        None => (node, None),
     }
-
-    (node, None)
 }
 
 /// Determine whether there are any pathkeys at all, and whether we might be able to push down

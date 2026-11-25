@@ -221,6 +221,7 @@ unsafe fn query_applies_search_operator(query: *mut pg_sys::Query, depth: usize)
     if query.is_null() || depth >= MAX_QUERY_DEPTH {
         return false;
     }
+    pg_sys::check_stack_depth();
     // A `SubLink` hands its `subselect`, a `Query`, to the walker. That is the only way a
     // `Query` shows up inside an expression.
     let predicates = |node: *mut pg_sys::Node| {
@@ -309,6 +310,7 @@ unsafe fn visit_expr(
     entries: &mut [Entry],
     found: &mut Vec<SearchedRelation>,
 ) {
+    pg_sys::check_stack_depth();
     node.walk(|node| {
         if let Some(subquery) = nodecast!(Query, node) {
             collect_searched_relations(subquery, depth + 1, found);
@@ -391,6 +393,7 @@ unsafe fn collect_searched_relations(
     if query.is_null() || depth >= MAX_QUERY_DEPTH {
         return;
     }
+    pg_sys::check_stack_depth();
     let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*query).rtable);
     let mut entries: Vec<Entry> = (0..=rtable.len()).map(|_| Entry::default()).collect();
     let entry_count = entries.len();

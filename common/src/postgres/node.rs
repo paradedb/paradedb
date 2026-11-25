@@ -33,8 +33,15 @@ pub struct VarRef {
 
 pub enum WalkControl {
     Continue,
+    VisitChild(*mut pg_sys::Node),
     SkipChildren,
     Break,
+}
+
+pub enum MutateControl {
+    Continue,
+    Replace(*mut pg_sys::Node),
+    VisitChild(*mut pg_sys::Node),
 }
 
 /// Expression-tree traversal in PostgreSQL's child order, including the root.
@@ -46,6 +53,14 @@ pub enum WalkControl {
 pub trait NodeExt: Copy {
     /// Returns true if a visitor stopped traversal with `WalkControl::Break`.
     fn walk<F: FnMut(*mut pg_sys::Node) -> WalkControl>(self, visitor: F) -> bool;
+
+    /// # Safety
+    /// The input tree must retain its structure during the rewrite. Each replacement
+    /// must have the type and lifetime required by its parent.
+    unsafe fn mutate(
+        self,
+        visitor: impl FnMut(*mut pg_sys::Node) -> MutateControl,
+    ) -> *mut pg_sys::Node;
 
     fn any(self, mut predicate: impl FnMut(*mut pg_sys::Node) -> bool) -> bool {
         self.walk(|node| {
@@ -265,7 +280,11 @@ impl<T: pg_sys::PgNode> NodeExt for *mut T {
         loop {
             match visitor(node) {
                 WalkControl::Break => return true,
-                WalkControl::SkipChildren => {}
+                WalkControl::VisitChild(child) if !child.is_null() => {
+                    node = child;
+                    continue;
+                }
+                WalkControl::SkipChildren | WalkControl::VisitChild(_) => {}
                 WalkControl::Continue => {
                     let start = pending.len();
                     unsafe {
@@ -283,6 +302,90 @@ impl<T: pg_sys::PgNode> NodeExt for *mut T {
             };
             node = next;
         }
+    }
+
+    unsafe fn mutate(
+        self,
+        mut visitor: impl FnMut(*mut pg_sys::Node) -> MutateControl,
+    ) -> *mut pg_sys::Node {
+        type Node = *mut pg_sys::Node;
+        enum Step {
+            Visit(Node),
+            Copy { node: Node, first_child: usize },
+        }
+
+        #[pg_guard]
+        unsafe extern "C-unwind" fn collect_child(
+            node: Node,
+            context: *mut core::ffi::c_void,
+        ) -> Node {
+            if !node.is_null() {
+                (*context.cast::<Vec<Step>>()).push(Step::Visit(node));
+            }
+            node
+        }
+
+        #[pg_guard]
+        unsafe extern "C-unwind" fn use_child(node: Node, context: *mut core::ffi::c_void) -> Node {
+            if node.is_null() {
+                return node;
+            }
+            let children = &mut *context.cast::<std::slice::Iter<Node>>();
+            *children.next().expect("missing expression child")
+        }
+
+        let mut scratch = None;
+        let mut pending = vec![Step::Visit(self.cast())];
+        let mut results = Vec::<Node>::new();
+        while let Some(step) = pending.pop() {
+            match step {
+                Step::Visit(node) if node.is_null() => results.push(node),
+                Step::Visit(node) => match visitor(node) {
+                    MutateControl::Replace(replacement) => results.push(replacement),
+                    MutateControl::VisitChild(child) => pending.push(Step::Visit(child)),
+                    MutateControl::Continue => {
+                        pending.push(Step::Copy {
+                            node,
+                            first_child: results.len(),
+                        });
+                        if matches!(
+                            (*node).type_,
+                            pg_sys::NodeTag::T_Var
+                                | pg_sys::NodeTag::T_Const
+                                | pg_sys::NodeTag::T_Param
+                        ) {
+                            continue;
+                        }
+                        // The Postgres walker skips nodes that its mutator copies, including `CaseWhen`.
+                        let start = pending.len();
+                        let scratch = scratch.get_or_insert_with(|| {
+                            pgrx::PgMemoryContexts::new("pg_search expression children")
+                        });
+                        scratch.switch_to(|_| {
+                            pg_sys::expression_tree_mutator(
+                                node,
+                                Some(collect_child),
+                                std::ptr::from_mut(&mut pending).cast(),
+                            );
+                        });
+                        scratch.reset();
+                        pending[start..].reverse();
+                    }
+                },
+                Step::Copy { node, first_child } => {
+                    let mut children = results[first_child..].iter();
+                    let copy = pg_sys::expression_tree_mutator(
+                        node,
+                        Some(use_child),
+                        std::ptr::from_mut(&mut children).cast(),
+                    );
+                    debug_assert!(children.as_slice().is_empty());
+                    results.truncate(first_child);
+                    results.push(copy);
+                }
+            }
+        }
+        results.pop().expect("missing expression root")
     }
 }
 
@@ -328,7 +431,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn node_walk_visits_every_branch_of_a_deep_boolean_expression() {
+    fn node_mutate_rewrites_each_occurrence_in_a_deep_expression() {
         const DEPTH: usize = 4096;
         unsafe {
             let var = pg_sys::makeVar(1, 1, pg_sys::BOOLOID, -1, pg_sys::InvalidOid, 0);
@@ -340,7 +443,63 @@ mod tests {
                 tree =
                     pg_sys::makeBoolExpr(pg_sys::BoolExprType::OR_EXPR, args.into_pg(), -1).cast();
             }
-            assert_eq!(tree.collect_nodes::<pg_sys::Var>().len(), DEPTH + 1);
+            let mut attno = 0;
+            let copy = tree.mutate(|node| {
+                if node == var.cast() {
+                    attno += 1;
+                    let replacement =
+                        pg_sys::makeVar(1, attno, pg_sys::BOOLOID, -1, pg_sys::InvalidOid, 0);
+                    return MutateControl::Replace(replacement.cast());
+                }
+                MutateControl::Continue
+            });
+            let columns: Vec<_> = copy
+                .collect_nodes::<pg_sys::Var>()
+                .into_iter()
+                .map(|var| (*var).varattno)
+                .collect();
+            assert_eq!(columns, (1..=(DEPTH + 1) as i16).collect::<Vec<_>>());
+            assert_eq!(tree.collect_nodes::<pg_sys::Var>(), vec![var; DEPTH + 1]);
+        }
+    }
+
+    #[pg_test]
+    fn node_mutate_visits_case_arms_and_preserves_optional_fields() {
+        unsafe {
+            let var = pg_sys::makeVar(1, 1, pg_sys::BOOLOID, -1, pg_sys::InvalidOid, 0);
+            let mut arm = PgBox::from_pg(pgrx::makeNode!(pg_sys::CaseWhen).get());
+            arm.expr = var.cast();
+            arm.result = var.cast();
+            let mut arms = PgList::new();
+            arms.push(arm.into_pg());
+            let mut case = PgBox::from_pg(pgrx::makeNode!(pg_sys::CaseExpr).get());
+            case.args = arms.into_pg();
+            case.defresult = var.cast();
+
+            let replacement = pg_sys::makeBoolConst(true, false);
+            let mut visited = Vec::new();
+            let copy = case
+                .as_ptr()
+                .mutate(|node| {
+                    visited.push((*node).type_);
+                    if node == var.cast() {
+                        MutateControl::Replace(replacement)
+                    } else {
+                        MutateControl::Continue
+                    }
+                })
+                .cast::<pg_sys::CaseExpr>();
+            use pg_sys::NodeTag::{T_CaseExpr, T_CaseWhen, T_List, T_Var};
+            assert_eq!(
+                visited,
+                [T_CaseExpr, T_List, T_CaseWhen, T_Var, T_Var, T_Var]
+            );
+            assert!((*copy).arg.is_null());
+            let arms = PgList::<pg_sys::CaseWhen>::from_pg((*copy).args);
+            let arm = arms.get_ptr(0).unwrap();
+            assert_eq!((*arm).expr, replacement.cast());
+            assert_eq!((*arm).result, replacement.cast());
+            assert_eq!((*copy).defresult, replacement.cast());
         }
     }
 

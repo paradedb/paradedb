@@ -29,7 +29,7 @@ use crate::postgres::customscan::pushdown::{PushdownField, try_build_pushdown_qu
 use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::index::{any_leaf_partition_index, is_partitioned_index};
-use crate::postgres::node::NodeExt;
+use crate::postgres::node::{NodeExt, WalkControl};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::search_operator_relations::top_parent;
@@ -40,9 +40,7 @@ use crate::query::pdb_query::pdb;
 use crate::schema::SearchIndexSchemaQueryExt;
 use pg_sys::BoolExprType;
 use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{
-    FromDatum, IntoDatum, PgList, PgLogLevel, PgSqlErrorCode, function_name, pg_guard, pg_sys,
-};
+use pgrx::{FromDatum, IntoDatum, PgList, PgLogLevel, PgSqlErrorCode, function_name, pg_sys};
 use std::ops::Bound;
 
 #[derive(Debug, Clone)]
@@ -752,27 +750,6 @@ pub struct QualExtractState {
 /// Check if a clause contains node types that extract_quals cannot handle
 /// (e.g., SubPlan from RLS policies) and thus needs plan.qual evaluation.
 pub fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        _data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        match (*node).type_ {
-            pg_sys::NodeTag::T_SubPlan | pg_sys::NodeTag::T_AlternativeSubPlan => true,
-            // RestrictInfo is a planner node, not an expression node, so
-            // expression_tree_walker doesn't know how to handle it. Unwrap
-            // to the inner clause before recursing.
-            pg_sys::NodeTag::T_RestrictInfo => {
-                let ri = node as *mut pg_sys::RestrictInfo;
-                walker((*ri).clause.cast(), _data)
-            }
-            _ => pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut()),
-        }
-    }
-
     if node.is_null() {
         return false;
     }
@@ -801,7 +778,17 @@ pub fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo) -> bo
         }
     }
 
-    unsafe { walker(node, std::ptr::null_mut()) }
+    inner.walk(|node| unsafe {
+        match (*node).type_ {
+            pg_sys::NodeTag::T_SubPlan | pg_sys::NodeTag::T_AlternativeSubPlan => {
+                WalkControl::Break
+            }
+            pg_sys::NodeTag::T_RestrictInfo => {
+                WalkControl::VisitChild((*node.cast::<pg_sys::RestrictInfo>()).clause.cast())
+            }
+            _ => WalkControl::Continue,
+        }
+    })
 }
 
 /// Whether a WHERE clause can be pushed into the scan without breaking RLS ordering.

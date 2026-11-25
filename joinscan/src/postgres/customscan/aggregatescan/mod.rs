@@ -31,7 +31,7 @@ pub mod scan_state;
 use crate::api::MvccVisibilityExt;
 use crate::gucs::WorkMem;
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
-use crate::postgres::node::NodeExt;
+use crate::postgres::node::{MutateControl, NodeExt};
 use crate::postgres::search_operator_relations;
 pub use planner::postgres::customscan::aggregatescan::{
     AggIndexInfo, AggregateType, CustomScanBuildError, CustomScanClause, GroupByClause,
@@ -3101,63 +3101,28 @@ unsafe fn detect_join_aggregate_topk(
     }))
 }
 
-/// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
-/// This is called at plan time or at executor startup to avoid "Aggref found in non-Agg plan node" errors
-/// Uses expression_tree_mutator to handle nested Aggrefs (e.g., COALESCE(COUNT(*), 0))
-///
-/// The new target list lives in the memory context of the one it replaces. PostgreSQL
-/// can cache a plan and run it again (a prepared statement, or a statement in a
-/// function), so the plan can outlive the execution that calls this. The next
-/// execution finds no Aggref and changes nothing, so a plan keeps one old list
-/// and no more.
 unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
-    use pgrx::pg_guard;
-
     if (*plan).targetlist.is_null() {
         return;
     }
 
-    // Mutator function to replace Aggref nodes with placeholder FuncExpr
-    #[pg_guard]
-    unsafe extern "C-unwind" fn aggref_mutator(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> *mut pg_sys::Node {
-        if node.is_null() {
-            return std::ptr::null_mut();
+    let replace_aggregate = |node: *mut pg_sys::Node| {
+        if let Some(aggref) = crate::nodecast!(Aggref, node) {
+            return MutateControl::Replace(make_placeholder_func_expr(aggref).cast());
         }
-
-        // If this is an Aggref, replace it with a placeholder FuncExpr
-        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
-            let aggref = node as *mut pg_sys::Aggref;
-            return make_placeholder_func_expr(aggref) as *mut pg_sys::Node;
-        }
-
-        // If this is an UNNEST FuncExpr, replace it with a placeholder FuncExpr of its result type.
-        // This is safe because AggregateScan handles the unnesting via Tantivy's terms aggregation.
-        if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
-            let func_expr = node as *mut pg_sys::FuncExpr;
-            if is_unnest_func((*func_expr).funcid) {
-                return make_placeholder_func_expr_internal(
-                    (*func_expr).funcresulttype,
-                    (*func_expr).inputcollid,
-                    (*func_expr).location,
-                    "UNNEST",
-                ) as *mut pg_sys::Node;
-            }
-        }
-
-        // For all other nodes, use the standard mutator to walk children
-        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        if let Some(func_expr) = crate::nodecast!(FuncExpr, node)
+            && is_unnest_func((*func_expr).funcid)
         {
-            pg_sys::expression_tree_mutator(node, Some(aggref_mutator), context)
+            let placeholder = make_placeholder_func_expr_internal(
+                (*func_expr).funcresulttype,
+                (*func_expr).inputcollid,
+                (*func_expr).location,
+                "UNNEST",
+            );
+            return MutateControl::Replace(placeholder.cast());
         }
-
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-        {
-            pg_sys::expression_tree_mutator_impl(node, Some(aggref_mutator), context)
-        }
-    }
+        MutateControl::Continue
+    };
 
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*plan).targetlist);
 
@@ -3172,7 +3137,7 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
         return;
     }
 
-    // Build a new target list with Aggrefs replaced by placeholders and UNNEST stripped
+    // A cached plan can execute again after the executor's memory context is gone.
     let mut plan_context = PgMemoryContexts::of((*plan).targetlist.cast())
         .expect("the target list should be in a memory context");
     (*plan).targetlist = plan_context.switch_to(|_| {
@@ -3180,9 +3145,7 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
         for te in targetlist.iter_ptr() {
             let new_te = pg_sys::flatCopyTargetEntry(te);
 
-            // Use the mutator to replace any Aggref or UNNEST nodes in the expression
-            let new_expr = aggref_mutator((*te).expr as *mut pg_sys::Node, std::ptr::null_mut());
-            (*new_te).expr = new_expr as *mut pg_sys::Expr;
+            (*new_te).expr = (*te).expr.mutate(replace_aggregate).cast();
 
             new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
         }

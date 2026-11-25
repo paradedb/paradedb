@@ -5108,8 +5108,8 @@ checksum = "269bca4c2591a28585d6bf10d9ed0332b7d76900a1b02bec41bdc3a2cdcda107"
 
 [[package]]
 name = "opencc-jieba-rs"
-version = "0.9.0"
-source = "git+https://github.com/paradedb/opencc-jieba-rs?branch=main#edfe347cfba463385337893feb4f5e2ff7309c83"
+version = "0.9.1"
+source = "git+https://github.com/paradedb/opencc-jieba-rs?rev=7ef74d151bec02e12ac29fe5076ffa925216ba6e#7ef74d151bec02e12ac29fe5076ffa925216ba6e"
 dependencies = [
  "bytecount",
  "rayon",

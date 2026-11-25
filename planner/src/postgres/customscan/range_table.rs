@@ -53,6 +53,18 @@ pub fn get_plain_relation_relid(rte: *mut pg_sys::RangeTblEntry) -> Option<pg_sy
     Some(relid)
 }
 
+/// True for the parent of an inheritance tree that the query names without `ONLY`.
+/// PostgreSQL reads such a table with one scan per table of the tree, and its index
+/// holds only its own rows. The parser sets `inh` on every table named without `ONLY`,
+/// so this also checks that the table has children. A partitioned table returns false.
+pub unsafe fn is_inheritance_parent(rte: *mut pg_sys::RangeTblEntry) -> bool {
+    !rte.is_null()
+        && (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION
+        && (*rte).inh
+        && pg_sys::get_rel_relkind((*rte).relid) as u8 == pg_sys::RELKIND_RELATION
+        && pg_sys::has_subclass((*rte).relid)
+}
+
 /// If the given Bitmapset has exactly one member, return it.
 pub unsafe fn bms_exactly_one_member(bms: *mut pg_sys::Bitmapset) -> Option<pg_sys::Index> {
     let mut members = bms_iter(bms);

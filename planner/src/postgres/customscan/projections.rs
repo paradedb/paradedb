@@ -36,7 +36,9 @@ use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::snippet::{
     SnippetType, extract_snippet, extract_snippet_positions, extract_snippets,
 };
-use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
+use crate::postgres::customscan::range_table::{
+    is_inheritance_parent, rte_is_parent, rte_is_partitioned,
+};
 use crate::postgres::node::{NodeExt, WalkControl};
 use crate::postgres::var::VarContext;
 use crate::postgres::var::find_one_fieldname;
@@ -304,12 +306,18 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
                     })
             });
 
-        if !has_joins && !has_aggs {
-            // No joins and no aggregates - PlaceHolderVar provides no benefit
+        let mut vars = (*srs).fcall.collect_nodes::<pg_sys::Var>();
+
+        // PostgreSQL computes the select list of an inheritance parent above the `Append`.
+        // The PlaceHolderVar makes it compute the call in the scan of each table instead.
+        let reads_inheritance_parent =
+            vars.len() == 1 && var_reads_inheritance_parent(root, vars[0]);
+
+        if !has_joins && !has_aggs && !reads_inheritance_parent {
+            // No joins, no aggregates and no inheritance parent - PlaceHolderVar provides no benefit
             return ReturnedNodePointer::unsupported();
         }
 
-        let mut vars = (*srs).fcall.collect_nodes::<pg_sys::Var>();
         assert!(vars.len() == 1, "function is improperly defined or called");
         let var = vars.pop().unwrap();
 
@@ -339,6 +347,32 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
     }
 
     ReturnedNodePointer::unsupported()
+}
+
+/// True if `var` reads the parent of an inheritance tree that the query names without `ONLY`.
+unsafe fn var_reads_inheritance_parent(
+    root: *mut pg_sys::PlannerInfo,
+    var: *mut pg_sys::Var,
+) -> bool {
+    let parse = (*root).parse;
+    if (*var).varlevelsup != 0 || (*var).varno <= 0 || parse.is_null() {
+        return false;
+    }
+
+    // PostgreSQL can pull the SELECT source up into an INSERT. UPDATE and DELETE
+    // evaluate RETURNING expressions separately from the scan's target list.
+    if !matches!(
+        (*parse).commandType,
+        pg_sys::CmdType::CMD_SELECT | pg_sys::CmdType::CMD_INSERT
+    ) {
+        return false;
+    }
+    let rtable = (*parse).rtable;
+    if (*var).varno as usize > PgList::<pg_sys::RangeTblEntry>::from_pg(rtable).len() {
+        return false;
+    }
+    let rte = pgrx::rt_fetch!((*var).varno as pg_sys::Index, rtable).get();
+    is_inheritance_parent(rte)
 }
 
 /// find all [`pg_sys::FuncExpr`] nodes matching a set of known function Oids that also contain

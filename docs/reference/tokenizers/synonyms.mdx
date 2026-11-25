@@ -1,16 +1,15 @@
 ---
 title: Synonyms
-description: Expand search terms with synonym rules that you keep in a Postgres table
+description: Expand search terms with synonym rules
 canonical: https://www.paradedb.com/docs/reference/tokenizers/synonyms
 ---
 
-With synonyms, a search for `sofa` also finds rows that say `couch`. You keep the rules in a regular Postgres table, and
-a query reads them with a subquery. Changes to the rules are transactional and apply to the next query, without a
-reindex.
+With synonyms, a search for `sofa` also finds rows that say `couch`. You keep the rules in a regular table, and a query
+reads them with a subquery. Changes to the rules don't require a reindex.
 
 ## Creating a Synonym Index
 
-Store one rule per row in a `pdb.synonym_rule` column, and create a ParadeDB index on that column alone:
+Store one rule per row in a `pdb.synonym_rule` column, and create a ParadeDB index on that column:
 
 ```sql
 CREATE TABLE shop_synonyms (rule pdb.synonym_rule NOT NULL);
@@ -20,13 +19,13 @@ INSERT INTO shop_synonyms VALUES
 CREATE INDEX shop_synonyms_idx ON shop_synonyms USING paradedb (rule);
 ```
 
-Rules use the Solr format, which Elasticsearch and OpenSearch synonym files also use. There are two kinds:
+Rules use the Solr format, which is used by Elasticsearch and OpenSearch synonym files, too. There are two kinds:
 
 - `couch, sofa, divan` is an equivalence rule. A search for any of these words finds all of them.
 - `sneakers => running shoes` is a directed rule. A search for `sneakers` looks for `running shoes` instead, and a
   search for `running shoes` doesn't change.
 
-If a word is in several rules, a search for it uses the alternatives of all of them. Rules don't chain. With
+If a word is in several rules, a search for it uses the alternatives of all of them. However, rules don't chain. With
 `sneakers, shoes, trainers` and `shoes, kicks`, a search for `shoes` finds all four words, but a search for `kicks`
 finds only `kicks` and `shoes`.
 
@@ -37,9 +36,9 @@ puts all the grams of a word at one position, so search it with a
 [search tokenizer](/reference/tokenizers/search-tokenizer) that keeps words whole.
 
 Escape a comma in a term with a backslash. Comments and blank lines are allowed. `INSERT` rejects a rule that doesn't
-parse, and the error shows the rule and the reason.
+parse.
 
-To load a synonym file, use a delimiter and a quote character that never appear in it. Each line then becomes one rule,
+To load a synonym file, use a delimiter and a quote character that don't exist in it. Each line then becomes one rule,
 backslashes included:
 
 ```sql
@@ -56,8 +55,7 @@ CREATE INDEX shop_synonyms_en_idx ON shop_synonyms
 USING paradedb ((rule::pdb.simple('stemmer=english')));
 ```
 
-Options at their default values don't count, so `pdb.simple` and `pdb.simple('lowercase=true')` are one tokenizer. If
-you search fields with different tokenizers, create one synonym index for each tokenizer on the same table.
+If you search fields with different tokenizers, create one synonym index for each tokenizer on the same table.
 
 ### Several Sets in One Table
 
@@ -73,7 +71,7 @@ A query picks a set with the same `WHERE` clause, as shown below.
 
 ## Searching with Synonyms
 
-The index you search needs no synonym setting:
+The index you search doesn't need any synonym setting:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -149,16 +147,22 @@ await dbContext
 
 </CodeGroup>
 
-Without the subquery, or if it returns no rules, the query searches only the typed words.
+Without the subquery from the synonym rules table, or if the subquery returns no rules, the query searches only for the
+words of the search text.
 
-Each run of query words that matches a rule becomes a group, and a row matches the group if it contains any of its
-alternatives. With `&&&`, every group has to match. When rules overlap, the longest run wins. Because a multi-word term
-matches as a phrase, a `|||` search for `running shoes` with the rule `running shoes, joggers` doesn't find a row that
-has only `shoes`.
+The query uses the rules this way:
+
+- Each run of words in the search text that matches a rule becomes a group of alternatives. A row matches the group if
+  it contains any of them.
+- With `&&&`, a row has to match every group.
+- When rules overlap, the longest run wins. With rules on `running` and on `running shoes`, the search text
+  `running shoes` uses the rule on `running shoes`.
+- An alternative with several words matches as a phrase. With the rule `running shoes, joggers`, a `|||` search for
+  `running shoes` doesn't find a row that has only `shoes`. Without the rule, the search finds that row.
 
 `pdb.expand` works with `|||`, `&&&`, [`###`](#phrases) and [`@@@`](#query-parser). It is an error with a
-[term](/reference/full-text/term) query. It takes text and not a text array such as `ARRAY['sofa']`, which has no
-tokenizer to match the rules with.
+[term](/reference/full-text/term) query. It takes text and not a text array such as `ARRAY['sofa']`, because an
+array doesn't have any tokenizer to match the rules with.
 
 Put the fuzzy and boost casts on the subquery:
 
@@ -228,8 +232,9 @@ await dbContext
 
 </CodeGroup>
 
-[Fuzzy](/reference/full-text/fuzzy) and prefix matching apply only to the typed words, and their alternatives match
-exactly. A directed rule drops the typed words, fuzzy or not.
+[Fuzzy](/reference/full-text/fuzzy) and prefix matching apply only to the words of the search text, and their synonyms
+match exactly. With the query above, `sofas` matches `sofa`, but `couches` doesn't match `couch`. A directed rule
+replaces the words of the search text, even when they are fuzzy.
 
 To use one set of a [table with several sets](#several-sets-in-one-table), add the `WHERE` of its partial index to the
 subquery:
@@ -457,8 +462,8 @@ await dbContext
 </CodeGroup>
 
 Because the parser expands each word on its own, a multi-word term expands only inside quotes. Only the field on the
-left side expands, at every path of a JSON field. Words for other fields, such as `category:sofa`, stay as typed, and so
-do ranges, sets and prefix phrases.
+left side expands, at every path of a JSON field. Words for other fields, such as `category:sofa`, don't expand, and
+neither do ranges, sets and prefix phrases.
 
 Phrase slop goes in the query string, as in `"red sofa"~2`, and not on the subquery. The `lenient` and
 `conjunction_mode` options of `pdb.parse` are not available. The parser doesn't use a
@@ -467,36 +472,35 @@ the field.
 
 ### Which Index a Query Uses
 
-The subquery reads a table, not an index. The query uses the synonym index on the rule column that holds the rows the
-subquery reads. That is the index on the whole table for a subquery without `WHERE`, or the partial index with the same
+The subquery reads a table, not an index. The query uses the synonym index on the rule column that's read by the
+subquery. That is the index on the whole table for a subquery without `WHERE`, or the partial index with the same
 `WHERE`. The index also needs the tokenizer of the field you search. `EXPLAIN` shows it on a `Synonyms` line.
 
-If no synonym index fits, or row-level security on the rules table applies to you, the query still expands. It reads the
-rules on every run and tokenizes them with the tokenizer of the field. This is fine for a small set, and a warning says
-why no index is used. Set `paradedb.planner_warnings` to `error` to catch it in your tests, or to `off` to hide it.
+If there's no synonym index that fits, or row-level security on the rules table applies to you, the query still expands.
+It reads the rules on every run and tokenizes them with the tokenizer of the field. This is fine for a small set, and a
+warning says why no index is used. Set `paradedb.planner_warnings` to `error` to catch it in your tests, or to `off` to
+hide it.
 
-Postgres checks your privileges on the rules table, and row-level security applies, so each role expands with the rules
-it can see.
+Postgres checks your privileges on the synonym rules table, and row-level security applies, so each role expands with
+the rules it can see.
 
 In a prepared statement, the search text can be a parameter, but write the `WHERE` values of a partial index as
 literals. After a few runs, Postgres can switch to a generic plan, and that plan can't tell which partial index holds
-the rules. The ORM `expand` helpers write literals for you, except in EF Core, where you use a constant or
-`EF.Constant`.
+the rules.
 
 ## Scoring
 
-A group of single words scores as one term, so a rare synonym doesn't score above a common one. A row with both `sofa`
-and `couch` scores a little above a row with only one of them. A group with a multi-word alternative or a fuzzy word
-scores with its best alternative, and a phrase query scores a row with its best phrase.
+A group of synonym words scores as one term, so a rare synonym doesn't score more than a common one. A row with both
+`sofa` and `couch` scores a little above a row with only one of them. A group with a multi-word alternative or a fuzzy
+word scores with its best alternative, and a phrase query scores a row with its best phrase.
 
 To see which words of a group a row contains, [explain its score](/reference/full-text/score#score-explanation).
 
 ## Limits
 
-Each alternative is one more term to look up. Two settings cap the work:
+Each alternative is one more term to look up. There are two settings to cap the work:
 
-- `paradedb.synonyms_max_alternatives` (default `32`) caps the alternatives of one run of words, in sorted order, and
-  the phrases of a phrase query. If a rule lists the typed words, the cap keeps them.
+- `paradedb.synonyms_max_alternatives` (default `32`) caps the alternatives of one run of words, in sorted order.
 - `paradedb.synonyms_max_rules_per_key` (default `1024`) caps the rules that one word reads in each segment of the
   synonym index, or from the subquery if there is no index.
 

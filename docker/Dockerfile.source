@@ -34,7 +34,7 @@ WORKDIR /build
 COPY . .
 # Scope SanitizerCoverage to the explicit target so host build scripts and
 # cargo-pgrx stay uninstrumented. Keep the release path identical for benchmarks.
-# DST runs currently use Antithesis instrumentation and require linux/amd64.
+# The instrumented DST build requires linux/amd64.
 ARG DST=false
 RUN /bin/bash <<'BUILD'
 set -euo pipefail

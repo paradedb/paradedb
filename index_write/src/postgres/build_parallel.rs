@@ -28,6 +28,7 @@ use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     WorkerStyle, chunk_range,
 };
+use crate::postgres::build::BuildPhase;
 use crate::postgres::build_partitioning::{
     BuildPartitioning, PartitionRouter, plan_partition_boundaries,
 };
@@ -35,7 +36,7 @@ use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState, PrefetchWindow};
 use crate::postgres::locks::Spinlock;
 use crate::postgres::ps_status::{
-    COMMITTING, FINALIZING, INDEXING, MERGING, set_ps_display_remove_suffix, set_ps_display_suffix,
+    COMMITTING, FINALIZING, INDEXING, set_ps_display_remove_suffix, set_ps_display_suffix,
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
@@ -628,13 +629,13 @@ impl PartitionSpillFiles {
     }
 
     /// Collect `partition`'s ctids from every participant into an `int8` tuplesort on `budget`
-    /// bytes, or `None` when no participant saw a row of the partition. A packed ctid is 48
-    /// bits, so it orders the same as an `int8`.
+    /// bytes, with their count, or `None` when no participant saw a row of the partition. A
+    /// packed ctid is 48 bits, so it orders the same as an `int8`.
     unsafe fn gather(
         &mut self,
         partition: usize,
         budget: usize,
-    ) -> anyhow::Result<Option<Int8Sorter>> {
+    ) -> anyhow::Result<Option<(Int8Sorter, usize)>> {
         let readers = self.readers(partition);
         if readers.is_empty() {
             return Ok(None);
@@ -651,7 +652,7 @@ impl PartitionSpillFiles {
             pg_sys::BufFileClose(file);
         }
         sorter.performsort();
-        Ok(Some(sorter))
+        Ok(Some((sorter, total_bytes / CTID_RECORD_LEN)))
     }
 }
 
@@ -986,7 +987,19 @@ impl<'a> WorkerBuildState<'a> {
     }
 
     fn persist_segments(&mut self, segments: &[SegmentMeta]) -> anyhow::Result<()> {
-        unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
+        let writer = self.writer.as_ref().expect("writer should be set");
+        let phase = if writer.schema().has_vector_field()
+            && segments
+                .iter()
+                .map(|meta| meta.num_docs() as usize)
+                .sum::<usize>()
+                >= writer.index.settings().vector_clustering_threshold()
+        {
+            BuildPhase::Clustering
+        } else {
+            BuildPhase::Merging
+        };
+        phase.report(self.is_leader);
         let meta = match self
             .writer
             .as_mut()
@@ -1003,6 +1016,7 @@ impl<'a> WorkerBuildState<'a> {
             self.on_segment_flushed();
             self.nmerges += usize::from(segments.len() > 1);
         }
+        BuildPhase::Indexing.report(self.is_leader);
         Ok(())
     }
 
@@ -1133,12 +1147,18 @@ impl<'a> WorkerBuildState<'a> {
         );
         for partition in first_partition..first_partition + owned_partitions {
             check_for_interrupts();
-            let Some(mut sorter) = (unsafe { files.gather(partition, self.gather_budget)? }) else {
+            let Some((mut sorter, ctids)) =
+                (unsafe { files.gather(partition, self.gather_budget)? })
+            else {
                 continue;
             };
             if self.writer.is_none() {
                 self.open_partition_writer()?;
             }
+            self.writer
+                .as_mut()
+                .expect("drain_partitioned: writer should be set")
+                .begin_partition(ctids);
             // Every segment of the partition carries its box, so a reader can prune on it without
             // opening the segment.
             self.writer
@@ -1397,6 +1417,7 @@ pub(super) fn build_index(
         snapshot.0,
         plan::adjusted_target_segment_count(&heaprel, &indexrel),
     )?;
+    BuildPhase::Indexing.report(true);
     let target_segment_count = partitioning.as_ref().map_or_else(
         || plan::adjusted_target_segment_count(&heaprel, &indexrel),
         BuildPartitioning::partition_count,
@@ -1494,6 +1515,7 @@ pub(super) fn build_index(
         };
 
         // wait for the workers to finish by collecting all their response messages
+        BuildPhase::Waiting.report(true);
         for (_, message) in process {
             check_for_interrupts();
             let worker_response = serde_json::from_slice::<WorkerResponse>(&message)?;
@@ -1678,9 +1700,12 @@ pub mod plan {
 #[pgrx::pg_schema]
 mod tests {
     use pgrx::prelude::*;
+    use proptest::{prelude::*, sample::select};
+
+    const PARALLEL_BUILD_ROWS: i64 = 35_000;
 
     fn setup_parallel_build_large_table() {
-        Spi::run(
+        Spi::run(&format!(
             r#"
             DROP TABLE IF EXISTS parallel_build_large;
             CREATE TABLE parallel_build_large (
@@ -1689,9 +1714,9 @@ mod tests {
             );
             INSERT INTO parallel_build_large (name)
             SELECT 'lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.'
-            FROM generate_series(1, 35000);
+            FROM generate_series(1, {PARALLEL_BUILD_ROWS});
             "#,
-        )
+        ))
         .expect("failed to setup parallel_build_large table");
     }
 
@@ -1807,7 +1832,7 @@ mod tests {
         assert_eq!(
             Spi::get_one::<i64>("SELECT count(*) FROM parallel_build_large WHERE name ||| 'lorem'")
                 .unwrap(),
-            Some(35000)
+            Some(PARALLEL_BUILD_ROWS)
         );
     }
 
@@ -1881,91 +1906,66 @@ mod tests {
         ).unwrap();
     }
 
-    /// Tests parallel index building with various configurations.
-    ///
-    /// This test creates 35,000 rows and tests different configuration
-    /// combinations of maintenance_work_mem, workers, leader participation,
-    /// and target segment count.
     #[pg_test]
     fn test_parallel_build_large_configurations() {
-        setup_parallel_build_large_table();
+        const CONFIGURATION_CASES: u32 = 8;
+        const LARGE_SEGMENT_TARGET: i64 = 32;
+        const MIN_LARGE_SEGMENTS: i64 = LARGE_SEGMENT_TARGET * 3 / 4;
+        const MAX_LARGE_SEGMENTS: i64 = LARGE_SEGMENT_TARGET + 1;
 
+        setup_parallel_build_large_table();
         Spi::run("SET max_parallel_workers = 8;").unwrap();
 
-        let maintenance_work_mem = ["2GB", "128MB"];
-        let maintenance_workers = [6, 2];
-        let leader_participation = [true, false];
-        let target_segments = [4, 7, 32];
+        proptest!(ProptestConfig::with_cases(CONFIGURATION_CASES), |(
+            memory in select(vec!["128MB", "2GB"]),
+            workers in select(vec![2, 6]),
+            leader in any::<bool>(),
+            target in select(vec![4, 7, LARGE_SEGMENT_TARGET]),
+        )| {
+            Spi::run(&format!(
+                    "SET max_parallel_maintenance_workers = {workers};
+                     SET parallel_leader_participation = {leader};
+                     SET maintenance_work_mem = '{memory}';
+                     CREATE INDEX parallel_build_large_idx ON parallel_build_large
+                     USING paradedb (id, name) WITH (target_segment_count = {target});"
+                ))
+                .unwrap_or_else(|error| {
+                    panic!("CREATE INDEX failed with workers={workers}, leader={leader}, mem={memory}, segments={target}: {error:?}")
+                });
 
-        for mwm in &maintenance_work_mem {
-            for mw in &maintenance_workers {
-                for lp in &leader_participation {
-                    for ts in &target_segments {
-                        // Set configuration
-                        Spi::run(&format!("SET max_parallel_maintenance_workers = {};", mw))
-                            .unwrap();
-                        Spi::run(&format!("SET parallel_leader_participation = {};", lp)).unwrap();
-                        Spi::run(&format!("SET maintenance_work_mem = '{}';", mwm)).unwrap();
+            let count: i64 = Spi::get_one(
+                "SELECT COUNT(*)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
+            )
+            .unwrap()
+            .unwrap();
+            let num_docs: i64 = Spi::get_one(
+                    "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
+                )
+                .unwrap()
+                .unwrap();
+            Spi::run("DROP INDEX parallel_build_large_idx;").unwrap();
 
-                        // Create index
-                        Spi::run(&format!(
-                            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb (id, name) WITH (target_segment_count = {});",
-                            ts
-                        ))
-                        .unwrap_or_else(|e| {
-                            panic!(
-                                "CREATE INDEX failed with workers={}, leader={}, mem={}, segments={}: {:?}",
-                                mw, lp, mwm, ts, e
-                            )
-                        });
-
-                        // Verify segment count
-                        let count: i64 = Spi::get_one(
-                            "SELECT COUNT(*)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
-                        )
-                        .unwrap()
-                        .unwrap();
-
-                        if *ts == 4 {
-                            assert_eq!(
-                                count, 4,
-                                "Expected 4 segments with workers={}, leader={}, mem={}, segments={}, got {}",
-                                mw, lp, mwm, ts, count
-                            );
-                        } else if *ts == 7 {
-                            assert_eq!(count, 7, "prime target: {count} segments");
-                        } else if *ts == 32 {
-                            // The parallel heap scan hands out blocks on demand, so a participant
-                            // short on CPU scans fewer rows and flushes fewer segments than its
-                            // quota, while its peers merge back down to theirs. Skew only ever
-                            // pulls the total below the target. The floor tolerates about a
-                            // quarter of the rows moving between participants.
-                            let expected = 24..=33;
-                            assert!(
-                                expected.contains(&count),
-                                "Expected {expected:?} segments with workers={mw}, leader={lp}, mem={mwm}, segments={ts}, got {count}"
-                            );
-                        }
-
-                        // Verify total document count
-                        let num_docs: i64 = Spi::get_one(
-                            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
-                        )
-                        .unwrap()
-                        .unwrap();
-
-                        assert_eq!(
-                            num_docs, 35000,
-                            "Expected 35000 docs with workers={}, leader={}, mem={}, segments={}, got {}",
-                            mw, lp, mwm, ts, num_docs
-                        );
-
-                        // Drop index for next iteration
-                        Spi::run("DROP INDEX parallel_build_large_idx;").unwrap();
-                    }
-                }
+            if target == LARGE_SEGMENT_TARGET {
+                let expected = MIN_LARGE_SEGMENTS..=MAX_LARGE_SEGMENTS;
+                prop_assert!(
+                    expected.contains(&count),
+                    "Expected {:?} segments with workers={}, leader={}, mem={}, segments={}, got {}",
+                    expected, workers, leader, memory, target, count
+                );
+            } else {
+                prop_assert_eq!(
+                    count, target,
+                    "workers={}, leader={}, mem={}, segments={}",
+                    workers, leader, memory, target
+                );
             }
-        }
+
+            prop_assert_eq!(
+                num_docs, PARALLEL_BUILD_ROWS,
+                "workers={}, leader={}, mem={}, segments={}",
+                workers, leader, memory, target
+            );
+        });
 
         cleanup_parallel_build_large_table();
     }
@@ -2118,6 +2118,148 @@ mod tests {
             .unwrap()
             .as_deref(),
             Some("ivf")
+        );
+    }
+
+    /// A partition that reaches the clustering threshold writes its full-precision rows into the
+    /// index relation, not into temporary files: the build fits a `temp_file_limit` below the
+    /// table's vector bytes, which a build that stages its rows exceeds, clusters every segment,
+    /// and returns the rows the staged build returns.
+    #[pg_test]
+    fn test_vector_build_streams_rows_past_temp_file_limit() {
+        // 30,000 rows of 64 f32 are 7.68MB of vector bytes, 3.84MB in each of the two
+        // partitions a build process holds one at a time.
+        Spi::run(
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            SET maintenance_work_mem = '64MB';
+            SET max_parallel_maintenance_workers = 0;
+            SET max_parallel_workers_per_gather = 0;
+            SET paradedb.vector_clustering_threshold = 1;
+            SET paradedb.vector_adaptive_probing = off;
+            SET paradedb.vector_cluster_max_probe = 100000;
+            CREATE TABLE streamed_build (id BIGINT, emb vector(64));
+            INSERT INTO streamed_build
+            SELECT i, CASE WHEN i % 97 = 0 THEN NULL ELSE (
+                SELECT array_agg(
+                    sin(i * (d + 1) * 0.37)::real + CASE WHEN d = i % 64 THEN 3 ELSE 0 END
+                    ORDER BY d)
+                FROM generate_series(0, 63) d)::vector END
+            FROM generate_series(1, 30000) i;
+            "#,
+        )
+        .unwrap();
+        let create = |options: &str| {
+            format!(
+                "CREATE INDEX streamed_build_idx ON streamed_build USING paradedb \
+                 (id, emb vector_cosine_ops) WITH (target_segment_count = 2{options})"
+            )
+        };
+        let query_vector =
+            Spi::get_one::<String>("SELECT emb::text FROM streamed_build WHERE id = 12345")
+                .unwrap()
+                .unwrap();
+        let nearest = || {
+            Spi::get_one::<Vec<i64>>(&format!(
+                "SELECT array_agg(id) FROM (SELECT id FROM streamed_build \
+                 WHERE id @@@ paradedb.all() ORDER BY emb <=> '{query_vector}' LIMIT 10) q"
+            ))
+            .unwrap()
+            .unwrap()
+        };
+
+        Spi::run("SET temp_file_limit = '2MB'").unwrap();
+        Spi::run(&create("")).unwrap();
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT count(*) = 2 AND bool_and(vector_format = 'ivf') AND bool_and(quantized)
+                 AND sum(vector_num_vectors) = 30000 - 309
+                 FROM paradedb.vector_info('streamed_build_idx', 'emb')"
+            )
+            .unwrap(),
+            Some(true)
+        );
+        let streamed = nearest();
+        assert_eq!(streamed.len(), 10);
+        assert_eq!(streamed[0], 12345);
+
+        // Without a sort the build stages its rows and exceeds the limit.
+        Spi::run("DROP INDEX streamed_build_idx").unwrap();
+        Spi::run(&format!(
+            "DO $$
+             BEGIN
+                 {};
+                 RAISE EXCEPTION 'build unexpectedly succeeded';
+             EXCEPTION WHEN configuration_limit_exceeded THEN
+                 NULL;
+             END $$;",
+            create(", sort_by = 'none'")
+        ))
+        .unwrap();
+        Spi::run("SET temp_file_limit = '-1'").unwrap();
+        Spi::run(&create(", sort_by = 'none'")).unwrap();
+        assert_eq!(nearest(), streamed);
+    }
+
+    /// A partition that starts at the clustering threshold streams its rows, and stays flat when
+    /// fewer documents than ctids arrive: its segment is the one the rows opened, with the rows
+    /// as its flat data.
+    #[pg_test]
+    fn test_streamed_partition_below_threshold_stays_flat() {
+        use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
+        use crate::postgres::rel::PgSearchRelation;
+        use std::num::NonZeroUsize;
+        use tantivy::TantivyDocument;
+
+        Spi::run(
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            SET paradedb.vector_clustering_threshold = 50;
+            CREATE TABLE streamed_flat (id BIGINT, emb vector(64));
+            CREATE INDEX streamed_flat_idx ON streamed_flat USING paradedb
+                (id, emb vector_cosine_ops) WITH (target_segment_count = 1);
+            "#,
+        )
+        .unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'streamed_flat_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        let config = IndexWriterConfig::new(NonZeroUsize::new(64 << 20).unwrap());
+        let mut writer = SerialIndexWriter::for_build(&indexrel, config, 0).unwrap();
+        let schema = writer.schema().tantivy_schema().clone();
+        let (id, emb) = (
+            schema.get_field("id").unwrap(),
+            schema.get_field("emb").unwrap(),
+        );
+
+        // The scan spilled 50 ctids; 20 of their rows are left to fetch, 16 with a vector.
+        writer.begin_partition(50);
+        for doc in 0..20u64 {
+            let mut document = TantivyDocument::new();
+            document.add_i64(id, doc as i64);
+            if doc % 5 != 0 {
+                let mut vector = [0.25f32; 64];
+                vector[doc as usize] = 2.0;
+                document.add_vector(emb, &vector);
+            }
+            assert!(writer.insert(document, doc + 1, || {}).unwrap().is_none());
+        }
+        let staged = writer.finalize_nocommit().unwrap().unwrap();
+        let committed = writer
+            .persist_build_segments(std::slice::from_ref(&staged))
+            .unwrap()
+            .unwrap();
+        assert_ne!(committed.id(), staged.id());
+        assert_eq!(committed.max_doc(), 20);
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT count(*) = 1 AND bool_and(vector_format = 'flat')
+                 AND sum(vector_num_vectors) = 16
+                 FROM paradedb.vector_info('streamed_flat_idx', 'emb')"
+            )
+            .unwrap(),
+            Some(true)
         );
     }
 

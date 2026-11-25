@@ -28,6 +28,7 @@ pub mod pdb_owned_value;
 pub mod planner_warnings;
 pub mod ps_status;
 pub mod range;
+pub mod resowner;
 pub mod sequentialscan {
     pub mod keyset;
     pub use keyset::KeySet;

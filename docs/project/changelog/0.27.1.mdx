@@ -1,0 +1,20 @@
+---
+title: "0.27.1"
+description: "ParadeDB release notes for 0.27.1"
+---
+
+See GitHub release: [v0.27.1](https://github.com/paradedb/paradedb/releases/tag/v0.27.1)
+
+## Breaking Changes 🚨 {#breaking-changes}
+
+- Replaced the `paradedb.*_inlist_pushdown_max_*` settings with `paradedb.hash_join_filter_pushdown` (`auto`, `inlist`, `hash`, `off`) to control or disable index pushdown of join filters, and `paradedb.hash_join_inlist_max_distinct_values` / `paradedb.hash_join_inlist_max_size` to set when joins switch from an `IN` list to a hash-table lookup.
+
+- Removed the standalone `paradedb.aggregate()` function. Use `pdb.agg()` in a `SELECT` over the indexed table, with the search predicate in `WHERE`. Update any database objects that depend on the old function before upgrading.
+
+## Stability Improvements 💪 {#stability-improvements}
+
+- Fixed aggregate and `DISTINCT` queries with subqueries in search predicates failing at execution time (#7593), and resolved runtime predicates before evaluating `pdb.agg(..., 'threshold')` visibility. Also fixed parallel search queries with bitmap intersection failing when run outside parallel mode.
+
+- Fixed backend crashes and resource-owner errors when parallel queries or cursors abort mid-execution (such as on `work_mem` exhaustion, mid-stream errors, or `SAVEPOINT` / PL/pgSQL `EXCEPTION` rollbacks).
+
+- Fixed aggregate `FILTER` clauses over joins reading the wrong indexed field or failing with a schema error when an index alias differs from or collides with a SQL column name (#7517).

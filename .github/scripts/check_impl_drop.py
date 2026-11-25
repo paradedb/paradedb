@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 """
 Fail on any `impl Drop` or `DropGuard` in pgrx-linking crates that does not say why it skips
-`impl_safe_drop!`.
+`impl_safe_drop!`, or any direct `IsTransactionState()` call inside `impl_safe_drop!` that does
+not say why it skips `ResourceOwnerStamp`.
 
 A `Drop` that calls into Postgres has to skip its body while a panic unwinds or the backend
 exits (#6479), which is what `impl_safe_drop!` in common/src/postgres/utils.rs does. A bare
 `impl Drop` or `DropGuard::new` needs a comment directly above it that opts out in so many
-words: "We intentionally do NOT use `impl_safe_drop!` here because ...". Every workspace crate
-that depends on `pgrx` is scanned.
+words: "We intentionally do NOT use `impl_safe_drop!` here because ...".
+
+Inside `impl_safe_drop!`, checking `IsTransactionState()` alone is not enough when a scan state
+lives in a `MemoryContext` whose `ResourceOwner` has already been released (#7609); wrappers
+should gate cleanup with `ResourceOwnerStamp` from common/src/postgres/resowner.rs, or opt out
+directly above the call with "We intentionally call `IsTransactionState()` here because ...".
+Every workspace crate that depends on `pgrx` is scanned.
 """
 
 import json
@@ -24,8 +30,15 @@ BARE_DROP = re.compile(
     re.MULTILINE,
 )
 DROP_GUARD = re.compile(r"\bDropGuard::new\b|\bDropGuard\s+as\b")
+SAFE_DROP_START = re.compile(r"^[ \t]*(?:[A-Za-z0-9_]+::)*impl_safe_drop!\s*\(")
+IS_TX_STATE = re.compile(r"\bIsTransactionState\s*\(")
+STRING_LITERAL = re.compile(r'"(?:\\.|[^"\\])*"')
 # A comment that only names the macro, like a TODO, is not an opt out.
 OVERRIDE = re.compile(r"\bnot\s+us(?:e|ing)\W+impl_safe_drop\b", re.IGNORECASE)
+TX_STATE_OVERRIDE = re.compile(
+    r"\bnot\s+us(?:e|ing)\W+ResourceOwnerStamp\b|\bintentionally\b.*\bIsTransactionState\b",
+    re.IGNORECASE,
+)
 
 # Shapes the matcher must get right, with the findings each should produce.
 SELF_TEST = [
@@ -60,7 +73,53 @@ SELF_TEST = [
         ),
         1,
     ),
+    (
+        "crate::impl_safe_drop!(Foo, |self| {\n    if unsafe { IsTransactionState() } {}\n});",
+        1,
+    ),
+    (
+        (
+            "crate::impl_safe_drop!([T] Foo<T>, |self| {\n"
+            "    // TODO: switch to ResourceOwnerStamp.\n"
+            "    if unsafe { pg_sys::IsTransactionState() } {}\n"
+            "});"
+        ),
+        1,
+    ),
+    (
+        (
+            "crate::impl_safe_drop!(Foo, |self| {\n"
+            "    // We intentionally call `IsTransactionState()` here because fallback.\n"
+            "    if unsafe { IsTransactionState() } {}\n"
+            "});"
+        ),
+        0,
+    ),
+    (
+        (
+            "impl_safe_drop!(Foo, |self| {\n"
+            "    // We intentionally do not use `ResourceOwnerStamp` here because ...\n"
+            "    if unsafe { IsTransactionState() } {}\n"
+            "});"
+        ),
+        0,
+    ),
+    (
+        (
+            "impl_safe_drop!(Foo, |self| {\n"
+            "    // IsTransactionState() in a comment is fine.\n"
+            '    let _s = "IsTransactionState()";\n'
+            "});\n"
+            "fn outside() { unsafe { IsTransactionState() }; }"
+        ),
+        0,
+    ),
 ]
+
+
+def _code_only(line):
+    """Strip string literals and `//` comments so paren counting and regexes see code only."""
+    return STRING_LITERAL.sub('""', line).split("//", 1)[0]
 
 
 def _preceding_comment_block(lines, idx):
@@ -80,7 +139,7 @@ def _preceding_comment_block(lines, idx):
 
 
 def find_bare_drops(text):
-    """Return (line, header) for every unexcused `impl Drop` or `DropGuard`."""
+    """Return (line, header) for unexcused `impl Drop`, `DropGuard`, or `IsTransactionState()`."""
     findings = [
         (text.count("\n", 0, m.start(2)) + 1, " ".join(m.group(2).split()))
         for m in BARE_DROP.finditer(text)
@@ -88,6 +147,7 @@ def find_bare_drops(text):
         if not m.group(3).startswith("$") and not OVERRIDE.search(m.group(1))
     ]
     lines = text.splitlines()
+    safe_drop_paren_depth = 0
     for idx, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("//"):
@@ -96,6 +156,25 @@ def find_bare_drops(text):
             _preceding_comment_block(lines, idx)
         ):
             findings.append((idx + 1, stripped))
+
+        code = _code_only(line)
+        if safe_drop_paren_depth == 0:
+            m = SAFE_DROP_START.match(code)
+            if m:
+                rest = code[m.end() - 1 :]
+                safe_drop_paren_depth = rest.count("(") - rest.count(")")
+                if IS_TX_STATE.search(rest) and not TX_STATE_OVERRIDE.search(
+                    _preceding_comment_block(lines, idx)
+                ):
+                    findings.append((idx + 1, stripped))
+        else:
+            if IS_TX_STATE.search(code) and not TX_STATE_OVERRIDE.search(
+                _preceding_comment_block(lines, idx)
+            ):
+                findings.append((idx + 1, stripped))
+            safe_drop_paren_depth = max(
+                0, safe_drop_paren_depth + code.count("(") - code.count(")")
+            )
     return sorted(findings)
 
 
@@ -134,9 +213,12 @@ def main():
     if bad:
         print("\n".join(bad))
         print(
-            f"\n{len(bad)} bare `impl Drop` / `DropGuard`. Use `impl_safe_drop!` from "
-            'common/src/postgres/utils.rs, or opt out directly above with "We '
-            'intentionally do NOT use `impl_safe_drop!` here because ...".'
+            f"\n{len(bad)} drop-safety violation(s). Use `impl_safe_drop!` from "
+            'common/src/postgres/utils.rs (or opt out directly above with "We intentionally do '
+            'NOT use `impl_safe_drop!` here because ..."), and inside `impl_safe_drop!` gate C '
+            "cleanup with `ResourceOwnerStamp` from common/src/postgres/resowner.rs rather than "
+            'calling `IsTransactionState()` directly (or opt out directly above with "We '
+            'intentionally call `IsTransactionState()` here because ...").'
         )
     return 1 if bad else 0
 

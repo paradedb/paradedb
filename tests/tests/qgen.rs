@@ -45,12 +45,12 @@ use sqlx::{PgConnection, Row};
 
 #[cfg(feature = "dst")]
 #[test]
-fn antithesis_sdk_initializes() {
+fn dst_sdk_initializes() {
     ensure_dst_init();
 }
 
 /// Proptest configuration shared by every generator test in this file. Under `dst`, proptest
-/// draws its randomness from the Antithesis SDK, so the platform controls and branches the
+/// draws its randomness from the DST SDK, so the platform controls and branches the
 /// entropy stream; otherwise this is just `Config::default()`.
 fn qgen_proptest_config() -> proptest::test_runner::Config {
     #[allow(unused_mut)]
@@ -58,7 +58,7 @@ fn qgen_proptest_config() -> proptest::test_runner::Config {
     #[cfg(feature = "dst")]
     {
         config.rng_algorithm = proptest::test_runner::RngAlgorithm::Antithesis;
-        // No shrinking: Antithesis controls the entropy stream and fault schedule, so a replay
+        // No shrinking: DST controls the entropy stream and fault schedule, so a replay
         // sees a different history and the minimized input is meaningless.
         config.max_shrink_iters = 0;
         config.source_file = Some("tests/tests/qgen.rs");
@@ -66,7 +66,7 @@ fn qgen_proptest_config() -> proptest::test_runner::Config {
     config
 }
 
-/// Report one case outcome as a per-test Antithesis property, then collapse it to a proptest
+/// Report one case outcome as a per-test DST property, then collapse it to a proptest
 /// result. The single `Always` assertion doubles as a reachability check: cataloged, it fails as
 /// unreached if the generator never produces a case. No-op under a plain `cargo test`.
 macro_rules! qgen_oracle {
@@ -108,7 +108,12 @@ const COLUMNS: &[Column] = &[
         .groupable({
             true
         })
-        .random_generator_sql("rpad(lpad((random() * 2147483647)::integer::text, 10, '0'), 32, '0')::uuid"),
+        .random_generator_sql(
+            "CASE WHEN random() < 0.5 \
+                THEN rpad(lpad(((floor(random() * 25) + 1)::bigint * 80000000)::text, 10, '0'), 32, '0')::uuid \
+                ELSE rpad(lpad((random() * 2147483647)::integer::text, 10, '0'), 32, '0')::uuid \
+            END",
+        ),
     Column::new("name", "TEXT", "'bob'")
         .index_expression(IndexExpression::Literal)
         .random_generator_sql(
@@ -121,7 +126,12 @@ const COLUMNS: &[Column] = &[
             "(ARRAY ['red', 'green', 'blue', 'orange', 'purple', 'pink', 'yellow', NULL]::text[])[(floor(random() * 8) + 1)::int]"
         ),
     Column::new("age", "INTEGER", "'20'")
-        .random_generator_sql("(floor(random() * 100) + 1)"),
+        .random_generator_sql(
+            "CASE WHEN random() < 0.05 \
+                THEN (floor(random() * 50) + 10000)::int \
+                ELSE (floor(random() * 100) + 1)::int \
+            END",
+        ),
     Column::new("op_expr_col", "INTEGER", "'3'")
         .whereable(false)
         .groupable(true)
@@ -945,7 +955,7 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
     // Columns for join keys
-    let join_key_columns = columns_named(vec!["id", "age"]);
+    let join_key_columns = columns_named(vec!["id", "age", "uuid"]);
     // Base column names for GROUP BY (must be columnar fast fields)
     let base_grouping_cols: Vec<&str> = COLUMNS
         .iter()
@@ -1489,7 +1499,7 @@ async fn generated_pdb_agg_join(database: Db) {
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     let where_columns = columns_named(vec!["name", "color"]);
-    let join_key_columns = columns_named(vec!["id", "age"]);
+    let join_key_columns = columns_named(vec!["id", "age", "uuid"]);
 
     proptest!(qgen_proptest_config(), |(
         (join_expr, agg, wheres) in arb_pdb_agg_join(all_tables.clone(), &join_key_columns, &where_columns),

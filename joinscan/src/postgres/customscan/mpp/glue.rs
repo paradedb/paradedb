@@ -29,10 +29,15 @@
 //!   customscan installs on its DataFusion `SessionContext`.
 //! - [`worker_setup`]: worker-side mesh attach, called from `run_launched_worker`. Returns the
 //!   [`WorkerSession`] carrying the DSM base pointer, owning `dsm_segment`, and `ServerProc`.
+//! - [`MppLeaderState::register_streams_on_dsm_detach`] / [`register_worker_streams_on_dsm_detach`]:
+//!   `on_dsm_detach` callbacks that synchronize DSM unmap via [`super::dsm_stream::DsmLease`] and
+//!   join live `PgTokioRuntime` worker threads via [`PgTokioRuntimeShutdownHandle`] on abnormal
+//!   transaction, subtransaction, or process abort while keeping the backend runtime warm after a
+//!   clean [`shutdown_mpp_scan`] or [`teardown_mpp_scan`].
 
 use std::ffi::c_void;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use arrow_array::RecordBatch;
 use datafusion::physical_plan::{ExecutionPlan, SendableRecordBatchStream};
@@ -44,7 +49,9 @@ use crate::postgres::customscan::mpp::dsm_stream::{
     DsmAsyncStream, DsmLeaderShutdownHandle, DsmWorkerDetachHandle, DsmWorkerShutdownWatcher,
     ServerProc, assign_wakeup_slots, build_leader_streams, init_dsm_mesh,
 };
-use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, cancel_pending};
+use crate::postgres::customscan::mpp::interrupt::{
+    PgTokioRuntime, PgTokioRuntimeShutdownHandle, cancel_pending,
+};
 use crate::postgres::customscan::mpp::wakeup::{WakeupDispatcher, WakeupSlotReservation};
 use crate::postgres::customscan::mpp::worker::DsmGrpcChannelResolver;
 
@@ -59,6 +66,14 @@ pub struct LeaderServerStreams {
     pub shutdown_watcher: DsmWorkerShutdownWatcher,
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LeaderSessionStage {
+    Running = 0,
+    ShutdownSignaled = 1,
+    TornDown = 2,
+}
+
 /// Leader session handle holding the gRPC channel resolver, DSM shutdown handle, wakeup slot
 /// reservation, and optional in-process Tonic `Worker` server task.
 pub struct LeaderSession {
@@ -66,7 +81,7 @@ pub struct LeaderSession {
     pub shutdown_handle: DsmLeaderShutdownHandle,
     pub wakeup_reservation: Arc<WakeupSlotReservation>,
     server_task: parking_lot::Mutex<Option<LeaderServerTask>>,
-    shutdown_signaled: AtomicBool,
+    stage: AtomicU8,
 }
 
 impl LeaderSession {
@@ -82,17 +97,33 @@ impl LeaderSession {
         self.server_task.lock().take()
     }
 
+    fn abort_server_task(&self) {
+        if let Some(task) = self.take_server_task() {
+            task.abort();
+        }
+    }
+
     /// Signal workers (and any leader server task) to shut down their Tonic servers and close all
-    /// leader-side outbound DSM streams. Idempotent across `shutdown_custom_scan` and
-    /// `end_custom_scan`.
+    /// leader-side outbound DSM streams. Idempotent across `shutdown_custom_scan`,
+    /// `end_custom_scan`, and `on_dsm_detach`.
     pub fn shutdown(&self) {
-        self.shutdown_signaled.store(true, Ordering::Release);
+        self.stage
+            .fetch_max(LeaderSessionStage::ShutdownSignaled as u8, Ordering::AcqRel);
         self.shutdown_handle.signal_shutdown();
         self.resolver.close_all();
     }
 
-    pub fn is_shutdown_signaled(&self) -> bool {
-        self.shutdown_signaled.load(Ordering::Acquire)
+    fn is_shutdown_signaled(&self) -> bool {
+        self.stage.load(Ordering::Acquire) >= LeaderSessionStage::ShutdownSignaled as u8
+    }
+
+    fn mark_torn_down(&self) {
+        self.stage
+            .store(LeaderSessionStage::TornDown as u8, Ordering::Release);
+    }
+
+    fn is_torn_down(&self) -> bool {
+        self.stage.load(Ordering::Acquire) == LeaderSessionStage::TornDown as u8
     }
 }
 
@@ -121,7 +152,7 @@ pub struct WorkerSession {
 /// state and consults it during `exec_custom_scan`.
 pub struct MppLeaderState {
     /// Active leader session handle holding the gRPC channel resolver and DSM shutdown handle.
-    pub session: LeaderSession,
+    pub session: Arc<LeaderSession>,
     /// Incoming server streams for `ServerProc(0)` when `leader_participation.is_participating()`,
     /// consumed by `build_mpp_exec_context` before execution starts.
     pub server_streams: Option<LeaderServerStreams>,
@@ -256,13 +287,13 @@ pub unsafe fn leader_setup(
         );
     }
     Ok(MppLeaderState {
-        session: LeaderSession {
+        session: Arc::new(LeaderSession {
             resolver,
             shutdown_handle: leader_streams.shutdown_handle,
             wakeup_reservation: Arc::new(wakeup_reservation),
             server_task: parking_lot::Mutex::new(None),
-            shutdown_signaled: AtomicBool::new(false),
-        },
+            stage: AtomicU8::new(LeaderSessionStage::Running as u8),
+        }),
         server_streams,
         bg_workers,
         leader_participation,
@@ -272,8 +303,8 @@ pub unsafe fn leader_setup(
 }
 
 struct LeaderDsmDetachArg {
-    dsm_detached: Arc<AtomicBool>,
-    wakeup_reservation: Arc<WakeupSlotReservation>,
+    session: Arc<LeaderSession>,
+    runtime_shutdown: PgTokioRuntimeShutdownHandle,
 }
 
 #[pgrx::pg_guard]
@@ -282,20 +313,38 @@ unsafe extern "C-unwind" fn mark_dsm_detached_on_dsm_detach(
     arg: pg_sys::Datum,
 ) {
     let detach_arg = unsafe { Box::from_raw(arg.cast_mut_ptr::<LeaderDsmDetachArg>()) };
-    detach_arg.dsm_detached.store(true, Ordering::SeqCst);
-    detach_arg.wakeup_reservation.release();
+    let clean_teardown = detach_arg.session.is_torn_down();
+    if !clean_teardown {
+        // Abnormal detach (`AbortTransaction` / `AtEOXact_Parallel`, `AtEOSubXact_Parallel`, or
+        // `proc_exit`): signal mesh shutdown and abort `server_task` while the DSM segment is
+        // still mapped, detach `DsmLease` so in-flight ring copies finish, and join all
+        // `PgTokioRuntime` worker threads before releasing wakeup slots or returning to `munmap`.
+        detach_arg.session.shutdown();
+        detach_arg.session.abort_server_task();
+    }
+    detach_arg.session.shutdown_handle.lease().detach();
+    if !clean_teardown {
+        detach_arg.runtime_shutdown.shutdown_workers();
+    }
+    detach_arg.session.wakeup_reservation.release();
 }
 
 impl MppLeaderState {
-    /// Register an `on_dsm_detach` callback that marks all leader DSM streams detached and
-    /// releases the query's reserved wakeup slots before the DSM segment unmaps.
+    /// Register an `on_dsm_detach` callback that detaches all leader DSM streams, joins
+    /// `PgTokioRuntime` worker threads if not cleanly torn down via [`shutdown_mpp_scan`] or
+    /// [`teardown_mpp_scan`], and releases the query's reserved wakeup slots before the DSM segment
+    /// unmaps.
     ///
     /// # Safety
     /// `seg` must be the live DSM segment that owns the ring memory.
-    pub unsafe fn register_streams_on_dsm_detach(&self, seg: *mut pg_sys::dsm_segment) {
+    pub unsafe fn register_streams_on_dsm_detach(
+        &self,
+        seg: *mut pg_sys::dsm_segment,
+        runtime_shutdown: PgTokioRuntimeShutdownHandle,
+    ) {
         let detach_arg = Box::into_raw(Box::new(LeaderDsmDetachArg {
-            dsm_detached: Arc::clone(self.session.shutdown_handle.detached_flag()),
-            wakeup_reservation: Arc::clone(&self.session.wakeup_reservation),
+            session: Arc::clone(&self.session),
+            runtime_shutdown,
         }));
         unsafe {
             pg_sys::on_dsm_detach(
@@ -307,35 +356,51 @@ impl MppLeaderState {
     }
 }
 
+struct WorkerDsmDetachArg {
+    detach_handle: DsmWorkerDetachHandle,
+    peer_resolver: Arc<DsmGrpcChannelResolver>,
+    runtime_shutdown: PgTokioRuntimeShutdownHandle,
+}
+
 #[pgrx::pg_guard]
 unsafe extern "C-unwind" fn detach_worker_streams_on_dsm_detach(
     _seg: *mut pg_sys::dsm_segment,
     arg: pg_sys::Datum,
 ) {
-    let handle = unsafe { Box::from_raw(arg.cast_mut_ptr::<DsmWorkerDetachHandle>()) };
-    handle.on_detach();
+    let detach_arg = unsafe { Box::from_raw(arg.cast_mut_ptr::<WorkerDsmDetachArg>()) };
+    detach_arg.detach_handle.close_worker_rings();
+    detach_arg.peer_resolver.close_all();
+    detach_arg.detach_handle.lease().detach();
+    detach_arg.runtime_shutdown.shutdown_workers();
 }
 
 /// Register an `on_dsm_detach` callback on `seg` (when non-null) that closes all SPSC rings in the
-/// mesh owned by this worker, wakes any sleeping peers, and marks the worker's DSM streams detached
-/// immediately before the DSM segment unmaps.
+/// mesh owned by this worker, wakes any sleeping peers, detaches the worker's
+/// [`super::dsm_stream::DsmLease`], and joins any live `PgTokioRuntime` worker threads immediately
+/// before the DSM segment unmaps.
 ///
 /// # Safety
 /// If `seg` is non-null, it must be the live DSM segment that owns the ring memory referenced by
-/// `handle`.
+/// `detach_handle`.
 pub unsafe fn register_worker_streams_on_dsm_detach(
     seg: *mut pg_sys::dsm_segment,
-    handle: DsmWorkerDetachHandle,
+    detach_handle: DsmWorkerDetachHandle,
+    peer_resolver: Arc<DsmGrpcChannelResolver>,
+    runtime_shutdown: PgTokioRuntimeShutdownHandle,
 ) {
     if seg.is_null() {
         return;
     }
-    let handle_ptr = Box::into_raw(Box::new(handle));
+    let arg_ptr = Box::into_raw(Box::new(WorkerDsmDetachArg {
+        detach_handle,
+        peer_resolver,
+        runtime_shutdown,
+    }));
     unsafe {
         pg_sys::on_dsm_detach(
             seg,
             Some(detach_worker_streams_on_dsm_detach),
-            pg_sys::Datum::from(handle_ptr as *mut c_void),
+            pg_sys::Datum::from(arg_ptr as *mut c_void),
         );
     }
 }
@@ -443,12 +508,20 @@ pub fn finish_leader_execution(
             }
             rt.shutdown_workers();
         } else {
-            if let Some(task) = server_task
-                && rt.is_running()
-            {
-                let _ = rt.block_on(async {
-                    tokio::time::timeout(std::time::Duration::from_millis(250), task).await
-                });
+            if let Some(task) = server_task {
+                if rt.is_running() {
+                    let abort_handle = task.abort_handle();
+                    if rt
+                        .block_on(async {
+                            tokio::time::timeout(std::time::Duration::from_millis(250), task).await
+                        })
+                        .is_err()
+                    {
+                        abort_handle.abort();
+                    }
+                } else {
+                    task.abort();
+                }
             }
             rt.quiesce_tasks();
             if leader.session.shutdown_handle.active_streams() > 0 {
@@ -496,9 +569,17 @@ fn mpp_did_spill(finish: &ParallelProcessFinish) -> bool {
     }
 }
 
-/// Joins the background workers, records their DSM spill flag in `spilled`, and destroys the
-/// parallel context. `wait_for_finish` also exits parallel mode.
-fn finish_parallel_context(mut finish: ParallelProcessFinish, spilled: &AtomicBool) {
+/// Marks `session` cleanly torn down, joins the background workers, records their DSM spill flag
+/// in `spilled`, and destroys the parallel context. `wait_for_finish` also exits parallel mode.
+fn finish_parallel_context(
+    mut finish: ParallelProcessFinish,
+    session: &LeaderSession,
+    spilled: &AtomicBool,
+) {
+    // Every leader stream and task has already been dropped and quiesced by
+    // `finish_leader_execution`, so `mark_dsm_detached_on_dsm_detach` inside `wait_for_finish` can
+    // keep the backend's `PgTokioRuntime` worker pool warm for subsequent queries.
+    session.mark_torn_down();
     // Join first: a producer can still spill while it winds down, and the join is what orders
     // its store before this load. `recv` is idempotent, so the one inside `wait_for_finish`
     // returns at once.
@@ -542,8 +623,10 @@ pub fn shutdown_mpp_scan(
     }
     // The backend must leave parallel mode before `ExecutorRun` returns. PostgreSQL applies a
     // configuration reload between protocol messages, and that fails in parallel mode.
-    if let Some(finish) = mpp.as_leader_mut().and_then(|leader| leader.finish.take()) {
-        finish_parallel_context(finish, spilled);
+    if let Some(leader) = mpp.as_leader_mut()
+        && let Some(finish) = leader.finish.take()
+    {
+        finish_parallel_context(finish, &leader.session, spilled);
     }
     warn_if_spilled(spilled);
 }
@@ -578,7 +661,10 @@ pub fn teardown_mpp_scan(
         }
     };
     let finish = match std::mem::replace(mpp, next_state) {
-        MppLifecycle::Active(mut leader) => leader.finish.take(),
+        MppLifecycle::Active(mut leader) => leader
+            .finish
+            .take()
+            .map(|finish| (finish, Arc::clone(&leader.session))),
         MppLifecycle::Disabled | MppLifecycle::Eligible => None,
     };
     // Drop order: the physical plan and session hold DSM stream references, so both must go before
@@ -586,8 +672,8 @@ pub fn teardown_mpp_scan(
     *current_batch = None;
     *physical_plan = None;
     *runtime = None;
-    if let Some(finish) = finish {
-        finish_parallel_context(finish, spilled);
+    if let Some((finish, session)) = finish {
+        finish_parallel_context(finish, &session, spilled);
     }
 }
 
@@ -668,7 +754,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn dsm_detach_marks_handle_detached() {
+    fn dsm_detach_marks_handle_detached_and_stops_untorn_down_runtime() {
         let bg = BgWorkerCount::new(2);
         let region_bytes = estimate_dsm_size(bg).unwrap();
         let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
@@ -680,9 +766,10 @@ mod tests {
             )
             .unwrap()
         };
+        let rt = PgTokioRuntime::new().unwrap();
         let detach_arg = Box::into_raw(Box::new(LeaderDsmDetachArg {
-            dsm_detached: Arc::clone(state.session.shutdown_handle.detached_flag()),
-            wakeup_reservation: Arc::clone(&state.session.wakeup_reservation),
+            session: Arc::clone(&state.session),
+            runtime_shutdown: rt.shutdown_handle(),
         }));
         unsafe {
             mark_dsm_detached_on_dsm_detach(
@@ -690,13 +777,9 @@ mod tests {
                 pg_sys::Datum::from(detach_arg as *mut c_void),
             );
         }
-        assert!(
-            state
-                .session
-                .shutdown_handle
-                .detached_flag()
-                .load(Ordering::Acquire)
-        );
+        assert!(state.session.shutdown_handle.lease().is_detached());
+        assert!(state.session.is_shutdown_signaled());
+        assert!(!rt.is_running());
         assert!(state.session.wakeup_reservation.slots().is_empty());
     }
 

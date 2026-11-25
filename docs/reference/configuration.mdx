@@ -111,7 +111,6 @@ These settings control how ParadeDB reads columnar data from the index.
 
 | Setting                                   | Default | Context | Description                                                                                              |
 | ----------------------------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------- |
-| `paradedb.enable_fast_field_exec`         | `on`    | user    | Enables optimized columnar executors for narrow projections.                                             |
 | `paradedb.enable_columnar_exec`           | `on`    | user    | Enables the columnar executor for multi-column string and numeric projections.                           |
 | `paradedb.columnar_exec_column_threshold` | `3`     | user    | Number of projected index columns below which the columnar executor is used instead of normal row fetch. |
 
@@ -119,26 +118,33 @@ These settings control how ParadeDB reads columnar data from the index.
 
 These settings affect pushed-down `IN`, `ANY`, and term-set queries.
 
-| Setting                                                  | Default    | Context | Description                                                                                                                                                                                                                                                                                            |
-| -------------------------------------------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `paradedb.hash_join_inlist_pushdown_max_size`            | `16777216` | user    | Maximum byte size of a join-derived `IN` list dynamic filter before falling back to a hash-table lookup filter.                                                                                                                                                                                        |
-| `paradedb.hash_join_inlist_pushdown_max_distinct_values` | `20000`    | user    | Maximum distinct values in a join-derived `IN` list on standard unsorted joins (above which hash-table lookup filters are faster); joins with `ORDER BY ... LIMIT` using lazy probe-side top-K execution use `paradedb.lazy_sort_inlist_pushdown_max_distinct_values`. Set to `0` to disable globally. |
-| `paradedb.lazy_sort_inlist_pushdown_max_distinct_values` | `131072`   | user    | Maximum distinct values in a join-derived `IN` list for joins with `ORDER BY ... LIMIT` using lazy probe-side top-K execution (higher than `paradedb.hash_join_inlist_pushdown_max_distinct_values` so top-K and vector collectors filter during collection). Set to `0` to disable.                   |
-| `paradedb.term_set_gallop_enabled`                       | `on`       | user    | Enables galloping execution for term-set queries on sorted columnar segments.                                                                                                                                                                                                                          |
-| `paradedb.term_set_bitset_max_density_unique`            | `0.0005`   | user    | Density threshold for selecting bitset execution on unique-valued columns.                                                                                                                                                                                                                             |
-| `paradedb.term_set_bitset_max_density_multi`             | `0.005`    | user    | Density threshold for selecting bitset execution on columns where multiple rows share a value.                                                                                                                                                                                                         |
-| `paradedb.dynamic_filter_batch_size`                     | `0`        | user    | Caps scanner batch size during dynamic filter pushdown. `0` uses the scanner default.                                                                                                                                                                                                                  |
+| Setting                                         | Default    | Context | Description                                                                                                                                                                                                                 |
+| ----------------------------------------------- | ---------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `paradedb.hash_join_filter_pushdown`            | `auto`     | user    | Controls index pushdown of hash-join dynamic filters: `auto` pushes both `IN` list and hash-table lookup filters, `inlist` pushes `IN` lists only, `hash` always uses hash lookup, and `off` disables join filter pushdown. |
+| `paradedb.hash_join_inlist_max_size`            | `16777216` | user    | Maximum byte size of a join-derived `IN` list dynamic filter before switching to a hash-table lookup filter.                                                                                                                |
+| `paradedb.hash_join_inlist_max_distinct_values` | `5000`     | user    | Maximum distinct values in a join-derived `IN` list dynamic filter before switching to a hash-table lookup filter. Set to `0` to always use hash lookup.                                                                    |
+| `paradedb.term_set_gallop_enabled`              | `on`       | user    | Enables galloping execution for term-set queries on sorted columnar segments.                                                                                                                                               |
+| `paradedb.term_set_bitset_max_density_unique`   | `0.0005`   | user    | Density threshold for selecting bitset execution on unique-valued columns.                                                                                                                                                  |
+| `paradedb.term_set_bitset_max_density_multi`    | `0.005`    | user    | Density threshold for selecting bitset execution on columns where multiple rows share a value.                                                                                                                              |
+| `paradedb.dynamic_filter_batch_size`            | `0`        | user    | Caps scanner batch size during dynamic filter pushdown. `0` uses the scanner default.                                                                                                                                       |
 
 ## Index Maintenance
 
 These settings affect segment layout and background merging.
 
-| Setting                                     | Default | Context | Description                                                                                                                    |
-| ------------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `paradedb.global_target_segment_count`      | `0`     | sighup  | Overrides every index's `target_segment_count` when non-zero. Requires config reload.                                          |
-| `paradedb.global_enable_background_merging` | `on`    | sighup  | Enables write-triggered background segment merging globally. Does not control periodic mutable sweeps. Requires config reload. |
-| `paradedb.global_mutable_segment_rows`      | `-1`    | user    | Overrides every index's `mutable_segment_rows` when set to a non-negative value.                                               |
-| `paradedb.mutable_sweep_interval`           | `1s`    | sighup  | Interval between periodic mutable-segment sweeps. Set to `0` to disable; write-triggered merging is unchanged.                 |
+| Setting                                     | Default | Context    | Description                                                                                                                    |
+| ------------------------------------------- | ------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `paradedb.global_target_segment_count`      | `0`     | sighup     | Overrides every index's `target_segment_count` when non-zero. Requires config reload.                                          |
+| `paradedb.global_enable_background_merging` | `on`    | sighup     | Enables write-triggered background segment merging globally. Does not control periodic mutable sweeps. Requires config reload. |
+| `paradedb.global_mutable_segment_rows`      | `-1`    | user       | Overrides every index's `mutable_segment_rows` when set to a non-negative value.                                               |
+| `paradedb.mutable_sweep_interval`           | `1s`    | sighup     | Interval between periodic mutable-segment sweeps. Set to `0` to disable; write-triggered merging is unchanged.                 |
+| `paradedb.enable_mutable_segment_cache`     | `on`    | user       | Reuses indexed mutable segments across queries and parallel workers through a shared-memory cache.                             |
+| `paradedb.mutable_segment_cache_size`       | `64MB`  | postmaster | Size of the shared cache's data arena across all databases. Must be a power of two between `1MB` and `1GB`. Requires restart.  |
+
+The mutable segment cache holds up to 256 segments, each using at least 256kB of
+arena space. Metadata uses additional shared memory. When an entry cannot fit,
+the query builds it in local memory. Disabling the cache bypasses it without
+changing the shared memory reserved at startup.
 
 ## Per-Index Search Options
 

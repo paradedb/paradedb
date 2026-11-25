@@ -132,24 +132,6 @@ ORDER BY value;
  orange |     1 |         7 |         7
 (4 rows)
 
--- Test 4: Verify with paradedb.aggregate directly
-SELECT 'Test 4: Direct paradedb.aggregate call';
-                ?column?                
-----------------------------------------
- Test 4: Direct paradedb.aggregate call
-(1 row)
-
-SELECT * FROM paradedb.aggregate(
-    index=>'json_test_idx',
-    query=>paradedb.exists('metadata_json.value'),
-    agg=>'{"buckets": { "terms": { "field": "metadata_json.value" }}}',
-    visibility=>'transaction'
-) ORDER BY 1;
-                                                                                                             aggregate                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": {"buckets": [{"key": "apple", "doc_count": 3}, {"key": "banana", "doc_count": 3}, {"key": "cherry", "doc_count": 1}, {"key": "orange", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
-(1 row)
-
 -- Test 5: JSON projection without filter (should still work)
 SELECT 'Test 5: Without WHERE clause';
            ?column?           

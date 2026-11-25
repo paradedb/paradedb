@@ -19,8 +19,10 @@
 //! Parallel-aware BaseScan: DSM attach hooks and the process-local handle to
 //! shared work assignment / telemetry IPC.
 
+use std::cell::RefCell;
 use std::os::raw::c_void;
 use std::ptr::NonNull;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::index::reader::io_stats::Trace;
@@ -29,6 +31,7 @@ use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
+use crate::postgres::customscan::mpp::interrupt::PgTokioRuntimeShutdownHandle;
 
 use pgrx::pg_sys::{self, Size, dsa_area, shm_toc};
 
@@ -98,16 +101,33 @@ impl ParallelScanHandle {
     }
 }
 
+struct BaseScanDsmDetach {
+    parallel: ParallelScanHandle,
+    trace: Option<Trace>,
+    runtime_shutdown: Rc<RefCell<Option<PgTokioRuntimeShutdownHandle>>>,
+}
+
 // LIMIT can shut down the leader scan before its workers; collect after Gather joins them.
+// On abnormal transaction/subtransaction abort (`!IsTransactionState()`), `AtEOXact_Parallel` /
+// `AtEOSubXact_Parallel` detaches `Gather`'s DSM segment before `AtSubAbort_Portals` and
+// `XactCallback` / `SubXactCallback` run, so shut down this specific `BaseScan`'s `PgTokioRuntime`
+// directly via its handle before the segment unmaps while leaving unrelated runtimes intact.
 #[pgrx::pg_guard]
-unsafe extern "C-unwind" fn collect_buffer_hits_on_detach(
+unsafe extern "C-unwind" fn on_basescan_dsm_detach(
     _seg: *mut pg_sys::dsm_segment,
     arg: pg_sys::Datum,
 ) {
-    let (parallel, trace) =
-        *unsafe { Box::from_raw(arg.cast_mut_ptr::<(ParallelScanHandle, Trace)>()) };
+    let BaseScanDsmDetach {
+        parallel,
+        trace,
+        runtime_shutdown,
+    } = *unsafe { Box::from_raw(arg.cast_mut_ptr::<BaseScanDsmDetach>()) };
     if unsafe { pg_sys::IsTransactionState() } {
-        parallel.finalize_buffer_hits(&trace);
+        if let Some(trace) = trace {
+            parallel.finalize_buffer_hits(&trace);
+        }
+    } else if let Some(handle) = runtime_shutdown.borrow_mut().take() {
+        handle.shutdown_workers();
     }
 }
 
@@ -151,16 +171,16 @@ impl ParallelQueryCapable for BaseScan {
                 .attach_parallel(pscan_state, ParallelRole::Leader);
             leader_publish_query(state, &mut *pscan_state, area);
 
-            if !(*pcxt).seg.is_null()
-                && let Some(trace) = state.custom_state().io_trace.clone()
-            {
-                let callback = Box::new((
-                    ParallelScanHandle::new(pscan_state, ParallelRole::Leader),
-                    trace,
-                ));
+            if !(*pcxt).seg.is_null() {
+                let runtime_shutdown = state.custom_state_mut().alloc_dsm_runtime_shutdown_slot();
+                let callback = Box::new(BaseScanDsmDetach {
+                    parallel: ParallelScanHandle::new(pscan_state, ParallelRole::Leader),
+                    trace: state.custom_state().io_trace.clone(),
+                    runtime_shutdown,
+                });
                 pg_sys::on_dsm_detach(
                     (*pcxt).seg,
-                    Some(collect_buffer_hits_on_detach),
+                    Some(on_basescan_dsm_detach),
                     pg_sys::Datum::from(Box::into_raw(callback)),
                 );
             }

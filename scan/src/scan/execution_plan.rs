@@ -34,7 +34,7 @@ use std::task::{Context, Poll};
 
 use crate::index::reader::vector::{SharedVectorRouting, VectorRoutingResults};
 use arrow_array::RecordBatch;
-use arrow_schema::{DataType, SchemaRef};
+use arrow_schema::{DataType, Schema, SchemaRef};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use datafusion::common::stats::{ColumnStatistics, Precision};
@@ -91,7 +91,8 @@ pub use crate::scan::lazy_sort::{
     LazyParallelMode, LazySortConfig, LazySortTelemetry, LazySortTelemetryState, TopKSelectivity,
 };
 use crate::scan::pre_filter::{
-    InListLinearFallback, PreFilter, collect_filters, try_dynamic_filter_pushdown,
+    DynamicFilterPushdownOutcome, DynamicFilterStrategySinks, InListLinearFallback, PreFilter,
+    collect_filters, try_dynamic_filter_pushdown,
 };
 use crate::scan::range_partitioning::{
     RangePartitioning, RangeSplitPoints, RangeSplitPointsDataFusionExt,
@@ -1025,10 +1026,11 @@ impl PgSearchScanPlan {
         })
     }
 
-    /// Returns `true` if `col_idx` refers to a scalar, eager index column whose name, Arrow
-    /// [`DataType`], and [`crate::schema::SearchIndexSchema`] entry are supported by
-    /// [`crate::scan::pre_filter::try_convert_rank_lookup_to_query`] for `RA` point lookups.
-    pub fn supports_ra_lookup_column(&self, col_idx: usize) -> bool {
+    fn check_scalar_eager_column(
+        &self,
+        col_idx: usize,
+        check: impl FnOnce(&str, &DataType, &crate::schema::SearchIndexSchema) -> bool,
+    ) -> bool {
         let schema = self.schema();
         let Some(arrow_field) = schema.fields().get(col_idx) else {
             return false;
@@ -1052,15 +1054,27 @@ impl PgSearchScanPlan {
                         return false;
                     };
                     name == arrow_field.name()
-                        && crate::scan::pre_filter::supports_ra_lookup_column(
-                            name,
-                            arrow_field.data_type(),
-                            ss.reader.schema(),
-                        )
+                        && check(name, arrow_field.data_type(), ss.reader.schema())
                 })
             }
             ExecutionState::Uninitialized | ExecutionState::Consumed => false,
         }
+    }
+
+    /// Returns `true` if `col_idx` refers to a scalar, eager index column whose name, Arrow
+    /// [`DataType`], and [`crate::schema::SearchIndexSchema`] entry are supported by
+    /// [`crate::scan::pre_filter::try_convert_rank_lookup_to_query`] for `RA` point lookups.
+    pub fn supports_ra_lookup_column(&self, col_idx: usize) -> bool {
+        self.check_scalar_eager_column(col_idx, crate::scan::pre_filter::supports_ra_lookup_column)
+    }
+
+    /// Returns `true` when `col_idx` is a scalar eager field supported for Tantivy dynamic join
+    /// filter pushdown (`InListExpr` and `HashTableLookupExpr`) at any build-side cardinality.
+    pub fn supports_probe_dynamic_filter_column(&self, col_idx: usize) -> bool {
+        self.check_scalar_eager_column(
+            col_idx,
+            crate::scan::pre_filter::supports_probe_dynamic_filter_column,
+        )
     }
 
     /// Rebuilds this scan with deferred columns moved into it: the `fetch_at_scan` names
@@ -2125,10 +2139,79 @@ pub(super) struct ScanStreamContext {
     pub(super) rows_pruned: Option<Count>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PushdownMetricState {
+    NotPushed,
+    PendingRecord,
+    Recorded,
+}
+
+struct PushdownMetricChannel {
+    metric_prefix: &'static str,
+    sink: Arc<AtomicU8>,
+    state: PushdownMetricState,
+}
+
+impl PushdownMetricChannel {
+    fn new(metric_prefix: &'static str, pushed: bool, sink: Arc<AtomicU8>) -> Self {
+        Self {
+            metric_prefix,
+            sink,
+            state: if pushed {
+                PushdownMetricState::PendingRecord
+            } else {
+                PushdownMetricState::NotPushed
+            },
+        }
+    }
+
+    fn is_pushed(&self) -> bool {
+        self.state != PushdownMetricState::NotPushed
+    }
+
+    fn record(&mut self, plan_metrics: &ExecutionPlanMetricsSet, target_partition: usize, tag: u8) {
+        let strategy =
+            tantivy::query::StrategyTag::try_from(tag).unwrap_or(tantivy::query::StrategyTag::None);
+        let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
+            self.metric_prefix.to_string()
+        } else {
+            format!("{}_{}", self.metric_prefix, strategy_name(strategy))
+        };
+        MetricBuilder::new(plan_metrics)
+            .counter(metric_name, target_partition)
+            .add(1);
+        self.state = PushdownMetricState::Recorded;
+    }
+
+    fn flush(
+        &mut self,
+        plan_metrics: &ExecutionPlanMetricsSet,
+        target_partition: usize,
+        exhausted: bool,
+    ) {
+        if self.state != PushdownMetricState::PendingRecord {
+            return;
+        }
+        let tag = self.sink.load(Ordering::Relaxed);
+        if tag > 0 || exhausted {
+            self.record(plan_metrics, target_partition, tag);
+        }
+    }
+
+    fn flush_ra(&mut self, plan_metrics: &ExecutionPlanMetricsSet, target_partition: usize) {
+        if self.state == PushdownMetricState::Recorded {
+            return;
+        }
+        let tag = self.sink.load(Ordering::Relaxed);
+        if tag > 0 {
+            self.record(plan_metrics, target_partition, tag);
+        }
+    }
+}
+
 pub(super) struct FilterStepMetrics {
-    pub(super) strategy_sink: Arc<AtomicU8>,
-    pub(super) pushed: bool,
-    pushdown_metric_recorded: bool,
+    inlist: PushdownMetricChannel,
+    hash: PushdownMetricChannel,
     score_pushdown_metric_recorded: bool,
     flushed_rows_scanned: usize,
     flushed_rows_pruned: usize,
@@ -2137,6 +2220,7 @@ pub(super) struct FilterStepMetrics {
 impl FilterStepMetrics {
     pub(super) fn init(
         reader: &mut SearchIndexReader,
+        scan_schema: &Schema,
         dynamic_filters: &mut Vec<Arc<dyn PhysicalExpr>>,
         linear_fallback: InListLinearFallback,
     ) -> Self {
@@ -2144,25 +2228,42 @@ impl FilterStepMetrics {
         // Initialize the search inside the stream so that for HashJoin this block is
         // evaluated lazily during the first `poll_next`, after the build side has completed
         // and dynamic filters are published.
-        let strategy_sink = Arc::new(AtomicU8::new(0));
-        let pushed = if !dynamic_filters.is_empty() {
+        let inlist_sink = Arc::new(AtomicU8::new(0));
+        let hash_sink = Arc::new(AtomicU8::new(0));
+        let outcome = if !dynamic_filters.is_empty() {
             try_dynamic_filter_pushdown(
                 reader,
+                scan_schema,
                 dynamic_filters,
-                Some(strategy_sink.clone()),
+                DynamicFilterStrategySinks::new(Some(inlist_sink.clone()), Some(hash_sink.clone())),
                 linear_fallback,
             )
         } else {
-            false
+            DynamicFilterPushdownOutcome::default()
         };
         Self {
-            strategy_sink,
-            pushed,
-            pushdown_metric_recorded: false,
+            inlist: PushdownMetricChannel::new(
+                "dynamic_filter_pushdown",
+                outcome.inlist,
+                inlist_sink,
+            ),
+            hash: PushdownMetricChannel::new(
+                "dynamic_filter_pushdown_hash",
+                outcome.hash,
+                hash_sink,
+            ),
             score_pushdown_metric_recorded: false,
             flushed_rows_scanned: 0,
             flushed_rows_pruned: 0,
         }
+    }
+
+    pub(super) fn any_pushed(&self) -> bool {
+        self.inlist.is_pushed() || self.hash.is_pushed()
+    }
+
+    pub(super) fn inlist_sink(&self) -> Arc<AtomicU8> {
+        Arc::clone(&self.inlist.sink)
     }
 
     pub(super) fn flush(
@@ -2174,12 +2275,8 @@ impl FilterStepMetrics {
         rows_pruned: &Option<Count>,
         exhausted: bool,
     ) {
-        if self.pushed && !self.pushdown_metric_recorded {
-            let tag = self.strategy_sink.load(Ordering::Relaxed);
-            if tag > 0 || exhausted {
-                self.record_strategy_metric(plan_metrics, target_partition, tag);
-            }
-        }
+        self.inlist.flush(plan_metrics, target_partition, exhausted);
+        self.hash.flush(plan_metrics, target_partition, exhausted);
 
         if scanner.score_threshold_pushed && !self.score_pushdown_metric_recorded {
             self.record_score_metric(plan_metrics, target_partition);
@@ -2210,12 +2307,7 @@ impl FilterStepMetrics {
         rows_pruned: &Option<Count>,
         ra_score_pushed: bool,
     ) {
-        if !self.pushdown_metric_recorded {
-            let tag = self.strategy_sink.load(Ordering::Relaxed);
-            if tag > 0 {
-                self.record_strategy_metric(plan_metrics, target_partition, tag);
-            }
-        }
+        self.inlist.flush_ra(plan_metrics, target_partition);
         if ra_score_pushed && !self.score_pushdown_metric_recorded {
             self.record_score_metric(plan_metrics, target_partition);
         }
@@ -2227,25 +2319,6 @@ impl FilterStepMetrics {
             rows_pruned,
             false,
         );
-    }
-
-    fn record_strategy_metric(
-        &mut self,
-        plan_metrics: &ExecutionPlanMetricsSet,
-        target_partition: usize,
-        tag: u8,
-    ) {
-        let strategy =
-            tantivy::query::StrategyTag::try_from(tag).unwrap_or(tantivy::query::StrategyTag::None);
-        let metric_name = if matches!(strategy, tantivy::query::StrategyTag::None) {
-            "dynamic_filter_pushdown".to_string()
-        } else {
-            format!("dynamic_filter_pushdown_{}", strategy_name(strategy))
-        };
-        MetricBuilder::new(plan_metrics)
-            .counter(metric_name, target_partition)
-            .add(1);
-        self.pushdown_metric_recorded = true;
     }
 
     fn record_score_metric(
@@ -2288,6 +2361,7 @@ fn build_standard_stream(ctx: ScanStreamContext) -> impl Stream<Item = Result<Re
                 let ss = scan_state.get_mut(token);
                 let filter_metrics = FilterStepMetrics::init(
                     &mut ss.reader,
+                    &schema,
                     &mut dynamic_filters,
                     InListLinearFallback::KeepAsPreFilter,
                 );
@@ -2662,43 +2736,6 @@ pub fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&P
     }
 }
 
-/// Returns `true` when `plan` contains a `HashJoinExec` whose probe (`right`) input has a
-/// lazy-sorted [`PgSearchScanPlan`] leaf.
-fn plan_has_lazy_sort_probe_join(plan: &Arc<dyn ExecutionPlan>) -> bool {
-    if let Some(join) = plan.downcast_ref::<datafusion::physical_plan::joins::HashJoinExec>() {
-        let mut probe_has_lazy_sort = false;
-        visit_scan_nodes(join.right(), &mut |scan| {
-            if scan.lazy_sort().is_some() {
-                probe_has_lazy_sort = true;
-            }
-        });
-        if probe_has_lazy_sort {
-            return true;
-        }
-    }
-    if let Some(fp) = plan.downcast_ref::<FilterPassthroughExec>() {
-        return plan_has_lazy_sort_probe_join(fp.inner());
-    }
-    plan.children()
-        .into_iter()
-        .any(plan_has_lazy_sort_probe_join)
-}
-
-/// Returns the [`crate::gucs::InListPushdownMode`] for `plan` based on whether any `HashJoinExec`
-/// probes a `lazy_sort` [`PgSearchScanPlan`].
-///
-/// TODO: Once `HashTableLookupExpr` is pushed into Tantivy as a fast-field / candidate scorer,
-/// `lazy_sort` probe joins will no longer need an elevated session-wide `InList` cap (which
-/// currently also affects any sibling unsorted `HashJoinExec` in the same plan), and
-/// `InListPushdownMode` + this walk can be removed.
-pub fn plan_inlist_pushdown_mode(plan: &Arc<dyn ExecutionPlan>) -> crate::gucs::InListPushdownMode {
-    if plan_has_lazy_sort_probe_join(plan) {
-        crate::gucs::InListPushdownMode::LazySortProbe
-    } else {
-        crate::gucs::InListPushdownMode::Standard
-    }
-}
-
 pub fn prepare_vector_routing(plan: &Arc<dyn ExecutionPlan>) {
     run_on_main_thread(|token| {
         let mut plans = HashMap::default();
@@ -2966,118 +3003,5 @@ mod tests {
 
         assert_eq!(plan.lazy_sort().map(|ls| ls.initial_window), Some(25.0));
         assert_eq!(plan.properties().output_ordering(), ordering.as_ref());
-    }
-
-    #[pg_test]
-    fn plan_inlist_pushdown_mode_cases() {
-        use arrow_schema::{DataType, Field};
-        use datafusion::logical_expr::JoinType;
-        use datafusion::physical_plan::ExecutionPlan;
-        use datafusion::physical_plan::expressions::Column;
-        use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
-        use datafusion_distributed::DistributedLeafExec;
-
-        use crate::gucs::InListPushdownMode;
-
-        use super::{LazyParallelMode, LazySortConfig, TopKSelectivity, plan_inlist_pushdown_mode};
-
-        let key_schema = || Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
-        let make_scan = |lazy: bool| -> Arc<dyn ExecutionPlan> {
-            let scan = PgSearchScanPlan::new(
-                None,
-                key_schema(),
-                Arc::new(SearchQueryInput::All),
-                Vec::new(),
-                None,
-                0,
-                None,
-                1,
-                None,
-                None,
-            );
-            if lazy {
-                Arc::new(scan.with_lazy_sort(LazySortConfig {
-                    orderby_info: None,
-                    ordering: None,
-                    initial_window: 10.0,
-                    unpushed_join_selectivity: TopKSelectivity::ALL,
-                    parallel_mode: LazyParallelMode::WorkerPool,
-                    telemetry: None,
-                }))
-            } else {
-                Arc::new(scan)
-            }
-        };
-        let make_hash_join = |left: Arc<dyn ExecutionPlan>,
-                              right: Arc<dyn ExecutionPlan>|
-         -> Arc<dyn ExecutionPlan> {
-            let on_left: Arc<dyn datafusion::physical_plan::PhysicalExpr> =
-                Arc::new(Column::new("id", 0));
-            let on_right: Arc<dyn datafusion::physical_plan::PhysicalExpr> =
-                Arc::new(Column::new("id", 0));
-            Arc::new(
-                HashJoinExec::try_new(
-                    left,
-                    right,
-                    vec![(on_left, on_right)],
-                    None,
-                    &JoinType::Inner,
-                    None,
-                    PartitionMode::CollectLeft,
-                    datafusion::common::NullEquality::NullEqualsNothing,
-                    false,
-                )
-                .unwrap(),
-            )
-        };
-
-        let distributed_lazy_probe: Arc<dyn ExecutionPlan> = Arc::new(
-            DistributedLeafExec::try_new(make_scan(false), vec![make_scan(true)]).unwrap(),
-        );
-
-        let cases: [(&str, Arc<dyn ExecutionPlan>, InListPushdownMode); 7] = [
-            (
-                "unsorted_scan_only",
-                make_scan(false),
-                InListPushdownMode::Standard,
-            ),
-            (
-                "lazy_scan_without_join",
-                make_scan(true),
-                InListPushdownMode::Standard,
-            ),
-            (
-                "unsorted_hash_join",
-                make_hash_join(make_scan(false), make_scan(false)),
-                InListPushdownMode::Standard,
-            ),
-            (
-                "lazy_on_build_side_only",
-                make_hash_join(make_scan(true), make_scan(false)),
-                InListPushdownMode::Standard,
-            ),
-            (
-                "lazy_on_probe_side",
-                make_hash_join(make_scan(false), make_scan(true)),
-                InListPushdownMode::LazySortProbe,
-            ),
-            (
-                "distributed_leaf_lazy_probe",
-                make_hash_join(make_scan(false), distributed_lazy_probe),
-                InListPushdownMode::LazySortProbe,
-            ),
-            (
-                "nested_lazy_probe_under_outer_build",
-                make_hash_join(
-                    make_hash_join(make_scan(false), make_scan(true)),
-                    make_scan(false),
-                ),
-                InListPushdownMode::LazySortProbe,
-            ),
-        ];
-
-        for (name, plan, expected) in cases {
-            assert_eq!(plan_inlist_pushdown_mode(&plan), expected, "{name}");
-        }
     }
 }

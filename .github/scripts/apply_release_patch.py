@@ -8,7 +8,6 @@ from pathlib import Path
 RELEASE_FILES = {
     "Cargo.toml",
     "Cargo.lock",
-    "nix/pg_search.nix",
     "docs/docs.json",
     "docs/operate/deploy/upgrading.mdx",
     "docs/operate/deploy/self-hosted/extension.mdx",

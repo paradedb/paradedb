@@ -20,17 +20,19 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::ptr::NonNull;
 
+/// Owns a PostgreSQL `shm_mq_handle` attached to a parallel DSM segment.
+///
+/// Intentionally does NOT implement `Drop`: on normal completion, the owning lifecycle step
+/// (`ParallelProcessLauncher::destroy` on the leader, or `MessageQueueSender::finish` via
+/// `run_parallel_worker` on a worker) calls [`Self::detach`] while the backing DSM segment is
+/// guaranteed mapped. On any abnormal `ereport(ERROR)` / panic unwind / subtransaction abort,
+/// PostgreSQL's own `shm_mq_detach_callback` (registered by `shm_mq_attach`) detaches the queue
+/// before unmapping the DSM; calling `shm_mq_detach` later from a `MemoryContextCallback` / `Drop`
+/// after `AtEOSubXact_Parallel` would dereference unmapped shared memory (even when
+/// `IsInParallelMode()` is still `true` due to an enclosing outer `Gather`).
 struct MessageQueueHandle {
     handle: NonNull<pg_sys::shm_mq_handle>,
 }
-
-crate::impl_safe_drop!(MessageQueueHandle, |self| {
-    unsafe {
-        if pg_sys::IsInParallelMode() {
-            pg_sys::shm_mq_detach(self.handle.as_ptr());
-        }
-    }
-});
 
 impl MessageQueueHandle {
     unsafe fn attach_sender(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
@@ -58,6 +60,17 @@ impl MessageQueueHandle {
 
     fn as_ptr(&self) -> *mut pg_sys::shm_mq_handle {
         self.handle.as_ptr()
+    }
+
+    /// Explicitly detaches this handle while its backing DSM segment is still mapped.
+    ///
+    /// # Safety
+    /// The DSM segment passed to `attach_sender` / `attach_receiver` must still be attached in
+    /// the current backend.
+    unsafe fn detach(self) {
+        unsafe {
+            pg_sys::shm_mq_detach(self.handle.as_ptr());
+        }
     }
 }
 
@@ -91,15 +104,11 @@ impl From<pg_sys::shm_mq_result::Type> for MessageQueueSendError {
 }
 
 pub struct MessageQueueSender {
-    // Declared before `handle` so Rust's field drop order runs `WorkerStatsGuard::drop`
-    // (`InstrEndParallelQuery`) before `MessageQueueHandle::drop` detaches the `shm_mq` and
-    // unblocks `ParallelProcessFinish::recv()` on the leader.
-    _stats: Option<crate::parallel_worker::WorkerStatsGuard>,
+    stats: Option<crate::parallel_worker::WorkerStatsGuard>,
     handle: MessageQueueHandle,
 }
 
 impl MessageQueueSender {
-    #[doc(hidden)]
     pub(crate) unsafe fn new(
         seg: *mut pg_sys::dsm_segment,
         mq: *mut pg_sys::shm_mq,
@@ -107,10 +116,23 @@ impl MessageQueueSender {
     ) -> Self {
         unsafe {
             Self {
-                _stats: stats,
+                stats,
                 handle: MessageQueueHandle::attach_sender(seg, mq),
             }
         }
+    }
+
+    /// Flushes parallel worker buffer/WAL stats (`InstrEndParallelQuery`) into DSM and then
+    /// detaches the completion queue so `ParallelProcessFinish::recv()` on the leader unblocks
+    /// only after stats are written.
+    ///
+    /// # Safety
+    /// Must be called on normal worker completion while the backing DSM segment is still mapped.
+    pub(crate) unsafe fn finish(self) {
+        if let Some(stats) = self.stats {
+            unsafe { stats.finish() };
+        }
+        unsafe { self.handle.detach() };
     }
 
     pub fn send<B: AsRef<[u8]>>(&self, msg: B) -> Result<(), MessageQueueSendError> {
@@ -196,6 +218,10 @@ impl MessageQueueReceiver {
                 handle: MessageQueueHandle::attach_receiver(pcxt, mq),
             }
         }
+    }
+
+    pub(crate) unsafe fn detach(self) {
+        unsafe { self.handle.detach() };
     }
 
     pub fn recv(&self) -> Result<Vec<u8>, MessageQueueRecvError> {

@@ -77,6 +77,8 @@ impl BM25Page for pg_sys::Page {
 pub struct RelationBufferAccess {
     rel: PgSearchRelation,
     pub(super) io_stats: Option<crate::index::reader::io_stats::ComponentStats>,
+    /// Whether [`Self::get_buffer`] reads through the backend's bulk-read strategy.
+    pub(super) bulk_read: bool,
 }
 
 unsafe impl Send for RelationBufferAccess {}
@@ -92,6 +94,7 @@ impl RelationBufferAccess {
         Self {
             rel: rel.clone(),
             io_stats: None,
+            bulk_read: false,
         }
     }
 
@@ -122,19 +125,17 @@ impl RelationBufferAccess {
             // is dropped before exhaustion.
             struct BufferIter<I: Iterator<Item = pg_sys::Buffer>> {
                 iter: I,
+                owner: crate::postgres::resowner::ResourceOwnerStamp,
             }
             crate::impl_safe_drop!([I: Iterator<Item = pg_sys::Buffer>] BufferIter<I>, |self| {
-                unsafe {
-                    if !pg_sys::IsTransactionState() {
-                        return;
+                let owner = self.owner;
+                owner.run_if_live(|| {
+                    for pg_buffer in &mut self.iter {
+                        unsafe {
+                            pg_sys::ReleaseBuffer(pg_buffer);
+                        }
                     }
-                }
-
-                for pg_buffer in &mut self.iter {
-                    unsafe {
-                        pg_sys::ReleaseBuffer(pg_buffer);
-                    }
-                }
+                });
             });
             impl<I: Iterator<Item = pg_sys::Buffer>> Iterator for BufferIter<I> {
                 type Item = pg_sys::Buffer;
@@ -145,6 +146,7 @@ impl RelationBufferAccess {
                 }
             }
 
+            let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
             let rel = self.rel.as_ptr();
             let fork = self.rel.fork_number();
             let iter = (0..npages)
@@ -160,19 +162,20 @@ impl RelationBufferAccess {
                     // ... so we need to lock them here
                     pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
                 });
-            BufferIter { iter }
+            BufferIter { iter, owner }
         }
     }
 
     /// Retrieve an existing [`pg_sys::Buffer`] by its number.  The returned buffer is always pinned
     /// and if `lock` is `Some`, it'll be locked with that lock level.
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber, lock: Option<u32>) -> pg_sys::Buffer {
-        self.get_buffer_extended(
-            blockno,
-            std::ptr::null_mut(),
-            pg_sys::ReadBufferMode::RBM_NORMAL,
-            lock,
-        )
+        // An invalid block number extends the relation, which is not a read.
+        let strategy = if self.bulk_read && blockno != pg_sys::InvalidBlockNumber {
+            bulk_read_strategy()
+        } else {
+            std::ptr::null_mut()
+        };
+        self.get_buffer_extended(blockno, strategy, pg_sys::ReadBufferMode::RBM_NORMAL, lock)
     }
 
     /// Retrieve an existing [`pg_sys::Buffer`] by its number with an exclusive lock.  If the lock
@@ -314,15 +317,29 @@ unsafe fn extend_by_one_buffer(
     }
 }
 
+struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
+unsafe impl Send for BufferAccessStrategyHolder {}
+unsafe impl Sync for BufferAccessStrategyHolder {}
+
+/// The backend's bulk-read strategy: reads through it recycle a small ring of buffers instead of
+/// displacing the rest of shared buffers.
+fn bulk_read_strategy() -> pg_sys::BufferAccessStrategy {
+    static BAS_BULKREAD: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
+        BufferAccessStrategyHolder(unsafe {
+            // SAFETY:  Allocated in `TopMemoryContext`, once, so that it's always available
+            PgMemoryContexts::TopMemoryContext.switch_to(|_| {
+                pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKREAD)
+            })
+        })
+    });
+    BAS_BULKREAD.0
+}
+
 unsafe fn bulk_extend_relation(
     rel: pg_sys::Relation,
     npages: usize,
     fork: pg_sys::ForkNumber::Type,
 ) -> [pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY] {
-    struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
-    unsafe impl Send for BufferAccessStrategyHolder {}
-    unsafe impl Sync for BufferAccessStrategyHolder {}
-
     static BAS_BULKWRITE: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
         BufferAccessStrategyHolder(unsafe {
             // SAFETY:  Allocated in `TopMemoryContext`, once, so that it's always available

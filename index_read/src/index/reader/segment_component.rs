@@ -22,6 +22,7 @@ use crate::postgres::storage::block::{FileEntry, LinkedList, bm25_max_free_space
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
+use pgrx::pg_sys;
 use std::io::Error;
 use std::ops::Range;
 use tantivy::HasLen;
@@ -62,6 +63,21 @@ impl SegmentComponentReader {
         io_stats: Option<io_stats::ComponentStats>,
     ) -> Self {
         let mut block_list = LinkedBytesList::open(indexrel, entry.starting_block);
+        block_list.bman_mut().set_io_stats(io_stats);
+
+        Self { block_list, entry }
+    }
+
+    /// Opens the first `entry.total_bytes` bytes of a component that is still being written and
+    /// whose writer was checkpointed at that length or more; `blocks` are the checkpoint's.
+    pub unsafe fn new_unfinished(
+        indexrel: &PgSearchRelation,
+        entry: FileEntry,
+        blocks: std::sync::Arc<Vec<pg_sys::BlockNumber>>,
+        io_stats: Option<io_stats::ComponentStats>,
+    ) -> Self {
+        let mut block_list =
+            LinkedBytesList::open_unfinished(indexrel, entry.starting_block, blocks);
         block_list.bman_mut().set_io_stats(io_stats);
 
         Self { block_list, entry }

@@ -48,10 +48,29 @@
 //! 7. [`PgTokioRuntime::quiesce_tasks`] (called on scan teardown and when the last handle for a
 //!    scan drops) aborts any pending [`run_on_main_thread`] jobs with [`MainThreadAbort`], waits for
 //!    all non-reactor Tokio tasks to finish unwinding, and drains all deferred
-//!    [`drop_on_main_thread`] items on the main thread before relations or `EState` are closed.
-//! 8. [`PgTokioRuntime::shutdown_workers`] (`Runtime::shutdown_timeout`) joins the background
-//!    worker threads while servicing any final [`drop_on_main_thread`] items on the main thread
-//!    before DSM segments are detached or `proc_exit` runs.
+//!    [`drop_on_main_thread`] items on the main thread before relations or `EState` are closed. When
+//!    a cancel/die/exit is pending or the main thread is unwinding a panic, it fast-paths directly to
+//!    [`PgTokioRuntime::shutdown_workers`].
+//! 8. [`PgTokioRuntime::shutdown_workers`] (`shutdown_runtime_bounded` -> `Runtime::shutdown_timeout`,
+//!    offloaded to a signal-masked helper thread if already inside a Tokio `EnterGuard` such as
+//!    `ereport(FATAL)` -> `proc_exit` inside `block_on`) joins the background worker threads while
+//!    draining (or forgetting during `proc_exit`) final [`drop_on_main_thread`] items on the main
+//!    thread before DSM segments are detached or `proc_exit` runs. Non-owning
+//!    [`PgTokioRuntimeShutdownHandle`] handles let MPP and `BaseScan` `on_dsm_detach` callbacks
+//!    trigger worker-pool teardown for their specific runtime on abnormal abort without holding
+//!    `active_handles` open.
+//! 9. Per-PID Postgres lifecycle hooks (`before_shmem_exit`, `RegisterXactCallback`,
+//!    `RegisterSubXactCallback`, and `RegisterResourceReleaseCallback`), installed lazily on first
+//!    [`PgTokioRuntime::new`] use, track every live runtime in `LIVE_RUNTIMES`:
+//!    - `before_shmem_exit` (pushed above `ShutdownPostgres` / `ParallelWorkerShutdown` on
+//!      Postgres's LIFO exit list) and top-level `XACT_EVENT_ABORT` / `XACT_EVENT_PARALLEL_ABORT`
+//!      join all live backend runtimes.
+//!    - `SUBXACT_EVENT_ABORT_SUB` walks `ResourceOwnerGetParent` from each runtime's owner to
+//!      `CurTransactionResourceOwner`, joining runtimes belonging to the aborting subtransaction
+//!      (including reparented failed outer portals) while leaving healthy outer portals intact.
+//!    - `RESOURCE_RELEASE_AFTER_LOCKS` clears released owner pointers from live runtimes and shuts
+//!      down aborting runtimes whose owner is being released. (Per-resource `ResourceOwner` stamps
+//!      live separately in [`crate::postgres::resowner`].)
 //!
 //! ## Caveats (`tokio::net`, `spawn_blocking`, and Postgres FFI)
 //!
@@ -68,10 +87,13 @@
 //!   under a `pg_guard` / `PgTryBuilder` boundary without crossing an `.await` point.
 
 use std::collections::VecDeque;
+use std::ffi::c_void;
 use std::future::Future;
 use std::io;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+#[cfg(not(test))]
+use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
+use std::sync::{Arc, Weak};
 use std::task::Poll;
 
 use futures::task::AtomicWaker;
@@ -135,6 +157,10 @@ pub struct MainThreadExecutor {
 }
 
 thread_local! {
+    /// Set to `true` on background Tokio worker threads spawned by [`PgTokioRuntime`], allowing
+    /// [`is_main_thread`] (called on every buffer pin/release and Tantivy interrupt check) to
+    /// execute as a single TLS byte read without `RefCell` borrow overhead.
+    static IS_WORKER_THREAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static WORKER_MAIN_EXECUTOR: std::cell::RefCell<Option<Arc<MainThreadExecutor>>> =
         const { std::cell::RefCell::new(None) };
     /// Number of active [`HeldInterrupts`] guards on the Postgres main thread.
@@ -149,7 +175,7 @@ thread_local! {
 /// Tokio worker or `spawn_blocking` thread of a [`PgTokioRuntime`].
 #[inline]
 pub fn is_main_thread() -> bool {
-    WORKER_MAIN_EXECUTOR.with(|cell| cell.borrow().is_none())
+    !IS_WORKER_THREAD.get()
 }
 
 /// Return the [`PgReactorState`] for `handle` if `handle` belongs to the current backend's active
@@ -160,10 +186,11 @@ pub fn current_reactor_state(handle: &tokio::runtime::Handle) -> Option<Arc<PgRe
     {
         return Some(state);
     }
-    BACKEND_RUNTIME.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .filter(|rt| rt.is_running() && rt.handle.id() == handle.id())
+    LIVE_RUNTIMES.with(|list| {
+        list.borrow()
+            .iter()
+            .filter_map(Weak::upgrade)
+            .find(|rt| rt.is_running() && rt.handle.id() == handle.id())
             .map(|rt| Arc::clone(&rt.reactor_state))
     })
 }
@@ -184,10 +211,11 @@ pub fn is_parallel_worker() -> bool {
     {
         return is_worker;
     }
-    BACKEND_RUNTIME.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .is_some_and(|rt| rt.is_running() && rt.main_executor.in_mpp_worker())
+    LIVE_RUNTIMES.with(|list| {
+        list.borrow()
+            .iter()
+            .filter_map(Weak::upgrade)
+            .any(|rt| rt.is_running() && rt.main_executor.in_mpp_worker())
     })
 }
 
@@ -234,10 +262,14 @@ impl MainThreadToken {
 /// its outer entry point in [`catch_worker_panic`]) so main-thread panics (`pgrx::error!` /
 /// `ereport(ERROR)`) are converted into `Err(DataFusionError::Execution(...))` on workers while
 /// still unwinding natively on the leader.
+#[inline]
 pub fn run_on_main_thread<F, R>(f: F) -> R
 where
     F: FnOnce(MainThreadToken) -> R,
 {
+    if is_main_thread() {
+        return f(MainThreadToken::new());
+    }
     let exec_opt = WORKER_MAIN_EXECUTOR.with(|cell| cell.borrow().clone());
     match exec_opt {
         None => f(MainThreadToken::new()),
@@ -294,7 +326,12 @@ where
 /// - When called on a background Tokio worker thread of [`PgTokioRuntime`], enqueues `val` onto a
 ///   non-blocking drop queue drained by the main thread inside [`PgTokioRuntime::block_on`] and
 ///   [`PgTokioRuntime::drop`].
+#[inline]
 pub fn drop_on_main_thread<T: 'static>(val: T) {
+    if is_main_thread() {
+        drop(val);
+        return;
+    }
     let exec_opt = WORKER_MAIN_EXECUTOR.with(|cell| cell.borrow().clone());
     match exec_opt {
         None => drop(val),
@@ -454,7 +491,9 @@ impl MainThreadExecutor {
             did_work = true;
             #[cfg(not(test))]
             if crate::postgres::utils::proc_exit_in_progress()
-                || unsafe { pgrx::pg_sys::ProcDiePending != 0 }
+                || unsafe {
+                    pgrx::pg_sys::shmem_exit_inprogress || pgrx::pg_sys::ProcDiePending != 0
+                }
             {
                 std::mem::forget(batch);
                 continue;
@@ -468,16 +507,7 @@ impl MainThreadExecutor {
         did_work
     }
 
-    fn abort_pending_jobs(&self) {
-        if !self.has_pending_jobs.load(Ordering::Acquire) {
-            return;
-        }
-        let pending: Vec<Arc<JobSlot>> = {
-            let mut jobs = self.jobs.lock();
-            let drained = jobs.drain(..).collect();
-            self.has_pending_jobs.store(false, Ordering::Release);
-            drained
-        };
+    fn abort_slots(pending: Vec<Arc<JobSlot>>) {
         for slot in pending {
             let mut state = slot.state.lock();
             if matches!(*state, JobState::Pending(_)) {
@@ -487,9 +517,32 @@ impl MainThreadExecutor {
         }
     }
 
+    fn drain_jobs_locked(&self, jobs: &mut VecDeque<Arc<JobSlot>>) -> Vec<Arc<JobSlot>> {
+        let drained = jobs.drain(..).collect();
+        self.has_pending_jobs.store(false, Ordering::Release);
+        drained
+    }
+
+    fn abort_pending_jobs(&self) {
+        // Acquire `self.jobs` unconditionally (no lock-free `has_pending_jobs` fast-path) so this
+        // strictly serializes with `run_blocking`'s check-and-push under `self.jobs.lock()`.
+        let pending = {
+            let mut jobs = self.jobs.lock();
+            self.drain_jobs_locked(&mut jobs)
+        };
+        Self::abort_slots(pending);
+    }
+
     fn begin_shutdown(&self) {
-        self.shutting_down.store(true, Ordering::Release);
-        self.abort_pending_jobs();
+        // Flip `shutting_down` under `self.jobs.lock()` in the same critical section as draining
+        // queued slots so no worker in `run_blocking` can observe `shutting_down == false`, miss
+        // the drain, and park on `slot.cvar` across `runtime.shutdown_timeout(...)`.
+        let pending = {
+            let mut jobs = self.jobs.lock();
+            self.shutting_down.store(true, Ordering::Release);
+            self.drain_jobs_locked(&mut jobs)
+        };
+        Self::abort_slots(pending);
     }
 
     /// Run all queued drops and main-thread jobs on the Postgres main thread. Returns `true` if
@@ -921,12 +974,207 @@ struct PgTokioRuntimeInner {
     reactor_tasks: parking_lot::Mutex<Vec<tokio::task::JoinHandle<()>>>,
     reactor_task_count: usize,
     active_handles: AtomicUsize,
+    /// `pg_sys::CurrentResourceOwner` captured when `active_handles` transitions `0 -> 1`, cleared
+    /// when `active_handles` returns to `0`, when `shutdown_workers` runs, or when Postgres
+    /// finishes `RESOURCE_RELEASE_AFTER_LOCKS` for that owner. Used by `SUBXACT_EVENT_ABORT_SUB`
+    /// to walk `ResourceOwnerGetParent` and shut down runtimes whose resources are being released
+    /// by the aborting subtransaction while preserving healthy outer portals.
+    owner: AtomicPtr<c_void>,
     main_executor: Arc<MainThreadExecutor>,
 }
 
 thread_local! {
     static BACKEND_RUNTIME: std::cell::RefCell<Option<Arc<PgTokioRuntimeInner>>> =
         const { std::cell::RefCell::new(None) };
+    /// Every live `PgTokioRuntimeInner` created on this backend thread, including secondary
+    /// runtimes built when `BACKEND_RUNTIME` already had `active_handles > 0` (nested scans,
+    /// multiple open cursors, or SPI).
+    static LIVE_RUNTIMES: std::cell::RefCell<Vec<Weak<PgTokioRuntimeInner>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(not(test))]
+fn snapshot_live_runtimes() -> Vec<Arc<PgTokioRuntimeInner>> {
+    LIVE_RUNTIMES.with(|cell| {
+        let mut list = cell.borrow_mut();
+        let mut active = Vec::with_capacity(list.len());
+        list.retain(|weak| match weak.upgrade() {
+            Some(rt) if rt.is_running() => {
+                active.push(rt);
+                true
+            }
+            _ => false,
+        });
+        active
+    })
+}
+
+fn register_live_runtime(inner: &Arc<PgTokioRuntimeInner>) {
+    LIVE_RUNTIMES.with(|cell| {
+        let mut list = cell.borrow_mut();
+        list.retain(|weak| weak.upgrade().is_some_and(|rt| rt.is_running()));
+        list.push(Arc::downgrade(inner));
+    });
+}
+
+#[cfg(not(test))]
+fn current_resource_owner() -> *mut c_void {
+    unsafe { pgrx::pg_sys::CurrentResourceOwner }.cast()
+}
+
+#[cfg(test)]
+fn current_resource_owner() -> *mut c_void {
+    std::ptr::null_mut()
+}
+
+/// Shut down and join worker threads on every live [`PgTokioRuntime`] in the current backend.
+///
+/// Private to this module so external hooks cannot accidentally tear down healthy outer-transaction
+/// runtimes on a subtransaction abort. Invoked from `before_shmem_exit` (`proc_exit`) and
+/// top-level `RegisterXactCallback` (`XACT_EVENT_ABORT` and `XACT_EVENT_PARALLEL_ABORT`).
+#[cfg(not(test))]
+fn shutdown_all_backend_runtimes() {
+    if !is_main_thread() {
+        return;
+    }
+    for rt in snapshot_live_runtimes() {
+        rt.shutdown_workers();
+    }
+}
+
+#[cfg(not(test))]
+fn shutdown_runtimes_for_owner(target_owner: *mut c_void) {
+    if target_owner.is_null() || !is_main_thread() {
+        return;
+    }
+    for rt in snapshot_live_runtimes() {
+        let mut cur = rt.owner();
+        while !cur.is_null() {
+            if cur == target_owner {
+                rt.shutdown_workers();
+                break;
+            }
+            cur = unsafe { pgrx::pg_sys::ResourceOwnerGetParent(cur.cast()) }.cast();
+        }
+    }
+}
+
+#[cfg(not(test))]
+fn release_owner_from_live_runtimes(releasing_owner: *mut c_void, is_commit: bool) {
+    if releasing_owner.is_null() || !is_main_thread() {
+        return;
+    }
+    for rt in snapshot_live_runtimes() {
+        if rt.clear_owner_if_eq(releasing_owner)
+            && !is_commit
+            && rt.active_handles.load(Ordering::Acquire) > 0
+        {
+            rt.shutdown_workers();
+        }
+    }
+}
+
+#[cfg(not(test))]
+static RUNTIME_LIFECYCLE_HOOKS_PID: AtomicI32 = AtomicI32::new(0);
+
+#[cfg(not(test))]
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn pg_tokio_before_shmem_exit(
+    _code: std::ffi::c_int,
+    _arg: pgrx::pg_sys::Datum,
+) {
+    shutdown_all_backend_runtimes();
+}
+
+#[cfg(not(test))]
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn pg_tokio_xact_callback(
+    event: pgrx::pg_sys::XactEvent::Type,
+    _arg: *mut c_void,
+) {
+    if event == pgrx::pg_sys::XactEvent::XACT_EVENT_ABORT
+        || event == pgrx::pg_sys::XactEvent::XACT_EVENT_PARALLEL_ABORT
+    {
+        shutdown_all_backend_runtimes();
+    }
+}
+
+#[cfg(not(test))]
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn pg_tokio_subxact_callback(
+    event: pgrx::pg_sys::SubXactEvent::Type,
+    _my_subid: pgrx::pg_sys::SubTransactionId,
+    _parent_subid: pgrx::pg_sys::SubTransactionId,
+    _arg: *mut c_void,
+) {
+    if event == pgrx::pg_sys::SubXactEvent::SUBXACT_EVENT_ABORT_SUB {
+        let subxact_owner = unsafe { pgrx::pg_sys::CurTransactionResourceOwner }.cast::<c_void>();
+        shutdown_runtimes_for_owner(subxact_owner);
+    }
+}
+
+#[cfg(not(test))]
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn pg_tokio_resource_release_callback(
+    phase: pgrx::pg_sys::ResourceReleasePhase::Type,
+    is_commit: bool,
+    _is_top_level: bool,
+    _arg: *mut c_void,
+) {
+    if phase == pgrx::pg_sys::ResourceReleasePhase::RESOURCE_RELEASE_AFTER_LOCKS {
+        let releasing = unsafe { pgrx::pg_sys::CurrentResourceOwner }.cast::<c_void>();
+        release_owner_from_live_runtimes(releasing, is_commit);
+    }
+}
+
+/// Install process-scoped Postgres transaction-abort, subtransaction-abort, resource-owner, and
+/// `before_shmem_exit` callbacks once per PID on first [`PgTokioRuntime::new`] use.
+///
+/// Registering `before_shmem_exit` lazily here (after `InitPostgres` / `ParallelWorkerMain` have
+/// pushed `ShutdownPostgres` and `ParallelWorkerShutdown`) places our callback above them on
+/// Postgres's LIFO `before_shmem_exit_list`, so worker threads are joined while DSM and
+/// `shared_buffers` remain mapped and pinned.
+#[cfg(not(test))]
+fn ensure_backend_lifecycle_hooks_installed() {
+    let pid = unsafe { pgrx::pg_sys::MyProcPid };
+    if pid == 0 || RUNTIME_LIFECYCLE_HOOKS_PID.load(Ordering::Acquire) == pid {
+        return;
+    }
+    unsafe {
+        pgrx::pg_sys::before_shmem_exit(
+            Some(pg_tokio_before_shmem_exit),
+            pgrx::pg_sys::Datum::from(0usize),
+        );
+        pgrx::pg_sys::RegisterXactCallback(Some(pg_tokio_xact_callback), std::ptr::null_mut());
+        pgrx::pg_sys::RegisterSubXactCallback(
+            Some(pg_tokio_subxact_callback),
+            std::ptr::null_mut(),
+        );
+        pgrx::pg_sys::RegisterResourceReleaseCallback(
+            Some(pg_tokio_resource_release_callback),
+            std::ptr::null_mut(),
+        );
+    }
+    RUNTIME_LIFECYCLE_HOOKS_PID.store(pid, Ordering::Release);
+}
+
+#[cfg(test)]
+fn ensure_backend_lifecycle_hooks_installed() {}
+
+/// Non-owning handle (`Weak<PgTokioRuntimeInner>`) used by `on_dsm_detach` callbacks to shut down
+/// and join background `tokio-rt-worker` threads on abnormal transaction or process abort without
+/// incrementing `active_handles` or preventing normal runtime reuse across queries.
+#[derive(Clone)]
+pub struct PgTokioRuntimeShutdownHandle {
+    inner: Weak<PgTokioRuntimeInner>,
+}
+
+impl PgTokioRuntimeShutdownHandle {
+    pub fn shutdown_workers(&self) {
+        if let Some(inner) = self.inner.upgrade() {
+            inner.shutdown_workers();
+        }
+    }
 }
 
 /// Handle to the backend's multi-threaded Tokio runtime integrated with Postgres's `MyLatch`,
@@ -961,6 +1209,33 @@ impl Clone for PgTokioRuntime {
     }
 }
 
+/// Shuts down `runtime` with a bounded timeout, offloading the call to a signal-masked helper
+/// thread when the current thread is already inside a Tokio `EnterGuard` (for example when
+/// `ereport(FATAL)` invokes `proc_exit` -> `pg_tokio_before_shmem_exit` directly from inside
+/// `PgTokioRuntime::block_on` without unwinding `handle.block_on`).
+fn shutdown_runtime_bounded(runtime: tokio::runtime::Runtime, timeout: std::time::Duration) {
+    if tokio::runtime::Handle::try_current().is_err() {
+        runtime.shutdown_timeout(timeout);
+        return;
+    }
+    // Wrap in `ManuallyDrop` so that if spawning the helper thread fails during fatal exit,
+    // dropping the closure on this thread leaks `Runtime` rather than calling `Runtime::drop`
+    // inside a Tokio context (which would panic inside `before_shmem_exit` or `Drop`).
+    let runtime = std::mem::ManuallyDrop::new(runtime);
+    let spawn_res = {
+        let _sig_guard = ScopedSignalMask::block_async_signals();
+        std::thread::Builder::new()
+            .name("pg-tokio-shutdown".into())
+            .spawn(move || {
+                let runtime = std::mem::ManuallyDrop::into_inner(runtime);
+                runtime.shutdown_timeout(timeout);
+            })
+    };
+    if let Ok(handle) = spawn_res {
+        let _ = handle.join();
+    }
+}
+
 impl PgTokioRuntimeInner {
     fn build() -> io::Result<Arc<Self>> {
         let reactor_state = PgReactorState::new()?;
@@ -974,6 +1249,7 @@ impl PgTokioRuntimeInner {
                 .enable_all()
                 .on_thread_start(move || {
                     mask_async_signals_current_thread();
+                    IS_WORKER_THREAD.set(true);
                     WORKER_MAIN_EXECUTOR.with(|cell| {
                         *cell.borrow_mut() = Some(Arc::clone(&worker_exec));
                     });
@@ -992,6 +1268,7 @@ impl PgTokioRuntimeInner {
             reactor_tasks: parking_lot::Mutex::new(reactor_tasks),
             reactor_task_count,
             active_handles: AtomicUsize::new(0),
+            owner: AtomicPtr::new(std::ptr::null_mut()),
             main_executor,
         }))
     }
@@ -999,18 +1276,71 @@ impl PgTokioRuntimeInner {
     fn is_running(&self) -> bool {
         self.runtime.lock().is_some()
     }
+
+    fn set_owner(&self, owner: *mut c_void) {
+        self.owner.store(owner, Ordering::Release);
+    }
+
+    fn clear_owner(&self) {
+        self.owner.store(std::ptr::null_mut(), Ordering::Release);
+    }
+
+    #[cfg(not(test))]
+    fn clear_owner_if_eq(&self, expected: *mut c_void) -> bool {
+        self.owner
+            .compare_exchange(
+                expected,
+                std::ptr::null_mut(),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    #[cfg(not(test))]
+    fn owner(&self) -> *mut c_void {
+        self.owner.load(Ordering::Acquire)
+    }
+
+    fn shutdown_workers(&self) {
+        self.clear_owner();
+        let Some(runtime) = self.runtime.lock().take() else {
+            return;
+        };
+        let _held = HeldInterrupts::hold();
+        let reactor_tasks: Vec<_> = std::mem::take(&mut *self.reactor_tasks.lock());
+        for task in reactor_tasks {
+            task.abort();
+        }
+        // Abort any in-flight or future `run_on_main_thread` calls so background worker threads
+        // cannot block waiting for the main thread while we join the runtime, and cannot execute
+        // Postgres FFI or touch `MainThread`-wrapped DSM state if the bounded shutdown timeout
+        // below ever expires. Direct off-main-thread DSM accesses (`DsmAsyncStream`, mesh handles,
+        // and `SpillNotifier`) are independently guarded by `DsmLeased` / `DsmLease` so unmapping
+        // the segment after a 5 s timeout remains memory-safe while keeping `AbortTransaction` /
+        // `before_shmem_exit` (which run under `HOLD_INTERRUPTS()`) from wedging a backend forever.
+        self.main_executor.begin_shutdown();
+        shutdown_runtime_bounded(runtime, std::time::Duration::from_secs(5));
+        // Drain (or forget, if the backend is about to `proc_exit` / `shmem_exit`) any deferred
+        // main-thread drops enqueued during worker teardown. If the bounded timeout above expired
+        // with a wedged thread still alive, anything it enqueues later stays parked in the dead
+        // executor's drop queue rather than running out of context.
+        self.main_executor.drain_drops();
+        disarm_thread_park_state();
+    }
 }
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because `PgTokioRuntimeInner` is also
 // used in standalone `#[test]` binaries and must join its worker threads if dropped directly.
 impl Drop for PgTokioRuntimeInner {
     fn drop(&mut self) {
+        self.clear_owner();
         if let Some(runtime) = self.runtime.get_mut().take() {
             for task in std::mem::take(self.reactor_tasks.get_mut()) {
                 task.abort();
             }
             self.main_executor.begin_shutdown();
-            runtime.shutdown_timeout(std::time::Duration::from_secs(5));
+            shutdown_runtime_bounded(runtime, std::time::Duration::from_secs(5));
             self.main_executor.drain_drops();
             disarm_thread_park_state();
         }
@@ -1020,13 +1350,14 @@ impl Drop for PgTokioRuntimeInner {
 impl PgTokioRuntime {
     /// Return a handle to the current backend's Postgres-integrated multi-threaded Tokio runtime,
     /// initializing it on first use (or recreating it if a previous query tore down the worker
-    /// pool during cancel/panic cleanup).
+    /// pool during cancel/panic/abort cleanup).
     pub fn new() -> io::Result<Self> {
         debug_assert!(
             is_main_thread(),
             "PgTokioRuntime::new must be called on the Postgres main thread"
         );
         ensure_signal_wakeup_hooks_installed();
+        ensure_backend_lifecycle_hooks_installed();
         // Ensure `pgrx`'s `ACTIVE_THREAD` is claimed by the Postgres main thread before any
         // background worker threads are spawned (especially after `fork()` in parallel workers,
         // where `pgrx`'s `pthread_atfork` child handler resets `ACTIVE_THREAD` to 0).
@@ -1035,24 +1366,35 @@ impl PgTokioRuntime {
             pgrx::pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| ());
         }
 
+        let owner = current_resource_owner();
         BACKEND_RUNTIME.with(|cell| {
             if let Some(existing) = cell.borrow().as_ref()
                 && existing.is_running()
                 && existing.active_handles.load(Ordering::Acquire) == 0
                 && existing.handle.metrics().num_alive_tasks() <= existing.reactor_task_count
             {
+                existing.set_owner(owner);
                 existing.active_handles.fetch_add(1, Ordering::AcqRel);
                 return Ok(Self {
                     inner: Arc::clone(existing),
                 });
             }
             let inner = PgTokioRuntimeInner::build()?;
+            inner.set_owner(owner);
             inner.active_handles.store(1, Ordering::Release);
+            register_live_runtime(&inner);
             if cell.borrow().as_ref().is_none_or(|rt| !rt.is_running()) {
                 *cell.borrow_mut() = Some(Arc::clone(&inner));
             }
             Ok(Self { inner })
         })
+    }
+
+    /// Return a non-owning [`PgTokioRuntimeShutdownHandle`] for `on_dsm_detach` callbacks.
+    pub fn shutdown_handle(&self) -> PgTokioRuntimeShutdownHandle {
+        PgTokioRuntimeShutdownHandle {
+            inner: Arc::downgrade(&self.inner),
+        }
     }
 
     pub fn handle(&self) -> &tokio::runtime::Handle {
@@ -1102,7 +1444,9 @@ impl PgTokioRuntime {
     /// Called when tearing down a scan stream (such as early `LIMIT` exit, `ReScan`, or
     /// `end_custom_scan`) and when the last active [`PgTokioRuntime`] handle drops so no background
     /// worker thread can remain blocked in `slot.cvar.wait` or hold [`MainThread`] Postgres
-    /// resources across scan / transaction teardown.
+    /// resources across scan / transaction teardown. Fast-paths directly to
+    /// [`Self::shutdown_workers`] if a cancel/die/exit is pending or the main thread is currently
+    /// unwinding a panic.
     pub fn quiesce_tasks(&self) {
         if !is_main_thread() {
             return;
@@ -1115,12 +1459,14 @@ impl PgTokioRuntime {
         let cancel_or_exit_pending = || {
             crate::postgres::utils::proc_exit_in_progress()
                 || unsafe {
-                    pgrx::pg_sys::ProcDiePending != 0 || pgrx::pg_sys::QueryCancelPending != 0
+                    pgrx::pg_sys::shmem_exit_inprogress
+                        || pgrx::pg_sys::ProcDiePending != 0
+                        || pgrx::pg_sys::QueryCancelPending != 0
                 }
         };
         #[cfg(test)]
         let cancel_or_exit_pending = || false;
-        if cancel_or_exit_pending() {
+        if cancel_or_exit_pending() || std::thread::panicking() {
             self.shutdown_workers();
             return;
         }
@@ -1190,26 +1536,12 @@ impl PgTokioRuntime {
     /// Shut down and join the background Tokio worker threads if still running.
     ///
     /// Called on the Postgres main thread before servicing a terminal interrupt
-    /// (`QueryCancelPending`, `ProcDiePending`, or a worker error/panic) and before
-    /// `run_mpp_worker` releases its [`HeldInterrupts`] guard, so no `tokio-rt-worker` thread
-    /// remains alive during `AbortTransaction` (`AtEOXact_Parallel` DSM unmap) or `proc_exit(1)`.
+    /// (`QueryCancelPending`, `ProcDiePending`, or a worker error/panic), from abnormal abort or
+    /// exit hooks (`on_dsm_detach`, `XactCallback`, `SubXactCallback`, `before_shmem_exit`), and
+    /// before `run_mpp_worker` releases its [`HeldInterrupts`] guard, so no `tokio-rt-worker`
+    /// thread remains alive across DSM unmap, buffer-pin release, or `proc_exit`.
     pub fn shutdown_workers(&self) {
-        let Some(runtime) = self.inner.runtime.lock().take() else {
-            return;
-        };
-        let _held = HeldInterrupts::hold();
-        let reactor_tasks: Vec<_> = std::mem::take(&mut *self.inner.reactor_tasks.lock());
-        for task in reactor_tasks {
-            task.abort();
-        }
-        // Abort any in-flight or future `run_on_main_thread` calls so background worker threads
-        // cannot block waiting for the main thread while we join the runtime.
-        self.inner.main_executor.begin_shutdown();
-        runtime.shutdown_timeout(std::time::Duration::from_secs(5));
-        // Now that all background worker threads have exited, run (or forget, if the backend is
-        // about to `proc_exit`) any deferred main-thread drops they enqueued during task teardown.
-        self.inner.main_executor.drain_drops();
-        disarm_thread_park_state();
+        self.inner.shutdown_workers();
     }
 
     /// Drive `future` to completion on this runtime under [`HeldInterrupts`], servicing any
@@ -1368,6 +1700,7 @@ impl Drop for PgTokioRuntime {
     fn drop(&mut self) {
         let prev = self.inner.active_handles.fetch_sub(1, Ordering::AcqRel);
         if prev == 1 {
+            self.inner.clear_owner();
             self.quiesce_tasks();
         } else {
             self.drain_drops();

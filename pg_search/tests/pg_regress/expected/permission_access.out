@@ -101,7 +101,7 @@ ORDER BY 1;
  paradedb.validate_checksum(index regclass)
  paradedb.vector_clusters(index regclass, field text)
  paradedb.vector_config(index regclass, field text)
- paradedb.vector_estimator_info(index regclass, field text, queries vector[])
+ paradedb.vector_estimator_info(index regclass, field text, queries pdb.vector[])
  paradedb.vector_info(index regclass, field text)
  paradedb.with_index(index regclass, query paradedb.searchqueryinput)
  pdb.index_segments(index regclass)

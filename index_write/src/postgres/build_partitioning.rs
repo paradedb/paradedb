@@ -958,7 +958,7 @@ mod tests {
             SET paradedb.vector_clustering_threshold = {CLUSTERING_THRESHOLD};
             CREATE TABLE vector_partition_src (id BIGINT, region INTEGER, emb pdb.vector(2));
             INSERT INTO vector_partition_src
-            SELECT i, i % 2, ARRAY[CASE WHEN i % 2 = 0 THEN -10 ELSE 10 END, (i % 7) * 0.01]::pdb.vector
+            SELECT i, i % 2, ARRAY[CASE WHEN i % 2 = 0 THEN -10 ELSE 10 END, (i % 7) * 0.01]::real[]::pdb.vector
             FROM generate_series(1, {SOURCE_ROWS}) i;
             INSERT INTO vector_partition_src VALUES ({SOURCE_ROWS} + 1, NULL, NULL), ({TOTAL_ROWS}, NULL, '[0,0]');
         "#,

@@ -8,7 +8,7 @@ USING paradedb (
   created_at,
   metadata,
   weight_range,
-  embedding vector_cosine_ops,
+  embedding pdb.vector_cosine_ops,
   (description::pdb.simple('alias=description_simple')),
   (lower(description)::pdb.literal('alias=literal_description'))
 )

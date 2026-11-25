@@ -185,6 +185,9 @@
     }
   ],
   "sql": {
+    "reference/indexing/indexing-vectors.mdx::fence-002": {
+      "extensions": ["vector"]
+    },
     "reference/tokenizers/synonyms.mdx::fence-003": {
       "setup": [
         "reference/tokenizers/synonyms.mdx::fence-001"

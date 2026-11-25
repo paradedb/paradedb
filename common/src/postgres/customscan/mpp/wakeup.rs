@@ -526,30 +526,12 @@ static TOKIO_PARKED_WAKEUP_FD: AtomicI32 = AtomicI32::new(-1);
 
 #[cfg(not(test))]
 static SIGNAL_HOOKS_PID: AtomicI32 = AtomicI32::new(0);
-/// A chained handler and the form it was installed with. PostgreSQL 19 installs its handlers
-/// with `SA_SIGINFO`; earlier versions, and other extensions, may use the one-argument form.
 #[cfg(not(test))]
-struct OrigHandler {
-    addr: AtomicUsize,
-    takes_siginfo: AtomicBool,
-}
-
+static ORIG_SIGINT_HANDLER: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(test))]
-impl OrigHandler {
-    const fn new() -> Self {
-        Self {
-            addr: AtomicUsize::new(0),
-            takes_siginfo: AtomicBool::new(false),
-        }
-    }
-}
-
+static ORIG_SIGTERM_HANDLER: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(test))]
-static ORIG_SIGINT_HANDLER: OrigHandler = OrigHandler::new();
-#[cfg(not(test))]
-static ORIG_SIGTERM_HANDLER: OrigHandler = OrigHandler::new();
-#[cfg(not(test))]
-static ORIG_SIGUSR1_HANDLER: OrigHandler = OrigHandler::new();
+static ORIG_SIGUSR1_HANDLER: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(all(not(test), target_os = "macos"))]
 unsafe fn errno_ptr() -> *mut libc::c_int {
@@ -569,30 +551,28 @@ unsafe fn errno_ptr() -> *mut libc::c_int {
 #[cfg(not(test))]
 extern "C" fn pg_tokio_signal_trampoline(
     signo: libc::c_int,
-    info: *mut libc::siginfo_t,
-    context: *mut libc::c_void,
+    #[cfg(pg19_plus)] info: *mut libc::siginfo_t,
+    #[cfg(pg19_plus)] context: *mut libc::c_void,
 ) {
     unsafe {
         let saved_errno = *errno_ptr();
-        let slot = match signo {
-            libc::SIGINT => Some(&ORIG_SIGINT_HANDLER),
-            libc::SIGTERM => Some(&ORIG_SIGTERM_HANDLER),
-            libc::SIGUSR1 => Some(&ORIG_SIGUSR1_HANDLER),
-            _ => None,
+        let orig = match signo {
+            libc::SIGINT => ORIG_SIGINT_HANDLER.load(Ordering::SeqCst),
+            libc::SIGTERM => ORIG_SIGTERM_HANDLER.load(Ordering::SeqCst),
+            libc::SIGUSR1 => ORIG_SIGUSR1_HANDLER.load(Ordering::SeqCst),
+            _ => 0,
         };
-        let orig = slot.map_or(0, |slot| slot.addr.load(Ordering::SeqCst));
-        if let Some(slot) = slot
-            && orig != 0
-            && orig != libc::SIG_DFL
-            && orig != libc::SIG_IGN
-        {
-            if slot.takes_siginfo.load(Ordering::SeqCst) {
+        if orig != 0 && orig != libc::SIG_DFL && orig != libc::SIG_IGN {
+            #[cfg(not(pg19_plus))]
+            {
+                let handler: extern "C" fn(libc::c_int) = std::mem::transmute(orig);
+                handler(signo);
+            }
+            #[cfg(pg19_plus)]
+            {
                 let handler: extern "C" fn(libc::c_int, *mut libc::siginfo_t, *mut libc::c_void) =
                     std::mem::transmute(orig);
                 handler(signo, info, context);
-            } else {
-                let handler: extern "C" fn(libc::c_int) = std::mem::transmute(orig);
-                handler(signo);
             }
         }
         let fd = TOKIO_PARKED_WAKEUP_FD.load(Ordering::SeqCst);
@@ -623,15 +603,19 @@ pub(crate) fn ensure_signal_wakeup_hooks_installed() {
                 continue;
             }
             let cur = old_act.sa_sigaction;
-            if cur == 0 || cur == libc::SIG_DFL || cur == libc::SIG_IGN || cur == trampoline_addr {
+            if cur == 0
+                || cur == libc::SIG_DFL
+                || cur == libc::SIG_IGN
+                || cur == trampoline_addr
+                // PostgreSQL installs its handlers with `SA_SIGINFO` from 19 on, and without it
+                // before. A handler in the other form is not one we know how to call.
+                || ((old_act.sa_flags & libc::SA_SIGINFO) != 0) != cfg!(pg19_plus)
+            {
                 continue;
             }
-            slot.takes_siginfo
-                .store((old_act.sa_flags & libc::SA_SIGINFO) != 0, Ordering::SeqCst);
-            slot.addr.store(cur, Ordering::SeqCst);
+            slot.store(cur, Ordering::SeqCst);
             let mut new_act = old_act;
             new_act.sa_sigaction = trampoline_addr;
-            new_act.sa_flags |= libc::SA_SIGINFO;
             let _ = libc::sigaction(signo, &new_act, std::ptr::null_mut());
         }
     }

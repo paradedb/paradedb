@@ -26,7 +26,6 @@ on:
       - "pg_search/**"
       - "planner/**"
       - "scan/**"
-      - "scripts/release.sh"
       - "storage/**"
       - "tokenizers/**"
       - "Cargo.toml"

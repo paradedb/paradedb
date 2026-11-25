@@ -1,4 +1,4 @@
-# Build the Nix package for packaging changes or on demand. Its Rust dependencies come from Cargo.lock.
+# Build the Nix package for packaging changes. Its Rust dependencies come from Cargo.lock.
 
 name: Test pg_search (Nix)
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795586730355,
+  "lastUpdate": 1795586758881,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -546104,6 +546104,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14971752767-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795586755213,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3900.8380678921385,
+            "unit": "median tps",
+            "extra": "avg tps: 3896.0689954677096, max tps: 4688.720763975225, count: 58894"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4468.184421909196,
+            "unit": "median tps",
+            "extra": "avg tps: 4459.553978969951, max tps: 5640.572411734712, count: 58894"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.80722813169638,
+            "unit": "median tps",
+            "extra": "avg tps: 165.11743315826297, max tps: 2827.2780106540154, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 13.278271014730112,
+            "unit": "median tps",
+            "extra": "avg tps: 34.23853150302954, max tps: 776.2199130369783, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 27.197724738240247,
+            "unit": "median tps",
+            "extra": "avg tps: 42.99767532543095, max tps: 791.5295102682254, count: 58894"
+          }
+        ],
+        "publication_id": "14995824562-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -562814,6 +562867,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14971752767-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795586758759,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.39531924319305, max cpu: 4.619827, count: 58894"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 21.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.18337686139505, max mem: 21.3125, count: 58894"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.569253,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.484313212155563, max cpu: 4.7151275, count: 58894"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.6228987672768, max mem: 20.625, count: 58894"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.204219,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.507937244115315, max cpu: 23.010548, count: 58894"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 21.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.527778190477807, max mem: 21.53125, count: 58894"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.921570957993, max document_count: 10002.0, count: 58894"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.998811423915, max document_count: 10002.0, count: 58894"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 22.738037,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.900777750929066, max cpu: 32.19933, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 98.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 94.52085526539206, max mem: 160.9296875, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.233618,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.360766750801734, max cpu: 32.307693, count: 58894"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 84.01171875,
+            "unit": "median mem",
+            "extra": "avg mem: 89.2709521025062, max mem: 168.015625, count: 58894"
+          }
+        ],
+        "publication_id": "14995824562-other"
       }
     ]
   }

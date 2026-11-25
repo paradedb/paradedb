@@ -111,7 +111,6 @@ These settings control how ParadeDB reads columnar data from the index.
 
 | Setting                                   | Default | Context | Description                                                                                              |
 | ----------------------------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------- |
-| `paradedb.enable_fast_field_exec`         | `on`    | user    | Enables optimized columnar executors for narrow projections.                                             |
 | `paradedb.enable_columnar_exec`           | `on`    | user    | Enables the columnar executor for multi-column string and numeric projections.                           |
 | `paradedb.columnar_exec_column_threshold` | `3`     | user    | Number of projected index columns below which the columnar executor is used instead of normal row fetch. |
 

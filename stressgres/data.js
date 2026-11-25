@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795561109350,
+  "lastUpdate": 1795586675151,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -185438,6 +185438,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14972075735-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795586672404,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 161.10092216575615,
+            "unit": "median tps",
+            "extra": "avg tps: 157.45231021416154, max tps: 173.3729970568858, count: 59073"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 543.3822205964153,
+            "unit": "median tps",
+            "extra": "avg tps: 559.1134914564769, max tps: 4963.3606535587, count: 59073"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3078.34634587272,
+            "unit": "median tps",
+            "extra": "avg tps: 3088.004694017406, max tps: 3163.4384508891876, count: 59073"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 178.422981878712,
+            "unit": "median tps",
+            "extra": "avg tps: 173.67083848354113, max tps: 194.18974126449066, count: 59073"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 271.5577931025233,
+            "unit": "median tps",
+            "extra": "avg tps: 375.47891805128245, max tps: 2776.658979442897, count: 118146"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 30.954517930276605,
+            "unit": "median tps",
+            "extra": "avg tps: 30.208030266858284, max tps: 47.83624924771518, count: 59073"
+          }
+        ],
+        "publication_id": "14995302495-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -236632,6 +236691,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14972075735-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795586675049,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.155937,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.630763433284637, max cpu: 33.48281, count: 59073"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 50.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.17566526532849, max mem: 50.18359375, count: 59073"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.380489274858993, max cpu: 29.802095, count: 59073"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 32.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 32.95095276712711, max mem: 32.9609375, count: 59073"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.708661566653407, max cpu: 18.35564, count: 59073"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 47.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.20590499519662, max mem: 51.46875, count: 59073"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2547,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2544.5052392802127, max block_count: 2560.0, count: 59073"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.4780314787333182, max cpu: 4.58891, count: 59073"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 29.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.627897104006905, max mem: 29.7421875, count: 59073"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.519306620621943, max segment_count: 36.0, count: 59073"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.64327919881155, max cpu: 33.61681, count: 59073"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 63.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.879976099487074, max mem: 63.984375, count: 59073"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.41951269376258, max cpu: 29.802095, count: 118146"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.10411608042168, max mem: 57.9765625, count: 118146"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.233447444868185, max cpu: 18.173214, count: 59073"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 47.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.432918671601236, max mem: 47.46484375, count: 59073"
+          }
+        ],
+        "publication_id": "14995302495-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

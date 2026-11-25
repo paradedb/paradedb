@@ -38,15 +38,9 @@ postgresql:
 
 ## Manifests
 
-`manifests/cnpg.yaml` is the CloudNativePG operator, rendered from the upstream Helm chart with default values and bundled into the DST config images. To upgrade the operator, re-render it with the chart version whose `appVersion` is the CNPG release you want ([chart index](https://github.com/cloudnative-pg/charts)):
+`manifests/cnpg.yaml` bundles the CloudNativePG operator into the Stressgres and property-test DST config images. It is based on the [upstream CloudNativePG 1.31.0-rc1 install manifest](https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.31.0-rc1/cnpg-1.31.0-rc1.yaml).
 
-```bash
-helm repo add cnpg https://cloudnative-pg.github.io/charts
-helm repo update
-helm template cnpg cnpg/cloudnative-pg --namespace cnpg-system --version <chart_version> --set replicaCount=2
-```
-
-Prepend the `cnpg-system` `Namespace` (the chart does not create it) and keep the trailing comment-only documents at the end of the file. The two operator replicas retain leader election so reconciliation can continue when one operator is unavailable. The current file is chart `0.29.1` / CNPG `1.30.1`.
+To upgrade, download the install manifest for the target release and carry forward the Antithesis Deployment settings: two replicas with leader election enabled, `imagePullPolicy: IfNotPresent`, and `resources: {}`.
 
 ## Release Process
 

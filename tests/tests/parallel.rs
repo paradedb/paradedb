@@ -278,9 +278,9 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
         FROM document_text dt
         JOIN core c ON dt.dwf_doid = c.dwf_doid
         WHERE dt.full_text ||| 'ea'
-          AND (c.author @@@ paradedb.match('author', 'brian griffin')
-               OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
-               OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+          AND (c.author ||| 'brian griffin'
+               OR c.author ||| 'barabara pewterschmidt'
+               OR c.author ||| 'bonnie swanson')
           AND DATE(c.date_time_combined) >= DATE('2001-01-01')
           AND DATE(c.date_time_combined) <= DATE('2025-12-31')
     "#;
@@ -533,7 +533,7 @@ async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Resu
     // to be enough to reliably reproduce the bug (#4381) and makes the test run much faster.
     for _ in 0..400 {
         let result = sqlx::query_as::<_, (i64,)>(
-            "SELECT COUNT(*) FROM test t WHERE t.column_a @@@ paradedb.all() AND t.column_b = TRUE",
+            "SELECT COUNT(*) FROM test t WHERE t.column_a @@@ pdb.all()::pdb.const(0) AND t.column_b = TRUE",
         )
         .fetch_one(&mut reader)
         .await;

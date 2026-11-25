@@ -77,7 +77,7 @@ fn pushdown_is_true_doesnt_require_scores_with_parallel_custom_scan(mut conn: Pg
     //
     // user reported a bug where, specifically, a `bool_field = TRUE|FALSE` pushdown would cause the
     // query to think it needed scores, which, clearly, the query doesn't use
-    "SELECT * FROM pushdown_is_true WHERE bool_field = TRUE AND id @@@ paradedb.all() ORDER BY id desc LIMIT 25 OFFSET 0"
+    "SELECT * FROM pushdown_is_true WHERE bool_field = TRUE AND id @@@ pdb.all()::pdb.const(0) ORDER BY id desc LIMIT 25 OFFSET 0"
         .execute(&mut conn);
 }
 

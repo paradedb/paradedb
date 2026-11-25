@@ -51,8 +51,8 @@ const MPP_QUERY: &str = r#"
 SELECT count(*)
 FROM mem_b le
 JOIN mem_a sv ON sv.id = le.aid
-WHERE le.id @@@ paradedb.term('u', 'u1')
-  AND sv.id @@@ paradedb.term('state', 'merged')
+WHERE le.u === 'u1'
+  AND sv.state === 'merged'
 "#;
 
 #[rstest]

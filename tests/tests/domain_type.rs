@@ -80,7 +80,7 @@ mod domain_types {
         let res: Vec<(i32, i32, i32, String, String)> = r#"
             select id, lower(salary_range), upper(salary_range), status_history::TEXT, ratings::TEXT
             from employees
-            where id @@@ paradedb.range(field=> 'id', range=> '[1, 5]'::int8range)
+            where id @@@ pdb.range(range => '[1, 5]'::int8range)
             and lower(salary_range) > 15000;
         "#
         .fetch(&mut conn);
@@ -101,7 +101,7 @@ mod domain_types {
         let count = r#"
             select count(*)
             from employees
-            where id @@@ paradedb.range(field=> 'id', range=> '[1, 5]'::int8range)
+            where id @@@ pdb.range(range => '[1, 5]'::int8range)
             and lower(salary_range) > 15000;
         "#
         .fetch::<(i64,)>(&mut conn);
@@ -113,7 +113,7 @@ mod domain_types {
         let res: Vec<(i32, i32, i32, String, String)> = r#"
             select id, lower(salary_range), upper(salary_range), status_history::TEXT, ratings::TEXT
             from employees
-            where id @@@ paradedb.range(field=> 'id', range=> '[1, 5]'::int8range)
+            where id @@@ pdb.range(range => '[1, 5]'::int8range)
             and 'active' = ANY(status_history);
         "#
         .fetch(&mut conn);

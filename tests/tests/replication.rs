@@ -1437,7 +1437,7 @@ async fn test_replica_snapshot_conflicts_with_dead_mutable_content() -> Result<(
         INSERT INTO test SELECT id,CASE WHEN id IN (1,2,3,4,8,9,10,11)
           THEN 'beer a' ELSE 'wine a' END FROM generate_series(1,14) id;
         CREATE INDEX idxtest ON test USING paradedb(id,message)
-          WITH(key_field='id',mutable_segment_rows=32,layer_sizes='10kb,100kb,1mb',
+          WITH(mutable_segment_rows=32,layer_sizes='10kb,100kb,1mb',
                background_layer_sizes='10kb,100kb,1mb');
         UPDATE test SET message=replace(message,' a',' v1') WHERE id<10;",
     )

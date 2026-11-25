@@ -40,7 +40,7 @@ fn boolean_term(mut conn: PgConnection) {
 
     let rows: Vec<(i32, bool)> = r#"
     SELECT * FROM test_table
-    WHERE test_table @@@ paradedb.term(field => 'value', value => true)
+    WHERE value @@@ pdb.term(value => true)
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -73,8 +73,7 @@ fn integer_term(mut conn: PgConnection) {
 
     // INT2
     let rows: Vec<(i32, i16)> = r#"
-    SELECT id, value_int2 FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_int2', value => -11)
+    SELECT id, value_int2 FROM test_table WHERE value_int2 @@@ pdb.term(value => -11)
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -82,8 +81,7 @@ fn integer_term(mut conn: PgConnection) {
 
     // INT4
     let rows: Vec<(i32, i32)> = r#"
-    SELECT id, value_int4 FROM test_table WHERE test_table @@@
-    paradedb.term(field => 'value_int4', value => 2222)
+    SELECT id, value_int4 FROM test_table WHERE value_int4 @@@ pdb.term(value => 2222)
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -91,8 +89,7 @@ fn integer_term(mut conn: PgConnection) {
 
     // INT8
     let rows: Vec<(i32, i64)> = r#"
-    SELECT id, value_int8 FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_int8', value => 33333333)
+    SELECT id, value_int8 FROM test_table WHERE value_int8 @@@ pdb.term(value => 33333333)
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -125,8 +122,7 @@ fn float_term(mut conn: PgConnection) {
 
     // FLOAT4
     let rows: Vec<(i32, f32)> = r#"
-    SELECT id, value_float4 FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_float4', value => -1.1::float4)
+    SELECT id, value_float4 FROM test_table WHERE value_float4 @@@ pdb.term(value => -1.1::float4)
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -134,8 +130,7 @@ fn float_term(mut conn: PgConnection) {
 
     // FLOAT8
     let rows: Vec<(i32, f64)> = r#"
-    SELECT id, value_float8 FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_float8', value => 4444.4444::float8)
+    SELECT id, value_float8 FROM test_table WHERE value_float8 @@@ pdb.term(value => 4444.4444::float8)
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -143,8 +138,7 @@ fn float_term(mut conn: PgConnection) {
 
     // NUMERIC - no sqlx::Type for numerics, so just check id
     let rows: Vec<(i32,)> = r#"
-    SELECT id FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_numeric', value => 333.33333::numeric)
+    SELECT id FROM test_table WHERE value_numeric @@@ pdb.term(value => 333.33333::numeric)
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -177,8 +171,7 @@ fn text_term(mut conn: PgConnection) {
 
     // TEXT
     let rows: Vec<(i32, String)> = r#"
-    SELECT id, value_text FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_text', value => 'abc')
+    SELECT id, value_text FROM test_table WHERE value_text === 'abc'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -186,8 +179,7 @@ fn text_term(mut conn: PgConnection) {
 
     // VARCHAR
     let rows: Vec<(i32, String)> = r#"
-    SELECT id, value_varchar FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_varchar', value => 'ghi')
+    SELECT id, value_varchar FROM test_table WHERE value_varchar === 'ghi'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -195,8 +187,7 @@ fn text_term(mut conn: PgConnection) {
 
     // UUID - sqlx doesn't have a uuid type, so we just look for id
     let rows: Vec<(i32,)> = r#"
-    SELECT id FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_uuid', value => 'ae9d4a8c-8382-452d-96fb-a9a1c4192a03')
+    SELECT id FROM test_table WHERE value_uuid::pdb.literal_normalized === 'ae9d4a8c-8382-452d-96fb-a9a1c4192a03'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -222,8 +213,7 @@ fn datetime_shaped_string_term(mut conn: PgConnection) {
 
     // TIMESTAMP
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value', value => '2019-08-02 07:52:43.123')
+    SELECT * FROM test_table WHERE value === '2019-08-02 07:52:43.123'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -256,8 +246,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     // DATE
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_date', value => DATE '2023-05-03')
+    SELECT * FROM test_table WHERE value_date @@@ pdb.term(value => DATE '2023-05-03')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -265,8 +254,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     // TIMESTAMP
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_timestamp', value => TIMESTAMP '2019-08-02 07:52:43.123')
+    SELECT * FROM test_table WHERE value_timestamp @@@ pdb.term(value => TIMESTAMP '2019-08-02 07:52:43.123')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -274,8 +262,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     // TIMESTAMP WITH TIME ZONE
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_timestamptz', value => TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 PST')
+    SELECT * FROM test_table WHERE value_timestamptz @@@ pdb.term(value => TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 PST')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -283,8 +270,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     // TIMESTAMP WITH TIME ZONE: Change time zone in query
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_timestamptz', value => TIMESTAMP WITH TIME ZONE '2023-04-15 16:27:09 EST')
+    SELECT * FROM test_table WHERE value_timestamptz @@@ pdb.term(value => TIMESTAMP WITH TIME ZONE '2023-04-15 16:27:09 EST')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -292,8 +278,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     // TIME
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_time', value => TIME '11:43:21.456')
+    SELECT * FROM test_table WHERE value_time @@@ pdb.term(value => TIME '11:43:21.456')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -301,8 +286,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     // TIME WITH TIME ZONE
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_timetz', value => TIME WITH TIME ZONE '11:43:21.456 EST')
+    SELECT * FROM test_table WHERE value_timetz @@@ pdb.term(value => TIME WITH TIME ZONE '11:43:21.456 EST')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -310,8 +294,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     // TIME WITH TIME ZONE: Change time zone in query
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_timetz', value => TIME WITH TIME ZONE '08:43:21.456 PST')
+    SELECT * FROM test_table WHERE value_timetz @@@ pdb.term(value => TIME WITH TIME ZONE '08:43:21.456 PST')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -319,8 +302,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     // TIMESTAMP WITH TIME ZONE: Query no time zone with time zone
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_timestamp', value => TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 GMT')
+    SELECT * FROM test_table WHERE value_timestamp @@@ pdb.term(value => TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 GMT')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -328,8 +310,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     // TIMESTAMP: Query time zone with no time zone (GMT = EST + 5)
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-    paradedb.term(field => 'value_timestamptz', value => TIMESTAMP '2019-08-02 12:52:43.123')
+    SELECT * FROM test_table WHERE value_timestamptz @@@ pdb.term(value => TIMESTAMP '2019-08-02 12:52:43.123')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);

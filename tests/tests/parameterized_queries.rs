@@ -55,8 +55,8 @@ fn self_referencing_var(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let results =
-        "SELECT id FROM test WHERE value @@@ paradedb.with_index('idxtest', paradedb.term('value', id::text)) ORDER BY id;".fetch::<(i64,)>(&mut conn);
+    let results = "SELECT id FROM test WHERE value @@@ pdb.term(id::text) ORDER BY id;"
+        .fetch::<(i64,)>(&mut conn);
     assert_eq!(
         results,
         vec![
@@ -139,7 +139,14 @@ fn parallel_function_with_agg_subselect(mut conn: PgConnection) {
         "SET debug_parallel_query TO on".execute(&mut conn);
     }
 
-    "PREPARE foo AS SELECT id FROM test WHERE id @@@ paradedb.term_set((select array_agg(paradedb.term('value', token)) from paradedb.tokenize(paradedb.tokenizer('default'), $1))) ORDER BY id;".execute(&mut conn);
+    r#"
+    PREPARE foo(text) AS SELECT id FROM test
+    WHERE value @@@ pdb.term_set((
+        SELECT array_agg(token) FROM unnest($1::pdb.simple::text[]) AS tokens(token)
+    ))
+    ORDER BY id;
+    "#
+    .execute(&mut conn);
 
     let results = "EXECUTE foo('no matches')".fetch::<(i64,)>(&mut conn);
     assert_eq!(results.len(), 0);
@@ -182,7 +189,7 @@ fn test_issue2061(mut conn: PgConnection) {
     let results = r#"
     SELECT id, description, pdb.score(id)
     FROM mock_items
-    WHERE id @@@ paradedb.match('description', (SELECT description FROM mock_items WHERE id = 1))
+    WHERE description @@@ pdb.match((SELECT description FROM mock_items WHERE id = 1))
     ORDER BY pdb.score(id) DESC;
     "#
     .fetch::<(i32, String, f32)>(&mut conn);

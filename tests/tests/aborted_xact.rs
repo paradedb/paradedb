@@ -77,13 +77,13 @@ fn search_error_caught_in_subtransaction(mut conn: PgConnection) {
     r#"
         DO $$
         BEGIN
-            PERFORM id, 10 / (n - n) FROM subxact_table WHERE id @@@ paradedb.all();
+            PERFORM id, 10 / (n - n) FROM subxact_table WHERE id @@@ pdb.all()::pdb.const(0);
         EXCEPTION WHEN division_by_zero THEN NULL;
         END $$
     "#
     .execute(&mut conn);
 
-    let (count,) = "SELECT count(*) FROM subxact_table WHERE id @@@ paradedb.all()"
+    let (count,) = "SELECT count(*) FROM subxact_table WHERE id @@@ pdb.all()::pdb.const(0)"
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1000);
     "COMMIT".execute(&mut conn);
@@ -112,7 +112,9 @@ async fn cleanup_lock_wait_cancelled_then_retried(database: Db) -> anyhow::Resul
     // An open search holds cleanup admission, so VACUUM waits until the timeout cancels it.
     reader.execute("BEGIN").await?;
     reader
-        .execute("DECLARE c CURSOR FOR SELECT id FROM cleanup_wait WHERE id @@@ paradedb.all()")
+        .execute(
+            "DECLARE c CURSOR FOR SELECT id FROM cleanup_wait WHERE id @@@ pdb.all()::pdb.const(0)",
+        )
         .await?;
     reader.execute("FETCH 1 FROM c").await?;
 

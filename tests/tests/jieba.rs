@@ -122,9 +122,7 @@ fn test_jieba_query_search_mode(mut conn: PgConnection) {
         // Disabling query decomposition excludes the document containing only 南京.
         let rows: Vec<(i32,)> = format!(
             r#"SELECT id FROM jieba_search_mode
-               WHERE id @@@ paradedb.match(
-                   'content', '南京市长江大桥', tokenizer => '{tokenizer}'::jsonb
-               ) ORDER BY id"#
+               WHERE content @@@ pdb.match('南京市长江大桥', tokenizer => '{tokenizer}'::jsonb) ORDER BY id"#
         )
         .fetch(&mut conn);
         assert_eq!(rows, expected, "query tokenizer: {tokenizer}");

@@ -300,20 +300,20 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         PlanCase {
             name: "score_desc_large_match_small_limit_is_serial",
             query: "SELECT id FROM topk_desc_large WHERE body ||| 'alpha'
-                    ORDER BY paradedb.score(id) DESC LIMIT 10",
+                    ORDER BY pdb.score(id) DESC LIMIT 10",
             expected_workers: None,
         },
         PlanCase {
             name: "score_desc_score_projection_preserves_serial_choice",
-            query: "SELECT id, paradedb.score(id) FROM topk_desc_large
+            query: "SELECT id, pdb.score(id) FROM topk_desc_large
                     WHERE body ||| 'alpha'
-                    ORDER BY paradedb.score(id) DESC LIMIT 10",
+                    ORDER BY pdb.score(id) DESC LIMIT 10",
             expected_workers: None,
         },
         PlanCase {
             name: "score_desc_many_segments_rare_match_is_serial_by_default",
             query: "SELECT id FROM topk_desc_many_segs WHERE body ||| 'rare'
-                    ORDER BY paradedb.score(id) DESC LIMIT 20",
+                    ORDER BY pdb.score(id) DESC LIMIT 20",
             expected_workers: None,
         },
         // Score-ASC can't prune (Block-WAND finds the highest scores, not the
@@ -322,7 +322,7 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         PlanCase {
             name: "score_asc_tiny_match_is_serial",
             query: "SELECT id FROM topk_asc_small WHERE body ||| 'special'
-                    ORDER BY paradedb.score(id) ASC LIMIT 10",
+                    ORDER BY pdb.score(id) ASC LIMIT 10",
             expected_workers: None,
         },
         // Field-sorted TopK still has to scan every match before sorting, but
@@ -345,12 +345,12 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         PlanCase {
             name: "window_aggregate_routes_to_general_path_serial_on_small_data",
             query: "SELECT id,
-                           paradedb.score(id),
+                           pdb.score(id),
                            pdb.agg('{\"terms\": {\"field\": \"body\", \"size\": 5}}', false)
                              OVER () AS body_facets
                     FROM topk_desc_large
                     WHERE body ||| 'alpha'
-                    ORDER BY paradedb.score(id) DESC
+                    ORDER BY pdb.score(id) DESC
                     LIMIT 10",
             expected_workers: None,
         },
@@ -363,21 +363,21 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         PlanCase {
             name: "nested_window_aggregate_routes_to_general_path_serial_on_small_data",
             query: "SELECT id,
-                           paradedb.score(id),
+                           pdb.score(id),
                            jsonb_pretty(
                                pdb.agg('{\"terms\": {\"field\": \"body\", \"size\": 5}}', false)
                                  OVER ()
                            ) AS body_facets
                     FROM topk_desc_large
                     WHERE body ||| 'alpha'
-                    ORDER BY paradedb.score(id) DESC
+                    ORDER BY pdb.score(id) DESC
                     LIMIT 10",
             expected_workers: None,
         },
         PlanCase {
             name: "unanalyzed_small_limit_is_serial",
             query: "SELECT id FROM topk_unanalyzed WHERE body ||| 'alpha'
-                    ORDER BY paradedb.score(id) DESC LIMIT 10",
+                    ORDER BY pdb.score(id) DESC LIMIT 10",
             expected_workers: None,
         },
         // The headline #4664 fix: a single-term score-DESC TopK stays serial at any LIMIT,
@@ -387,13 +387,13 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         PlanCase {
             name: "score_desc_single_term_large_limit_stays_serial",
             query: "SELECT id FROM topk_desc_many_segs WHERE body ||| 'common'
-                    ORDER BY paradedb.score(id) DESC LIMIT 1000",
+                    ORDER BY pdb.score(id) DESC LIMIT 1000",
             expected_workers: None,
         },
         PlanCase {
             name: "secondary_sort_key_is_serial",
             query: "SELECT id FROM topk_desc_large WHERE body ||| 'alpha'
-                    ORDER BY paradedb.score(id) DESC, id ASC LIMIT 10",
+                    ORDER BY pdb.score(id) DESC, id ASC LIMIT 10",
             expected_workers: None,
         },
     ] {
@@ -409,7 +409,7 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
     r#"
     PREPARE topk_desc_param_limit(int) AS
     SELECT id FROM topk_desc_large WHERE body ||| 'alpha'
-    ORDER BY paradedb.score(id) DESC LIMIT $1;
+    ORDER BY pdb.score(id) DESC LIMIT $1;
     "#
     .execute(&mut conn);
     assert_plan_case(
@@ -449,7 +449,7 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         PlanCase {
             name: "score_asc_large_match_parallelizes",
             query: "SELECT id FROM topk_desc_large WHERE body ||| 'gamma'
-                    ORDER BY paradedb.score(id) ASC LIMIT 10",
+                    ORDER BY pdb.score(id) ASC LIMIT 10",
             expected_workers: Some(2),
         },
         PlanCase {
@@ -462,19 +462,14 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
             name: "phrase_query_parallelizes",
             query: "SELECT id FROM topk_desc_large
                     WHERE body @@@ pdb.phrase(ARRAY['alpha', 'beta'])
-                    ORDER BY paradedb.score(id) DESC LIMIT 10",
+                    ORDER BY pdb.score(id) DESC LIMIT 10",
             expected_workers: Some(2),
         },
         PlanCase {
             name: "must_conjunction_parallelizes",
             query: "SELECT id FROM topk_desc_large
-                    WHERE id @@@ paradedb.boolean(
-                        must => ARRAY[
-                            paradedb.term('body', 'alpha'),
-                            paradedb.term('body', 'beta')
-                        ]
-                    )
-                    ORDER BY paradedb.score(id) DESC LIMIT 10",
+                    WHERE body === 'alpha' AND body === 'beta'
+                    ORDER BY pdb.score(id) DESC LIMIT 10",
             expected_workers: Some(2),
         },
         // A regex ANDed with a clause carrying no heuristic of its own. The unknown clause has
@@ -483,13 +478,8 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         PlanCase {
             name: "regex_with_unestimatable_conjunct_parallelizes",
             query: "SELECT id FROM topk_desc_large
-                    WHERE id @@@ paradedb.boolean(
-                        must => ARRAY[
-                            paradedb.regex('body', 'alph.*'),
-                            paradedb.range('id', int4range(0, NULL))
-                        ]
-                    )
-                    ORDER BY paradedb.score(id) DESC LIMIT 10",
+                    WHERE body @@@ pdb.regex('alph.*') AND id @@@ pdb.range(int4range(0, NULL))
+                    ORDER BY pdb.score(id) DESC LIMIT 10",
             expected_workers: Some(2),
         },
         // A dense term_set (here alpha ∪ gamma = every row) has no Block-WAND-pruning
@@ -498,11 +488,8 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         PlanCase {
             name: "term_set_dense_parallelizes",
             query: "SELECT id FROM topk_desc_large
-                    WHERE body @@@ paradedb.term_set(terms => ARRAY[
-                        paradedb.term('body', 'alpha'),
-                        paradedb.term('body', 'gamma')
-                    ])
-                    ORDER BY paradedb.score(id) DESC LIMIT 10",
+                    WHERE body === ARRAY['alpha', 'gamma']
+                    ORDER BY pdb.score(id) DESC LIMIT 10",
             expected_workers: Some(2),
         },
         // UNSORTED scans are cost-modeled too (no ORDER BY). A cheap term serializes (a small
@@ -525,7 +512,7 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
     r#"
     PREPARE sorted_param_pred(text) AS
     SELECT id FROM topk_desc_large WHERE body ||| $1
-    ORDER BY paradedb.score(id) DESC LIMIT 10;
+    ORDER BY pdb.score(id) DESC LIMIT 10;
     "#
     .execute(&mut conn);
     assert_plan_case(
@@ -548,7 +535,7 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         PlanCase {
             name: "unanalyzed_nonprunable_defers_to_row_heuristic_parallel",
             query: "SELECT id FROM topk_unanalyzed WHERE body ||| 'alpha'
-                    ORDER BY paradedb.score(id) ASC LIMIT 10",
+                    ORDER BY pdb.score(id) ASC LIMIT 10",
             expected_workers: Some(2),
         },
     );
@@ -581,14 +568,14 @@ fn dense_multi_term_query_accounts_for_term_union_traversal(mut conn: PgConnecti
         PlanCase {
             name: "dense_single_term_stays_serial",
             query: "SELECT id FROM topk_desc_multi_term WHERE body ||| 'alpha'
-                    ORDER BY paradedb.score(id) DESC LIMIT 10",
+                    ORDER BY pdb.score(id) DESC LIMIT 10",
             expected_workers: None,
         },
         PlanCase {
             name: "dense_multi_term_term_union_chooses_parallel",
             query: "SELECT id FROM topk_desc_multi_term
                     WHERE body ||| 'alpha beta gamma delta epsilon'
-                    ORDER BY paradedb.score(id) DESC LIMIT 10",
+                    ORDER BY pdb.score(id) DESC LIMIT 10",
             expected_workers: Some(2),
         },
     ] {
@@ -645,12 +632,12 @@ fn prunable_topk_cost_excludes_drive_work(mut conn: PgConnection) {
     let prunable = total_cost(&explain(
         &mut conn,
         "SELECT id FROM topk_desc_multi_term WHERE body ||| 'alpha'
-         ORDER BY paradedb.score(id) DESC LIMIT 10",
+         ORDER BY pdb.score(id) DESC LIMIT 10",
     ));
     let non_prunable = total_cost(&explain(
         &mut conn,
         "SELECT id FROM topk_desc_multi_term WHERE body ||| 'alpha'
-         ORDER BY paradedb.score(id) ASC LIMIT 10",
+         ORDER BY pdb.score(id) ASC LIMIT 10",
     ));
 
     assert!(
@@ -677,13 +664,13 @@ fn phrase_cost_covers_the_list_it_drives(mut conn: PgConnection) {
         &mut conn,
         "SELECT id FROM topk_phrase_common
          WHERE body @@@ pdb.phrase(ARRAY['alpha', 'beta', 'gamma', 'delta'])
-         ORDER BY paradedb.score(id) ASC LIMIT 10",
+         ORDER BY pdb.score(id) ASC LIMIT 10",
     ));
     // `alpha` occurs only inside that phrase, so both scans read the very same list.
     let one_word = total_cost(&explain(
         &mut conn,
         "SELECT id FROM topk_phrase_common WHERE body ||| 'alpha'
-         ORDER BY paradedb.score(id) ASC LIMIT 10",
+         ORDER BY pdb.score(id) ASC LIMIT 10",
     ));
 
     // Reading the same list, the two totals part only over the row count each carries, which is

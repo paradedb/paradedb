@@ -76,7 +76,7 @@ static CASES: [Case; 6] = [
     Case {
         name: "regex",
         gucs: PARALLEL_GUCS,
-        query: "SELECT grp FROM bs_cancel WHERE id @@@ paradedb.regex('body', '.*q.*z.*') AND grp = 1",
+        query: "SELECT grp FROM bs_cancel WHERE body @@@ pdb.regex('.*q.*z.*') AND grp = 1",
         plan_contains: &[
             "Parallel Custom Scan (ParadeDB Base Scan)",
             "ColumnarExecState",
@@ -86,7 +86,7 @@ static CASES: [Case; 6] = [
     Case {
         name: "heapfilter",
         gucs: PARALLEL_GUCS,
-        query: "SELECT grp FROM bs_cancel WHERE id @@@ paradedb.all() AND extra = -1",
+        query: "SELECT grp FROM bs_cancel WHERE id @@@ pdb.all()::pdb.const(0) AND extra = -1",
         plan_contains: &[
             "Parallel Custom Scan (ParadeDB Base Scan)",
             "ColumnarExecState",
@@ -96,7 +96,7 @@ static CASES: [Case; 6] = [
     Case {
         name: "parallel_normal_heapfilter",
         gucs: PARALLEL_GUCS,
-        query: "SELECT extra FROM bs_cancel WHERE id @@@ paradedb.all() AND extra = -1",
+        query: "SELECT extra FROM bs_cancel WHERE id @@@ pdb.all()::pdb.const(0) AND extra = -1",
         plan_contains: &[
             "Parallel Custom Scan (ParadeDB Base Scan)",
             "NormalScanExecState",
@@ -106,7 +106,7 @@ static CASES: [Case; 6] = [
     Case {
         name: "topk_regex",
         gucs: PARALLEL_GUCS,
-        query: "SELECT grp FROM bs_cancel WHERE id @@@ paradedb.regex('body', '.*q.*z.*') ORDER BY grp LIMIT 5",
+        query: "SELECT grp FROM bs_cancel WHERE body @@@ pdb.regex('.*q.*z.*') ORDER BY grp LIMIT 5",
         plan_contains: &[
             "Custom Scan (ParadeDB Base Scan)",
             "TopKScanExecState",
@@ -116,7 +116,7 @@ static CASES: [Case; 6] = [
     Case {
         name: "serial_heapfilter",
         gucs: SERIAL_GUCS,
-        query: "SELECT count(*) FROM bs_cancel WHERE id @@@ paradedb.all() AND extra = -1",
+        query: "SELECT count(*) FROM bs_cancel WHERE id @@@ pdb.all()::pdb.const(0) AND extra = -1",
         plan_contains: &[
             "Custom Scan (ParadeDB Base Scan)",
             "NormalScanExecState",
@@ -126,7 +126,7 @@ static CASES: [Case; 6] = [
     Case {
         name: "serial_heapfilter_sleep",
         gucs: SERIAL_GUCS,
-        query: "SELECT count(*) FROM bs_cancel WHERE id @@@ paradedb.all() AND bs_cancel_sleepy(extra)",
+        query: "SELECT count(*) FROM bs_cancel WHERE id @@@ pdb.all()::pdb.const(0) AND bs_cancel_sleepy(extra)",
         plan_contains: &[
             "Custom Scan (ParadeDB Base Scan)",
             "NormalScanExecState",

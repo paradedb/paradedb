@@ -944,7 +944,7 @@ fn json_term(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
         SELECT id FROM paradedb.bm25_search
-        WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.color', 'white')
+        WHERE (paradedb.bm25_search.metadata -> 'color') === 'white'
         ORDER BY id
     "
     .fetch(&mut conn);
@@ -959,7 +959,7 @@ fn json_term(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.score', 4)
+    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'score') @@@ pdb.term(4)
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -967,7 +967,7 @@ fn json_term(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.keywords', 'electronics')
+    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'keywords') === 'electronics'
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -993,7 +993,7 @@ fn json_fuzzy_term(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
         SELECT id FROM paradedb.bm25_search
-        WHERE paradedb.bm25_search.id @@@ paradedb.fuzzy_term('metadata.color', 'whiet')
+        WHERE (paradedb.bm25_search.metadata -> 'color') @@@ pdb.fuzzy_term('whiet')
         ORDER BY id
     "
     .fetch(&mut conn);
@@ -1012,7 +1012,7 @@ fn json_phrase(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.phrase('metadata.attributes.review', ARRAY['good', 'quality'])
+    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'review') ### ARRAY['good', 'quality']
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1039,7 +1039,7 @@ fn json_phrase_prefix(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.phrase_prefix('metadata.attributes.review', ARRAY['really', 'go'])
+    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'review') @@@ pdb.phrase_prefix(ARRAY['really', 'go'])
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1058,7 +1058,7 @@ fn json_match(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.match('metadata.attributes.review', 'realy godo', distance => 2)
+    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'review') @@@ pdb.match('realy godo', distance => 2)
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1086,7 +1086,7 @@ fn json_range(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.score', int4range(3, NULL, '[)'))
+    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'score') @@@ pdb.range(int4range(3, NULL, '[)'))
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1094,7 +1094,7 @@ fn json_range(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.score', int4range(4, NULL, '[)'))
+    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'score') @@@ pdb.range(int4range(4, NULL, '[)'))
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1102,7 +1102,7 @@ fn json_range(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.tstz', tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
+    WHERE (paradedb.bm25_search.metadata -> 'attributes' -> 'tstz') @@@ pdb.range(tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1147,28 +1147,28 @@ fn json_array_term(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
         SELECT id FROM colors
-        WHERE colors.id @@@ paradedb.term('colors_json', 'red')
+        WHERE colors.colors_json === 'red'
         ORDER BY id"
         .fetch(&mut conn);
     assert_eq!(rows, vec![(1,), (2,)]);
 
     let rows: Vec<(i32,)> = "
         SELECT id FROM colors
-        WHERE colors.id @@@ paradedb.term('colors_jsonb', 'red')
+        WHERE colors.colors_jsonb === 'red'
         ORDER BY id"
         .fetch(&mut conn);
     assert_eq!(rows, vec![(1,), (2,)]);
 
     let rows: Vec<(i32,)> = "
         SELECT id FROM colors
-        WHERE colors.id @@@ paradedb.term('colors_json', 'green')
+        WHERE colors.colors_json === 'green'
         ORDER BY id"
         .fetch(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
     let rows: Vec<(i32,)> = "
         SELECT id FROM colors
-        WHERE colors.id @@@ paradedb.term('colors_jsonb', 'green')
+        WHERE colors.colors_jsonb === 'green'
         ORDER BY id"
         .fetch(&mut conn);
     assert_eq!(rows, vec![(1,)]);
@@ -1210,8 +1210,7 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
 
     // Test querying with default tokenizer
     let rows: Vec<(i32, String)> =
-        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name:Keyboard')"
-            .fetch(&mut conn);
+        "SELECT id, name FROM products WHERE id @@@ pdb.parse('name:Keyboard')".fetch(&mut conn);
     assert_eq!(rows.len(), 3);
     assert!(rows.iter().any(|(_, name)| name == "Mechanical Keyboard"));
     assert!(rows.iter().any(|(_, name)| name == "Wireless Keyboard"));
@@ -1219,13 +1218,12 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
 
     // Ensure that the default tokenizer doesn't return for stemmed queries
     let rows: Vec<(i32, String)> =
-        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name:Keyboards')"
-            .fetch(&mut conn);
+        "SELECT id, name FROM products WHERE id @@@ pdb.parse('name:Keyboards')".fetch(&mut conn);
     assert_eq!(rows.len(), 0);
 
     // Test querying with stemmed alias
     let rows: Vec<(i32, String)> =
-        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name_stem:Keyboards')"
+        "SELECT id, name FROM products WHERE id @@@ pdb.parse('name_stem:Keyboards')"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
     assert!(rows.iter().any(|(_, name)| name == "Mechanical Keyboard"));
@@ -1234,7 +1232,7 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
 
     // Test querying description with default tokenizer
     let rows: Vec<(i32, String)> =
-        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('description:battery')"
+        "SELECT id, name FROM products WHERE id @@@ pdb.parse('description:battery')"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().any(|(_, name)| name == "Wireless Mouse"));
@@ -1242,13 +1240,13 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
 
     // Ensure that the default tokenizer doesn't return for stemmed queries
     let rows: Vec<(i32, String)> =
-        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('description:displaying')"
+        "SELECT id, name FROM products WHERE id @@@ pdb.parse('description:displaying')"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 0);
 
     // Test querying description with stemmed alias
     let rows: Vec<(i32, String)> =
-        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('description_stem:displaying')"
+        "SELECT id, name FROM products WHERE id @@@ pdb.parse('description_stem:displaying')"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().any(|(_, name)| name == "4K Monitor"));
@@ -1256,7 +1254,7 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
 
     // Test querying with both default and stemmed fields
     let rows: Vec<(i32, String)> =
-        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name:Mouse OR description_stem:mouses')"
+        "SELECT id, name FROM products WHERE id @@@ pdb.parse('name:Mouse OR description_stem:mouses')"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().any(|(_, name)| name == "Wireless Mouse"));
@@ -1298,7 +1296,7 @@ fn alias_cannot_duplicate_indexed_field(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String,)> =
-        "SELECT id FROM products WHERE id @@@ paradedb.parse('id_aliased:id1')".fetch(&mut conn);
+        "SELECT id FROM products WHERE id @@@ pdb.parse('id_aliased:id1')".fetch(&mut conn);
 
     assert_eq!(rows, vec![("id1".to_string(),)]);
 }
@@ -1333,27 +1331,27 @@ fn multiple_tokenizers_same_field_in_query(mut conn: PgConnection) {
     .execute(&mut conn);
 
     //  Exact match using default tokenizer
-    let rows: Vec<(i32, String)> = r#"SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('product_name:"Wireless Earbuds"')"#
+    let rows: Vec<(i32, String)> = r#"SELECT id, product_name FROM product_reviews WHERE id @@@ pdb.parse('product_name:"Wireless Earbuds"')"#
         .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].1, "Wireless Earbuds");
 
     // Partial match using ngram tokenizer
     let rows: Vec<(i32, String)> =
-        "SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('product_name_ngram:phon')"
+        "SELECT id, product_name FROM product_reviews WHERE id @@@ pdb.parse('product_name_ngram:phon')"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].1, "SmartPhone X");
 
     // Stemmed search using English stemmer tokenizer
     let rows: Vec<(i32, String)> =
-        "SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('review_text_stem:gaming')"
+        "SELECT id, product_name FROM product_reviews WHERE id @@@ pdb.parse('review_text_stem:gaming')"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
     assert!(rows.iter().any(|(_, name)| name == "Gaming Mouse"));
 
     // Using default tokenizer and stem on same field
-    let rows: Vec<(i32, String)> = "SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('review_text:monitoring OR review_text_stem:mon')"
+    let rows: Vec<(i32, String)> = "SELECT id, product_name FROM product_reviews WHERE id @@@ pdb.parse('review_text:monitoring OR review_text_stem:mon')"
         .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].1, "Fitness Tracker");

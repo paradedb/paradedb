@@ -55,7 +55,7 @@ mod string_fast_field_exec {
     fn with_range(#[from(setup_test_table)] mut conn: PgConnection) {
         let res = r#"
             SELECT * FROM test
-            WHERE id @@@ paradedb.range(field => 'id', range => int8range(1, 5, '[]'))
+            WHERE id @@@ pdb.range(range => int8range(1, 5, '[]'))
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -87,7 +87,7 @@ mod string_fast_field_exec {
             SELECT * FROM test
             WHERE col_text IS NULL
             AND col_int8 IS NOT NULL
-            AND id @@@ paradedb.range(field => 'id', range => int8range(1, 5, '[]'))
+            AND id @@@ pdb.range(range => int8range(1, 5, '[]'))
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -182,7 +182,7 @@ mod string_fast_field_exec {
 
         let res = r#"
             SELECT * FROM another_test
-            WHERE id @@@ paradedb.range(field => 'id', range => int8range(1, 8, '[]'))
+            WHERE id @@@ pdb.range(range => int8range(1, 8, '[]'))
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -200,7 +200,7 @@ mod string_fast_field_exec {
 
         let count = r#"
             SELECT count(*) FROM another_test
-            WHERE id @@@ paradedb.range(field => 'id', range => int8range(1, 8, '[]'))
+            WHERE id @@@ pdb.range(range => int8range(1, 8, '[]'))
             AND col_text IS NOT NULL
         "#
         .fetch::<(i64,)>(&mut conn);

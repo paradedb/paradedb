@@ -34,7 +34,9 @@ fn datetime_microsecond(mut conn: PgConnection) {
     // Term queries
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14.079777Z'::timestamp".fetch(&mut conn);
-    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE id @@@ paradedb.term('t', '2025-01-28T18:19:14.079777Z'::timestamp)".fetch(&mut conn);
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM ts WHERE t @@@ pdb.term('2025-01-28T18:19:14.079777Z'::timestamp)"
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     let expected: Vec<(i32,)> =
@@ -48,7 +50,7 @@ fn datetime_microsecond(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t > '2025-01-28T18:19:14.079777Z'::timestamp ORDER BY id"
             .fetch(&mut conn);
-    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE id @@@ paradedb.range('t', tsrange('2025-01-28T18:19:14.079777Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
+    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE t @@@ pdb.range(tsrange('2025-01-28T18:19:14.079777Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
     assert_eq!(rows, expected);
 }
 
@@ -67,7 +69,7 @@ fn datetime_term_millisecond(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14.079Z'::timestamp".fetch(&mut conn);
     let rows: Vec<(i32,)> =
-        "SELECT id FROM ts WHERE id @@@ paradedb.term('t', '2025-01-28T18:19:14.079Z'::timestamp)"
+        "SELECT id FROM ts WHERE t @@@ pdb.term('2025-01-28T18:19:14.079Z'::timestamp)"
             .fetch(&mut conn);
     assert_eq!(rows, expected);
 
@@ -96,13 +98,13 @@ fn datetime_term_millisecond(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t > '2025-01-28T18:19:14.079Z'::timestamp ORDER BY id"
             .fetch(&mut conn);
-    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE id @@@ paradedb.range('t', tsrange('2025-01-28T18:19:14.079Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
+    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE t @@@ pdb.range(tsrange('2025-01-28T18:19:14.079Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
     assert_eq!(rows, expected);
 
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t > '2025-01-28T18:19:14.07Z'::timestamp ORDER BY id"
             .fetch(&mut conn);
-    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE id @@@ paradedb.range('t', tsrange('2025-01-28T18:19:14.07Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
+    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE t @@@ pdb.range(tsrange('2025-01-28T18:19:14.07Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
     assert_eq!(rows, expected);
 }
 
@@ -121,7 +123,9 @@ fn datetime_term_second(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14Z'::timestamp ORDER BY id"
             .fetch(&mut conn);
-    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE id @@@ paradedb.term('t', '2025-01-28T18:19:14Z'::timestamp) ORDER BY id".fetch(&mut conn);
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM ts WHERE t @@@ pdb.term('2025-01-28T18:19:14Z'::timestamp) ORDER BY id"
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     let expected: Vec<(i32,)> =
@@ -135,13 +139,13 @@ fn datetime_term_second(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t > '2025-01-28T18:19:14Z'::timestamp ORDER BY id"
             .fetch(&mut conn);
-    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE id @@@ paradedb.range('t', tsrange('2025-01-28T18:19:14Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
+    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE t @@@ pdb.range(tsrange('2025-01-28T18:19:14Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
     assert_eq!(rows, expected);
 
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t > '2025-01-28T18:19:14.001Z'::timestamp ORDER BY id"
             .fetch(&mut conn);
-    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE id @@@ paradedb.range('t', tsrange('2025-01-28T18:19:14.001Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
+    let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE t @@@ pdb.range(tsrange('2025-01-28T18:19:14.001Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
     assert_eq!(rows, expected);
 }
 
@@ -180,8 +184,7 @@ fn datetime_wide_range(
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        format!("SELECT id FROM wide_range WHERE id @@@ paradedb.term('v', {search_val})")
-            .fetch(&mut conn);
+        format!("SELECT id FROM wide_range WHERE v @@@ pdb.term({search_val})").fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
     let all_rows: Vec<(i32,)> = "SELECT id FROM wide_range ORDER BY id".fetch(&mut conn);

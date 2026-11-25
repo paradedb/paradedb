@@ -2537,7 +2537,7 @@ unsafe fn collect_expr_deps(expr: *mut pg_sys::Node) -> ExprDeps {
         } else {
             return WalkControl::Continue;
         }
-        // The scan supplies score and window results independently of their argument Vars.
+        // The scan computes scores and window results independently of their argument columns.
         WalkControl::SkipChildren
     });
     deps

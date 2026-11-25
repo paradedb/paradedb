@@ -668,7 +668,7 @@ impl PlaceholderRewriter {
                 return MutateControl::Continue;
             };
             let id = self.placeholder_id(wf);
-            // Postgres 18 needs a WindowAgg plan node to deparse the window function.
+            // Postgres 18 needs a `WindowAgg` plan node to deparse the window function.
             let description = deparse_planner_expr(self.root, node)
                 .unwrap_or_else(|| describe_window_func(&*wf, self.root));
             let placeholder =

@@ -696,8 +696,8 @@ WHERE c.id @@@ pdb.all()
   )
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c SEMI p
    Join Cond: c.parent_id = p.id
@@ -707,7 +707,7 @@ LIMIT 2;
      : ProjectionExec: expr=[id@0 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@2 as ctid_0], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
      :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], projection=[id@3, parent_id@1, ctid_0@0], fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=28.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1]
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=3]
@@ -796,8 +796,8 @@ WHERE c.id @@@ pdb.all()
   AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id DESC
 LIMIT 2;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -808,7 +808,7 @@ LIMIT 2;
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5, ctid_1@0], fetch=2, metrics=[output_rows=2, output_bytes=108.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=3]
@@ -897,8 +897,8 @@ WHERE c.id @@@ pdb.all()
   )
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c SEMI p
    Join Cond: c.parent_id = p.id
@@ -910,7 +910,7 @@ LIMIT 2;
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       RankJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], order=[pdb.vector_score(c)@2 DESC NULLS LAST, id@3 ASC NULLS LAST], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1]
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=2]
+     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=2]
      :         CooperativeExec
      :           PgSearchScan: table=c, segments=1, lazy_sort=8, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=6, output_bytes=168.0 B, output_batches=1, queries=1]
 (14 rows)
@@ -942,8 +942,8 @@ WHERE c.id @@@ pdb.all()
   AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -955,7 +955,7 @@ LIMIT 2;
      :     VisibilityFilterExec: tables=[c, p], pruned=[p], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       RankJoinExec: mode=CollectLeft, on=[(id@0, parent_id@1)], order=[pdb.vector_score(c)@2 DESC NULLS LAST, id@3 ASC NULLS LAST], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5, ctid_1@1], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=2]
+     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=2]
      :         CooperativeExec
      :           PgSearchScan: table=c, segments=1, lazy_sort=8, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=6, output_bytes=168.0 B, output_batches=1, queries=1]
 (14 rows)
@@ -1045,8 +1045,8 @@ WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
   AND c.id + p.id > 0
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -1055,11 +1055,11 @@ LIMIT 2;
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@2 as col_1, parent_id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=64.0 B, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_eval_expr_opexpr_73f5eb39(id@0, id@2) > 0, projection=[ctid_0@3, parent_id@4, id@5, pdb.vector_score(c)@6, ctid_1@0], fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=144.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_int_add(CAST(id@0 AS Int32), CAST(id@2 AS Int32)) > 0, projection=[ctid_0@3, parent_id@4, id@5, pdb.vector_score(c)@6, ctid_1@0], fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=144.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"beta","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1]
-     :     FilterExec: pdb_eval_expr_opexpr_73f5eb39(id@2, parent_id@1) > 0, metrics=[output_rows=6, output_bytes=224.1 KB, output_batches=1, selectivity=100% (6/6)]
+     :     FilterExec: pdb_int_add(CAST(id@2 AS Int32), CAST(parent_id@1 AS Int32)) > 0, metrics=[output_rows=6, output_bytes=224.1 KB, output_batches=1, selectivity=100% (6/6)]
      :       VisibilityFilterExec: tables=[c], metrics=[output_rows=6, output_bytes=232.0 B, output_batches=1, ctids_fetched=6, ctids_lazy=0]
      :         CooperativeExec
      :           PgSearchScan: table=c, segments=1, lazy_sort=24, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"20","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=6, output_bytes=232.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=6]
@@ -1087,8 +1087,8 @@ WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
   AND c.id + p.id > 0
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -1099,8 +1099,8 @@ LIMIT 2;
      : ProjectionExec: expr=[id@2 as col_1, parent_id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=64.0 B, output_batches=1]
      :   GlobalLimitExec: skip=0, fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c, p], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
-     :       RankJoinExec: mode=CollectLeft, on=[(parent_id@1, id@1)], order=[pdb.vector_score(c)@3 DESC NULLS LAST, id@2 ASC NULLS LAST], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_eval_expr_opexpr_73f5eb39(id@0, id@2) > 0, projection=[ctid_0@0, parent_id@1, id@2, pdb.vector_score(c)@3, ctid_1@5], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
-     :         FilterExec: pdb_eval_expr_opexpr_73f5eb39(id@2, parent_id@1) > 0, metrics=[output_rows=6, output_bytes=224.1 KB, output_batches=1, selectivity=100% (6/6)]
+     :       RankJoinExec: mode=CollectLeft, on=[(parent_id@1, id@1)], order=[pdb.vector_score(c)@3 DESC NULLS LAST, id@2 ASC NULLS LAST], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_int_add(CAST(id@0 AS Int32), CAST(id@2 AS Int32)) > 0, projection=[ctid_0@0, parent_id@1, id@2, pdb.vector_score(c)@3, ctid_1@5], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :         FilterExec: pdb_int_add(CAST(id@2 AS Int32), CAST(parent_id@1 AS Int32)) > 0, metrics=[output_rows=6, output_bytes=224.1 KB, output_batches=1, selectivity=100% (6/6)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, lazy_sort=10, tag_0={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"20","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=6, output_bytes=232.0 B, output_batches=1, queries=1]
      :         CooperativeExec
@@ -1136,8 +1136,8 @@ WHERE c.id @@@ pdb.all()
   AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -1148,7 +1148,7 @@ LIMIT 2;
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=84.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=3]
@@ -1170,8 +1170,8 @@ LIMIT 2;
 (2 rows)
 
 RESET paradedb.term_set_bitset_max_density_multi;
--- Edge Case 2: Build distinct-key count exceeding `lazy_sort_inlist_pushdown_max_distinct_values`
-SET paradedb.lazy_sort_inlist_pushdown_max_distinct_values = 1;
+-- Edge Case 2: Build distinct-key count exceeding `hash_join_inlist_max_distinct_values`
+SET paradedb.hash_join_inlist_max_distinct_values = 1;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT c.id, c.parent_id
 FROM vsp_children c
@@ -1182,8 +1182,8 @@ WHERE c.id @@@ pdb.all()
   AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -1194,10 +1194,10 @@ LIMIT 2;
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=84.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, queries=1, rows_pruned=3, rows_scanned=6]
+     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, dynamic_filter_pushdown_hash_linear=1, queries=1, rows_pruned=0, rows_scanned=3]
 (14 rows)
 
 SELECT c.id, c.parent_id
@@ -1215,7 +1215,7 @@ LIMIT 2;
  40 |         4
 (2 rows)
 
-RESET paradedb.lazy_sort_inlist_pushdown_max_distinct_values;
+RESET paradedb.hash_join_inlist_max_distinct_values;
 -- Edge Case 3: Sparse join where total matching rows < K (exhausts LazySort cleanly)
 SELECT c.id, c.parent_id
 FROM vsp_children c
@@ -1230,11 +1230,11 @@ LIMIT 10;
  30 |         3
 (1 row)
 
--- Edge Case 4: Anti-correlated parent filter with tiny initial window forcing multiple
--- LazySort window expansions (both HashJoinExec with InList disabled and RankJoinExec)
+-- Edge Case 4: Anti-correlated parent filter with tiny fetch multiplier (`HashJoinExec` with
+-- `InList` disabled via `HashTableLookupExpr` pushdown, and `RankJoinExec` with scaled `SA`)
 SET paradedb.limit_fetch_multiplier = 1;
 SET paradedb.topk_retry_scale_factor = 2;
-SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
+SET paradedb.hash_join_inlist_max_distinct_values = 0;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT c.id, c.parent_id
 FROM vsp_children c
@@ -1245,8 +1245,8 @@ WHERE c.id @@@ pdb.all()
   AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 1;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=1.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -1257,10 +1257,10 @@ LIMIT 1;
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=1, metrics=[output_rows=1, output_bytes=56.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
-     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=2, output_bytes=160.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=c, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=2, output_bytes=160.0 B, output_batches=1, queries=1, rows_pruned=2, rows_scanned=4]
+     :         PgSearchScan: table=c, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, dynamic_filter_pushdown_hash_linear=1, queries=1, rows_pruned=0, rows_scanned=2]
 (14 rows)
 
 SELECT c.id, c.parent_id
@@ -1288,8 +1288,8 @@ WHERE c.id @@@ pdb.all()
   AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 1;
-                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=1.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -1301,7 +1301,7 @@ LIMIT 1;
      :     VisibilityFilterExec: tables=[c, p], pruned=[p], metrics=[output_rows=1, output_bytes=28.0 B, output_batches=1, ctids_fetched=1, ctids_lazy=0]
      :       RankJoinExec: mode=CollectLeft, on=[(id@0, parent_id@1)], order=[pdb.vector_score(c)@2 DESC NULLS LAST, id@3 ASC NULLS LAST], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5, ctid_1@1], metrics=[output_rows=1, output_bytes=36.0 B, output_batches=1]
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=2]
+     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=2]
      :         CooperativeExec
      :           PgSearchScan: table=c, segments=1, lazy_sort=4, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, queries=1]
 (14 rows)
@@ -1322,7 +1322,7 @@ LIMIT 1;
 
 RESET paradedb.limit_fetch_multiplier;
 RESET paradedb.topk_retry_scale_factor;
-RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+RESET paradedb.hash_join_inlist_max_distinct_values;
 RESET paradedb.rank_join_min_rows;
 -- Edge Case 5: Residual non-equi join filter (`c.id > p.id * 10`) and MVCC dead-tuple filtering
 SELECT c.id, c.parent_id
@@ -1351,8 +1351,8 @@ WHERE c.id @@@ pdb.all()
   AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -1363,7 +1363,7 @@ LIMIT 2;
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=3]
@@ -1544,8 +1544,8 @@ WHERE c.id @@@ pdb.all()
   )
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c SEMI p
    Join Cond: c.parent_id = p.id
@@ -1555,7 +1555,7 @@ LIMIT 2;
      : ProjectionExec: expr=[id@0 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@2 as ctid_0], metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1]
      :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], projection=[id@3, parent_id@1, ctid_0@0], fetch=2, metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1, build_mem_used=28.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1]
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=4]
@@ -1589,8 +1589,8 @@ WHERE c.id @@@ pdb.all()
   AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -1601,7 +1601,7 @@ LIMIT 2;
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=112.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=4]
@@ -1624,13 +1624,13 @@ LIMIT 2;
 
 -- Edge Case 7: Selective parent filter (2 / 100 = 2% < rank_join_unscored_selectivity_threshold)
 -- over an IVF segment where build distinct-key count exceeds
--- `lazy_sort_inlist_pushdown_max_distinct_values` (`HashTableLookupExpr` fallback).
+-- `hash_join_inlist_max_distinct_values` (`HashTableLookupExpr` -> `TermPredicateQuery`).
 INSERT INTO vsp_parents
 SELECT i, 'gamma', '{"score": 0}'::jsonb
 FROM generate_series(5, 100) i;
 REINDEX INDEX vsp_parents_idx;
 ANALYZE vsp_parents;
-SET paradedb.lazy_sort_inlist_pushdown_max_distinct_values = 1;
+SET paradedb.hash_join_inlist_max_distinct_values = 1;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT c.id, c.parent_id
 FROM vsp_children c
@@ -1641,22 +1641,22 @@ WHERE c.id @@@ pdb.all()
   AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 5;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
    Limit: 5
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=5, output_bytes=552.0 B, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=5, metrics=[output_rows=5, output_bytes=644.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=23, avg_fanout=100% (23/23), probe_hit_rate=100% (23/23)]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=5, output_bytes=240.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=5, metrics=[output_rows=5, output_bytes=280.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=10, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
-     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=23, output_bytes=644.0 B, output_batches=1, ctids_fetched=23, ctids_lazy=0]
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"termset":{"category":["alpha"]}}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=10, output_bytes=280.0 B, output_batches=1, ctids_fetched=10, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=c, segments=1, lazy_sort=10, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=23, output_bytes=644.0 B, output_batches=1, queries=1, rows_pruned=253, rows_scanned=276]
+     :         PgSearchScan: table=c, segments=1, lazy_sort=10, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=10, output_bytes=280.0 B, output_batches=1, dynamic_filter_pushdown_hash_linear=1, queries=1, rows_pruned=0, rows_scanned=10]
 (14 rows)
 
 SELECT c.id, c.parent_id
@@ -1677,6 +1677,6 @@ LIMIT 5;
  403 |         4
 (5 rows)
 
-RESET paradedb.lazy_sort_inlist_pushdown_max_distinct_values;
+RESET paradedb.hash_join_inlist_max_distinct_values;
 DROP TABLE vsp_children, vsp_parents;
 DROP TABLE vsp;

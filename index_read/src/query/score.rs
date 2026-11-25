@@ -83,6 +83,8 @@ impl Scorer for ScoreFilterScorer {
     }
 }
 
+// TODO: Override `DocSet::cost()` to forward `self.scorer.cost()` rather than inheriting the
+// default `size_hint()` / `ProbeCost::TERM`.
 impl DocSet for ScoreFilterScorer {
     fn advance(&mut self) -> DocId {
         loop {

@@ -1,6 +1,7 @@
 {
   self,
   buildPgrxExtension,
+  callPackage,
   cargo-pgrx,
   fetchurl,
   lib,
@@ -18,12 +19,11 @@ let
   # Attribute set representing the Cargo.toml file in the root
   rootCargoToml = builtins.fromTOML (builtins.readFile ../Cargo.toml);
 
-  # Get the current Lindera version from the root Cargo.lock
-  linderaVersion =
-    (builtins.head (
-      builtins.filter (p: p.name == "lindera")
-        (builtins.fromTOML (builtins.readFile ../Cargo.lock)).package
-    )).version;
+  cargoPackages = (builtins.fromTOML (builtins.readFile ../Cargo.lock)).package;
+  linderaVersion = (builtins.head (builtins.filter (p: p.name == "lindera") cargoPackages)).version;
+
+  # Lindera 6.2 keys its dictionary cache by crate and dictionary format version.
+  linderaCacheKey = "${linderaVersion}-fmt2";
 
   linderaWebsite = "https://lindera.dev";
 
@@ -66,11 +66,7 @@ buildPgrxExtension (finalAttrs: {
   version = rootCargoToml.workspace.package.version;
   src = self;
 
-  # This hash needs to change any time the Rust dependencies are updated.
-  # If maintainers forget to do so, Nix will throw an error message that begins
-  # like this and then provides the correct new hash:
-  # error: hash mismatch in fixed-output derivation '...'
-  cargoHash = "sha256-g0lBJBy/jX9vLf9lT4pQ87oe0PVxtF71GcUlhB8DATU=";
+  cargoDeps = callPackage ./vendor-proptests.nix { } ../Cargo.lock;
 
   inherit postgresql;
   # The Nix builder also passes cargoPgrxFlags to `stop`, which does not accept
@@ -88,11 +84,11 @@ buildPgrxExtension (finalAttrs: {
   # from an external URL, which doesn't work in the Nix sandbox.
   preConfigure = ''
     export LINDERA_BUILD_DICTIONARY_CACHE_DIR=$TMPDIR/lindera-cache
-    mkdir -p $LINDERA_BUILD_DICTIONARY_CACHE_DIR/${linderaVersion}
+    mkdir -p $LINDERA_BUILD_DICTIONARY_CACHE_DIR/${linderaCacheKey}
 
     ${lib.concatMapStringsSep "\n" (dict: ''
       echo "Copying ${dict.language} dictionary to Lindera cache"
-      cp ${dict.source} $LINDERA_BUILD_DICTIONARY_CACHE_DIR/${linderaVersion}/${dict.filename}
+      cp ${dict.source} $LINDERA_BUILD_DICTIONARY_CACHE_DIR/${linderaCacheKey}/${dict.filename}
     '') (lib.attrValues dictionaries)}
 
     echo "Lindera cache prepared at $LINDERA_BUILD_DICTIONARY_CACHE_DIR"
@@ -107,6 +103,15 @@ buildPgrxExtension (finalAttrs: {
 
   LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
   CLANG_PATH = "${llvmPackages.clang}/bin/clang";
+
+  # Nix injects a deterministic compiler seed. It only affects code generation,
+  # so allow it in pgrx 0.20.1's C macro audit without removing it from Clang.
+  prePatch = ''
+    substituteInPlace "$cargoDepsCopy/pgrx-c-macros-${cargo-pgrx.version}/src/frontend.rs" \
+      --replace-fail '&& !is_packaging_codegen_option(argument)' \
+        '&& !is_packaging_codegen_option(argument)
+            && !argument.starts_with("-frandom-seed=")'
+  '';
 
   # Keep the compiler, libclang and archiver on the same LLVM release.
   nativeBuildInputs = [

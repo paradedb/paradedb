@@ -460,13 +460,12 @@ WHERE p.description ||| 'wireless'
 LIMIT 10;
 
 -- =============================================================================
--- TEST 12: Functions in cross-table predicates (native DF + UDF fallback)
+-- TEST 12: Functions and arithmetic in cross-table predicates
 -- =============================================================================
 -- Exercise PredicateTranslator's FuncExpr + arithmetic-OpExpr paths inside a
 -- multi-table predicate. Both sides' columns are fast fields, so JoinScan
--- should absorb these and the EXPLAIN should show `abs(...)` natively while
--- the arithmetic OpExpr (`-`) gets wrapped as `pdb_eval_expr_opexpr_*` via
--- `try_wrap_as_udf`.
+-- should absorb these and the EXPLAIN should show `abs(...)` natively around
+-- the checked integer subtraction `pdb_int_sub`.
 
 -- 12a: abs() wrapping a cross-table arithmetic OpExpr
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

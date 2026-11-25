@@ -178,6 +178,18 @@ impl Fixture {
         self.controller
             .batch_execute(&format!("DELETE FROM {} WHERE id % 2=0", self.table))
             .unwrap();
+        // VACUUM skips the index while a snapshot older than the DELETE exists, and the pauses
+        // are in `ambulkdelete`. Autovacuum holds such a snapshot while it analyzes a catalog.
+        wait_until("snapshots older than the DELETE ending", || {
+            self.controller
+                .query_one(
+                    "SELECT NOT EXISTS(SELECT FROM pg_stat_activity WHERE pid<>pg_backend_pid()
+                     AND (backend_xid IS NOT NULL OR backend_xmin IS NOT NULL))",
+                    &[],
+                )
+                .unwrap()
+                .get(0)
+        });
     }
 
     fn insert_segments(&mut self, rows: i32, batches: i32) {

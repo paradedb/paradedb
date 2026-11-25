@@ -7,7 +7,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 read -r pg_major pg_minor < <("$PG_CONFIG" --version | awk '{split($2, v, "."); print v[1], v[2] + 0}')
 # CVE-2026-6460 moved DatumGetHeapTupleHeader into a server C symbol starting in these
-# point releases; pgrx 0.20.0 links against it when built with those headers.
+# point releases; pgrx 0.20.1 links against it when built with those headers.
 case "$pg_major" in
   15) pg_min_minor=20 ;;
   16) pg_min_minor=16 ;;
@@ -63,23 +63,32 @@ extra_deps=""
 if [ "$PACKAGE_FORMAT" = rpm ]; then
   # pgrx's native RPM builder does not scan ELF dependencies as rpmbuild does.
   # Stage the shared library first so rpmdeps can extract its SONAME requirements.
-  cargo pgrx package -p pg_search --pg-config "$PG_CONFIG" --no-distrib-packages "${package_flags[@]}"
+  cargo pgrx package -p pg_search --pg-config "$PG_CONFIG" --no-distrib-packages ${package_flags[@]+"${package_flags[@]}"}
   /usr/lib/rpm/rpmdeps --requires "$staged/usr/pgsql-${pg_major}/lib/pg_search.so" >"$staged/rpm-requires.txt"
-  extra_deps=$(jq -Rs 'split("\n") | map(select(length > 0)) | unique | map(@json) | join(", ")' "$staged/rpm-requires.txt")
+  extra_deps=$(jq -Rrs 'split("\n") | map(select(length > 0)) | unique | map(@json) | join(", ")' "$staged/rpm-requires.txt")
 fi
 
 backup=$(mktemp)
 cp pg_search/Cargo.toml "$backup"
 trap 'cp "$backup" pg_search/Cargo.toml; rm -f "$backup"' EXIT
 
-awk \
-  -v keep_header="$keep_header" \
-  -v drop_header="$drop_header" \
-  -v pkg_ver="$pkg_version_override" \
-  -v pg_dep_match="$pg_dep_match" \
-  -v pg_dep_replacement="$pg_dep_replacement" \
-  -v extra_deps="$extra_deps" '
-  BEGIN { skip = 0; in_target = 0 }
+keep_header="$keep_header" \
+  drop_header="$drop_header" \
+  pkg_ver="$pkg_version_override" \
+  pg_dep_match="$pg_dep_match" \
+  pg_dep_replacement="$pg_dep_replacement" \
+  extra_deps="$extra_deps" \
+  awk '
+  BEGIN {
+    skip = 0
+    in_target = 0
+    keep_header = ENVIRON["keep_header"]
+    drop_header = ENVIRON["drop_header"]
+    pkg_ver = ENVIRON["pkg_ver"]
+    pg_dep_match = ENVIRON["pg_dep_match"]
+    pg_dep_replacement = ENVIRON["pg_dep_replacement"]
+    extra_deps = ENVIRON["extra_deps"]
+  }
   /^\[/ {
     skip = ($0 == drop_header)
     in_target = ($0 == keep_header)
@@ -107,7 +116,7 @@ awk \
 ' "$backup" >pg_search/Cargo.toml
 
 rm -f "$staged"/*."$PACKAGE_FORMAT"
-cargo pgrx package -p pg_search --pg-config "$PG_CONFIG" "${package_flags[@]}"
+cargo pgrx package -p pg_search --pg-config "$PG_CONFIG" ${package_flags[@]+"${package_flags[@]}"}
 shopt -s nullglob
 packages=("$staged"/*."$PACKAGE_FORMAT")
 if [ "${#packages[@]}" -ne 1 ]; then

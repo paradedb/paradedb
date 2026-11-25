@@ -1,0 +1,8 @@
+---
+header: stability
+---
+
+Fixed a tokenizer name collision: the `trim` filter option was excluded from the string used to
+register a tokenizer's Tantivy analyzer, so two fields sharing a base tokenizer but differing only
+in `trim` (e.g. `pdb.simple` default vs. `pdb.simple('trim=true')`) both resolved to the same
+registered name and silently shared one analyzer.

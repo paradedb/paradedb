@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use std::cell::{OnceCell, UnsafeCell};
+use std::cell::{OnceCell, RefCell, UnsafeCell};
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, Varno};
@@ -33,6 +34,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::WindowAggreg
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
+use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, PgTokioRuntimeShutdownHandle};
 use crate::postgres::customscan::projections::{PlaceholderColumn, PlaceholderProjection};
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -66,6 +68,10 @@ pub struct BaseScanState {
     pub telemetry: ScanTelemetry,
     /// Set when this scan is parallel-aware (DSM attached).
     pub parallel: Option<ParallelScanHandle>,
+    /// Shared slot populated with this scan's [`PgTokioRuntimeShutdownHandle`] while an async exec
+    /// method (`TopKScanExecState` or `ColumnarExecState`) holds a `PgTokioRuntime` under a `Gather`
+    /// DSM segment, so `on_basescan_dsm_detach` shuts down only this scan's runtime on abort.
+    dsm_runtime_shutdown: Option<Rc<RefCell<Option<PgTokioRuntimeShutdownHandle>>>>,
     /// Workers wait for the leader to publish this plan when they first need it.
     pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
     pub vector_routing_pending: bool,
@@ -79,8 +85,8 @@ pub struct BaseScanState {
     pub planning_rti: pg_sys::Index,
     pub execution_rti: pg_sys::Index,
 
-    base_search_query_input: SearchQueryInput,
-    search_query_input: SearchQueryInput,
+    base_search_query_input: Arc<SearchQueryInput>,
+    search_query_input: Arc<SearchQueryInput>,
     /// Where `search_query_input` is solved; `None` when the base query has nothing to solve.
     /// Separate from `ps_ExprContext`, which `exec_custom_scan` resets per row: see the rules in
     /// `solve_expr.rs`.
@@ -132,7 +138,7 @@ pub struct BaseScanState {
     pub placeholders: Option<BasePlaceholders>,
 
     // Store join-level search predicates for enhanced scoring/snippet generation
-    pub join_predicates: Option<SearchQueryInput>,
+    pub join_predicates: Option<Arc<SearchQueryInput>>,
 
     pub exec_method_type: ExecMethodType,
     pub ambulkdelete_epoch: u32,
@@ -176,6 +182,26 @@ impl CustomScanState for BaseScanState {
 }
 
 impl BaseScanState {
+    pub(super) fn alloc_dsm_runtime_shutdown_slot(
+        &mut self,
+    ) -> Rc<RefCell<Option<PgTokioRuntimeShutdownHandle>>> {
+        let slot = Rc::new(RefCell::new(None));
+        self.dsm_runtime_shutdown = Some(Rc::clone(&slot));
+        slot
+    }
+
+    pub(super) fn register_runtime_for_dsm_detach(&self, runtime: &PgTokioRuntime) {
+        if let Some(slot) = &self.dsm_runtime_shutdown {
+            *slot.borrow_mut() = Some(runtime.shutdown_handle());
+        }
+    }
+
+    pub(super) fn clear_runtime_for_dsm_detach(&self) {
+        if let Some(slot) = &self.dsm_runtime_shutdown {
+            *slot.borrow_mut() = None;
+        }
+    }
+
     pub fn open_relations(&mut self, lockmode: pg_sys::LOCKMODE) {
         self.lockmode = lockmode;
         if self.heaprel.is_none() {
@@ -195,20 +221,20 @@ impl BaseScanState {
         };
     }
 
-    pub fn set_base_search_query_input(&mut self, input: SearchQueryInput) {
+    pub fn set_base_search_query_input(&mut self, input: Arc<SearchQueryInput>) {
         self.base_search_query_input = input;
     }
 
-    pub fn search_query_input(&self) -> &SearchQueryInput {
-        if matches!(self.search_query_input, SearchQueryInput::Uninitialized) {
+    pub fn search_query_input(&self) -> Arc<SearchQueryInput> {
+        if matches!(*self.search_query_input, SearchQueryInput::Uninitialized) {
             panic!("search_query_input should be initialized");
         }
-        &self.search_query_input
+        self.search_query_input.clone()
     }
 
     /// Get the original base search query input before any modifications
-    pub fn base_search_query_input(&self) -> &SearchQueryInput {
-        &self.base_search_query_input
+    pub fn base_search_query_input(&self) -> Arc<SearchQueryInput> {
+        self.base_search_query_input.clone()
     }
 
     /// Drop the active search results (whose scorers hold bitmap cursors),
@@ -690,18 +716,18 @@ impl SolvePostgresExpressions for BaseScanState {
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        self.search_query_input.init_postgres_expressions(planstate);
+        Arc::make_mut(&mut self.search_query_input).init_postgres_expressions(planstate);
     }
 
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        self.search_query_input
-            .solve_postgres_expressions(expr_context);
+        Arc::make_mut(&mut self.search_query_input).solve_postgres_expressions(expr_context);
     }
 
     /// Install the late-bound source cell. Workers attach the published claim
-    /// table immediately; the leader's (or a serial scan's) cell is filled after
-    /// its reader opens (serial: privately in `init_search_reader`; parallel:
-    /// with the shared view at DSM initialization).
+    /// table immediately; the leader's (or a serial scan's) cell is filled once
+    /// its reader opens (parallel with attached DSM: with the shared view at
+    /// DSM initialization; serial or local fallback without attached DSM:
+    /// privately in `exec_custom_scan`).
     fn bitmap_source_cell(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<BitmapCell> {
         self.bitmap_exec.as_ref()?;
         let cell = self
@@ -724,7 +750,7 @@ impl SolvePostgresExpressions for BaseScanState {
     }
 
     fn attach_bitmap_cell(&mut self, cell: &BitmapCell) {
-        self.search_query_input.attach_bitmap_cell(cell);
+        Arc::make_mut(&mut self.search_query_input).attach_bitmap_cell(cell);
     }
 }
 

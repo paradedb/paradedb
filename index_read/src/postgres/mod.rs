@@ -655,8 +655,6 @@ pub struct ParallelScanState {
     vector_routing_cv: ConditionVariable,
 
     spilled: AtomicU32,
-    /// `InList` dynamic filter pushdown cap mode (`Standard` vs `LazySortProbe`) propagated to MPP workers.
-    pub inlist_pushdown_mode: crate::gucs::InListPushdownMode,
 
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
@@ -712,7 +710,6 @@ impl ParallelScanState {
         self.vector_routing_ready = false;
         self.vector_routing_cv.init();
         self.spilled.store(0, Ordering::Relaxed);
-        self.inlist_pushdown_mode = crate::gucs::InListPushdownMode::Standard;
         self.shared_threshold.init();
         self.populate(
             &args.all_sources,
@@ -1379,6 +1376,7 @@ mod tests {
     use crate::index::reader::index::test_support::{range_query, segmented_index_fixture};
     use crate::index::segment_pruning::STATS_OPENS;
     use pgrx::prelude::*;
+    use std::sync::Arc;
     use std::sync::atomic::Ordering::Relaxed;
 
     #[pg_test]
@@ -1416,7 +1414,7 @@ mod tests {
         let (index_rel, _heap) = segmented_index_fixture("lazy_claim_pruning", 4, false);
         let reader = SearchIndexReader::open(
             &index_rel,
-            range_query("id", 11, 20),
+            Arc::new(range_query("id", 11, 20)),
             false,
             MvccSatisfies::Snapshot,
         )

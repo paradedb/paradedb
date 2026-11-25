@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Cache indexed mutable segments in shared memory to avoid rebuilding unchanged segments across queries and parallel workers. Configure the cache with `paradedb.enable_mutable_segment_cache` and `paradedb.mutable_segment_cache_size` (64MB by default).

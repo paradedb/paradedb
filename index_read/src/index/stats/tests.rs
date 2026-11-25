@@ -1,5 +1,4 @@
 // Copyright (c) 2023-2026 ParadeDB, Inc.
-//
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
 // This program is free software: you can redistribute it and/or modify
@@ -17,6 +16,7 @@
 #[pgrx::pg_schema]
 mod tests {
     use std::ops::Bound;
+    use std::sync::Arc;
 
     use pgrx::prelude::*;
     use tantivy::index::SegmentId;
@@ -228,7 +228,7 @@ mod tests {
 
         let reader = SearchIndexReader::open(
             &indexrel,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             false,
             MvccSatisfies::Snapshot,
         )
@@ -283,7 +283,7 @@ mod tests {
 
         let reader = SearchIndexReader::open(
             &indexrel,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             false,
             MvccSatisfies::Snapshot,
         )
@@ -379,7 +379,7 @@ mod tests {
 
         let reader = SearchIndexReader::open(
             &indexrel,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             false,
             MvccSatisfies::Snapshot,
         )
@@ -452,7 +452,7 @@ mod tests {
         );
         let reader = SearchIndexReader::open(
             &indexrel,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             false,
             MvccSatisfies::Snapshot,
         )
@@ -561,7 +561,7 @@ mod tests {
 
         let reader = SearchIndexReader::open(
             &indexrel,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             false,
             MvccSatisfies::Snapshot,
         )
@@ -604,9 +604,9 @@ mod tests {
         Spi::run(
             r#"
             CREATE TABLE stats_text_norm (id BIGSERIAL PRIMARY KEY, name TEXT);
-            CREATE INDEX stats_text_norm_idx ON stats_text_norm USING paradedb (id, name)
-                WITH (target_segment_count = 8, background_layer_sizes = '0',
-                      text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true, "normalizer": "lowercase"}}');
+            CREATE INDEX stats_text_norm_idx ON stats_text_norm USING paradedb
+                (id, (name::pdb.literal_normalized('lowercase=false', 'normalizer=lowercase')))
+                WITH (target_segment_count = 8, background_layer_sizes = '0');
             SET paradedb.global_mutable_segment_rows = 0;
             INSERT INTO stats_text_norm (name) SELECT 'Zed' || i FROM generate_series(1, 10) i;
             INSERT INTO stats_text_norm (name) SELECT 'alice' || i FROM generate_series(1, 10) i;
@@ -617,7 +617,7 @@ mod tests {
         let indexrel = open_index("stats_text_norm_idx");
         let reader = SearchIndexReader::open(
             &indexrel,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             false,
             MvccSatisfies::Snapshot,
         )
@@ -826,7 +826,7 @@ mod tests {
         // cold one for the high range: none of the hot segments is pruned away from its rows.
         let reader = SearchIndexReader::open(
             &indexrel,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             false,
             MvccSatisfies::Snapshot,
         )

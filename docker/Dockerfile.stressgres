@@ -54,7 +54,7 @@ RUN cargo fetch --manifest-path /home/app/Cargo.toml && \
 FROM debian:trixie-slim AS runtime
 
 # Upgrade the runtime packages so a rebuild picks up all available Debian
-# security fixes. psql is used by the Antithesis setup/verification scripts;
+# security fixes. psql is used by the DST setup and verification scripts;
 # util-linux provides flock for the recovery-liveness script.
 # Graph generation is disabled in this image, avoiding Fontconfig and its
 # transitive font/XML dependencies. Normal source builds retain graph support.
@@ -71,8 +71,8 @@ RUN useradd --create-home --shell /bin/bash app
 
 WORKDIR /home/app
 
-# Preserve the paths used by the public Docker examples and Antithesis while copying only runtime
-# inputs. The unstripped binary under /symbols lets Antithesis symbolize instrumented crashes.
+# Preserve the paths used by the public Docker examples and DST runner while copying only runtime
+# inputs. The unstripped binary under /symbols lets the DST runner symbolize instrumented crashes.
 COPY --chown=app:app --from=builder /tmp/stressgres /symbols/stressgres
 # Copy the native client without postgresql-client-common and its unused Perl runtime. Because the
 # Debian package database is not copied with it, package-based scanners may not inventory psql.

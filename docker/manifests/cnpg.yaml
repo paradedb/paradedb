@@ -1,563 +1,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
   name: cnpg-system
-  labels:
-    name: cnpg-system
 ---
-# Source: cloudnative-pg/templates/rbac.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: cnpg-cloudnative-pg
-  namespace: cnpg-system
-  labels:
-    helm.sh/chart: cloudnative-pg-0.29.1
-    app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.30.1"
-    app.kubernetes.io/managed-by: Helm
----
-# Source: cloudnative-pg/templates/config.yaml
-#
-# Copyright © contributors to CloudNativePG, established as
-# CloudNativePG a Series of LF Projects, LLC.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# SPDX-License-Identifier: Apache-2.0
-#
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: cnpg-controller-manager-config
-  namespace: cnpg-system
-  labels:
-    helm.sh/chart: cloudnative-pg-0.29.1
-    app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.30.1"
-    app.kubernetes.io/managed-by: Helm
-data:
-  {}
----
-# Source: cloudnative-pg/templates/monitoring-configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: cnpg-default-monitoring
-  namespace: cnpg-system
-  labels:
-    helm.sh/chart: cloudnative-pg-0.29.1
-    app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.30.1"
-    app.kubernetes.io/managed-by: Helm
-    cnpg.io/reload: ""
-data:
-  queries:
-    |
-      backends:
-        query: |
-          SELECT sa.datname
-            , sa.usename
-            , sa.application_name
-            , states.state
-            , COALESCE(sa.count, 0) AS total
-            , COALESCE(sa.max_tx_secs, 0) AS max_tx_duration_seconds
-          FROM ( VALUES ('active')
-            , ('idle')
-            , ('idle in transaction')
-            , ('idle in transaction (aborted)')
-            , ('fastpath function call')
-            , ('disabled')
-            ) AS states(state)
-          LEFT JOIN (
-            SELECT datname
-              , state
-              , usename
-              , COALESCE(application_name, '') AS application_name
-              , pg_catalog.count(*)
-              , COALESCE(EXTRACT (EPOCH FROM (pg_catalog.max(pg_catalog.now() OPERATOR(pg_catalog.-) xact_start))), 0) AS max_tx_secs
-            FROM pg_catalog.pg_stat_activity
-            GROUP BY datname, state, usename, application_name
-          ) sa ON states.state OPERATOR(pg_catalog.=) sa.state
-          WHERE sa.usename IS NOT NULL
-        metrics:
-          - datname:
-              usage: "LABEL"
-              description: "Name of the database"
-          - usename:
-              usage: "LABEL"
-              description: "Name of the user"
-          - application_name:
-              usage: "LABEL"
-              description: "Name of the application"
-          - state:
-              usage: "LABEL"
-              description: "State of the backend"
-          - total:
-              usage: "GAUGE"
-              description: "Number of backends"
-          - max_tx_duration_seconds:
-              usage: "GAUGE"
-              description: "Maximum duration of a transaction in seconds"
-
-      backends_waiting:
-        query: |
-          SELECT pg_catalog.count(*) AS total
-          FROM pg_catalog.pg_locks blocked_locks
-          JOIN pg_catalog.pg_locks blocking_locks
-            ON blocking_locks.locktype OPERATOR(pg_catalog.=) blocked_locks.locktype
-            AND blocking_locks.database IS NOT DISTINCT FROM blocked_locks.database
-            AND blocking_locks.relation IS NOT DISTINCT FROM blocked_locks.relation
-            AND blocking_locks.page IS NOT DISTINCT FROM blocked_locks.page
-            AND blocking_locks.tuple IS NOT DISTINCT FROM blocked_locks.tuple
-            AND blocking_locks.virtualxid IS NOT DISTINCT FROM blocked_locks.virtualxid
-            AND blocking_locks.transactionid IS NOT DISTINCT FROM blocked_locks.transactionid
-            AND blocking_locks.classid IS NOT DISTINCT FROM blocked_locks.classid
-            AND blocking_locks.objid IS NOT DISTINCT FROM blocked_locks.objid
-            AND blocking_locks.objsubid IS NOT DISTINCT FROM blocked_locks.objsubid
-            AND blocking_locks.pid OPERATOR(pg_catalog.<>) blocked_locks.pid
-          JOIN pg_catalog.pg_stat_activity blocking_activity ON blocking_activity.pid OPERATOR(pg_catalog.=) blocking_locks.pid
-          WHERE NOT blocked_locks.granted
-        metrics:
-          - total:
-              usage: "GAUGE"
-              description: "Total number of backends that are currently waiting on other queries"
-
-      pg_database:
-        query: |
-          SELECT datname
-            , pg_catalog.pg_database_size(datname) AS size_bytes
-            , pg_catalog.age(datfrozenxid) AS xid_age
-            , pg_catalog.mxid_age(datminmxid) AS mxid_age
-          FROM pg_catalog.pg_database
-          WHERE datallowconn
-        metrics:
-          - datname:
-              usage: "LABEL"
-              description: "Name of the database"
-          - size_bytes:
-              usage: "GAUGE"
-              description: "Disk space used by the database"
-          - xid_age:
-              usage: "GAUGE"
-              description: "Number of transactions from the frozen XID to the current one"
-          - mxid_age:
-              usage: "GAUGE"
-              description: "Number of multiple transactions (Multixact) from the frozen XID to the current one"
-
-      pg_postmaster:
-        query: |
-          SELECT EXTRACT(EPOCH FROM pg_postmaster_start_time) AS start_time
-          FROM pg_catalog.pg_postmaster_start_time()
-        metrics:
-          - start_time:
-              usage: "GAUGE"
-              description: "Time at which postgres started (based on epoch)"
-
-      pg_replication:
-        query: |
-          SELECT CASE WHEN (
-              NOT pg_catalog.pg_is_in_recovery()
-              OR pg_catalog.pg_last_wal_receive_lsn() OPERATOR(pg_catalog.=) pg_catalog.pg_last_wal_replay_lsn())
-            THEN 0
-            ELSE GREATEST (0,
-              EXTRACT(EPOCH FROM (pg_catalog.now() OPERATOR(pg_catalog.-) pg_catalog.pg_last_xact_replay_timestamp())))
-            END AS lag,
-            pg_catalog.pg_is_in_recovery() AS in_recovery,
-            EXISTS (TABLE pg_catalog.pg_stat_wal_receiver) AS is_wal_receiver_up,
-            (SELECT pg_catalog.count(*) FROM pg_catalog.pg_stat_replication) AS streaming_replicas
-        metrics:
-          - lag:
-              usage: "GAUGE"
-              description: "Replication lag behind primary in seconds"
-          - in_recovery:
-              usage: "GAUGE"
-              description: "Whether the instance is in recovery"
-          - is_wal_receiver_up:
-              usage: "GAUGE"
-              description: "Whether the instance wal_receiver is up"
-          - streaming_replicas:
-              usage: "GAUGE"
-              description: "Number of streaming replicas connected to the instance"
-
-      pg_replication_slots:
-        query: |
-          SELECT slot_name,
-            slot_type,
-            database,
-            active,
-            (CASE pg_catalog.pg_is_in_recovery()
-              WHEN TRUE THEN pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_last_wal_receive_lsn(), restart_lsn)
-              ELSE pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), restart_lsn)
-            END) as pg_wal_lsn_diff
-          FROM pg_catalog.pg_replication_slots
-          WHERE NOT temporary
-        metrics:
-          - slot_name:
-              usage: "LABEL"
-              description: "Name of the replication slot"
-          - slot_type:
-              usage: "LABEL"
-              description: "Type of the replication slot"
-          - database:
-              usage: "LABEL"
-              description: "Name of the database"
-          - active:
-              usage: "GAUGE"
-              description: "Flag indicating whether the slot is active"
-          - pg_wal_lsn_diff:
-              usage: "GAUGE"
-              description: "Replication lag in bytes"
-
-      pg_stat_archiver:
-        query: |
-          SELECT archived_count
-            , failed_count
-            , COALESCE(EXTRACT(EPOCH FROM (pg_catalog.now() OPERATOR(pg_catalog.-) last_archived_time)), -1) AS seconds_since_last_archival
-            , COALESCE(EXTRACT(EPOCH FROM (pg_catalog.now() OPERATOR(pg_catalog.-) last_failed_time)), -1) AS seconds_since_last_failure
-            , COALESCE(EXTRACT(EPOCH FROM last_archived_time), -1) AS last_archived_time
-            , COALESCE(EXTRACT(EPOCH FROM last_failed_time), -1) AS last_failed_time
-            , COALESCE(CAST(CAST('x' OPERATOR(pg_catalog.||) pg_catalog.right(pg_catalog.split_part(last_archived_wal, '.', 1), 16) AS pg_catalog.bit(64)) AS pg_catalog.int8), -1) AS last_archived_wal_start_lsn
-            , COALESCE(CAST(CAST('x' OPERATOR(pg_catalog.||) pg_catalog.right(pg_catalog.split_part(last_failed_wal, '.', 1), 16) AS pg_catalog.bit(64)) AS pg_catalog.int8), -1) AS last_failed_wal_start_lsn
-            , EXTRACT(EPOCH FROM stats_reset) AS stats_reset_time
-          FROM pg_catalog.pg_stat_archiver
-        predicate_query: |
-          SELECT NOT pg_catalog.pg_is_in_recovery()
-            OR pg_catalog.current_setting('archive_mode') OPERATOR(pg_catalog.=) 'always'
-        metrics:
-          - archived_count:
-              usage: "COUNTER"
-              description: "Number of WAL files that have been successfully archived"
-          - failed_count:
-              usage: "COUNTER"
-              description: "Number of failed attempts for archiving WAL files"
-          - seconds_since_last_archival:
-              usage: "GAUGE"
-              description: "Seconds since the last successful archival operation"
-          - seconds_since_last_failure:
-              usage: "GAUGE"
-              description: "Seconds since the last failed archival operation"
-          - last_archived_time:
-              usage: "GAUGE"
-              description: "Epoch of the last time WAL archiving succeeded"
-          - last_failed_time:
-              usage: "GAUGE"
-              description: "Epoch of the last time WAL archiving failed"
-          - last_archived_wal_start_lsn:
-              usage: "GAUGE"
-              description: "Archived WAL start LSN"
-          - last_failed_wal_start_lsn:
-              usage: "GAUGE"
-              description: "Last failed WAL LSN"
-          - stats_reset_time:
-              usage: "GAUGE"
-              description: "Time at which these statistics were last reset"
-
-      pg_stat_bgwriter:
-        runonserver: "<17.0.0"
-        query: |
-          SELECT checkpoints_timed
-            , checkpoints_req
-            , checkpoint_write_time
-            , checkpoint_sync_time
-            , buffers_checkpoint
-            , buffers_clean
-            , maxwritten_clean
-            , buffers_backend
-            , buffers_backend_fsync
-            , buffers_alloc
-          FROM pg_catalog.pg_stat_bgwriter
-        metrics:
-          - checkpoints_timed:
-              usage: "COUNTER"
-              description: "Number of scheduled checkpoints that have been performed"
-          - checkpoints_req:
-              usage: "COUNTER"
-              description: "Number of requested checkpoints that have been performed"
-          - checkpoint_write_time:
-              usage: "COUNTER"
-              description: "Total amount of time that has been spent in the portion of checkpoint processing where files are written to disk, in milliseconds"
-          - checkpoint_sync_time:
-              usage: "COUNTER"
-              description: "Total amount of time that has been spent in the portion of checkpoint processing where files are synchronized to disk, in milliseconds"
-          - buffers_checkpoint:
-              usage: "COUNTER"
-              description: "Number of buffers written during checkpoints"
-          - buffers_clean:
-              usage: "COUNTER"
-              description: "Number of buffers written by the background writer"
-          - maxwritten_clean:
-              usage: "COUNTER"
-              description: "Number of times the background writer stopped a cleaning scan because it had written too many buffers"
-          - buffers_backend:
-              usage: "COUNTER"
-              description: "Number of buffers written directly by a backend"
-          - buffers_backend_fsync:
-              usage: "COUNTER"
-              description: "Number of times a backend had to execute its own fsync call (normally the background writer handles those even when the backend does its own write)"
-          - buffers_alloc:
-              usage: "COUNTER"
-              description: "Number of buffers allocated"
-
-      pg_stat_bgwriter_17:
-        runonserver: ">=17.0.0"
-        name: pg_stat_bgwriter
-        query: |
-          SELECT buffers_clean
-            , maxwritten_clean
-            , buffers_alloc
-            , EXTRACT(EPOCH FROM stats_reset) AS stats_reset_time
-          FROM pg_catalog.pg_stat_bgwriter
-        metrics:
-          - buffers_clean:
-              usage: "COUNTER"
-              description: "Number of buffers written by the background writer"
-          - maxwritten_clean:
-              usage: "COUNTER"
-              description: "Number of times the background writer stopped a cleaning scan because it had written too many buffers"
-          - buffers_alloc:
-              usage: "COUNTER"
-              description: "Number of buffers allocated"
-          - stats_reset_time:
-              usage: "GAUGE"
-              description: "Time at which these statistics were last reset"
-
-      pg_stat_checkpointer:
-        runonserver: ">=17.0.0"
-        query: |
-          SELECT num_timed AS checkpoints_timed
-            , num_requested AS checkpoints_req
-            , restartpoints_timed
-            , restartpoints_req
-            , restartpoints_done
-            , write_time
-            , sync_time
-            , buffers_written
-            , EXTRACT(EPOCH FROM stats_reset) AS stats_reset_time
-          FROM pg_catalog.pg_stat_checkpointer
-        metrics:
-          - checkpoints_timed:
-              usage: "COUNTER"
-              description: "Number of scheduled checkpoints that have been performed"
-          - checkpoints_req:
-              usage: "COUNTER"
-              description: "Number of requested checkpoints that have been performed"
-          - restartpoints_timed:
-              usage: "COUNTER"
-              description: "Number of scheduled restartpoints due to timeout or after a failed attempt to perform it"
-          - restartpoints_req:
-              usage: "COUNTER"
-              description: "Number of requested restartpoints that have been performed"
-          - restartpoints_done:
-              usage: "COUNTER"
-              description: "Number of restartpoints that have been performed"
-          - write_time:
-              usage: "COUNTER"
-              description: "Total amount of time that has been spent in the portion of processing checkpoints and restartpoints where files are written to disk, in milliseconds"
-          - sync_time:
-              usage: "COUNTER"
-              description: "Total amount of time that has been spent in the portion of processing checkpoints and restartpoints where files are synchronized to disk, in milliseconds"
-          - buffers_written:
-              usage: "COUNTER"
-              description: "Number of buffers written during checkpoints and restartpoints"
-          - stats_reset_time:
-              usage: "GAUGE"
-              description: "Time at which these statistics were last reset"
-
-      pg_stat_database:
-        query: |
-          SELECT datname
-            , xact_commit
-            , xact_rollback
-            , blks_read
-            , blks_hit
-            , tup_returned
-            , tup_fetched
-            , tup_inserted
-            , tup_updated
-            , tup_deleted
-            , conflicts
-            , temp_files
-            , temp_bytes
-            , deadlocks
-            , blk_read_time
-            , blk_write_time
-          FROM pg_catalog.pg_stat_database
-        metrics:
-          - datname:
-              usage: "LABEL"
-              description: "Name of this database"
-          - xact_commit:
-              usage: "COUNTER"
-              description: "Number of transactions in this database that have been committed"
-          - xact_rollback:
-              usage: "COUNTER"
-              description: "Number of transactions in this database that have been rolled back"
-          - blks_read:
-              usage: "COUNTER"
-              description: "Number of disk blocks read in this database"
-          - blks_hit:
-              usage: "COUNTER"
-              description: "Number of times disk blocks were found already in the buffer cache, so that a read was not necessary (this only includes hits in the PostgreSQL buffer cache, not the operating system's file system cache)"
-          - tup_returned:
-              usage: "COUNTER"
-              description: "Number of rows returned by queries in this database"
-          - tup_fetched:
-              usage: "COUNTER"
-              description: "Number of rows fetched by queries in this database"
-          - tup_inserted:
-              usage: "COUNTER"
-              description: "Number of rows inserted by queries in this database"
-          - tup_updated:
-              usage: "COUNTER"
-              description: "Number of rows updated by queries in this database"
-          - tup_deleted:
-              usage: "COUNTER"
-              description: "Number of rows deleted by queries in this database"
-          - conflicts:
-              usage: "COUNTER"
-              description: "Number of queries canceled due to conflicts with recovery in this database"
-          - temp_files:
-              usage: "COUNTER"
-              description: "Number of temporary files created by queries in this database"
-          - temp_bytes:
-              usage: "COUNTER"
-              description: "Total amount of data written to temporary files by queries in this database"
-          - deadlocks:
-              usage: "COUNTER"
-              description: "Number of deadlocks detected in this database"
-          - blk_read_time:
-              usage: "COUNTER"
-              description: "Time spent reading data file blocks by backends in this database, in milliseconds"
-          - blk_write_time:
-              usage: "COUNTER"
-              description: "Time spent writing data file blocks by backends in this database, in milliseconds"
-
-      pg_stat_replication:
-        primary: true
-        query: |
-          SELECT usename
-            , COALESCE(application_name, '') AS application_name
-            , COALESCE(client_addr::text, '') AS client_addr
-            , COALESCE(client_port::text, '') AS client_port
-            , EXTRACT(EPOCH FROM backend_start) AS backend_start
-            , COALESCE(pg_catalog.age(backend_xmin), 0) AS backend_xmin_age
-            , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), sent_lsn) AS sent_diff_bytes
-            , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), write_lsn) AS write_diff_bytes
-            , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), flush_lsn) AS flush_diff_bytes
-            , COALESCE(pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), replay_lsn),0) AS replay_diff_bytes
-            , COALESCE((EXTRACT(EPOCH FROM write_lag)),0)::float AS write_lag_seconds
-            , COALESCE((EXTRACT(EPOCH FROM flush_lag)),0)::float AS flush_lag_seconds
-            , COALESCE((EXTRACT(EPOCH FROM replay_lag)),0)::float AS replay_lag_seconds
-          FROM pg_catalog.pg_stat_replication
-        metrics:
-          - usename:
-              usage: "LABEL"
-              description: "Name of the replication user"
-          - application_name:
-              usage: "LABEL"
-              description: "Name of the application"
-          - client_addr:
-              usage: "LABEL"
-              description: "Client IP address"
-          - client_port:
-              usage: "LABEL"
-              description: "Client TCP port"
-          - backend_start:
-              usage: "COUNTER"
-              description: "Time when this process was started"
-          - backend_xmin_age:
-              usage: "COUNTER"
-              description: "The age of this standby's xmin horizon"
-          - sent_diff_bytes:
-              usage: "GAUGE"
-              description: "Difference in bytes from the last write-ahead log location sent on this connection"
-          - write_diff_bytes:
-              usage: "GAUGE"
-              description: "Difference in bytes from the last write-ahead log location written to disk by this standby server"
-          - flush_diff_bytes:
-              usage: "GAUGE"
-              description: "Difference in bytes from the last write-ahead log location flushed to disk by this standby server"
-          - replay_diff_bytes:
-              usage: "GAUGE"
-              description: "Difference in bytes from the last write-ahead log location replayed into the database on this standby server"
-          - write_lag_seconds:
-              usage: "GAUGE"
-              description: "Time elapsed between flushing recent WAL locally and receiving notification that this standby server has written it"
-          - flush_lag_seconds:
-              usage: "GAUGE"
-              description: "Time elapsed between flushing recent WAL locally and receiving notification that this standby server has written and flushed it"
-          - replay_lag_seconds:
-              usage: "GAUGE"
-              description: "Time elapsed between flushing recent WAL locally and receiving notification that this standby server has written, flushed and applied it"
-
-      pg_settings:
-        query: |
-          SELECT name,
-          CASE setting WHEN 'on' THEN '1' WHEN 'off' THEN '0' ELSE setting END AS setting
-          FROM pg_catalog.pg_settings
-          WHERE vartype IN ('integer', 'real', 'bool')
-          ORDER BY 1
-        metrics:
-          - name:
-              usage: "LABEL"
-              description: "Name of the setting"
-          - setting:
-              usage: "GAUGE"
-              description: "Setting value"
-
-      pg_extensions:
-        query: |
-          SELECT
-            pg_catalog.current_database() as datname,
-            name as extname,
-            default_version,
-            installed_version,
-            CASE
-              WHEN default_version OPERATOR(pg_catalog.=) installed_version THEN 0
-              ELSE 1
-          END AS update_available
-          FROM pg_catalog.pg_available_extensions
-          WHERE installed_version IS NOT NULL
-        metrics:
-          - datname:
-              usage: "LABEL"
-              description: "Name of the database"
-          - extname:
-              usage: "LABEL"
-              description: "Extension name"
-          - default_version:
-              usage: "LABEL"
-              description: "Default version"
-          - installed_version:
-              usage: "LABEL"
-              description: "Installed version"
-          - update_available:
-              usage: "GAUGE"
-              description: "An update is available"
-        target_databases:
-          - '*'
----
-# Source: cloudnative-pg/templates/crds/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.22.0
-    helm.sh/resource-policy: keep
   name: backups.postgresql.cnpg.io
 spec:
   group: postgresql.cnpg.io
@@ -967,6 +417,26 @@ spec:
                     - key
                     - name
                     type: object
+                  sseCustomerKey:
+                    description: |-
+                      Reference to the secret holding the key for Server-Side Encryption with
+                      Customer-provided keys (SSE-C): a base64-encoded 256-bit AES key.
+                      barman-cloud uses it to encrypt the objects it uploads and to read them
+                      back. Meant for S3-compatible providers that only support SSE-C
+                      (e.g. Hetzner Object Storage). Cannot be combined with `encryption`.
+                      Works with any authentication method. Changing the key makes the
+                      existing objects unreadable: use a new `destinationPath` or `serverName`.
+                    properties:
+                      key:
+                        description: The key to select
+                        type: string
+                      name:
+                        description: Name of the referent.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
                 type: object
               serverName:
                 description: |-
@@ -1025,13 +495,9 @@ spec:
     subresources:
       status: {}
 ---
-# Source: cloudnative-pg/templates/crds/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.22.0
-    helm.sh/resource-policy: keep
   name: clusterimagecatalogs.postgresql.cnpg.io
 spec:
   group: postgresql.cnpg.io
@@ -1247,13 +713,9 @@ spec:
     storage: true
     subresources: {}
 ---
-# Source: cloudnative-pg/templates/crds/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.22.0
-    helm.sh/resource-policy: keep
   name: clusters.postgresql.cnpg.io
 spec:
   group: postgresql.cnpg.io
@@ -1283,6 +745,11 @@ spec:
     - description: Primary pod
       jsonPath: .status.currentPrimary
       name: Primary
+      type: string
+    - description: Failure domain topology satisfaction status
+      jsonPath: .status.conditions[?(@.type=='SyncReplicationTopologySatisfied')].reason
+      name: SyncTopology
+      priority: 1
       type: string
     name: v1
     schema:
@@ -2402,12 +1869,13 @@ spec:
                             description: |-
                               Compress a backup file (a tar file per tablespace) while streaming it
                               to the object store. Available options are empty string (no
-                              compression, default), `gzip`, `bzip2`, `lz4`, and `snappy`.
+                              compression, default), `gzip`, `bzip2`, `lz4`, `snappy`, and `zstd`.
                             enum:
                             - bzip2
                             - gzip
                             - lz4
                             - snappy
+                            - zstd
                             type: string
                           encryption:
                             description: |-
@@ -2513,6 +1981,16 @@ spec:
                           HistoryTags is a list of key value pairs that will be passed to the
                           Barman --history-tags option.
                         type: object
+                      s3AddressingStyle:
+                        description: |-
+                          How bucket names appear in S3 requests: `virtual` (bucket.endpoint/key),
+                          `path` (endpoint/bucket/key) or `auto` (boto3 decides, same as unset).
+                          Requires s3Credentials and Barman 3.18 or later.
+                        enum:
+                        - auto
+                        - virtual
+                        - path
+                        type: string
                       s3Credentials:
                         description: The credentials to use to upload data to S3
                         properties:
@@ -2562,6 +2040,26 @@ spec:
                             type: object
                           sessionToken:
                             description: The references to the session key
+                            properties:
+                              key:
+                                description: The key to select
+                                type: string
+                              name:
+                                description: Name of the referent.
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                          sseCustomerKey:
+                            description: |-
+                              Reference to the secret holding the key for Server-Side Encryption with
+                              Customer-provided keys (SSE-C): a base64-encoded 256-bit AES key.
+                              barman-cloud uses it to encrypt the objects it uploads and to read them
+                              back. Meant for S3-compatible providers that only support SSE-C
+                              (e.g. Hetzner Object Storage). Cannot be combined with `encryption`.
+                              Works with any authentication method. Changing the key makes the
+                              existing objects unreadable: use a new `destinationPath` or `serverName`.
                             properties:
                               key:
                                 description: The key to select
@@ -2665,6 +2163,11 @@ spec:
                     required:
                     - destinationPath
                     type: object
+                    x-kubernetes-validations:
+                    - fieldPath: .s3AddressingStyle
+                      message: s3AddressingStyle requires s3Credentials
+                      reason: FieldValueForbidden
+                      rule: '!has(self.s3AddressingStyle) || has(self.s3Credentials)'
                   retentionPolicy:
                     description: |-
                       RetentionPolicy is the retention policy to be used for backups
@@ -2769,6 +2272,14 @@ spec:
                   initdb:
                     description: Bootstrap the cluster via initdb
                     properties:
+                      allowPublicConnectToPostgres:
+                        description: |-
+                          Allows the `PUBLIC` pseudo-role to keep the `CONNECT` privilege on the
+                          `postgres` database, as PostgreSQL grants it by default. When `false`
+                          (the default), the operator revokes it when the cluster is bootstrapped.
+                          It only applies when the cluster is bootstrapped with `initdb`: the
+                          privileges of existing databases are never changed.
+                        type: boolean
                       builtinLocale:
                         description: |-
                           Specifies the locale name when the builtin provider is used.
@@ -3148,6 +2659,19 @@ spec:
                       Bootstrap the cluster taking a physical backup of another compatible
                       PostgreSQL instance
                     properties:
+                      additionalArgs:
+                        description: |-
+                          List of custom options to pass to the `pg_basebackup` command.
+
+                          IMPORTANT: Use with caution. The operator rejects the options it relies on,
+                          as listed in the bootstrap documentation, but it does not validate the
+                          others, and some of them may still interfere with its intended
+                          functionality or design.
+                          You are responsible for ensuring that the provided options are compatible
+                          with your environment and PostgreSQL version.
+                        items:
+                          type: string
+                        type: array
                       database:
                         description: 'Name of the database used by the application.
                           Default: `app`.'
@@ -3174,6 +2698,35 @@ spec:
                           a physical backup
                         minLength: 1
                         type: string
+                      tablespaceMapping:
+                        description: |-
+                          Maps each tablespace declared in `spec.tablespaces` to its location
+                          in the source instance.
+                        items:
+                          description: |-
+                            TablespaceMappingEntry maps a tablespace managed by CloudNativePG to the
+                            location of the same tablespace in the source instance of a `pg_basebackup`
+                            bootstrap.
+                          properties:
+                            name:
+                              description: Name of the tablespace, as declared in
+                                `spec.tablespaces`.
+                              minLength: 1
+                              type: string
+                            sourceLocation:
+                              description: |-
+                                Absolute path of the tablespace in the source instance. It must not
+                                contain the `=` or `\` characters and must be unique among the entries.
+                              minLength: 1
+                              type: string
+                          required:
+                          - name
+                          - sourceLocation
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
                     required:
                     - source
                     type: object
@@ -4017,12 +3570,13 @@ spec:
                               description: |-
                                 Compress a backup file (a tar file per tablespace) while streaming it
                                 to the object store. Available options are empty string (no
-                                compression, default), `gzip`, `bzip2`, `lz4`, and `snappy`.
+                                compression, default), `gzip`, `bzip2`, `lz4`, `snappy`, and `zstd`.
                               enum:
                               - bzip2
                               - gzip
                               - lz4
                               - snappy
+                              - zstd
                               type: string
                             encryption:
                               description: |-
@@ -4128,6 +3682,16 @@ spec:
                             HistoryTags is a list of key value pairs that will be passed to the
                             Barman --history-tags option.
                           type: object
+                        s3AddressingStyle:
+                          description: |-
+                            How bucket names appear in S3 requests: `virtual` (bucket.endpoint/key),
+                            `path` (endpoint/bucket/key) or `auto` (boto3 decides, same as unset).
+                            Requires s3Credentials and Barman 3.18 or later.
+                          enum:
+                          - auto
+                          - virtual
+                          - path
+                          type: string
                         s3Credentials:
                           description: The credentials to use to upload data to S3
                           properties:
@@ -4177,6 +3741,26 @@ spec:
                               type: object
                             sessionToken:
                               description: The references to the session key
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            sseCustomerKey:
+                              description: |-
+                                Reference to the secret holding the key for Server-Side Encryption with
+                                Customer-provided keys (SSE-C): a base64-encoded 256-bit AES key.
+                                barman-cloud uses it to encrypt the objects it uploads and to read them
+                                back. Meant for S3-compatible providers that only support SSE-C
+                                (e.g. Hetzner Object Storage). Cannot be combined with `encryption`.
+                                Works with any authentication method. Changing the key makes the
+                                existing objects unreadable: use a new `destinationPath` or `serverName`.
                               properties:
                                 key:
                                   description: The key to select
@@ -4280,6 +3864,11 @@ spec:
                       required:
                       - destinationPath
                       type: object
+                      x-kubernetes-validations:
+                      - fieldPath: .s3AddressingStyle
+                        message: s3AddressingStyle requires s3Credentials
+                        reason: FieldValueForbidden
+                        rule: '!has(self.s3AddressingStyle) || has(self.s3Credentials)'
                     connectionParameters:
                       additionalProperties:
                         type: string
@@ -4496,6 +4085,16 @@ spec:
                   - name
                   type: object
                 type: array
+              immediateShutdownTimeout:
+                default: 30
+                description: |-
+                  The time in seconds that is allowed for a PostgreSQL instance to stop
+                  after an immediate shutdown request (used, for example, when a primary
+                  must step down and cannot wait for a graceful shutdown). Once this time
+                  has passed with PostgreSQL still running, the instance is considered
+                  unresponsive. Default value is 30 seconds.
+                format: int32
+                type: integer
               inheritedMetadata:
                 description: Metadata that will be inherited by all objects related
                   to the Cluster
@@ -4646,6 +4245,10 @@ spec:
                           description: |-
                             Date and time after which the role's password is no longer valid.
                             When omitted, the password will never expire (default).
+                            On a `DatabaseRole` whose password the operator generates with a
+                            `password.duration`, this is controlled by the operator instead: the role
+                            is valid until the generated password expires, and setting `validUntil`
+                            explicitly is rejected.
                           format: date-time
                           type: string
                       required:
@@ -5085,6 +4688,9 @@ spec:
                   The target value for the synchronous replication quorum, that can be
                   decreased if the number of ready standbys is lower than this.
                   Undefined or 0 disable synchronous replication.
+
+                  Deprecated: this field will be removed in CloudNativePG 1.33.0.
+                  Use `.spec.postgresql.synchronous` instead.
                 minimum: 0
                 type: integer
               minSyncReplicas:
@@ -5093,6 +4699,9 @@ spec:
                   Minimum number of instances required in synchronous replication with the
                   primary. Undefined or 0 allow writes to complete when no standby is
                   available.
+
+                  Deprecated: this field will be removed in CloudNativePG 1.33.0.
+                  Use `.spec.postgresql.synchronous` instead.
                 minimum: 0
                 type: integer
               monitoring:
@@ -5953,6 +5562,12 @@ spec:
                     description: |-
                       Requirements to be met by sync replicas. This will affect how the "synchronous_standby_names" parameter will be
                       set up.
+
+                      This field only applies to the legacy synchronous replication method.
+
+                      Deprecated: this field will be removed in CloudNativePG 1.33.0, along
+                      with the method. Use the failure domain options of
+                      `.spec.postgresql.synchronous` instead.
                     properties:
                       enabled:
                         description: This flag enables the constraints for sync replicas
@@ -6005,6 +5620,25 @@ spec:
                         - any
                         - first
                         type: string
+                      nodeFailureDomainKeys:
+                        description: |-
+                          NodeFailureDomainKeys is a list of Node label keys used to define
+                          failure domains. The values are read exclusively from the labels of the
+                          Node hosting each instance Pod: when a Node cannot be found (for
+                          example, drained or deleted after the Pod was scheduled), the whole
+                          topology extraction fails and the constraint is not applied. When set,
+                          the operator selects synchronous replicas from instances running on
+                          nodes whose label values differ from the primary's node for all the
+                          specified keys, so that synchronous replication spans failure domains
+                          such as availability zones or regions.
+                          When the replicas in failure domains different from the primary's are
+                          not enough to satisfy the configured number of synchronous standbys,
+                          the constraint is not applied and synchronous replicas are selected as
+                          if this field were not set.
+                          Mutually exclusive with `podFailureDomainKeys`.
+                        items:
+                          type: string
+                        type: array
                       number:
                         description: |-
                           Specifies the number of synchronous standby servers that
@@ -6014,6 +5648,28 @@ spec:
                         - message: The number of synchronous replicas should be greater
                             than zero
                           rule: self > 0
+                      podFailureDomainKeys:
+                        description: |-
+                          PodFailureDomainKeys is a list of Pod label keys used to define failure
+                          domains. The values are read exclusively from the labels of each
+                          instance Pod: a listed label that is not present on the Pod makes the
+                          whole topology extraction fail, so that the constraint is not applied,
+                          and the Node hosting the Pod is never consulted. When
+                          set, the operator selects synchronous replicas from instances whose
+                          label values differ from the primary's for all the specified keys, so
+                          that synchronous replication spans failure domains such as availability
+                          zones or regions. Starting from Kubernetes 1.35, the
+                          `topology.kubernetes.io/zone` and `topology.kubernetes.io/region`
+                          labels are automatically copied from the Node onto each Pod at
+                          scheduling time.
+                          When the replicas in failure domains different from the primary's are
+                          not enough to satisfy the configured number of synchronous standbys,
+                          the constraint is not applied and synchronous replicas are selected as
+                          if this field were not set.
+                          Mutually exclusive with `nodeFailureDomainKeys`.
+                        items:
+                          type: string
+                        type: array
                       standbyNamesPost:
                         description: |-
                           A user-defined list of application names to be added to
@@ -6040,7 +5696,19 @@ spec:
                       rule: self.dataDurability!='preferred' || ((!has(self.standbyNamesPre)
                         || self.standbyNamesPre.size()==0) && (!has(self.standbyNamesPost)
                         || self.standbyNamesPost.size()==0))
+                    - message: podFailureDomainKeys and nodeFailureDomainKeys are
+                        mutually exclusive
+                      rule: '!(has(self.podFailureDomainKeys) && self.podFailureDomainKeys.size()
+                        > 0 && has(self.nodeFailureDomainKeys) && self.nodeFailureDomainKeys.size()
+                        > 0)'
                 type: object
+                x-kubernetes-validations:
+                - message: syncReplicaElectionConstraint and synchronous failure domain
+                    keys are mutually exclusive
+                  rule: '!(has(self.syncReplicaElectionConstraint) && self.syncReplicaElectionConstraint.enabled
+                    && has(self.synchronous) && ((has(self.synchronous.podFailureDomainKeys)
+                    && self.synchronous.podFailureDomainKeys.size() > 0) || (has(self.synchronous.nodeFailureDomainKeys)
+                    && self.synchronous.nodeFailureDomainKeys.size() > 0)))'
               primaryLease:
                 description: |-
                   Configuration of the Kubernetes `Lease` used to coordinate safe primary
@@ -6140,13 +5808,13 @@ spec:
                         type: integer
                       isolationCheck:
                         description: |-
-                          Configure the feature that extends the liveness probe for a primary
-                          instance. In addition to the basic checks, this reports whether the
-                          primary is isolated from the Kubernetes API server and from its
-                          replicas, so the kubelet restarts it through the normal
-                          container-termination path (a smart shutdown, bounded by
-                          `.spec.smartShutdownTimeout`) when a network partition or API
-                          unavailability is detected. Enabled by default.
+                          Configure the primary isolation check, which stops a primary whose
+                          primary lease has gone past its renew deadline without a successful
+                          renewal, when at least one other instance is unreachable or names a
+                          different target primary, so that it stops accepting writes it can no
+                          longer safely serve. Its reaction time is set by the `primaryLease`
+                          timings and by `requestTimeout`, not by the liveness probe settings this
+                          stanza lives under. Enabled by default.
                         properties:
                           connectionTimeout:
                             default: 1000
@@ -6155,8 +5823,10 @@ spec:
                             type: integer
                           enabled:
                             default: true
-                            description: Whether primary isolation checking is enabled
-                              for the liveness probe
+                            description: |-
+                              Whether primary isolation checking is enabled. When disabled, an
+                              isolated primary is not stopped, but a primary that reaches a peer
+                              reporting a different target primary still is.
                             type: boolean
                           requestTimeout:
                             default: 1000
@@ -7006,6 +6676,15 @@ spec:
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
                 type: object
+              resourcesUpdateStrategy:
+                description: |-
+                  How changes to `resources` reach running instances: `recreate`
+                  (default) rolls the Pods, `inPlace` resizes them when possible and
+                  rolls them otherwise. `inPlace` requires Kubernetes 1.33 or later.
+                enum:
+                - recreate
+                - inPlace
+                type: string
               schedulerName:
                 description: |-
                   If specified, the pod will be dispatched by specified Kubernetes
@@ -7278,11 +6957,12 @@ spec:
                 - metadata
                 type: object
               smartShutdownTimeout:
-                default: 180
+                default: 0
                 description: |-
                   The time in seconds that controls the window of time reserved for the smart shutdown of Postgres to complete.
                   Make sure you reserve enough time for the operator to request a fast shutdown of Postgres
-                  (that is: `stopDelay` - `smartShutdownTimeout`). Default is 180 seconds.
+                  (that is: `stopDelay` - `smartShutdownTimeout`). Default is 0 seconds, which
+                  skips the smart shutdown and requests a fast shutdown right away.
                 format: int32
                 type: integer
               startDelay:
@@ -8367,6 +8047,68 @@ spec:
                   TimeLineID, Latest checkpoint's REDO location, Latest checkpoint's REDO
                   WAL file, and Time of latest checkpoint
                 type: string
+              divergedInstances:
+                additionalProperties:
+                  description: |-
+                    DivergedInstanceStatus describes a non-primary instance that replayed WAL
+                    past the point where the current primary's timeline forked away from its
+                    own. See ClusterStatus.DivergedInstances. The details are those of the
+                    first report and are not updated afterwards.
+                  properties:
+                    detectedAt:
+                      description: DetectedAt is when the divergence was first reported.
+                      type: string
+                    forkLSN:
+                      description: |-
+                        ForkLSN is where PrimaryTimeLineID forked away from TimeLineID. Empty
+                        when TimeLineID is not an ancestor of PrimaryTimeLineID at all.
+                      type: string
+                    parked:
+                      description: |-
+                        Parked is true once the operator has recorded the PGDATA PVC of the
+                        instance and keeps the instance fenced.
+                      type: boolean
+                    primaryTimeLineID:
+                      description: |-
+                        PrimaryTimeLineID is the newest timeline the instance had learned
+                        about from the primary, and could not switch to, when the divergence
+                        was first reported.
+                      minimum: 1
+                      type: integer
+                    pvcUID:
+                      description: |-
+                        PVCUID is the UID of the instance's PGDATA PersistentVolumeClaim when
+                        it was parked. A different UID means the data was rebuilt, for example
+                        by `kubectl cnpg destroy`. A Pod recreated over the same PVC stays
+                        contained.
+                      type: string
+                    replayLSN:
+                      description: |-
+                        ReplayLSN is how far the instance had replayed when the divergence
+                        was first reported. Together with ForkLSN it bounds the WAL
+                        (ForkLSN, ReplayLSN] the instance held that the primary did not.
+                      type: string
+                    timeLineID:
+                      description: |-
+                        TimeLineID is the timeline of the WAL the instance held when the
+                        divergence was first reported.
+                      minimum: 1
+                      type: integer
+                  required:
+                  - detectedAt
+                  - primaryTimeLineID
+                  - replayLSN
+                  - timeLineID
+                  type: object
+                description: |-
+                  DivergedInstances reports the non-primary instances that replayed WAL
+                  past the point where the current primary's timeline forked away from
+                  theirs, so they can never follow it again. Each instance detects this
+                  from its own pg_wal. The operator fences it and drops its replication
+                  slot on the primary. The entry is removed when the instance stops
+                  reporting a divergence or, once parked, when its PGDATA PVC is replaced
+                  or removed.
+                type: object
               firstRecoverabilityPoint:
                 description: |-
                   The first recoverability point, stored as a date in RFC3339 format.
@@ -9050,13 +8792,9 @@ spec:
         statusReplicasPath: .status.instances
       status: {}
 ---
-# Source: cloudnative-pg/templates/crds/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.22.0
-    helm.sh/resource-policy: keep
   name: databaseroles.postgresql.cnpg.io
 spec:
   group: postgresql.cnpg.io
@@ -9083,6 +8821,14 @@ spec:
     - description: Latest reconciliation message
       jsonPath: .status.message
       name: Message
+      type: string
+    - description: When the generated password expires
+      jsonPath: .status.password.expiration
+      name: Password Expiration
+      type: string
+    - description: When the generated client certificate expires
+      jsonPath: .status.clientCertificate.expiration
+      name: Certificate Expiration
       type: string
     name: v1
     schema:
@@ -9123,13 +8869,48 @@ spec:
                   is stored in a Secret named `<databaserole-name>-client-cert`.
                   Requires login to be true.
                 properties:
+                  duration:
+                    description: |-
+                      Duration is the lifetime of the generated client certificate, at least one
+                      minute. Expressed in Go duration units, so a day has to be written as
+                      hours: 90 days is `2160h`. Defaults to the operator's
+                      `CERTIFICATE_DURATION` setting (90 days).
+                    type: string
                   enabled:
                     default: true
                     description: |-
                       Enabled turns on client certificate issuance for this role. When true,
                       the role must have login enabled. Defaults to true when the block is present.
                     type: boolean
+                  renewBefore:
+                    description: |-
+                      RenewBefore is how long before expiry the certificate is renewed, in Go
+                      duration units, at most half of `duration` and only accepted together with
+                      it. Defaults to the operator's `EXPIRING_CHECK_THRESHOLD` setting (7 days),
+                      capped at half the lifetime. Renewal generates a new private key along with
+                      the new certificate.
+                    type: string
                 type: object
+                x-kubernetes-validations:
+                - message: 'duration must be expressed in Go duration units, where
+                    a day is not a unit: 90 days is 2160h'
+                  rule: '!has(self.duration) || self.duration.matches(''^([0-9]+([.][0-9]+)?(ns|us|ms|s|m|h))+$'')'
+                - message: 'renewBefore must be expressed in Go duration units, where
+                    a day is not a unit: 7 days is 168h'
+                  rule: '!has(self.renewBefore) || self.renewBefore.matches(''^([0-9]+([.][0-9]+)?(ns|us|ms|s|m|h))+$'')'
+                - message: renewBefore requires duration to be set
+                  rule: '!has(self.renewBefore) || has(self.duration)'
+                - message: renewBefore must be at most half of duration
+                  rule: '!has(self.renewBefore) || !has(self.duration) || !self.renewBefore.matches(''^([0-9]+([.][0-9]+)?(ns|us|ms|s|m|h))+$'')
+                    || !self.duration.matches(''^([0-9]+([.][0-9]+)?(ns|us|ms|s|m|h))+$'')
+                    || duration(self.renewBefore) + duration(self.renewBefore) <=
+                    duration(self.duration)'
+                - message: duration must be at least 1m
+                  rule: '!has(self.duration) || !self.duration.matches(''^([0-9]+([.][0-9]+)?(ns|us|ms|s|m|h))+$'')
+                    || duration(self.duration) >= duration(''1m'')'
+                - message: renewBefore must be at least 30s
+                  rule: '!has(self.renewBefore) || !self.renewBefore.matches(''^([0-9]+([.][0-9]+)?(ns|us|ms|s|m|h))+$'')
+                    || duration(self.renewBefore) >= duration(''30s'')'
               cluster:
                 description: The corresponding cluster
                 properties:
@@ -9213,6 +8994,142 @@ spec:
               name:
                 description: Name of the role
                 type: string
+              password:
+                description: |-
+                  Password configures how the operator manages the password of this role,
+                  instead of requiring a pre-existing Secret through `passwordSecret` or
+                  disabling it through `disablePassword`. Mutually exclusive with both.
+                properties:
+                  criteria:
+                    description: |-
+                      Criteria constrains the generated password. Only meaningful when `mode`
+                      is `generate`.
+                    properties:
+                      allowRepeat:
+                        description: |-
+                          AllowRepeat allows the same character to appear more than once in the
+                          generated password.
+                        type: boolean
+                      digits:
+                        description: |-
+                          Digits is the number of digits in the generated password. Defaults to 25%
+                          of its length, and never to more than 10: unless `allowRepeat` is set, the
+                          generator cannot use the same digit twice.
+                        minimum: 0
+                        type: integer
+                      length:
+                        default: 24
+                        description: Length of the generated password.
+                        maximum: 1024
+                        minimum: 8
+                        type: integer
+                      noUpper:
+                        description: NoUpper disables uppercase characters in the
+                          generated password.
+                        type: boolean
+                      symbolCharacters:
+                        description: |-
+                          SymbolCharacters is the set of symbols the generated password can draw
+                          from. Defaults to the symbols of the generator (``~!@#$%^&*()_+`-={}|[]\:"<>?,./``).
+                          Only ASCII punctuation is accepted: a letter or a digit here would collide
+                          with the rest of the password when `allowRepeat` is not set, and whitespace
+                          would be trimmed away before the password is applied to the role.
+                        minLength: 1
+                        pattern: ^[\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]+$
+                        type: string
+                      symbols:
+                        description: |-
+                          Symbols is the number of symbol characters in the generated password.
+                          Defaults to 0.
+                        minimum: 0
+                        type: integer
+                    type: object
+                    x-kubernetes-validations:
+                    - message: the number of digits and symbols must not exceed the
+                        password length
+                      rule: '(has(self.digits) ? self.digits : (self.length / 4 >
+                        10 ? 10 : self.length / 4)) + (has(self.symbols) ? self.symbols
+                        : 0) <= self.length'
+                    - message: 'without allowRepeat the password cannot contain more
+                        letters than are available: 52, or 26 with noUpper. Shorten
+                        the length, or ask for more digits and symbols'
+                      rule: '(has(self.allowRepeat) && self.allowRepeat) || self.length
+                        - (has(self.digits) ? self.digits : (self.length / 4 > 10
+                        ? 10 : self.length / 4)) - (has(self.symbols) ? self.symbols
+                        : 0) <= ((has(self.noUpper) && self.noUpper) ? 26 : 52)'
+                    - message: without allowRepeat the password cannot contain more
+                        than 10 digits
+                      rule: (has(self.allowRepeat) && self.allowRepeat) || !has(self.digits)
+                        || self.digits <= 10
+                    - message: without allowRepeat the password cannot contain more
+                        symbols than the length of symbolCharacters (30 symbols by
+                        default)
+                      rule: '(has(self.allowRepeat) && self.allowRepeat) || !has(self.symbols)
+                        || self.symbols <= (has(self.symbolCharacters) ? size(self.symbolCharacters)
+                        : 30)'
+                  duration:
+                    description: |-
+                      Duration is the lifetime of the generated password, at least one minute:
+                      once it is reached, minus `renewBefore`, the operator generates a new
+                      password and applies it to the role. When unset, the password is generated
+                      once and never rotated. Only allowed when `mode` is `generate`, since
+                      nothing else here rotates a password.
+                    type: string
+                  mode:
+                    description: |-
+                      Mode governs how the operator manages the password of this role, and is
+                      required whenever the `password` stanza is present: `generate` generates
+                      and rotates a password kept in a Secret the operator owns; `secret`
+                      reads the password from an existing Secret named by `secret`, without
+                      generating or owning one; `external` stops managing it, deleting any
+                      Secret previously generated and setting the password it held to NULL,
+                      while leaving a password it never generated untouched; `setNull` sets the
+                      password of the role to NULL in PostgreSQL, disabling password
+                      authentication for it. It has no default, since asking for a password
+                      without saying how it is managed is ambiguous, and cannot be removed
+                      once set: the mode always has to say what happens to the password.
+                    enum:
+                    - generate
+                    - secret
+                    - external
+                    - setNull
+                    type: string
+                  renewBefore:
+                    description: |-
+                      RenewBefore is how long before the end of its lifetime the password is
+                      rotated. Only meaningful together with `duration`, and it must be at most
+                      half of it, so that the password is not due for rotation as soon as it is
+                      generated. Defaults to the operator's `EXPIRING_CHECK_THRESHOLD` setting
+                      (7 days), capped at half of the lifetime. Only allowed when `mode` is
+                      `generate`, since nothing else here rotates a password.
+                    type: string
+                  secret:
+                    description: |-
+                      Secret is the name of the Secret holding the password of this role: the
+                      one the operator generates into and never overwrites if it does not own
+                      (when `mode` is `generate`, defaulting to `<databaserole-name>-password`),
+                      or an existing one to read the password from, required and never written
+                      to (when `mode` is `secret`). Only meaningful in those two modes.
+                    type: string
+                required:
+                - mode
+                type: object
+                x-kubernetes-validations:
+                - message: renewBefore requires duration, and must be at most half
+                    of it
+                  rule: '!has(self.renewBefore) || (has(self.duration) && duration(self.renewBefore).getSeconds()
+                    * 2 <= duration(self.duration).getSeconds())'
+                - message: duration must be at least 1m
+                  rule: '!has(self.duration) || duration(self.duration) >= duration(''1m'')'
+                - message: secret is required when mode is secret
+                  rule: self.mode != 'secret' || has(self.secret)
+                - message: secret is only meaningful when mode is generate or secret
+                  rule: self.mode == 'generate' || self.mode == 'secret' || !has(self.secret)
+                - message: criteria is only meaningful when mode is generate
+                  rule: self.mode == 'generate' || !has(self.criteria)
+                - message: duration and renewBefore are only meaningful when mode
+                    is generate
+                  rule: self.mode == 'generate' || (!has(self.duration) && !has(self.renewBefore))
               passwordSecret:
                 description: |-
                   Secret containing the password of the role (if present).
@@ -9247,6 +9164,10 @@ spec:
                 description: |-
                   Date and time after which the role's password is no longer valid.
                   When omitted, the password will never expire (default).
+                  On a `DatabaseRole` whose password the operator generates with a
+                  `password.duration`, this is controlled by the operator instead: the role
+                  is valid until the generated password expires, and setting `validUntil`
+                  explicitly is rejected.
                 format: date-time
                 type: string
             required:
@@ -9274,6 +9195,18 @@ spec:
             - message: clientCertificate requires the role to have login enabled
               rule: '!has(self.clientCertificate) || !self.clientCertificate.enabled
                 || self.login'
+            - message: password and passwordSecret are mutually exclusive
+              rule: '!has(self.password) || !has(self.passwordSecret)'
+            - message: password and disablePassword are mutually exclusive
+              rule: '!has(self.password) || !has(self.disablePassword) || !self.disablePassword'
+            - message: 'validUntil cannot be set when the operator generates a password
+                with a duration: the expiration of the generated password is what
+                the role is valid until'
+              rule: '!has(self.validUntil) || !has(self.password) || self.password.mode
+                != ''generate'' || !has(self.password.duration)'
+            - message: 'password cannot be removed once set: pick the mode that describes
+                how the password is managed now, such as external'
+              rule: '!has(oldSelf.password) || has(self.password)'
           status:
             description: |-
               Most recently observed status of the DatabaseRole. This data may not be up
@@ -9364,6 +9297,52 @@ spec:
                   desired state that was synchronized
                 format: int64
                 type: integer
+              password:
+                description: |-
+                  Password holds the observed state of the generated password, when password
+                  generation is enabled.
+                properties:
+                  appliedExpiration:
+                    description: |-
+                      AppliedExpiration is the expiration last applied to the role as its
+                      VALID UNTIL, in RFC3339 format. Written by the instance manager, not the
+                      operator, and used to tell whether the role still needs to be applied
+                      after `expiration` moved without the password Secret changing.
+                    type: string
+                  expiration:
+                    description: |-
+                      Expiration is the time at which the generated password is considered
+                      expired, in RFC3339 format: the operator rotates it `renewBefore` ahead of
+                      that. It is empty when rotation is not enabled.
+                    type: string
+                  issuedAt:
+                    description: |-
+                      IssuedAt is the time the current generated password was issued, in RFC3339
+                      format. The expiration and rotation deadline are derived from it and the
+                      role's current duration/renewBefore, recomputed on every reconciliation.
+                    type: string
+                  message:
+                    description: |-
+                      Message contains a human-readable explanation of the current password
+                      status, such as why generation was skipped or why an existing Secret was
+                      left untouched.
+                    type: string
+                  pendingRevocation:
+                    description: |-
+                      PendingRevocation is set by the operator when it deleted the Secret
+                      holding a password it had generated, and the role stopped managing the
+                      password instead of replacing it: the password is still set on the role
+                      in PostgreSQL and nothing can read it any more, so it has to be set to
+                      NULL. The instance manager clears it once it has done so.
+                    type: boolean
+                  secretName:
+                    description: |-
+                      SecretName is the name of the Secret the password was generated into. The
+                      operator records it to recognize the Secret as its own once the role stops
+                      generating a password, or starts generating it somewhere else, and delete
+                      what it left behind.
+                    type: string
+                type: object
               secretResourceVersion:
                 description: |-
                   SecretResourceVersion is the resource version of the password secret
@@ -9379,13 +9358,9 @@ spec:
     subresources:
       status: {}
 ---
-# Source: cloudnative-pg/templates/crds/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.22.0
-    helm.sh/resource-policy: keep
   name: databases.postgresql.cnpg.io
 spec:
   group: postgresql.cnpg.io
@@ -9610,18 +9585,20 @@ spec:
                       description: List of roles for which `USAGE` privileges on the
                         FDW are granted or revoked.
                       items:
-                        description: UsageSpec configures a usage for a foreign data
-                          wrapper
+                        description: UsageSpec grants or revokes a privilege for a
+                          role, or for `public`
                         properties:
                           name:
-                            description: Name of the usage
+                            description: Name of the role, or `public` to target all
+                              roles
                             type: string
                             x-kubernetes-validations:
                             - message: name is required
                               rule: self != ''
                           type:
                             default: grant
-                            description: The type of usage
+                            description: Whether the privilege is granted to or revoked
+                              from the role
                             enum:
                             - grant
                             - revoke
@@ -9719,6 +9696,123 @@ spec:
                   Maps to the `OWNER TO` command of `ALTER DATABASE`.
                   The role name of the user who owns the database inside PostgreSQL.
                 type: string
+              permissions:
+                description: |-
+                  Permissions defines the privileges to grant or revoke on the database
+                  itself, keyed by privilege. Each entry carries a role name and a type of
+                  `grant` (default) or `revoke`, mirroring the existing usage model.
+                properties:
+                  all:
+                    description: |-
+                      List of roles for which every database privilege (`CONNECT`, `CREATE`
+                      and `TEMPORARY`) is granted or revoked. This is only a shortcut: it is
+                      expanded into the three individual privileges before reconciliation, and
+                      the status reports the expanded entries.
+                    items:
+                      description: UsageSpec grants or revokes a privilege for a role,
+                        or for `public`
+                      properties:
+                        name:
+                          description: Name of the role, or `public` to target all
+                            roles
+                          type: string
+                          x-kubernetes-validations:
+                          - message: name is required
+                            rule: self != ''
+                        type:
+                          default: grant
+                          description: Whether the privilege is granted to or revoked
+                            from the role
+                          enum:
+                          - grant
+                          - revoke
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  connect:
+                    description: |-
+                      List of roles for which the `CONNECT` privilege on the database is granted or revoked.
+                      Maps to `GRANT CONNECT ON DATABASE ... TO ...` / `REVOKE CONNECT ON DATABASE ... FROM ...`.
+                    items:
+                      description: UsageSpec grants or revokes a privilege for a role,
+                        or for `public`
+                      properties:
+                        name:
+                          description: Name of the role, or `public` to target all
+                            roles
+                          type: string
+                          x-kubernetes-validations:
+                          - message: name is required
+                            rule: self != ''
+                        type:
+                          default: grant
+                          description: Whether the privilege is granted to or revoked
+                            from the role
+                          enum:
+                          - grant
+                          - revoke
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  create:
+                    description: |-
+                      List of roles for which the `CREATE` privilege on the database is granted or revoked.
+                      Maps to `GRANT CREATE ON DATABASE ... TO ...` / `REVOKE CREATE ON DATABASE ... FROM ...`.
+                    items:
+                      description: UsageSpec grants or revokes a privilege for a role,
+                        or for `public`
+                      properties:
+                        name:
+                          description: Name of the role, or `public` to target all
+                            roles
+                          type: string
+                          x-kubernetes-validations:
+                          - message: name is required
+                            rule: self != ''
+                        type:
+                          default: grant
+                          description: Whether the privilege is granted to or revoked
+                            from the role
+                          enum:
+                          - grant
+                          - revoke
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  temporary:
+                    description: |-
+                      List of roles for which the `TEMPORARY` privilege on the database is granted or revoked.
+                      Maps to `GRANT TEMPORARY ON DATABASE ... TO ...` / `REVOKE TEMPORARY ON DATABASE ... FROM ...`.
+                    items:
+                      description: UsageSpec grants or revokes a privilege for a role,
+                        or for `public`
+                      properties:
+                        name:
+                          description: Name of the role, or `public` to target all
+                            roles
+                          type: string
+                          x-kubernetes-validations:
+                          - message: name is required
+                            rule: self != ''
+                        type:
+                          default: grant
+                          description: Whether the privilege is granted to or revoked
+                            from the role
+                          enum:
+                          - grant
+                          - revoke
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                type: object
               schemas:
                 description: The list of schemas to be managed in the database
                 items:
@@ -9742,8 +9836,71 @@ spec:
                       description: |-
                         The role name of the user who owns the schema inside PostgreSQL.
                         It maps to the `AUTHORIZATION` parameter of `CREATE SCHEMA` and the
-                        `OWNER TO` command of `ALTER SCHEMA`.
+                        `OWNER TO` command of `ALTER SCHEMA`. If left empty, the schema is
+                        owned by `postgres`, the role CloudNativePG uses to connect to the
+                        database.
                       type: string
+                    permissions:
+                      description: |-
+                        Permissions defines the privileges to grant or revoke on the schema,
+                        keyed by privilege. Each entry carries a role name and a type of
+                        `grant` (default) or `revoke`, mirroring the existing usage model.
+                      properties:
+                        create:
+                          description: |-
+                            List of roles for which the `CREATE` privilege on the schema is granted or revoked.
+                            Maps to `GRANT CREATE ON SCHEMA ... TO ...` / `REVOKE CREATE ON SCHEMA ... FROM ...`.
+                          items:
+                            description: UsageSpec grants or revokes a privilege for
+                              a role, or for `public`
+                            properties:
+                              name:
+                                description: Name of the role, or `public` to target
+                                  all roles
+                                type: string
+                                x-kubernetes-validations:
+                                - message: name is required
+                                  rule: self != ''
+                              type:
+                                default: grant
+                                description: Whether the privilege is granted to or
+                                  revoked from the role
+                                enum:
+                                - grant
+                                - revoke
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          type: array
+                        usage:
+                          description: |-
+                            List of roles for which the `USAGE` privilege on the schema is granted or revoked.
+                            Maps to `GRANT USAGE ON SCHEMA ... TO ...` / `REVOKE USAGE ON SCHEMA ... FROM ...`.
+                          items:
+                            description: UsageSpec grants or revokes a privilege for
+                              a role, or for `public`
+                            properties:
+                              name:
+                                description: Name of the role, or `public` to target
+                                  all roles
+                                type: string
+                                x-kubernetes-validations:
+                                - message: name is required
+                                  rule: self != ''
+                              type:
+                                default: grant
+                                description: Whether the privilege is granted to or
+                                  revoked from the role
+                                enum:
+                                - grant
+                                - revoke
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          type: array
+                      type: object
                   required:
                   - name
                   type: object
@@ -9807,18 +9964,20 @@ spec:
                       description: List of roles for which `USAGE` privileges on the
                         server are granted or revoked.
                       items:
-                        description: UsageSpec configures a usage for a foreign data
-                          wrapper
+                        description: UsageSpec grants or revokes a privilege for a
+                          role, or for `public`
                         properties:
                           name:
-                            description: Name of the usage
+                            description: Name of the role, or `public` to target all
+                              roles
                             type: string
                             x-kubernetes-validations:
                             - message: name is required
                               rule: self != ''
                           type:
                             default: grant
-                            description: The type of usage
+                            description: Whether the privilege is granted to or revoked
+                              from the role
                             enum:
                             - grant
                             - revoke
@@ -9924,6 +10083,39 @@ spec:
                   desired state that was synchronized
                 format: int64
                 type: integer
+              permissions:
+                description: |-
+                  Permissions is the status of the managed database permissions, with
+                  one entry per privilege and role (`all` is reported expanded)
+                items:
+                  description: |-
+                    DatabasePermissionStatus is the status of a single privilege granted to
+                    or revoked from a role on the database
+                  properties:
+                    applied:
+                      description: |-
+                        True if the privilege granted by the database owner to the role
+                        matches the requested change
+                      type: boolean
+                    message:
+                      description: Message is the reconciliation message of this entry
+                      type: string
+                    name:
+                      description: The name of the role
+                      type: string
+                    privilege:
+                      description: 'The privilege: `CONNECT`, `CREATE` or `TEMPORARY`'
+                      type: string
+                    type:
+                      description: The requested change
+                      type: string
+                  required:
+                  - applied
+                  - name
+                  - privilege
+                  - type
+                  type: object
+                type: array
               schemas:
                 description: Schemas is the status of the managed schemas
                 items:
@@ -9978,13 +10170,9 @@ spec:
     subresources:
       status: {}
 ---
-# Source: cloudnative-pg/templates/crds/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.22.0
-    helm.sh/resource-policy: keep
   name: failoverquorums.postgresql.cnpg.io
 spec:
   group: postgresql.cnpg.io
@@ -10057,13 +10245,9 @@ spec:
     subresources:
       status: {}
 ---
-# Source: cloudnative-pg/templates/crds/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.22.0
-    helm.sh/resource-policy: keep
   name: imagecatalogs.postgresql.cnpg.io
 spec:
   group: postgresql.cnpg.io
@@ -10278,13 +10462,9 @@ spec:
     storage: true
     subresources: {}
 ---
-# Source: cloudnative-pg/templates/crds/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.22.0
-    helm.sh/resource-policy: keep
   name: poolers.postgresql.cnpg.io
 spec:
   group: postgresql.cnpg.io
@@ -15379,6 +15559,7 @@ spec:
                                 Domain names *.k8s.io and *.kubernetes.io are reserved.
                                 This field must be unique for each responder.
                                 This field is required.
+                              minLength: 1
                               type: string
                             priority:
                               description: |-
@@ -15395,12 +15576,15 @@ spec:
                                 The interval 0-999 is reserved for responders with *.k8s.io suffix.
                                 This field is required.
                               format: int32
+                              maximum: 100000
+                              minimum: 0
                               type: integer
                           required:
                           - name
                           - priority
                           type: object
                           x-kubernetes-map-type: atomic
+                        maxItems: 10
                         type: array
                         x-kubernetes-list-map-keys:
                         - name
@@ -20088,13 +20272,9 @@ spec:
         statusReplicasPath: .status.instances
       status: {}
 ---
-# Source: cloudnative-pg/templates/crds/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.22.0
-    helm.sh/resource-policy: keep
   name: publications.postgresql.cnpg.io
 spec:
   group: postgresql.cnpg.io
@@ -20288,13 +20468,9 @@ spec:
     subresources:
       status: {}
 ---
-# Source: cloudnative-pg/templates/crds/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.22.0
-    helm.sh/resource-policy: keep
   name: scheduledbackups.postgresql.cnpg.io
 spec:
   group: postgresql.cnpg.io
@@ -20487,13 +20663,9 @@ spec:
     subresources:
       status: {}
 ---
-# Source: cloudnative-pg/templates/crds/crds.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.22.0
-    helm.sh/resource-policy: keep
   name: subscriptions.postgresql.cnpg.io
 spec:
   group: postgresql.cnpg.io
@@ -20641,43 +20813,239 @@ spec:
     subresources:
       status: {}
 ---
-# Source: cloudnative-pg/templates/rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cnpg-manager
+  namespace: cnpg-system
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: cnpg-cloudnative-pg
-  labels:
-    helm.sh/chart: cloudnative-pg-0.29.1
-    app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.30.1"
-    app.kubernetes.io/managed-by: Helm
+  name: cnpg-backup-editor-role
 rules:
 - apiGroups:
-  - ""
+  - postgresql.cnpg.io
   resources:
-  - nodes
+  - backups
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
-  - admissionregistration.k8s.io
+  - postgresql.cnpg.io
   resources:
-  - mutatingwebhookconfigurations
-  - validatingwebhookconfigurations
+  - backups/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cnpg-cluster-editor-role
+rules:
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - clusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - clusters/status
   verbs:
   - get
   - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cnpg-clusterimagecatalog-editor-role
+rules:
 - apiGroups:
   - postgresql.cnpg.io
   resources:
   - clusterimagecatalogs
   verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - clusterimagecatalogs/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cloudnative-pg-kubebuilderv4
+  name: cnpg-database-editor-role
+rules:
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - databases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - databases/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cloudnative-pg-kubebuilderv4
+  name: cnpg-database-viewer-role
+rules:
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - databases
+  verbs:
   - get
   - list
   - watch
-
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - databases/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cnpg-databaserole-editor-role
+rules:
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - databaseroles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - databaseroles/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cloudnative-pg
+  name: cnpg-editor-role
+rules:
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - backups
+  - clusters
+  - databaseroles
+  - databases
+  - imagecatalogs
+  - poolers
+  - publications
+  - scheduledbackups
+  - subscriptions
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - clusters/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - backups/status
+  - databaseroles/status
+  - databases/status
+  - imagecatalogs/status
+  - poolers/status
+  - publications/status
+  - scheduledbackups/status
+  - subscriptions/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cnpg-imagecatalog-editor-role
+rules:
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - imagecatalogs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - imagecatalogs/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cnpg-manager
+rules:
 - apiGroups:
   - ""
   resources:
@@ -20711,6 +21079,14 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - persistentvolumeclaims
   - pods
   - pods/exec
@@ -20721,6 +21097,12 @@ rules:
   - list
   - patch
   - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/resize
+  verbs:
+  - patch
 - apiGroups:
   - ""
   resources:
@@ -20738,6 +21120,14 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  - validatingwebhookconfigurations
+  verbs:
+  - get
+  - patch
 - apiGroups:
   - apps
   resources:
@@ -20767,6 +21157,7 @@ rules:
   - leases
   verbs:
   - create
+  - delete
   - get
   - list
   - update
@@ -20824,16 +21215,6 @@ rules:
 - apiGroups:
   - postgresql.cnpg.io
   resources:
-  - failoverquorums
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - watch
-- apiGroups:
-  - postgresql.cnpg.io
-  resources:
   - backups/status
   - databases/status
   - publications/status
@@ -20846,6 +21227,7 @@ rules:
 - apiGroups:
   - postgresql.cnpg.io
   resources:
+  - clusterimagecatalogs
   - imagecatalogs
   verbs:
   - get
@@ -20864,12 +21246,22 @@ rules:
   resources:
   - clusters/status
   - databaseroles/status
-  - poolers/status
   - failoverquorums/status
+  - poolers/status
   verbs:
   - get
   - patch
   - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - failoverquorums
+  verbs:
+  - create
+  - delete
+  - get
+  - list
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -20894,141 +21286,713 @@ rules:
   - patch
   - watch
 ---
-# Source: cloudnative-pg/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: cnpg-cloudnative-pg-view
-  labels:
-    helm.sh/chart: cloudnative-pg-0.29.1
-    app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.30.1"
-    app.kubernetes.io/managed-by: Helm
+  name: cnpg-pooler-editor-role
 rules:
 - apiGroups:
   - postgresql.cnpg.io
   resources:
-  - backups
-  - clusters
-  - clusters/status
-  - databaseroles
-  - databases
-  - failoverquorums
   - poolers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - poolers/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cloudnative-pg-kubebuilderv4
+  name: cnpg-publication-editor-role
+rules:
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
   - publications
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - publications/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cloudnative-pg-kubebuilderv4
+  name: cnpg-publication-viewer-role
+rules:
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - publications
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - publications/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cnpg-scheduledbackup-editor-role
+rules:
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
   - scheduledbackups
-  - imagecatalogs
-  - clusterimagecatalogs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - scheduledbackups/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cloudnative-pg-kubebuilderv4
+  name: cnpg-subscription-editor-role
+rules:
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - subscriptions
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - subscriptions/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cloudnative-pg-kubebuilderv4
+  name: cnpg-subscription-viewer-role
+rules:
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
   - subscriptions
   verbs:
   - get
   - list
   - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - subscriptions/status
+  verbs:
+  - get
 ---
-# Source: cloudnative-pg/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: cnpg-cloudnative-pg-edit
   labels:
-    helm.sh/chart: cloudnative-pg-0.29.1
+    app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.30.1"
-    app.kubernetes.io/managed-by: Helm
+  name: cnpg-viewer-role
 rules:
 - apiGroups:
   - postgresql.cnpg.io
   resources:
-  - backups
-  - clusters
-  - clusters/status
-  - databaseroles
-  - databases
-  - failoverquorums
-  - poolers
-  - publications
-  - scheduledbackups
-  - imagecatalogs
-  - clusterimagecatalogs
-  - subscriptions
+  - '*'
   verbs:
-  - create
-  - delete
-  - deletecollection
-  - patch
-  - update
+  - get
+  - list
+  - watch
+- apiGroups:
+  - barmancloud.cnpg.io
+  - klio.cnpg.io
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - watch
 ---
-# Source: cloudnative-pg/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: cnpg-cloudnative-pg
-  labels:
-    helm.sh/chart: cloudnative-pg-0.29.1
-    app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.30.1"
-    app.kubernetes.io/managed-by: Helm
+  name: cnpg-manager-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: cnpg-cloudnative-pg
+  name: cnpg-manager
 subjects:
 - kind: ServiceAccount
-  name: cnpg-cloudnative-pg
+  name: cnpg-manager
   namespace: cnpg-system
 ---
-# Source: cloudnative-pg/templates/service.yaml
+apiVersion: v1
+data:
+  queries: |
+    backends:
+      query: |
+       SELECT sa.datname
+           , sa.usename
+           , sa.application_name
+           , states.state
+           , COALESCE(sa.count, 0) AS total
+           , COALESCE(sa.max_tx_secs, 0) AS max_tx_duration_seconds
+           FROM ( VALUES ('active')
+               , ('idle')
+               , ('idle in transaction')
+               , ('idle in transaction (aborted)')
+               , ('fastpath function call')
+               , ('disabled')
+               ) AS states(state)
+           LEFT JOIN (
+               SELECT datname
+                   , state
+                   , usename
+                   , COALESCE(application_name, '') AS application_name
+                   , pg_catalog.count(*)
+                   , COALESCE(EXTRACT (EPOCH FROM (pg_catalog.max(pg_catalog.now() OPERATOR(pg_catalog.-) xact_start))), 0) AS max_tx_secs
+               FROM pg_catalog.pg_stat_activity
+               GROUP BY datname, state, usename, application_name
+           ) sa ON states.state OPERATOR(pg_catalog.=) sa.state
+           WHERE sa.usename IS NOT NULL
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - usename:
+            usage: "LABEL"
+            description: "Name of the user"
+        - application_name:
+            usage: "LABEL"
+            description: "Name of the application"
+        - state:
+            usage: "LABEL"
+            description: "State of the backend"
+        - total:
+            usage: "GAUGE"
+            description: "Number of backends"
+        - max_tx_duration_seconds:
+            usage: "GAUGE"
+            description: "Maximum duration of a transaction in seconds"
+
+    backends_waiting:
+      query: |
+       SELECT pg_catalog.count(*) AS total
+       FROM pg_catalog.pg_locks blocked_locks
+       JOIN pg_catalog.pg_locks blocking_locks
+         ON blocking_locks.locktype OPERATOR(pg_catalog.=) blocked_locks.locktype
+         AND blocking_locks.database IS NOT DISTINCT FROM blocked_locks.database
+         AND blocking_locks.relation IS NOT DISTINCT FROM blocked_locks.relation
+         AND blocking_locks.page IS NOT DISTINCT FROM blocked_locks.page
+         AND blocking_locks.tuple IS NOT DISTINCT FROM blocked_locks.tuple
+         AND blocking_locks.virtualxid IS NOT DISTINCT FROM blocked_locks.virtualxid
+         AND blocking_locks.transactionid IS NOT DISTINCT FROM blocked_locks.transactionid
+         AND blocking_locks.classid IS NOT DISTINCT FROM blocked_locks.classid
+         AND blocking_locks.objid IS NOT DISTINCT FROM blocked_locks.objid
+         AND blocking_locks.objsubid IS NOT DISTINCT FROM blocked_locks.objsubid
+         AND blocking_locks.pid OPERATOR(pg_catalog.<>) blocked_locks.pid
+       JOIN pg_catalog.pg_stat_activity blocking_activity ON blocking_activity.pid OPERATOR(pg_catalog.=) blocking_locks.pid
+       WHERE NOT blocked_locks.granted
+      metrics:
+        - total:
+            usage: "GAUGE"
+            description: "Total number of backends that are currently waiting on other queries"
+
+    pg_database:
+      query: |
+        SELECT datname
+          , pg_catalog.pg_database_size(datname) AS size_bytes
+          , pg_catalog.age(datfrozenxid) AS xid_age
+          , pg_catalog.mxid_age(datminmxid) AS mxid_age
+        FROM pg_catalog.pg_database
+        WHERE datallowconn
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - size_bytes:
+            usage: "GAUGE"
+            description: "Disk space used by the database"
+        - xid_age:
+            usage: "GAUGE"
+            description: "Number of transactions from the frozen XID to the current one"
+        - mxid_age:
+            usage: "GAUGE"
+            description: "Number of multiple transactions (Multixact) from the frozen XID to the current one"
+
+    pg_postmaster:
+      query: |
+        SELECT EXTRACT(EPOCH FROM pg_postmaster_start_time) AS start_time
+        FROM pg_catalog.pg_postmaster_start_time()
+      metrics:
+        - start_time:
+            usage: "GAUGE"
+            description: "Time at which postgres started (based on epoch)"
+
+    pg_replication:
+      query: "SELECT CASE WHEN (
+                NOT pg_catalog.pg_is_in_recovery()
+                OR pg_catalog.pg_last_wal_receive_lsn() OPERATOR(pg_catalog.=) pg_catalog.pg_last_wal_replay_lsn())
+              THEN 0
+              ELSE GREATEST (0,
+                EXTRACT(EPOCH FROM (pg_catalog.now() OPERATOR(pg_catalog.-) pg_catalog.pg_last_xact_replay_timestamp())))
+              END AS lag,
+              pg_catalog.pg_is_in_recovery() AS in_recovery,
+              EXISTS (TABLE pg_catalog.pg_stat_wal_receiver) AS is_wal_receiver_up,
+              (SELECT pg_catalog.count(*) FROM pg_catalog.pg_stat_replication) AS streaming_replicas"
+      metrics:
+        - lag:
+            usage: "GAUGE"
+            description: "Replication lag behind primary in seconds"
+        - in_recovery:
+            usage: "GAUGE"
+            description: "Whether the instance is in recovery"
+        - is_wal_receiver_up:
+            usage: "GAUGE"
+            description: "Whether the instance wal_receiver is up"
+        - streaming_replicas:
+            usage: "GAUGE"
+            description: "Number of streaming replicas connected to the instance"
+
+    pg_replication_slots:
+      query: |
+        SELECT slot_name,
+          slot_type,
+          database,
+          active,
+          (CASE pg_catalog.pg_is_in_recovery()
+            WHEN TRUE THEN pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_last_wal_receive_lsn(), restart_lsn)
+            ELSE pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), restart_lsn)
+          END) as pg_wal_lsn_diff
+        FROM pg_catalog.pg_replication_slots
+        WHERE NOT temporary
+      metrics:
+        - slot_name:
+            usage: "LABEL"
+            description: "Name of the replication slot"
+        - slot_type:
+            usage: "LABEL"
+            description: "Type of the replication slot"
+        - database:
+            usage: "LABEL"
+            description: "Name of the database"
+        - active:
+            usage: "GAUGE"
+            description: "Flag indicating whether the slot is active"
+        - pg_wal_lsn_diff:
+            usage: "GAUGE"
+            description: "Replication lag in bytes"
+
+    pg_stat_archiver:
+      query: |
+        SELECT archived_count
+          , failed_count
+          , COALESCE(EXTRACT(EPOCH FROM (pg_catalog.now() OPERATOR(pg_catalog.-) last_archived_time)), -1) AS seconds_since_last_archival
+          , COALESCE(EXTRACT(EPOCH FROM (pg_catalog.now() OPERATOR(pg_catalog.-) last_failed_time)), -1) AS seconds_since_last_failure
+          , COALESCE(EXTRACT(EPOCH FROM last_archived_time), -1) AS last_archived_time
+          , COALESCE(EXTRACT(EPOCH FROM last_failed_time), -1) AS last_failed_time
+          , COALESCE(CAST(CAST('x' OPERATOR(pg_catalog.||) pg_catalog.right(pg_catalog.split_part(last_archived_wal, '.', 1), 16) AS pg_catalog.bit(64)) AS pg_catalog.int8), -1) AS last_archived_wal_start_lsn
+          , COALESCE(CAST(CAST('x' OPERATOR(pg_catalog.||) pg_catalog.right(pg_catalog.split_part(last_failed_wal, '.', 1), 16) AS pg_catalog.bit(64)) AS pg_catalog.int8), -1) AS last_failed_wal_start_lsn
+          , EXTRACT(EPOCH FROM stats_reset) AS stats_reset_time
+        FROM pg_catalog.pg_stat_archiver
+      predicate_query: |
+        SELECT NOT pg_catalog.pg_is_in_recovery()
+          OR pg_catalog.current_setting('archive_mode') OPERATOR(pg_catalog.=) 'always'
+      metrics:
+        - archived_count:
+            usage: "COUNTER"
+            description: "Number of WAL files that have been successfully archived"
+        - failed_count:
+            usage: "COUNTER"
+            description: "Number of failed attempts for archiving WAL files"
+        - seconds_since_last_archival:
+            usage: "GAUGE"
+            description: "Seconds since the last successful archival operation"
+        - seconds_since_last_failure:
+            usage: "GAUGE"
+            description: "Seconds since the last failed archival operation"
+        - last_archived_time:
+            usage: "GAUGE"
+            description: "Epoch of the last time WAL archiving succeeded"
+        - last_failed_time:
+            usage: "GAUGE"
+            description: "Epoch of the last time WAL archiving failed"
+        - last_archived_wal_start_lsn:
+            usage: "GAUGE"
+            description: "Archived WAL start LSN"
+        - last_failed_wal_start_lsn:
+            usage: "GAUGE"
+            description: "Last failed WAL LSN"
+        - stats_reset_time:
+            usage: "GAUGE"
+            description: "Time at which these statistics were last reset"
+
+    pg_stat_bgwriter:
+      runonserver: "<17.0.0"
+      query: |
+        SELECT checkpoints_timed
+          , checkpoints_req
+          , checkpoint_write_time
+          , checkpoint_sync_time
+          , buffers_checkpoint
+          , buffers_clean
+          , maxwritten_clean
+          , buffers_backend
+          , buffers_backend_fsync
+          , buffers_alloc
+        FROM pg_catalog.pg_stat_bgwriter
+      metrics:
+        - checkpoints_timed:
+            usage: "COUNTER"
+            description: "Number of scheduled checkpoints that have been performed"
+        - checkpoints_req:
+            usage: "COUNTER"
+            description: "Number of requested checkpoints that have been performed"
+        - checkpoint_write_time:
+            usage: "COUNTER"
+            description: "Total amount of time that has been spent in the portion of checkpoint processing where files are written to disk, in milliseconds"
+        - checkpoint_sync_time:
+            usage: "COUNTER"
+            description: "Total amount of time that has been spent in the portion of checkpoint processing where files are synchronized to disk, in milliseconds"
+        - buffers_checkpoint:
+            usage: "COUNTER"
+            description: "Number of buffers written during checkpoints"
+        - buffers_clean:
+            usage: "COUNTER"
+            description: "Number of buffers written by the background writer"
+        - maxwritten_clean:
+            usage: "COUNTER"
+            description: "Number of times the background writer stopped a cleaning scan because it had written too many buffers"
+        - buffers_backend:
+            usage: "COUNTER"
+            description: "Number of buffers written directly by a backend"
+        - buffers_backend_fsync:
+            usage: "COUNTER"
+            description: "Number of times a backend had to execute its own fsync call (normally the background writer handles those even when the backend does its own write)"
+        - buffers_alloc:
+            usage: "COUNTER"
+            description: "Number of buffers allocated"
+
+    pg_stat_bgwriter_17:
+      runonserver: ">=17.0.0"
+      name: pg_stat_bgwriter
+      query: |
+        SELECT buffers_clean
+          , maxwritten_clean
+          , buffers_alloc
+          , EXTRACT(EPOCH FROM stats_reset) AS stats_reset_time
+        FROM pg_catalog.pg_stat_bgwriter
+      metrics:
+        - buffers_clean:
+            usage: "COUNTER"
+            description: "Number of buffers written by the background writer"
+        - maxwritten_clean:
+            usage: "COUNTER"
+            description: "Number of times the background writer stopped a cleaning scan because it had written too many buffers"
+        - buffers_alloc:
+            usage: "COUNTER"
+            description: "Number of buffers allocated"
+        - stats_reset_time:
+            usage: "GAUGE"
+            description: "Time at which these statistics were last reset"
+
+    pg_stat_checkpointer:
+      runonserver: ">=17.0.0"
+      query: |
+        SELECT num_timed AS checkpoints_timed
+          , num_requested AS checkpoints_req
+          , restartpoints_timed
+          , restartpoints_req
+          , restartpoints_done
+          , write_time
+          , sync_time
+          , buffers_written
+          , EXTRACT(EPOCH FROM stats_reset) AS stats_reset_time
+        FROM pg_catalog.pg_stat_checkpointer
+      metrics:
+        - checkpoints_timed:
+            usage: "COUNTER"
+            description: "Number of scheduled checkpoints that have been performed"
+        - checkpoints_req:
+            usage: "COUNTER"
+            description: "Number of requested checkpoints that have been performed"
+        - restartpoints_timed:
+            usage: "COUNTER"
+            description: "Number of scheduled restartpoints due to timeout or after a failed attempt to perform it"
+        - restartpoints_req:
+            usage: "COUNTER"
+            description: "Number of requested restartpoints that have been performed"
+        - restartpoints_done:
+            usage: "COUNTER"
+            description: "Number of restartpoints that have been performed"
+        - write_time:
+            usage: "COUNTER"
+            description: "Total amount of time that has been spent in the portion of processing checkpoints and restartpoints where files are written to disk, in milliseconds"
+        - sync_time:
+            usage: "COUNTER"
+            description: "Total amount of time that has been spent in the portion of processing checkpoints and restartpoints where files are synchronized to disk, in milliseconds"
+        - buffers_written:
+            usage: "COUNTER"
+            description: "Number of buffers written during checkpoints and restartpoints"
+        - stats_reset_time:
+            usage: "GAUGE"
+            description: "Time at which these statistics were last reset"
+
+    pg_stat_database:
+      query: |
+        SELECT datname
+          , xact_commit
+          , xact_rollback
+          , blks_read
+          , blks_hit
+          , tup_returned
+          , tup_fetched
+          , tup_inserted
+          , tup_updated
+          , tup_deleted
+          , conflicts
+          , temp_files
+          , temp_bytes
+          , deadlocks
+          , blk_read_time
+          , blk_write_time
+        FROM pg_catalog.pg_stat_database
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of this database"
+        - xact_commit:
+            usage: "COUNTER"
+            description: "Number of transactions in this database that have been committed"
+        - xact_rollback:
+            usage: "COUNTER"
+            description: "Number of transactions in this database that have been rolled back"
+        - blks_read:
+            usage: "COUNTER"
+            description: "Number of disk blocks read in this database"
+        - blks_hit:
+            usage: "COUNTER"
+            description: "Number of times disk blocks were found already in the buffer cache, so that a read was not necessary (this only includes hits in the PostgreSQL buffer cache, not the operating system's file system cache)"
+        - tup_returned:
+            usage: "COUNTER"
+            description: "Number of rows returned by queries in this database"
+        - tup_fetched:
+            usage: "COUNTER"
+            description: "Number of rows fetched by queries in this database"
+        - tup_inserted:
+            usage: "COUNTER"
+            description: "Number of rows inserted by queries in this database"
+        - tup_updated:
+            usage: "COUNTER"
+            description: "Number of rows updated by queries in this database"
+        - tup_deleted:
+            usage: "COUNTER"
+            description: "Number of rows deleted by queries in this database"
+        - conflicts:
+            usage: "COUNTER"
+            description: "Number of queries canceled due to conflicts with recovery in this database"
+        - temp_files:
+            usage: "COUNTER"
+            description: "Number of temporary files created by queries in this database"
+        - temp_bytes:
+            usage: "COUNTER"
+            description: "Total amount of data written to temporary files by queries in this database"
+        - deadlocks:
+            usage: "COUNTER"
+            description: "Number of deadlocks detected in this database"
+        - blk_read_time:
+            usage: "COUNTER"
+            description: "Time spent reading data file blocks by backends in this database, in milliseconds"
+        - blk_write_time:
+            usage: "COUNTER"
+            description: "Time spent writing data file blocks by backends in this database, in milliseconds"
+
+    pg_stat_replication:
+      primary: true
+      query: |
+       SELECT usename
+         , COALESCE(application_name, '') AS application_name
+         , COALESCE(client_addr::text, '') AS client_addr
+         , COALESCE(client_port::text, '') AS client_port
+         , EXTRACT(EPOCH FROM backend_start) AS backend_start
+         , COALESCE(pg_catalog.age(backend_xmin), 0) AS backend_xmin_age
+         , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), sent_lsn) AS sent_diff_bytes
+         , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), write_lsn) AS write_diff_bytes
+         , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), flush_lsn) AS flush_diff_bytes
+         , COALESCE(pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), replay_lsn),0) AS replay_diff_bytes
+         , COALESCE((EXTRACT(EPOCH FROM write_lag)),0)::float AS write_lag_seconds
+         , COALESCE((EXTRACT(EPOCH FROM flush_lag)),0)::float AS flush_lag_seconds
+         , COALESCE((EXTRACT(EPOCH FROM replay_lag)),0)::float AS replay_lag_seconds
+       FROM pg_catalog.pg_stat_replication
+      metrics:
+        - usename:
+            usage: "LABEL"
+            description: "Name of the replication user"
+        - application_name:
+            usage: "LABEL"
+            description: "Name of the application"
+        - client_addr:
+            usage: "LABEL"
+            description: "Client IP address"
+        - client_port:
+            usage: "LABEL"
+            description: "Client TCP port"
+        - backend_start:
+            usage: "COUNTER"
+            description: "Time when this process was started"
+        - backend_xmin_age:
+            usage: "COUNTER"
+            description: "The age of this standby's xmin horizon"
+        - sent_diff_bytes:
+            usage: "GAUGE"
+            description: "Difference in bytes from the last write-ahead log location sent on this connection"
+        - write_diff_bytes:
+            usage: "GAUGE"
+            description: "Difference in bytes from the last write-ahead log location written to disk by this standby server"
+        - flush_diff_bytes:
+            usage: "GAUGE"
+            description: "Difference in bytes from the last write-ahead log location flushed to disk by this standby server"
+        - replay_diff_bytes:
+            usage: "GAUGE"
+            description: "Difference in bytes from the last write-ahead log location replayed into the database on this standby server"
+        - write_lag_seconds:
+            usage: "GAUGE"
+            description: "Time elapsed between flushing recent WAL locally and receiving notification that this standby server has written it"
+        - flush_lag_seconds:
+            usage: "GAUGE"
+            description: "Time elapsed between flushing recent WAL locally and receiving notification that this standby server has written and flushed it"
+        - replay_lag_seconds:
+            usage: "GAUGE"
+            description: "Time elapsed between flushing recent WAL locally and receiving notification that this standby server has written, flushed and applied it"
+
+    pg_settings:
+      query: |
+        SELECT name,
+        CASE setting WHEN 'on' THEN '1' WHEN 'off' THEN '0' ELSE setting END AS setting
+        FROM pg_catalog.pg_settings
+        WHERE vartype IN ('integer', 'real', 'bool')
+        ORDER BY 1
+      metrics:
+        - name:
+            usage: "LABEL"
+            description: "Name of the setting"
+        - setting:
+            usage: "GAUGE"
+            description: "Setting value"
+
+    pg_extensions:
+      query: |
+        SELECT
+         pg_catalog.current_database() as datname,
+         name as extname,
+         default_version,
+         installed_version,
+         CASE
+           WHEN default_version OPERATOR(pg_catalog.=) installed_version THEN 0
+           ELSE 1
+        END AS update_available
+        FROM pg_catalog.pg_available_extensions
+        WHERE installed_version IS NOT NULL
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - extname:
+            usage: "LABEL"
+            description: "Extension name"
+        - default_version:
+            usage: "LABEL"
+            description: "Default version"
+        - installed_version:
+            usage: "LABEL"
+            description: "Installed version"
+        - update_available:
+            usage: "GAUGE"
+            description: "An update is available"
+      target_databases:
+        - '*'
+kind: ConfigMap
+metadata:
+  labels:
+    cnpg.io/reload: ""
+  name: cnpg-default-monitoring
+  namespace: cnpg-system
+---
 apiVersion: v1
 kind: Service
 metadata:
   name: cnpg-webhook-service
   namespace: cnpg-system
-  labels:
-    helm.sh/chart: cloudnative-pg-0.29.1
-    app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.30.1"
-    app.kubernetes.io/managed-by: Helm
 spec:
-  type: ClusterIP
   ports:
   - port: 443
-    targetPort: webhook-server
-    name: webhook-server
+    targetPort: 9443
   selector:
     app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
 ---
-# Source: cloudnative-pg/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cnpg-cloudnative-pg
-  namespace: cnpg-system
   labels:
-    helm.sh/chart: cloudnative-pg-0.29.1
     app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.30.1"
-    app.kubernetes.io/managed-by: Helm
+  name: cnpg-controller-manager
+  namespace: cnpg-system
 spec:
   replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: cloudnative-pg
-      app.kubernetes.io/instance: cnpg
   template:
     metadata:
-      annotations:
-        checksum/rbac: da9fa6d9f72cb77491623998262b6a5e05def7ebd5ab8d29c72d0e32b61721e6
-        checksum/config: 8fadd17362038f4209ee6ab7acbefab66e31935f337ef6dcaaf630ef4931cc48
-        checksum/monitoring-config: cbf85fe402a3dab88cead08d8af602489baee82063c2694296f4fc8166dbd9bf
       labels:
         app.kubernetes.io/name: cloudnative-pg
-        app.kubernetes.io/instance: cnpg
     spec:
       containers:
       - args:
@@ -21036,26 +22000,26 @@ spec:
         - --leader-elect
         - --max-concurrent-reconciles=10
         - --config-map-name=cnpg-controller-manager-config
+        - --secret-name=cnpg-controller-manager-config
         - --webhook-port=9443
         command:
         - /manager
         env:
         - name: OPERATOR_IMAGE_NAME
-          value: "ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1"
+          value: ghcr.io/cloudnative-pg/cloudnative-pg:1.31.0-rc1
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
         - name: MONITORING_QUERIES_CONFIGMAP
-          value: "cnpg-default-monitoring"
-        image: "ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1"
+          value: cnpg-default-monitoring
+        image: ghcr.io/cloudnative-pg/cloudnative-pg:1.31.0-rc1
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
             path: /readyz
-            port: webhook-server
+            port: 9443
             scheme: HTTPS
-          initialDelaySeconds: 3
         name: manager
         ports:
         - containerPort: 8080
@@ -21067,11 +22031,9 @@ spec:
         readinessProbe:
           httpGet:
             path: /readyz
-            port: webhook-server
+            port: 9443
             scheme: HTTPS
-          initialDelaySeconds: 3
-        resources:
-          {}
+        resources: {}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -21086,7 +22048,7 @@ spec:
           failureThreshold: 6
           httpGet:
             path: /readyz
-            port: webhook-server
+            port: 9443
             scheme: HTTPS
           periodSeconds: 5
         volumeMounts:
@@ -21098,29 +22060,21 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
-      serviceAccountName: cnpg-cloudnative-pg
+      serviceAccountName: cnpg-manager
       terminationGracePeriodSeconds: 10
       volumes:
-      - name: scratch-data
-        emptyDir:
-          {}
+      - emptyDir: {}
+        name: scratch-data
       - name: webhook-certificates
         secret:
           defaultMode: 420
           optional: true
           secretName: cnpg-webhook-cert
 ---
-# Source: cloudnative-pg/templates/mutatingwebhookconfiguration.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   name: cnpg-mutating-webhook-configuration
-  labels:
-    helm.sh/chart: cloudnative-pg-0.29.1
-    app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.30.1"
-    app.kubernetes.io/managed-by: Helm
 webhooks:
 - admissionReviewVersions:
   - v1
@@ -21129,7 +22083,6 @@ webhooks:
       name: cnpg-webhook-service
       namespace: cnpg-system
       path: /mutate-postgresql-cnpg-io-v1-backup
-      port: 443
   failurePolicy: Fail
   name: mbackup.cnpg.io
   rules:
@@ -21150,7 +22103,6 @@ webhooks:
       name: cnpg-webhook-service
       namespace: cnpg-system
       path: /mutate-postgresql-cnpg-io-v1-cluster
-      port: 443
   failurePolicy: Fail
   name: mcluster.cnpg.io
   rules:
@@ -21171,7 +22123,6 @@ webhooks:
       name: cnpg-webhook-service
       namespace: cnpg-system
       path: /mutate-postgresql-cnpg-io-v1-database
-      port: 443
   failurePolicy: Fail
   name: mdatabase.cnpg.io
   rules:
@@ -21192,7 +22143,6 @@ webhooks:
       name: cnpg-webhook-service
       namespace: cnpg-system
       path: /mutate-postgresql-cnpg-io-v1-scheduledbackup
-      port: 443
   failurePolicy: Fail
   name: mscheduledbackup.cnpg.io
   rules:
@@ -21207,17 +22157,10 @@ webhooks:
     - scheduledbackups
   sideEffects: None
 ---
-# Source: cloudnative-pg/templates/validatingwebhookconfiguration.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   name: cnpg-validating-webhook-configuration
-  labels:
-    helm.sh/chart: cloudnative-pg-0.29.1
-    app.kubernetes.io/name: cloudnative-pg
-    app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.30.1"
-    app.kubernetes.io/managed-by: Helm
 webhooks:
 - admissionReviewVersions:
   - v1
@@ -21226,7 +22169,6 @@ webhooks:
       name: cnpg-webhook-service
       namespace: cnpg-system
       path: /validate-postgresql-cnpg-io-v1-backup
-      port: 443
   failurePolicy: Fail
   name: vbackup.cnpg.io
   rules:
@@ -21247,7 +22189,6 @@ webhooks:
       name: cnpg-webhook-service
       namespace: cnpg-system
       path: /validate-postgresql-cnpg-io-v1-cluster
-      port: 443
   failurePolicy: Fail
   name: vcluster.cnpg.io
   rules:
@@ -21267,29 +22208,7 @@ webhooks:
     service:
       name: cnpg-webhook-service
       namespace: cnpg-system
-      path: /validate-postgresql-cnpg-io-v1-scheduledbackup
-      port: 443
-  failurePolicy: Fail
-  name: vscheduledbackup.cnpg.io
-  rules:
-  - apiGroups:
-    - postgresql.cnpg.io
-    apiVersions:
-    - v1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - scheduledbackups
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: cnpg-webhook-service
-      namespace: cnpg-system
       path: /validate-postgresql-cnpg-io-v1-database
-      port: 443
   failurePolicy: Fail
   name: vdatabase.cnpg.io
   rules:
@@ -21304,163 +22223,42 @@ webhooks:
     - databases
   sideEffects: None
 - admissionReviewVersions:
-    - v1
+  - v1
   clientConfig:
     service:
       name: cnpg-webhook-service
       namespace: cnpg-system
       path: /validate-postgresql-cnpg-io-v1-pooler
-      port: 443
   failurePolicy: Fail
   name: vpooler.cnpg.io
   rules:
-    - apiGroups:
-        - postgresql.cnpg.io
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-        - UPDATE
-      resources:
-        - poolers
+  - apiGroups:
+    - postgresql.cnpg.io
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - poolers
   sideEffects: None
----
-# Source: cloudnative-pg/templates/deployment.yaml
-#
-# Copyright © contributors to CloudNativePG, established as
-# CloudNativePG a Series of LF Projects, LLC.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# SPDX-License-Identifier: Apache-2.0
-#
----
-# Source: cloudnative-pg/templates/monitoring-configmap.yaml
-#
-# Copyright © contributors to CloudNativePG, established as
-# CloudNativePG a Series of LF Projects, LLC.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# SPDX-License-Identifier: Apache-2.0
-#
----
-# Source: cloudnative-pg/templates/mutatingwebhookconfiguration.yaml
-#
-# Copyright © contributors to CloudNativePG, established as
-# CloudNativePG a Series of LF Projects, LLC.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# SPDX-License-Identifier: Apache-2.0
-#
----
-# Source: cloudnative-pg/templates/podmonitor.yaml
-#
-# Copyright © contributors to CloudNativePG, established as
-# CloudNativePG a Series of LF Projects, LLC.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# SPDX-License-Identifier: Apache-2.0
-#
----
-# Source: cloudnative-pg/templates/rbac.yaml
-#
-# Copyright © contributors to CloudNativePG, established as
-# CloudNativePG a Series of LF Projects, LLC.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# SPDX-License-Identifier: Apache-2.0
-#
----
-# Source: cloudnative-pg/templates/service.yaml
-#
-# Copyright © contributors to CloudNativePG, established as
-# CloudNativePG a Series of LF Projects, LLC.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# SPDX-License-Identifier: Apache-2.0
-#
----
-# Source: cloudnative-pg/templates/validatingwebhookconfiguration.yaml
-#
-# Copyright © contributors to CloudNativePG, established as
-# CloudNativePG a Series of LF Projects, LLC.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# SPDX-License-Identifier: Apache-2.0
-#
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: cnpg-webhook-service
+      namespace: cnpg-system
+      path: /validate-postgresql-cnpg-io-v1-scheduledbackup
+  failurePolicy: Fail
+  name: vscheduledbackup.cnpg.io
+  rules:
+  - apiGroups:
+    - postgresql.cnpg.io
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - scheduledbackups
+  sideEffects: None

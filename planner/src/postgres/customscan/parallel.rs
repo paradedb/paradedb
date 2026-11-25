@@ -29,6 +29,7 @@ pub use index_read::scan::info::RowEstimate;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 /// Why a scan selected its worker budget.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -144,7 +145,7 @@ pub fn parallel_scan_is_cheaper(
 pub fn aggregate_nworkers(
     index: &PgSearchRelation,
     reader: &SearchIndexReader,
-    query: &SearchQueryInput,
+    query: Arc<SearchQueryInput>,
     aggregation: &AggregateRequest,
     solve_mvcc: bool,
 ) -> (usize, Option<ParallelCost>) {

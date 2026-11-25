@@ -141,7 +141,7 @@ pub async fn build_join_aggregate_plan(
         custom_exprs,
         custom_scan_tlist,
         expr_context,
-        planstate,
+        planstate.is_none(),
         mpp_manifests,
     )
     .await?;
@@ -637,11 +637,8 @@ fn build_pdb_aggregate_plan(
 
     let mut level_plans = Vec::with_capacity(groups.len());
 
-    // Cloned union groups must not share a provider's runtime state: each group needs its own
-    // `ExprContext` (solving parameters resets per-tuple memory), and under MPP each scan claims
-    // segments from the pool its `source_idx` names (clones sharing the original's indexes would
-    // split every pool between them, so groups past the first get pools one source list apart,
-    // matching the launch's `i % sources` manifest replay).
+    // Under MPP, cloned union groups must not share segment pools: each group past the first gets
+    // pools one source list apart (matching the launch's `i % sources` manifest replay).
     let pool_stride = plan.sources().len();
     for (group_idx, (needed_keys, levels_in_group)) in groups.into_iter().enumerate() {
         let mut level_plan = if group_idx == 0 {
@@ -772,8 +769,8 @@ fn build_pdb_aggregate_plan(
     }
 }
 
-/// Give every `PgSearchTableProvider` in a cloned union group its own runtime `ExprContext`
-/// and, under MPP, move its segment claims to the pool `offset` past its own.
+/// Under MPP, move every `PgSearchTableProvider` in a cloned union group to the segment pool
+/// `offset` past its own.
 fn isolate_cloned_sources(plan: LogicalPlan, offset: usize) -> Result<LogicalPlan> {
     plan.transform(|node| {
         let LogicalPlan::TableScan(mut scan) = node else {
@@ -782,11 +779,11 @@ fn isolate_cloned_sources(plan: LogicalPlan, offset: usize) -> Result<LogicalPla
         let Some(provider) = pg_search_provider_from_scan(&scan) else {
             return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
         };
+        let Some(idx) = provider.source_idx() else {
+            return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
+        };
         let mut provider = provider.clone();
-        if let Some(idx) = provider.source_idx() {
-            provider.set_source_idx(idx + offset);
-        }
-        provider.ensure_own_expr_context();
+        provider.set_source_idx(idx + offset);
         scan.source = Arc::new(DefaultTableSource::new(Arc::new(provider)));
         Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
     })
@@ -1070,7 +1067,7 @@ fn build_relnode_df<'a>(
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     expr_context: Option<*mut pg_sys::ExprContext>,
-    planstate: Option<*mut pg_sys::PlanState>,
+    explain_only: bool,
     mpp_manifests: Option<&'a [SearchIndexManifest]>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
@@ -1083,7 +1080,7 @@ fn build_relnode_df<'a>(
                     top_level_plan,
                     plan_position,
                     expr_context,
-                    planstate,
+                    explain_only,
                     mpp_manifests,
                 )
                 .await?;
@@ -1099,7 +1096,7 @@ fn build_relnode_df<'a>(
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
-                    planstate,
+                    explain_only,
                     mpp_manifests,
                 )
                 .await?;
@@ -1110,7 +1107,7 @@ fn build_relnode_df<'a>(
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
-                    planstate,
+                    explain_only,
                     mpp_manifests,
                 )
                 .await?;
@@ -1127,7 +1124,7 @@ fn build_relnode_df<'a>(
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
-                    planstate,
+                    explain_only,
                     mpp_manifests,
                 )
                 .await?;
@@ -1180,7 +1177,7 @@ fn build_relnode_df<'a>(
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
-                    planstate,
+                    explain_only,
                     mpp_manifests,
                 )
                 .await?;
@@ -1357,7 +1354,7 @@ impl FilterExpr {
                 };
                 let tagged = local_queries
                     .iter()
-                    .find(|tq| (*tq.query) == predicate.query)?;
+                    .find(|tq| tq.query == predicate.query)?;
                 Some(col(&tagged.tag_name))
             }
             FilterExpr::LitInt(v) => Some(lit(*v)),
@@ -1427,7 +1424,7 @@ async fn build_source_df(
     plan: &RelNode,
     plan_position: usize,
     expr_context: Option<*mut pg_sys::ExprContext>,
-    planstate: Option<*mut pg_sys::PlanState>,
+    explain_only: bool,
     mpp_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<DataFrame> {
     let scan_info = source.scan_info.clone();
@@ -1461,17 +1458,10 @@ async fn build_source_df(
             provider.add_match_tag_column(&tq.tag_name);
         }
     }
-    // HeapFilter queries (e.g. `=` on a column indexed via a
-    // `pdb.literal` cast) compile to runtime Postgres expressions
-    // that can only be evaluated with a live ExprContext + PlanState.
-    // The provider's `scan()` reaches for them via
-    // `init_postgres_expressions` / `solve_postgres_expressions` only
-    // when needed, so threading them through here is what makes the
-    // agg-on-join path match JoinScan and Base Scan.
+    // Thread `expr_context` for per-row HeapFilter evaluation. Runtime Postgres expressions
+    // and parameters are pre-solved before `build_join_aggregate_plan` enters `block_on`.
     provider.set_expr_context(expr_context);
-    provider.set_planstate(planstate);
-    provider.ensure_own_expr_context();
-    provider.set_explain_only(planstate.is_none());
+    provider.set_explain_only(explain_only);
 
     // Strings leave the scan deferred, so the placement rule can put each half of their
     // lookup where it pays and the aggregate can group on term ordinals. Visibility stays in

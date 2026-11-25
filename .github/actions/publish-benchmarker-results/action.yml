@@ -99,7 +99,7 @@ runs:
           esac
           nm="$(basename "$j" .json)"
           jq --arg nm "$nm" '
-            [ .runs | to_entries[] | .value as $r
+            . as $data | [ .runs | to_entries[] | .value as $r
               | ([$r.queries[]?.latencies[]?] | sort) as $sorted
               | ($sorted | length) as $n
               | select($n > 0)
@@ -110,7 +110,7 @@ runs:
                 else . end
               | ([$r.queries[]? | . as $q | range(0; .latencies | length)
                   | $q.timestamps[.] - $q.latencies[.]] | min) as $start
-              | ((($timestamps | max) - $start) / 1000) as $seconds
+              | ($data.meta.measurement_seconds // ((($timestamps | max) - $start) / 1000)) as $seconds
               | if $seconds <= 0 then
                   error("Non-positive query duration for " + $label)
                 else . end
@@ -130,9 +130,9 @@ runs:
                   value: $sorted[((($n - 1) * 99 / 100) | floor)]
                 },
                 {
-                  name: ($label + " QPS"),
-                  unit: "queries/s",
-                  value: ($n / $seconds)
+                  name: ($label + (if $r.backend == "updates" then " updates/sec" else " QPS" end)),
+                  unit: (if $r.backend == "updates" then "updates/s" else "queries/s" end),
+                  value: ((if $r.backend == "updates" then [$r.queries[]?.hitCounts[]?] | add else $n end) / $seconds)
                 }
             ]
           ' "$j" > "_metrics/${nm}.json"
@@ -143,7 +143,7 @@ runs:
         printf '[]\n' > "${THROUGHPUT_METRICS_FILE}"
         if compgen -G "_metrics/*.json" > /dev/null; then
           jq -s 'add | map(select(.unit == "ms"))' _metrics/*.json > "${METRICS_FILE}"
-          jq -s 'add | map(select(.unit == "queries/s"))' _metrics/*.json > "${THROUGHPUT_METRICS_FILE}"
+          jq -s 'add | map(select(.unit == "queries/s" or .unit == "updates/s"))' _metrics/*.json > "${THROUGHPUT_METRICS_FILE}"
           echo "=== Extracted Metrics ==="
           cat "${METRICS_FILE}" "${THROUGHPUT_METRICS_FILE}"
         fi

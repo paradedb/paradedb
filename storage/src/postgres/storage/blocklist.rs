@@ -160,7 +160,7 @@ pub mod builder {
             }
         }
 
-        pub fn into_bytes(self) -> Vec<u8> {
+        pub fn to_bytes(&self) -> Vec<u8> {
             let tag = self.tag();
             match self {
                 ChunkStyle::Sorted1x {
@@ -193,13 +193,13 @@ pub mod builder {
                     initial,
                     bytes,
                 } => std::iter::once(tag as u8)
-                    .chain(std::iter::once(num_bits))
+                    .chain(std::iter::once(*num_bits))
                     .chain(initial.to_le_bytes())
-                    .chain(bytes)
+                    .chain(bytes.iter().copied())
                     .collect(),
                 ChunkStyle::Uncompressed(values) => std::iter::once(tag as u8)
                     .chain((values.len() as u8).to_le_bytes())
-                    .chain(values.into_iter().flat_map(|bn| bn.to_le_bytes()))
+                    .chain(values.iter().flat_map(|bn| bn.to_le_bytes()))
                     .collect(),
             }
         }
@@ -255,6 +255,20 @@ pub mod builder {
             self.queue.push(block_number);
         }
 
+        /// Every block number pushed so far, in push order, in a vector of exactly that length.
+        pub fn blocks(&self) -> Vec<pg_sys::BlockNumber> {
+            let encoded: Vec<Vec<u8>> = self.chunks.iter().map(ChunkStyle::to_bytes).collect();
+            let chunked: usize = encoded.iter().map(|bytes| chunk_size(bytes).0).sum();
+            let mut blocks = Vec::with_capacity(chunked + self.queue.len());
+            for bytes in &encoded {
+                let start = blocks.len();
+                blocks.resize(start + chunk_size(bytes).0, 0);
+                super::reader::decode_chunk(bytes, &mut blocks[start..]);
+            }
+            blocks.extend_from_slice(&self.queue);
+            blocks
+        }
+
         /// Finalizes bitpacked chunks and writes mapping pages, returning `(first_map_block, directory, overflow_block)`.
         pub fn finish(
             &mut self,
@@ -305,7 +319,7 @@ pub mod builder {
                 if page.can_fit(chunk.byte_len()) {
                     // this chunk fits on this page, so write it there
                     // TODO:  can probably write directly to the slice rather than going through a Vec<u8>
-                    let bytes = chunk.into_bytes();
+                    let bytes = chunk.to_bytes();
                     page.append_bytes(&bytes);
                     ordinal = ordinal
                         .checked_add(chunk_size(&bytes).0 as u32)
@@ -604,7 +618,7 @@ pub mod reader {
         }
     }
 
-    fn decode_chunk(slice: &[u8], blocks: &mut [pg_sys::BlockNumber]) -> usize {
+    pub(super) fn decode_chunk(slice: &[u8], blocks: &mut [pg_sys::BlockNumber]) -> usize {
         let (expected_count, expected_len) = chunk_size(slice);
         assert_eq!(blocks.len(), expected_count);
         let mut offset = 0;
@@ -705,7 +719,10 @@ pub mod reader {
         #[pg_test]
         fn test_blocklist_directory_lookup() {
             Spi::run("CREATE TABLE directory_lookup (id SERIAL, data TEXT)").unwrap();
-            Spi::run("CREATE INDEX directory_lookup_idx ON directory_lookup USING bm25 (id, data) WITH (key_field='id')").unwrap();
+            Spi::run(
+                "CREATE INDEX directory_lookup_idx ON directory_lookup USING paradedb (id, data)",
+            )
+            .unwrap();
             let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'directory_lookup_idx'::regclass::oid")
                 .unwrap()
                 .unwrap();
@@ -768,7 +785,7 @@ pub mod reader {
             use crate::postgres::storage::blocklist::directory::ROOT_CAPACITY;
             use crate::postgres::storage::blocklist::tree::Entry;
             Spi::run("CREATE TABLE directory_overflow (id SERIAL, data TEXT)").unwrap();
-            Spi::run("CREATE INDEX directory_overflow_idx ON directory_overflow USING bm25 (id, data) WITH (key_field='id')").unwrap();
+            Spi::run("CREATE INDEX directory_overflow_idx ON directory_overflow USING paradedb (id, data)").unwrap();
             let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'directory_overflow_idx'::regclass::oid")
                 .unwrap()
                 .unwrap();

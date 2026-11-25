@@ -26,7 +26,7 @@ pub use index_write::postgres::{build, build_logging, delete, insert, mutable_sw
 pub use planner::postgres::{
     ParallelScanState, ScanStrategy, access, catalog, composite, cost, datetime, heap, index, node,
     options, parallel, pdb_owned_value, pgstat, planner_warnings, rel, rel_get_bm25_index,
-    search_operator_relations, storage, types, utils, validate, var,
+    resowner, search_operator_relations, storage, types, utils, validate, var,
 };
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -55,6 +55,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
 
     amroutine.amvalidate = Some(validate::amvalidate);
     amroutine.ambuild = Some(build::ambuild);
+    amroutine.ambuildphasename = Some(build::ambuildphasename);
     amroutine.ambuildempty = Some(build::ambuildempty);
     amroutine.aminsert = Some(insert::aminsert);
     #[cfg(any(feature = "pg17", feature = "pg18"))]

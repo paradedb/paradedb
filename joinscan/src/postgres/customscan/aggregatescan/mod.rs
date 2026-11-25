@@ -961,13 +961,15 @@ impl CustomScan for AggregateScan {
                     let cscan = builder.args().cscan;
                     ((*cscan).custom_exprs, (*cscan).custom_scan_tlist)
                 };
-                builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
+                let mut df_state = scan_state::DataFusionAggState {
                     plan,
                     targetlist,
                     topk,
                     custom_exprs,
                     custom_scan_tlist,
                     having_filter,
+                    base: None,
+                    runtime_context: None,
                     runtime: None,
                     physical_plan: None,
                     stream: None,
@@ -981,7 +983,15 @@ impl CustomScan for AggregateScan {
                     mpp: MppLifecycle::from_plan(parallel_mode_ok),
                     launch_timing: None,
                     spilled: Arc::new(AtomicBool::new(false)),
-                });
+                };
+                if df_state.has_postgres_expressions() || df_state.has_parameters() {
+                    df_state.base = Some(scan_state::DataFusionAggBase {
+                        plan: df_state.plan.clone(),
+                        targetlist: df_state.targetlist.clone(),
+                        having_filter: df_state.having_filter.clone(),
+                    });
+                }
+                builder.custom_state().datafusion_state = Some(df_state);
                 builder.build()
             }
         }
@@ -1158,7 +1168,7 @@ impl CustomScan for AggregateScan {
         }
 
         explainer.add_text("Index", state.custom_state().indexrel().name());
-        explainer.add_query(state.custom_state().aggregate_clause.query());
+        explainer.add_query(&state.custom_state().aggregate_clause.query());
         state
             .custom_state()
             .aggregate_clause
@@ -1197,10 +1207,15 @@ impl CustomScan for AggregateScan {
         estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
-        if state.custom_state().is_datafusion_backend() {
+        if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
             // DataFusion logical/physical planning and any MPP manifest pinning / worker launch
             // happen lazily on first `exec_custom_scan`, once `ExecutePlan` has initialized
-            // `estate->es_use_parallel_mode`.
+            // `estate->es_use_parallel_mode`. Only allocate the dedicated `runtime_context`
+            // (separate from `ps_ExprContext`, which is reset per emitted row) when the query
+            // has runtime expressions or parameters to solve.
+            if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0 {
+                df_state.runtime_context = unsafe { df_state.init_expr_context(estate) };
+            }
             return;
         }
 
@@ -1241,6 +1256,17 @@ impl CustomScan for AggregateScan {
             let mut columns = PlaceholderColumns::default();
             let (placeholder_tlist, placeholders, needs_projection) =
                 create_placeholder_targetlist(plan_targetlist, &mut columns);
+            // Constant entries are evaluated by the projection (via ExecProject) so that
+            // Params and other row-independent expressions are resolved at execution time.
+            assert!(
+                needs_projection
+                    || !state
+                        .custom_state()
+                        .aggregate_clause
+                        .entries()
+                        .any(|e| matches!(e, TargetListEntry::Constant)),
+                "constant output columns require the wrapped projection"
+            );
             if needs_projection && !placeholder_tlist.is_null() {
                 let projection = columns.build_projection(
                     placeholder_tlist,
@@ -1386,6 +1412,7 @@ impl AggregateScan {
         state: &mut CustomScanStateWrapper<Self>,
         budget: MppBudget,
         physical: &Arc<dyn ExecutionPlan>,
+        runtime: &PgTokioRuntime,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         // Manifests were pinned at exec; `ensure` is idempotent.
         Self::ensure_source_manifests(state);
@@ -1420,6 +1447,7 @@ impl AggregateScan {
                 budget,
                 physical,
                 args,
+                runtime.shutdown_handle(),
             )
         }
     }
@@ -1688,7 +1716,7 @@ impl AggregateScan {
                 root,
                 base_rel,
                 bm25_oid,
-                aggregate_clause.query(),
+                &aggregate_clause.query(),
                 bm25_row_estimate,
             )
             .and_then(|planner| planner.harvest())
@@ -2189,7 +2217,7 @@ impl AggregateScan {
                         None => (pg_sys::Datum::null(), true),
                     }
                 }
-                TargetListEntry::GroupingColumn(_) => {
+                TargetListEntry::GroupingColumn(_) | TargetListEntry::Constant => {
                     debug_assert!(
                         i < natts,
                         "aggregate clause entry index out of bounds for tuple descriptor"
@@ -2217,12 +2245,9 @@ impl AggregateScan {
             "aggregate scan slot must be initialized"
         );
 
-        // Capture before the mutable borrow on `datafusion_state`. Threaded
-        // down to each `PgSearchTableProvider` so HeapFilter queries (`=`
-        // on a `pdb.literal`-cast column, etc.) can resolve their runtime
-        // expressions. A provider with something to solve gets a context of its
-        // own from the planstate (see `build_source_df` in datafusion_exec.rs);
-        // `ps_ExprContext` is what every provider's reader evaluates in.
+        // Capture before the mutable borrow on `datafusion_state`. `ps_ExprContext` is
+        // threaded down to each `PgSearchTableProvider` for per-row heap filter evaluation;
+        // runtime expressions and parameters are pre-solved below into `runtime_context`.
         let ps_expr_context = state.csstate.ss.ps.ps_ExprContext;
         let runtime_expr_context = (!ps_expr_context.is_null()).then_some(ps_expr_context);
         let ps = state.planstate();
@@ -2236,6 +2261,18 @@ impl AggregateScan {
 
         // First call: build and execute the DataFusion plan
         if first_call {
+            // Solve all runtime Postgres expressions and parameters on the main thread before
+            // entering `PgTokioRuntime::block_on` (#7593): `block_on` holds `HeldInterrupts`
+            // (breaking parallel InitPlan DSM allocation) and installs a Tokio runtime context
+            // (panicking if an InitPlan itself calls `block_on`).
+            let df_state = state
+                .custom_state_mut()
+                .datafusion_state
+                .as_mut()
+                .expect("DataFusion state must be initialized");
+            let runtime_context = df_state.runtime_context;
+            df_state.prepare_query_for_execution(ps, runtime_context);
+
             let runtime = PgTokioRuntime::new()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
@@ -2312,7 +2349,7 @@ impl AggregateScan {
             // remain and the `DistributedExec` shape has no mesh to read from, so replan serially
             // below.
             let leader = if let Some(budget) = mpp_budget {
-                Self::launch_mpp(state, budget, &physical_plan)
+                Self::launch_mpp(state, budget, &physical_plan, &runtime)
             } else {
                 None
             };
@@ -2499,19 +2536,19 @@ impl AggregateScan {
         if mode != MvccVisibility::Threshold {
             return;
         }
-        let sources: Vec<(PgSearchRelation, SearchQueryInput)> = df_state
+        let sources: Vec<(PgSearchRelation, Arc<SearchQueryInput>)> = df_state
             .plan
             .sources()
             .iter()
             .map(|source| {
                 (
                     PgSearchRelation::open(source.scan_info.indexrelid),
-                    source.scan_info.mode.query().clone(),
+                    source.scan_info.mode.query(),
                 )
             })
             .collect();
-        let check =
-            mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q, None)));
+        let check = mode
+            .resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q.clone(), None)));
         let resolved = if check {
             MvccVisibility::Transaction
         } else {
@@ -2692,6 +2729,8 @@ unsafe fn aggregate_value_to_datum(
 ///    NULL sentinels and ISO-8601 datetime parsing) via [`group_key_to_datum`].
 /// 2. `GroupingColumn` with an empty row → NULL.
 /// 3. `Aggregate` (any row) → delegate to [`aggregate_value_to_datum`].
+/// 4. `Constant` (any row) → NULL placeholder; the real value is computed by the
+///    wrapped projection (see `create_placeholder_targetlist`).
 ///
 /// Finalizes by setting `tts_flags` and `tts_nvalid` so the slot is in the
 /// "virtual tuple stored" state.
@@ -2748,6 +2787,7 @@ unsafe fn fill_slot_from_row(
                     index_info,
                 )
             }
+            TargetListEntry::Constant => None,
         };
 
         if let Some(datum) = datum {

@@ -16,7 +16,7 @@ cargo run -p stressgres -- ui stressgres/suites/single-node-planner-paths.toml
 cargo run -p stressgres -- headless stressgres/suites/single-node-planner-paths.toml --runtime=300000 --log-file=logs/test.log
 ```
 
-- Run headless mode tolerating transient database faults (e.g. under Antithesis)
+- Run headless mode tolerating transient database faults (e.g. during DST runs)
 
 ```bash
 cargo run -p stressgres -- headless stressgres/suites/single-node-planner-paths.toml --runtime=300000 --reconnect-grace=30000
@@ -49,7 +49,7 @@ To run Stressgres from within Docker, use:
 docker run --rm paradedb/stressgres:latest /symbols/stressgres headless stressgres/suites/single-node-planner-paths.toml
 ```
 
-The image includes the suites and a prebuilt Stressgres binary at `/symbols/stressgres`, and can run in air-gapped environments like Antithesis. It disables the `graph` feature to omit native font dependencies.
+The image includes the suites and a prebuilt Stressgres binary at `/symbols/stressgres`, and can run in air-gapped DST environments. It disables the `graph` feature to omit native font dependencies.
 
 For an interactive shell:
 
@@ -62,9 +62,9 @@ docker exec -it stressgres bash
 
 To publish the Stressgres image to Docker Hub, trigger a workflow dispatch of `Publish Stressgres (Docker)` from the Actions tab. This is useful to get updated Stressgres binaries to our BYOC end-to-end testing framework.
 
-## Antithesis
+## Deterministic Simulation Testing
 
-Antithesis is a deterministic simulation testing (DST) tool. Stressgres runs inside Antithesis through the Docker image. Each suite has a `first_<suite>.sh` setup script under `stressgres/suites/antithesis/`; the shared `singleton_driver_stressgres.sh` then runs the selected workload under fault injection. For more information on Antithesis test commands, see [the Antithesis documentation](https://antithesis.com/docs/test_templates/first_test/).
+Stressgres runs in a Docker image for deterministic simulation testing (DST). Antithesis is the current DST provider. Each suite has a `first_<suite>.sh` setup script under `stressgres/suites/antithesis/`; the shared `singleton_driver_stressgres.sh` then runs the selected workload under fault injection. For more information on Antithesis test commands, see [the Antithesis documentation](https://antithesis.com/docs/test_templates/first_test/).
 
 To add a new suite:
 
@@ -72,10 +72,10 @@ To add a new suite:
 
 - Trigger a release of the Docker image to the Antithesis registry via the `Test pg_search (Antithesis)` workflow. This workflow builds and publishes the latest commit ParadeDB and Stressgres Docker images to Antithesis, and triggers a test run.
 
-If it behaves as desired, merge your new singleton driver to `main`. The new suite will then be added to the nightly Antithesis runs.
+If it behaves as desired, merge your new singleton driver to `main`. The new suite will then be added to the nightly DST runs.
 
 ### Connection Strings
 
-To facilitate testing with Antithesis, we deploy the ParadeDB CloudNativePG cluster with a manifest that hardcodes a dummy password. This ensures we can modify the Stressgres suite `connection_string` without needing to extract passwords dynamically.
+For DST, we deploy the ParadeDB CloudNativePG cluster with a manifest that hardcodes a dummy password. This ensures we can modify the Stressgres suite `connection_string` without needing to extract passwords dynamically.
 
 The manifests can be found at `docker/manifests/antithesis-paradedb.yaml` in `paradedb/paradedb`/`paradedb/paradedb-enterprise` and the password used in the singleton driver files must match.

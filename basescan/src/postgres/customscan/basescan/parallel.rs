@@ -19,8 +19,11 @@
 //! Parallel-aware BaseScan: DSM attach hooks and the process-local handle to
 //! shared work assignment / telemetry IPC.
 
+use std::cell::RefCell;
 use std::os::raw::c_void;
 use std::ptr::NonNull;
+use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::index::reader::io_stats::Trace;
 use crate::postgres::ParallelScanState;
@@ -28,6 +31,7 @@ use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
+use crate::postgres::customscan::mpp::interrupt::PgTokioRuntimeShutdownHandle;
 
 use pgrx::pg_sys::{self, Size, dsa_area, shm_toc};
 
@@ -97,16 +101,33 @@ impl ParallelScanHandle {
     }
 }
 
+struct BaseScanDsmDetach {
+    parallel: ParallelScanHandle,
+    trace: Option<Trace>,
+    runtime_shutdown: Rc<RefCell<Option<PgTokioRuntimeShutdownHandle>>>,
+}
+
 // LIMIT can shut down the leader scan before its workers; collect after Gather joins them.
+// On abnormal transaction/subtransaction abort (`!IsTransactionState()`), `AtEOXact_Parallel` /
+// `AtEOSubXact_Parallel` detaches `Gather`'s DSM segment before `AtSubAbort_Portals` and
+// `XactCallback` / `SubXactCallback` run, so shut down this specific `BaseScan`'s `PgTokioRuntime`
+// directly via its handle before the segment unmaps while leaving unrelated runtimes intact.
 #[pgrx::pg_guard]
-unsafe extern "C-unwind" fn collect_buffer_hits_on_detach(
+unsafe extern "C-unwind" fn on_basescan_dsm_detach(
     _seg: *mut pg_sys::dsm_segment,
     arg: pg_sys::Datum,
 ) {
-    let (parallel, trace) =
-        *unsafe { Box::from_raw(arg.cast_mut_ptr::<(ParallelScanHandle, Trace)>()) };
+    let BaseScanDsmDetach {
+        parallel,
+        trace,
+        runtime_shutdown,
+    } = *unsafe { Box::from_raw(arg.cast_mut_ptr::<BaseScanDsmDetach>()) };
     if unsafe { pg_sys::IsTransactionState() } {
-        parallel.finalize_buffer_hits(&trace);
+        if let Some(trace) = trace {
+            parallel.finalize_buffer_hits(&trace);
+        }
+    } else if let Some(handle) = runtime_shutdown.borrow_mut().take() {
+        handle.shutdown_workers();
     }
 }
 
@@ -129,6 +150,16 @@ impl ParallelQueryCapable for BaseScan {
         pcxt: *mut pg_sys::ParallelContext,
         coordinate: *mut c_void,
     ) {
+        let Some(area) = try_query_area(state) else {
+            // PostgreSQL's `InitializeParallelDSM` fell back to backend-private memory
+            // (`pcxt->seg == NULL`, `pcxt->nworkers == 0`, `pei->area == NULL`), e.g. due to
+            // DSM exhaustion or held interrupts. No workers will launch, so leave `parallel`
+            // unattached and let the leader run serially (matching PostgreSQL's
+            // `ExecBitmapHeapInitializeDSM`).
+            debug_assert!(unsafe { (*pcxt).seg.is_null() && (*pcxt).nworkers == 0 });
+            return;
+        };
+
         let args = state.custom_state().parallel_scan_args();
 
         unsafe {
@@ -138,18 +169,18 @@ impl ParallelQueryCapable for BaseScan {
             state
                 .custom_state_mut()
                 .attach_parallel(pscan_state, ParallelRole::Leader);
-            leader_publish_query(state, &mut *pscan_state);
+            leader_publish_query(state, &mut *pscan_state, area);
 
-            if !(*pcxt).seg.is_null()
-                && let Some(trace) = state.custom_state().io_trace.clone()
-            {
-                let callback = Box::new((
-                    ParallelScanHandle::new(pscan_state, ParallelRole::Leader),
-                    trace,
-                ));
+            if !(*pcxt).seg.is_null() {
+                let runtime_shutdown = state.custom_state_mut().alloc_dsm_runtime_shutdown_slot();
+                let callback = Box::new(BaseScanDsmDetach {
+                    parallel: ParallelScanHandle::new(pscan_state, ParallelRole::Leader),
+                    trace: state.custom_state().io_trace.clone(),
+                    runtime_shutdown,
+                });
                 pg_sys::on_dsm_detach(
                     (*pcxt).seg,
-                    Some(collect_buffer_hits_on_detach),
+                    Some(on_basescan_dsm_detach),
                     pg_sys::Datum::from(Box::into_raw(callback)),
                 );
             }
@@ -161,7 +192,6 @@ impl ParallelQueryCapable for BaseScan {
             let planned_workers = (*pcxt).nworkers as u32;
             (*pscan_state).bitmap_slots = planned_workers + 1;
             leader_publish_bitmap(state, pscan_state);
-            let area = query_area(state);
             state
                 .custom_state_mut()
                 .leader_publish_vector_routing_plan(area, pg_sys::parallel_leader_participation);
@@ -172,6 +202,14 @@ impl ParallelQueryCapable for BaseScan {
         state: &mut CustomScanStateWrapper<Self>,
         coordinate: *mut c_void,
     ) {
+        let Some(area) = try_query_area(state) else {
+            // Same private-memory fallback as `initialize_dsm_custom_scan` (matching
+            // PostgreSQL's `ExecBitmapHeapReInitializeDSM`): no workers will launch, and
+            // `rescan_custom_scan` resets local state because `parallel` is `None`.
+            debug_assert!(state.custom_state().parallel.is_none());
+            return;
+        };
+
         // The one place the shared segment work queue is reset for a rescan.
         // PostgreSQL guarantees this runs while no workers are attached (see
         // nodeGather.c: "ReInitializeDSM should reset only shared state, ReScan
@@ -204,10 +242,9 @@ impl ParallelQueryCapable for BaseScan {
         if state.custom_state().needs_vector_routing() {
             BaseScan::init_search_reader(state);
         }
-        unsafe { leader_publish_query(state, pscan_state) };
+        unsafe { leader_publish_query(state, pscan_state, area) };
         unsafe { leader_publish_bitmap(state, pscan_state) };
         unsafe {
-            let area = query_area(state);
             state
                 .custom_state_mut()
                 .leader_publish_vector_routing_plan(area, pg_sys::parallel_leader_participation)
@@ -231,29 +268,37 @@ impl ParallelQueryCapable for BaseScan {
             .expect("should be able to read the query from the ParallelScanState");
         state.custom_state_mut().vector_routing_pending =
             state.custom_state().needs_vector_routing();
-        state.custom_state_mut().set_base_search_query_input(query);
+        state
+            .custom_state_mut()
+            .set_base_search_query_input(Arc::new(query));
     }
 }
 
-/// The parallel query's DSA area. Postgres installs it on the EState around the DSM
-/// callbacks and local execution in the leader, and for the whole run in a worker.
-pub(super) fn query_area(state: &CustomScanStateWrapper<BaseScan>) -> *mut dsa_area {
+/// The parallel query's DSA area, if Postgres created a DSM segment for this parallel context.
+/// Returns `None` when `InitializeParallelDSM` fell back to backend-private memory
+/// (`pcxt->seg == NULL`, `pcxt->nworkers == 0`, `pei->area == NULL`).
+pub(super) fn try_query_area(state: &CustomScanStateWrapper<BaseScan>) -> Option<*mut dsa_area> {
     let area = unsafe { (*state.csstate.ss.ps.state).es_query_dsa };
-    assert!(
-        !area.is_null(),
-        "es_query_dsa must be set during parallel initialization or execution"
-    );
-    area
+    (!area.is_null()).then_some(area)
+}
+
+/// The parallel query's DSA area, required for workers and leader paths that attached parallel
+/// DSM state. Leader DSM init/reinit use [`try_query_area`] because PostgreSQL's private-memory
+/// fallback leaves `es_query_dsa` null.
+pub(super) fn query_area(state: &CustomScanStateWrapper<BaseScan>) -> *mut dsa_area {
+    try_query_area(state)
+        .expect("es_query_dsa must be set during parallel initialization or execution")
 }
 
 /// Leader-only: hand the coming round's workers the solved query.
 unsafe fn leader_publish_query(
     state: &mut CustomScanStateWrapper<BaseScan>,
     pscan_state: &mut ParallelScanState,
+    area: *mut dsa_area,
 ) {
-    let query = serde_json::to_vec(state.custom_state().search_query_input())
+    let query = serde_json::to_vec(&state.custom_state().search_query_input())
         .expect("should be able to serialize query");
-    unsafe { pscan_state.publish_query(query_area(state), &query) };
+    unsafe { pscan_state.publish_query(area, &query) };
 }
 
 /// Leader-only: ensure the reader (and with it the executed query and cell) exists,

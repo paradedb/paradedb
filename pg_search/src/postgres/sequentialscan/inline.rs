@@ -31,7 +31,7 @@ use crate::query::SearchQueryInput;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField, SearchIndexSchemaQueryExt};
 use pgrx::{IntoDatum, PgBox, PgList, PgTupleDesc, direct_function_call, pg_sys};
 use std::ptr::NonNull;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use tantivy::directory::{ManagedDirectory, RamDirectory};
 use tantivy::index::SegmentReader;
 use tantivy::indexer::{AddOperation, SegmentWriter};
@@ -301,6 +301,7 @@ pub(super) struct RowMatcher {
     empty_index: Index,
     ctid_field: Field,
     slot: *mut pg_sys::TupleTableSlot,
+    slot_owner: crate::postgres::resowner::ResourceOwnerStamp,
     expression_state: ExpressionState,
     required_expressions: HashSet<usize>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
@@ -312,7 +313,10 @@ pub(super) struct RowMatcher {
 
 impl RowMatcher {
     /// CurrentMemoryContext must outlive the returned matcher.
-    pub(super) unsafe fn new(index_relation: PgSearchRelation, query: SearchQueryInput) -> Self {
+    pub(super) unsafe fn new(
+        index_relation: PgSearchRelation,
+        query: Arc<SearchQueryInput>,
+    ) -> Self {
         let heap_relation = index_relation
             .heap_relation()
             .expect("a ParadeDB index must have a heap relation");
@@ -388,6 +392,7 @@ impl RowMatcher {
                 }
             }
         }
+        let slot_owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         let slot = pg_sys::MakeSingleTupleTableSlot(tuple_desc, &pg_sys::TTSOpsVirtual);
 
         Self {
@@ -406,6 +411,7 @@ impl RowMatcher {
             ctid_field: schema.ctid_field(),
             _index_relation_guard: index_relation,
             slot,
+            slot_owner,
         }
     }
 
@@ -512,11 +518,10 @@ impl RowMatcher {
 }
 
 crate::impl_safe_drop!(RowMatcher, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() {
-            pg_sys::ExecDropSingleTupleTableSlot(self.slot);
-        }
-    }
+    let slot = self.slot;
+    self.slot_owner.run_if_live(|| unsafe {
+        pg_sys::ExecDropSingleTupleTableSlot(slot);
+    });
 });
 
 fn ctid_is_valid_procoid() -> pg_sys::Oid {

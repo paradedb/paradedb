@@ -45,6 +45,17 @@ def parse_semver(ver_str):
     return (0, 0, 0)
 
 
+def parse_version_order(ver_str):
+    """Parse a release or -rc.N version into an ordered tuple, or None if invalid."""
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?", ver_str.strip())
+    if not match:
+        return None
+    major, minor, patch, rc = match.groups()
+    if rc is None:
+        return (int(major), int(minor), int(patch), 1, 0)
+    return (int(major), int(minor), int(patch), 0, int(rc))
+
+
 def clean_version(version_str):
     """Strip leading v and prerelease suffix (-rc.*)."""
     return version_str.split("-")[0].lstrip("v")
@@ -666,8 +677,8 @@ def assemble_changelog_files(
 # ==============================================================================
 
 
-def set_cargo_version(repo_root, version, skip_nix=False):
-    """Update workspace package version in Cargo.toml, sync Cargo.lock, and update Nix hash."""
+def set_cargo_version(repo_root, version, if_newer=False):
+    """Update the workspace package version and sync Cargo.lock."""
     cargo_toml = repo_root / "Cargo.toml"
     if not cargo_toml.exists():
         print(f"❌ Error: {cargo_toml} not found", file=sys.stderr)
@@ -675,6 +686,30 @@ def set_cargo_version(repo_root, version, skip_nix=False):
 
     with open(cargo_toml, "r", encoding="utf-8") as f:
         content = f.read()
+
+    if if_newer:
+        match = re.search(r'(?m)^version = "([^"]+)"', content)
+        if not match:
+            print(
+                f"❌ Error: Could not find version in {cargo_toml}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        current_version = match.group(1)
+        current_order = parse_version_order(current_version)
+        target_order = parse_version_order(version)
+        if current_order is None or target_order is None:
+            print(
+                f"❌ Error: Cannot compare versions '{current_version}' and '{version}'",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if target_order <= current_order:
+            print(
+                f"ℹ️ Keeping {cargo_toml} at '{current_version}' "
+                f"(not older than '{version}')."
+            )
+            return False
 
     new_content = re.sub(
         r'(?m)^version = "[^"]+"',
@@ -689,11 +724,7 @@ def set_cargo_version(repo_root, version, skip_nix=False):
     print("Syncing Cargo.lock via cargo update --workspace...")
     subprocess.run(["cargo", "update", "--workspace"], cwd=repo_root, check=True)
 
-    if not skip_nix:
-        nix_script = repo_root / "scripts" / "update-nix-cargo-hash.sh"
-        if nix_script.exists():
-            print("Updating Nix cargo hash...")
-            subprocess.run(["bash", str(nix_script), "18"], cwd=repo_root, check=True)
+    return True
 
 
 def check_is_latest(version, is_beta=False):
@@ -735,12 +766,13 @@ def generate_approval_body(
     prev_ver = resolve_prev_version(repo_root, sql_dir, clean_ver, prev_version)
     is_latest = check_is_latest(target_version, is_beta=False)
 
+    major, minor, patch = parse_semver(clean_ver)
+    release_type = "Minor release" if patch == 0 else "Patch release"
     if branch == "main":
-        release_type = "Minor release"
-        major, minor, _ = parse_semver(clean_ver)
         branch_action = f"Create stable branch `{major}.{minor}.x`"
+    elif is_latest:
+        branch_action = "Sync release artifacts and version bump to `main`"
     else:
-        release_type = "Patch release"
         branch_action = "Sync release artifacts to `main`"
 
     changelog_dir, _, _ = get_changelog_dirs(repo_root)
@@ -871,7 +903,11 @@ def handle_all_command(args, repo_root):
 def handle_set_version_command(args, repo_root):
     """Handle set-version subcommand."""
     target_version = detect_target_version(repo_root, args.version)
-    set_cargo_version(repo_root, target_version, skip_nix=args.skip_nix)
+    set_cargo_version(
+        repo_root,
+        target_version,
+        if_newer=args.if_newer,
+    )
 
 
 def handle_is_latest_command(args, repo_root):
@@ -1201,13 +1237,13 @@ def build_parser():
 
     set_ver_parser = subparsers.add_parser(
         "set-version",
-        help="Update version in Cargo.toml, Cargo.lock, and nix/pg_search.nix",
+        help="Update version in Cargo.toml and Cargo.lock",
     )
     add_common_args(set_ver_parser)
     set_ver_parser.add_argument(
-        "--skip-nix",
+        "--if-newer",
         action="store_true",
-        help="Skip updating Nix cargo hash",
+        help="Only update version if target is newer than Cargo.toml's current version",
     )
 
     is_latest_parser = subparsers.add_parser(

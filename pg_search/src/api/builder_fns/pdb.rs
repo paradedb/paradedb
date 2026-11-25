@@ -117,6 +117,16 @@ mod pdb {
         pdb::Query::Exists
     }
 
+    fn checked_fuzzy_distance(distance: i32) -> u8 {
+        u8::try_from(distance).unwrap_or_else(|_| {
+            pgrx::ereport!(
+                ERROR,
+                pgrx::PgSqlErrorCode::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE,
+                "distance must be between 0 and 2"
+            );
+        })
+    }
+
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "fuzzy_term")]
     pub fn fuzzy_term(
@@ -127,7 +137,7 @@ mod pdb {
     ) -> pdb::Query {
         pdb::Query::FuzzyTerm {
             value: value.expect("`value` argument is required"),
-            distance: distance.map(|n| n as u8),
+            distance: distance.map(checked_fuzzy_distance),
             transposition_cost_one,
             prefix,
         }
@@ -146,7 +156,7 @@ mod pdb {
         pdb::Query::Match {
             value,
             tokenizer: tokenizer.map(|t| t.0),
-            distance: distance.map(|n| n as u8),
+            distance: distance.map(checked_fuzzy_distance),
             transposition_cost_one,
             prefix,
             conjunction_mode,

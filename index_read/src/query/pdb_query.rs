@@ -227,8 +227,8 @@ pub mod pdb {
         /// This variant is constructed first, then the "SUPPORT" function for our various operators
         /// will rewrite it to the [`Query`] variant that is correct for its usage.
         ///
-        /// For example, the `===` operator will rewrite it to a [`Query::TermSet`] and `@@@` to
-        /// a [`Query::ParseWithField`].
+        /// For example, the `===` operator will rewrite it to a [`Query::TermSet`] and `|||` to
+        /// a [`Query::MatchArray`]. The `@@@` operator does not take an array.
         UnclassifiedArray {
             array: Vec<String>,
             #[serde(skip_serializing_if = "Option::is_none")]
@@ -1039,7 +1039,8 @@ fn term_set(
             index_created_by_version,
         )
         .expect("could not convert argument to search term")
-    })))
+    }))
+    .with_exact_fast_field(search_field.exact_fast_field_for_term_set()))
 }
 
 fn term(
@@ -3641,7 +3642,7 @@ mod tests {
 
         Spi::run(
             "CREATE TABLE term_positions (id BIGINT, title TEXT);
-             CREATE INDEX term_positions_idx ON term_positions USING bm25 (id, title);",
+             CREATE INDEX term_positions_idx ON term_positions USING paradedb (id, title);",
         )
         .unwrap();
         let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'term_positions_idx'::regclass::oid")
@@ -3793,9 +3794,16 @@ mod tests {
     #[pg_test]
     fn topk_prunable_searchqueryinput_top_level_variants() {
         use crate::query::SearchQueryInput;
+        use std::collections::BTreeMap;
+        use std::sync::Arc;
         // Top-level (non-fielded) variants have no reliably-pruning weight.
         assert!(!SearchQueryInput::All.is_topk_prunable());
-        assert!(!SearchQueryInput::TermSet { terms: vec![] }.is_topk_prunable());
+        assert!(
+            !SearchQueryInput::TermSet {
+                termset: Arc::new(BTreeMap::new())
+            }
+            .is_topk_prunable()
+        );
         // A top-level plain parser term prunes; a metacharacter / operator does not.
         let parse = |s: &str| SearchQueryInput::Parse {
             query_string: s.to_string(),

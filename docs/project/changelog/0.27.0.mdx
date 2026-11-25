@@ -1,6 +1,7 @@
 ---
 title: "0.27.0"
 description: "ParadeDB release notes for 0.27.0"
+noindex: true
 ---
 
 See GitHub release: [v0.27.0](https://github.com/paradedb/paradedb/releases/tag/v0.27.0)
@@ -12,6 +13,12 @@ See GitHub release: [v0.27.0](https://github.com/paradedb/paradedb/releases/tag/
 High availability and read replicas have always been ParadeDB Enterprise features, but previously spinning up a physical standby on ParadeDB Community stopped WAL replay entirely when a ParadeDB index was created (#6007). Physical replication is now allowed to continue: non-ParadeDB queries work normally, queries that use a ParadeDB index on a read replica return an error, and if a standby fails over to become a primary (or a server is restored from a base backup taken on a standby) its replicated ParadeDB indexes emit an error and require `REINDEX INDEX`. Backups taken from the primary are unaffected.
 
 Upgrade standbys before the primary: the primary now writes a ParadeDB WAL record during `CREATE INDEX`, `VACUUM`, and `ANALYZE` on indexed tables, and a standby running an earlier release shuts down when replaying that record.
+
+### Vector index format {#vector-index-format}
+
+0.27.0 changes the on-disk format of vector indexes. Older formats are not supported and must be rebuilt with `REINDEX` when upgrading to 0.27.0.
+
+Vector searches fail with `index "<index_name>" has an unsupported vector storage format` until the index is rebuilt.
 
 ### Other Changes
 

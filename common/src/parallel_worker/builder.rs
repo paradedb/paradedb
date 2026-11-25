@@ -170,6 +170,7 @@ impl ParallelProcessBuilder {
     }
 }
 
+#[must_use = "must be launched before parallel mode ends"]
 pub struct ParallelProcessLauncher {
     pcxt: NonNull<pg_sys::ParallelContext>,
     state_manager: ParallelStateManager,
@@ -179,6 +180,17 @@ pub struct ParallelProcessLauncher {
 }
 
 impl ParallelProcessLauncher {
+    /// Detaches all receiver message queues while the backing DSM segment is still mapped, then
+    /// destroys the parallel context and exits parallel mode.
+    unsafe fn destroy(self) {
+        let pcxt = self.pcxt.as_ptr();
+        for mq in self.mq_handles {
+            mq.detach();
+        }
+        pg_sys::DestroyParallelContext(pcxt);
+        pg_sys::ExitParallelMode();
+    }
+
     /// Read-only access to the mapped state between `build()` and `launch()`. The DSM is mapped in
     /// the leader once `InitializeParallelDSM` runs (inside `build`), so the leader can initialize a
     /// shared region in place here, before workers spawn and attach to it.
@@ -208,10 +220,9 @@ impl ParallelProcessLauncher {
                 return Some(ParallelProcessAttach { launcher: self });
             }
 
-            // Detach queues while their shared memory is still mapped.
-            drop(self);
-            pg_sys::DestroyParallelContext(pcxt);
-            pg_sys::ExitParallelMode();
+            // Detach queues while their shared memory is still mapped, then tear down the
+            // parallel context and exit parallel mode.
+            self.destroy();
             None
         }
     }
@@ -228,6 +239,7 @@ enum WorkerQueueState {
     Accumulated,
 }
 
+#[must_use = "must call wait_for_attach() before parallel mode ends"]
 #[repr(transparent)]
 pub struct ParallelProcessAttach {
     launcher: ParallelProcessLauncher,
@@ -245,6 +257,7 @@ impl ParallelProcessAttach {
     }
 }
 
+#[must_use = "must call wait_for_finish() or exhaust the iterator to detach queues and exit parallel mode"]
 pub struct ParallelProcessFinish {
     launcher: ParallelProcessLauncher,
     worker_states: Vec<WorkerQueueState>,
@@ -385,10 +398,7 @@ impl ParallelProcessFinish {
             pg_sys::WaitForParallelWorkersToFinish(pcxt);
             self.accumulate_all_workers();
 
-            drop(self.launcher);
-
-            pg_sys::DestroyParallelContext(pcxt);
-            pg_sys::ExitParallelMode();
+            self.launcher.destroy();
 
             messages
         }

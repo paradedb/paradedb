@@ -135,17 +135,21 @@ const METAPAGE: pg_sys::BlockNumber = 0;
 pub struct CleanupAdmission {
     tag: pg_sys::LOCKTAG,
     mode: pg_sys::LOCKMODE,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 struct LockReleaseOnMainThread {
     tag: pg_sys::LOCKTAG,
     mode: pg_sys::LOCKMODE,
+    owner: crate::postgres::resowner::ResourceOwnerStamp,
 }
 
 crate::impl_safe_drop!(LockReleaseOnMainThread, |self| {
-    if unsafe { crate::postgres::utils::IsTransactionState() } {
-        unsafe { pg_sys::LockRelease(&self.tag, self.mode, false) };
-    }
+    let tag = self.tag;
+    let mode = self.mode;
+    self.owner.run_if_live(|| unsafe {
+        pg_sys::LockRelease(&tag, mode, false);
+    });
 });
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the lock tag
@@ -155,6 +159,7 @@ impl Drop for CleanupAdmission {
         crate::postgres::customscan::mpp::drop_on_main_thread(LockReleaseOnMainThread {
             tag: self.tag,
             mode: self.mode,
+            owner: self.owner,
         });
     }
 }
@@ -428,8 +433,9 @@ impl MetaPage {
             locktag_type: pg_sys::LockTagType::LOCKTAG_PAGE as u8,
             locktag_lockmethodid: pg_sys::DEFAULT_LOCKMETHOD as u8,
         };
+        let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe { pg_sys::LockAcquire(&tag, mode, false, false) };
-        CleanupAdmission { tag, mode }
+        CleanupAdmission { tag, mode, owner }
     }
 
     pub fn cleanup_lock_for_reader(&self) -> CleanupAdmission {

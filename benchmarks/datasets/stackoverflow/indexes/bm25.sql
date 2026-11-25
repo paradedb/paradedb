@@ -15,7 +15,8 @@ USING bm25 (
     amount15,
     amount78,
     (owner_display_name::pdb.unicode_words('columnar=true')),
-    owner_user_id
+    owner_user_id,
+    owner_user_uuid
 ) WITH (
     -- Join keys: comments.post_id = id, users.id = owner_user_id.
     -- TODO: Explore removing multi-key partitioning in the future once range-partitioning
@@ -30,6 +31,7 @@ USING bm25 (
     (name::pdb.unicode_words('columnar=true')),
     date,
     user_id,
+    user_uuid,
     class,
     tag_based
 ) WITH (
@@ -53,6 +55,7 @@ USING bm25 (
 CREATE INDEX users_idx ON users
 USING bm25 (
     id,
+    user_uuid,
     (about_me::pdb.unicode_words('columnar=true')),
     (display_name::pdb.unicode_words('columnar=true')),
     reputation

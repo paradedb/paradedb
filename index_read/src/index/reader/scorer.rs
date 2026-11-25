@@ -35,14 +35,14 @@ pub mod test_support {
 /// segments² dictionary lookups per query, which dominates scored scans on
 /// many-segment indexes.
 pub struct LazyWeight {
-    query: Box<dyn Query>,
+    query: Arc<dyn Query>,
     need_scores: bool,
     searcher: Searcher,
     weight: OnceLock<Box<dyn Weight>>,
 }
 
 impl LazyWeight {
-    pub fn new(query: Box<dyn Query>, need_scores: bool, searcher: Searcher) -> Self {
+    pub fn new(query: Arc<dyn Query>, need_scores: bool, searcher: Searcher) -> Self {
         Self {
             query,
             need_scores,
@@ -55,7 +55,7 @@ impl LazyWeight {
     /// Each segment still receives its own scorer.
     pub(super) fn and_query(self: &Arc<Self>, query: Box<dyn Query>) -> Self {
         Self::new(
-            Box::new(BooleanQuery::new(vec![
+            Arc::new(BooleanQuery::new(vec![
                 (Occur::Must, self.query.box_clone()),
                 (Occur::Must, query),
             ])),
@@ -79,6 +79,9 @@ pub struct DeferredScorer {
     weight: Arc<LazyWeight>,
     segment_reader: SegmentReader,
     scorer: OnceLock<Box<dyn PruningScorer>>,
+    /// Pruning threshold recorded via [`Self::set_threshold`] before the underlying scorer is
+    /// opened, so `pruning_scorer` receives it before its initial `advance()`.
+    initial_threshold: Score,
 }
 
 impl DeferredScorer {
@@ -87,6 +90,7 @@ impl DeferredScorer {
             weight,
             segment_reader,
             scorer: Default::default(),
+            initial_threshold: Score::MIN,
         }
     }
 
@@ -107,13 +111,20 @@ impl DeferredScorer {
             test_support::SCORERS_OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.weight
                 .get()
-                .pruning_scorer(&self.segment_reader, 1.0, Score::MIN)
+                .pruning_scorer(&self.segment_reader, 1.0, self.initial_threshold)
                 .expect("pruning scorer should be constructable")
         })
     }
 
     fn set_threshold(&mut self, threshold: Score) {
-        self.scorer_mut().set_threshold(threshold);
+        if let Some(scorer) = self.scorer.get_mut() {
+            scorer.set_threshold(threshold);
+        } else {
+            // Avoid opening the underlying scorer just to record a threshold: opening with
+            // `Score::MIN` runs an initial unpruned `advance()` (evaluating filters on a full
+            // warmup batch) before `set_threshold` takes effect.
+            self.initial_threshold = threshold;
+        }
     }
 }
 
@@ -228,5 +239,117 @@ impl Iterator for ScorerIter {
         // accurate size: when consuming for Top K, we consume a precise amount, and in all other
         // cases the iterator is consumed as streaming.
         (0, None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tantivy::columnar::ColumnType;
+    use tantivy::query::{TermPredicate, TermPredicateQuery, TermQuery, TinySet};
+    use tantivy::schema::{FAST, IndexRecordOption, STRING, Schema, TEXT};
+    use tantivy::{Index, ProbeCost, Term, doc};
+
+    #[derive(Debug)]
+    struct CountingMatchAllPredicate {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl TermPredicate for CountingMatchAllPredicate {
+        fn filter_bytes(&self, _data: &[u8], offsets: &[u32], out: &mut [TinySet]) {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            let count = offsets.len().saturating_sub(1);
+            for i in 0..count {
+                out[i / 64].insert_mut((i % 64) as u32);
+            }
+        }
+
+        fn filter_monotonic_u64s(
+            &self,
+            _col_type: ColumnType,
+            values: &[u64],
+            out: &mut [TinySet],
+        ) {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            for i in 0..values.len() {
+                out[i / 64].insert_mut((i % 64) as u32);
+            }
+        }
+
+        fn probe_cost(&self) -> ProbeCost {
+            ProbeCost::per_doc(5)
+        }
+    }
+
+    #[test]
+    fn deferred_scorer_applies_threshold_before_opening() {
+        let mut schema_builder = Schema::builder();
+        let title = schema_builder.add_text_field("title", TEXT);
+        let key = schema_builder.add_text_field("key", STRING | FAST);
+        let schema = schema_builder.build();
+
+        let index = Index::create_in_ram(schema);
+        let mut writer = index.writer_with_num_threads(1, 15_000_000).unwrap();
+        // Enough distinct high-entropy keys (no common delta prefix) to span > 2 SSTable blocks
+        // so `TermSetWeight` chooses lazy `CachedDictPredicateDocSet` under `ExecutionMode::Pruning`.
+        for i in 0..500u64 {
+            let hi = i.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+            let lo = i.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            let k = format!("{hi:016x}-{lo:016x}-{i:08}");
+            writer
+                .add_document(doc!(title => "alpha beta", key => k))
+                .unwrap();
+        }
+        writer.commit().unwrap();
+
+        let reader = index.reader().unwrap();
+        let searcher = reader.searcher();
+        let segment_reader = searcher.segment_readers()[0].clone();
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let predicate = Arc::new(CountingMatchAllPredicate {
+            calls: Arc::clone(&calls),
+        });
+        let disjunction = Box::new(BooleanQuery::new(vec![
+            (
+                Occur::Should,
+                Box::new(TermQuery::new(
+                    Term::from_field_text(title, "alpha"),
+                    IndexRecordOption::WithFreqs,
+                )),
+            ),
+            (
+                Occur::Should,
+                Box::new(TermQuery::new(
+                    Term::from_field_text(title, "beta"),
+                    IndexRecordOption::WithFreqs,
+                )),
+            ),
+        ]));
+        let query: Arc<dyn Query> = Arc::new(BooleanQuery::new(vec![
+            (Occur::Must, disjunction),
+            (
+                Occur::Must,
+                Box::new(TermPredicateQuery::new(key, predicate)),
+            ),
+        ]));
+        let lazy_weight = Arc::new(LazyWeight::new(query, true, searcher));
+
+        // Setting a high threshold before opening must not initialize the scorer, and once
+        // opened the scorer must prune immediately without probing the predicate.
+        let mut pruned = DeferredScorer::new(Arc::clone(&lazy_weight), segment_reader.clone());
+        pruned.set_threshold(1000.0);
+        assert!(pruned.scorer.get().is_none());
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        assert_eq!(pruned.doc(), tantivy::TERMINATED);
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+
+        // Once opened at `Score::MIN`, `set_threshold` still forwards to the live scorer.
+        let mut live = DeferredScorer::new(lazy_weight, segment_reader);
+        assert_ne!(live.doc(), tantivy::TERMINATED);
+        assert!(calls.load(Ordering::Relaxed) > 0);
+        live.set_threshold(1000.0);
+        assert_eq!(live.advance(), tantivy::TERMINATED);
     }
 }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795594053169,
+  "lastUpdate": 1795594087506,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -524717,6 +524717,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14995359147-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795594084362,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 22.13567615791336,
+            "unit": "median tps",
+            "extra": "avg tps: 62.30217559579938, max tps: 872.5099602733342, count: 58787"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 14.102511421395945,
+            "unit": "median tps",
+            "extra": "avg tps: 37.30334373819147, max tps: 614.5808800756519, count: 58787"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 64.72907146461138,
+            "unit": "median tps",
+            "extra": "avg tps: 127.00372522275582, max tps: 1245.2382254107429, count: 58787"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 13.56903382063755,
+            "unit": "median tps",
+            "extra": "avg tps: 33.28986310304535, max tps: 442.6960369035719, count: 58787"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 27.930823504049673,
+            "unit": "median tps",
+            "extra": "avg tps: 71.54409967403735, max tps: 957.4994044392313, count: 58787"
+          }
+        ],
+        "publication_id": "15003431896-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -539446,6 +539499,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14995359147-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795594087407,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 136.953125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 97.10145937345841, max partition_index_size:MB: 140.2734375, count: 58787"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.770397,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.437444767812703, max cpu: 32.32323, count: 58787"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 88.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 86.48235884953306, max mem: 155.9296875, count: 58787"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.010548,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.513533104934194, max cpu: 32.40116, count: 58787"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 110.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 108.36351554393403, max mem: 176.72265625, count: 58787"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.747017,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.151610610947152, max cpu: 31.713074, count: 58787"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 71.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 78.56019852390834, max mem: 162.69921875, count: 58787"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.010548,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.97692750807362, max cpu: 32.40116, count: 58787"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 98.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 104.37382520795414, max mem: 176.7265625, count: 58787"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.955523,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.99642207904856, max cpu: 32.307693, count: 58787"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 104.125,
+            "unit": "median mem",
+            "extra": "avg mem: 103.49352096870906, max mem: 176.12890625, count: 58787"
+          }
+        ],
+        "publication_id": "15003431896-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

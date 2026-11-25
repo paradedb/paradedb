@@ -11,9 +11,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - ".cargo/config.toml"
       - ".github/workflows/test-dst-crate.yml"
       - "dst/**"
-      - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
   workflow_dispatch:

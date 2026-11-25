@@ -26,34 +26,34 @@ CREATE INDEX numeric_pushdown_idx ON numeric_pushdown USING paradedb (
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 AND numeric_col = 1
 ORDER BY id LIMIT 10;
 
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 AND numeric_col = 1
 ORDER BY id LIMIT 10;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 AND numeric_col > 1
 ORDER BY id LIMIT 10;
 
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 AND numeric_col > 1
 ORDER BY id LIMIT 10;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 AND numeric_col::int > 1
 ORDER BY id LIMIT 10;
 
 SELECT * FROM numeric_pushdown
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 AND numeric_col::int > 1
 ORDER BY id LIMIT 10;
 

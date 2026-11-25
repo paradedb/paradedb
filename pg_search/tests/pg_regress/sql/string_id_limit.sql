@@ -20,23 +20,23 @@ INSERT INTO comments (id, customer_id) VALUES ('ctx_01iso5q4prkOQVGKK0ue', 'cust
 -- Select w limit. This will return
 -- "ctx_01ifsur2egUPnbJOAiHv" first despite it being second in the order
 SELECT * FROM comments
-WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+WHERE customer_id === 'customer_1'
 ORDER BY id desc
 LIMIT 2;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM comments
-WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+WHERE customer_id === 'customer_1'
 ORDER BY id desc
 LIMIT 2;
 
 -- Select w/o limit, returns correctly ordered results,
 -- "ctx_01iso5q4prkOQVGKK0ue" first
 SELECT * FROM comments
-WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+WHERE customer_id === 'customer_1'
 ORDER BY id DESC;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM comments
-WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+WHERE customer_id === 'customer_1'
 ORDER BY id DESC;

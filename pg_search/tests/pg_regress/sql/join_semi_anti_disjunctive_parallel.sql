@@ -99,7 +99,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -111,7 +111,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -125,7 +125,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -165,7 +165,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name
@@ -181,7 +181,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name
@@ -199,7 +199,7 @@ SELECT i.id
 FROM jsd_par_items i
 WHERE EXISTS (
     SELECT 1 FROM jsd_par_exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name

@@ -16,8 +16,8 @@ INSERT INTO issue_5574_child
 SELECT g, ((g - 1) % 1000) + 1
 FROM generate_series(1, 2000) g;
 
-CREATE INDEX issue_5574_parent_idx ON issue_5574_parent USING bm25 (id, kind) WITH (key_field = 'id');
-CREATE INDEX issue_5574_child_idx ON issue_5574_child USING bm25 (id, parent_id) WITH (key_field = 'id');
+CREATE INDEX issue_5574_parent_idx ON issue_5574_parent USING paradedb (id, kind);
+CREATE INDEX issue_5574_child_idx ON issue_5574_child USING paradedb (id, parent_id);
 ANALYZE issue_5574_parent;
 ANALYZE issue_5574_child;
 

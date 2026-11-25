@@ -18,9 +18,4 @@ VALUES ('Electronics'),
 
 SELECT COUNT(*)
 FROM issue3300
-WHERE category @@@
-      paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
-
-SELECT COUNT(*)
-FROM issue3300
 WHERE category @@@ pdb.term_set(terms => ARRAY(SELECT category FROM allowed_categories LIMIT 5));

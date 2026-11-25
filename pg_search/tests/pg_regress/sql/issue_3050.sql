@@ -12,14 +12,14 @@ CREATE INDEX on mock_items USING paradedb (id, description, rating, category, (m
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, rating, COUNT(*)
 FROM mock_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
 
 SELECT id, rating, COUNT(*)
 FROM mock_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
@@ -27,14 +27,14 @@ LIMIT 5;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, metadata->>'color' AS color, COUNT(*)
 FROM mock_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id, metadata->>'color'
 ORDER BY id, metadata->>'color'
 LIMIT 5;
 
 SELECT id, metadata->>'color' AS color, COUNT(*)
 FROM mock_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id, metadata->>'color'
 ORDER BY id, metadata->>'color'
 LIMIT 5;

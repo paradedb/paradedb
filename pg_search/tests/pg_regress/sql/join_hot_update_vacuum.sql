@@ -40,16 +40,9 @@ INSERT INTO hot_orders (id, user_id, note) VALUES
 (15, 5, 'sixth order'),
 (16, 6, 'seventh order');
 
-CREATE INDEX hot_users_idx ON hot_users USING paradedb (id, name, age)
-WITH (
-    text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-    numeric_fields = '{"age": {"fast": true}}'
-);
+CREATE INDEX hot_users_idx ON hot_users USING paradedb (id, (name::pdb.literal), age);
 
-CREATE INDEX hot_orders_idx ON hot_orders USING paradedb (id, user_id, note)
-WITH (
-    numeric_fields = '{"user_id": {"fast": true}}'
-);
+CREATE INDEX hot_orders_idx ON hot_orders USING paradedb (id, user_id, note);
 
 CREATE EXTENSION IF NOT EXISTS pageinspect;
 CREATE EXTENSION IF NOT EXISTS pg_visibility;

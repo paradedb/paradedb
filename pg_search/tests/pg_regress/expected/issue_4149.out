@@ -37,7 +37,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT
   t.file_id,
   t.file_title,
-  paradedb.score(t.row_id) AS score
+  pdb.score(t.row_id) AS score
 FROM documents t
 WHERE
   t.doc_parents ||| 'PARENT_GROUP'
@@ -47,9 +47,9 @@ LIMIT 10;
                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                           
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: file_id, file_title, (paradedb.score(row_id))
+   Output: file_id, file_title, (pdb.score(row_id))
    ->  Custom Scan (ParadeDB Base Scan) on public.documents t
-         Output: file_id, file_title, paradedb.score(row_id)
+         Output: file_id, file_title, pdb.score(row_id)
          Table: documents
          Index: documents_bm25
          Worker Selection: Cost model
@@ -63,7 +63,7 @@ LIMIT 10;
 SELECT
   t.file_id,
   t.file_title,
-  paradedb.score(t.row_id) AS score
+  pdb.score(t.row_id) AS score
 FROM documents t
 WHERE
   t.doc_parents ||| 'PARENT_GROUP'

@@ -26,15 +26,11 @@ CREATE TABLE aog_notes (
 -- segment before the merge. A few categories and brands repeat across many rows,
 -- which is the case grouping on ordinals is for.
 CREATE INDEX aog_products_idx ON aog_products
-USING bm25 (id, description, category, brand, price)
-WITH (text_fields='{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
-      numeric_fields='{"price": {"fast": true}}');
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), (brand::pdb.unicode_words('columnar=true')), price);
 CREATE INDEX aog_reviews_idx ON aog_reviews
-USING bm25 (id, product_id, stars)
-WITH (numeric_fields='{"product_id": {"fast": true}, "stars": {"fast": true}}');
+USING paradedb (id, product_id, stars);
 CREATE INDEX aog_notes_idx ON aog_notes
-USING bm25 (id, product_id, note)
-WITH (numeric_fields='{"product_id": {"fast": true}}', text_fields='{"note": {"fast": true}}');
+USING paradedb (id, product_id, (note::pdb.unicode_words('columnar=true')));
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO aog_products (description, category, brand, price)
 SELECT CASE WHEN i % 10 = 0 THEN 'gadget ' ELSE 'widget ' END || i,

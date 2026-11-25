@@ -9,38 +9,36 @@ SET enable_seqscan = off;
 -- Grouping column is heap attribute 2.
 CREATE TABLE mixed_check (id integer PRIMARY KEY, category text);
 INSERT INTO mixed_check VALUES (1, 'a'), (2, 'a'), (3, 'b');
-CREATE INDEX mixed_check_idx ON mixed_check USING paradedb (id, category)
-  WITH (text_fields='{"category":{"fast":true}}');
+CREATE INDEX mixed_check_idx ON mixed_check USING paradedb (id, (category::pdb.unicode_words('columnar=true')));
 ANALYZE mixed_check;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY category ORDER BY category;
 
 SELECT category, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY category ORDER BY category;
 
 -- Grouping column is heap attribute 3.
 CREATE TABLE mixed_check3 (id integer PRIMARY KEY, filler text, category text);
 INSERT INTO mixed_check3 VALUES (1, 'x', 'a'), (2, 'x', 'a'), (3, 'x', 'b');
-CREATE INDEX mixed_check3_idx ON mixed_check3 USING paradedb (id, category)
-  WITH (text_fields='{"category":{"fast":true}}');
+CREATE INDEX mixed_check3_idx ON mixed_check3 USING paradedb (id, (category::pdb.unicode_words('columnar=true')));
 ANALYZE mixed_check3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, COUNT(*)::text || category AS mixed
-FROM mixed_check3 WHERE mixed_check3 @@@ paradedb.all()
+FROM mixed_check3 WHERE mixed_check3 @@@ pdb.all()
 GROUP BY category ORDER BY category;
 
 SELECT category, COUNT(*)::text || category AS mixed
-FROM mixed_check3 WHERE mixed_check3 @@@ paradedb.all()
+FROM mixed_check3 WHERE mixed_check3 @@@ pdb.all()
 GROUP BY category ORDER BY category;
 
 -- Mixed expression before the grouping column in the target list.
 SELECT COUNT(*)::text || category AS mixed, category
-FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY category ORDER BY category;
 
 -- category is not a grouping column. Postgres accepts it because id is the
@@ -49,11 +47,11 @@ GROUP BY category ORDER BY category;
 -- aggregation. Grouping only by category would collapse the two 'a' rows.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY id ORDER BY id;
 
 SELECT id, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY id ORDER BY id;
 
 -- Grouping by an indexed expression. The slot already holds reverse(category), so the
@@ -79,8 +77,7 @@ GROUP BY reverse(category) ORDER BY 2;
 -- Grouping by the bare column: reverse() in the mixed expression runs once, on the slot value.
 CREATE TABLE mixed_rev_col (id integer PRIMARY KEY, category text);
 INSERT INTO mixed_rev_col VALUES (1, 'abc'), (2, 'abc'), (3, 'xyz');
-CREATE INDEX mixed_rev_col_idx ON mixed_rev_col USING paradedb (id, category)
-  WITH (text_fields='{"category":{"fast":true}}');
+CREATE INDEX mixed_rev_col_idx ON mixed_rev_col USING paradedb (id, (category::pdb.unicode_words('columnar=true')));
 ANALYZE mixed_rev_col;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -97,11 +94,11 @@ SET paradedb.enable_aggregate_custom_scan = off;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY id ORDER BY id;
 
 SELECT id, COUNT(*)::text || category AS mixed
-FROM mixed_check WHERE mixed_check @@@ paradedb.all()
+FROM mixed_check WHERE mixed_check @@@ pdb.all()
 GROUP BY id ORDER BY id;
 
 SELECT reverse(category), COUNT(*)::text || reverse(category) AS mixed

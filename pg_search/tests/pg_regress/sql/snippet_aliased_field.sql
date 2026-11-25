@@ -15,10 +15,7 @@ INSERT INTO snippet_alias_test (content) VALUES
 ('Die Zertifikate werden jaehrlich an alle Mitglieder ausgestellt');
 
 CREATE INDEX snippet_alias_idx ON snippet_alias_test
-USING bm25 (id, content)
-WITH (
-    text_fields = '{"content_de": {"tokenizer": {"type": "default", "stemmer": "German"}, "column": "content"}}'
-);
+USING paradedb (id, content, (content::pdb.simple('stemmer=German', 'alias=content_de')));
 
 -- The alias only stems in German, so this match is reachable through it alone.
 SELECT id, pdb.snippet(content) FROM snippet_alias_test
@@ -51,7 +48,7 @@ INSERT INTO snippet_alias_only (content) VALUES
 ('Die Zertifikate werden jaehrlich ausgestellt');
 
 CREATE INDEX snippet_alias_only_idx ON snippet_alias_only
-USING bm25 (id, ((content)::pdb.simple('stemmer=german', 'alias=content_de')));
+USING paradedb (id, ((content)::pdb.simple('stemmer=german', 'alias=content_de')));
 
 SELECT id, pdb.snippet(content) FROM snippet_alias_only
 WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
@@ -67,7 +64,7 @@ CREATE TABLE snippet_alias_empty (
 );
 
 CREATE INDEX snippet_alias_empty_idx ON snippet_alias_empty
-USING bm25 (id, ((content)::pdb.simple('stemmer=german', 'alias=content_de')));
+USING paradedb (id, ((content)::pdb.simple('stemmer=german', 'alias=content_de')));
 
 SELECT id, pdb.snippet(content) FROM snippet_alias_empty
 WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
@@ -86,10 +83,7 @@ INSERT INTO snippet_alias_both (content) VALUES
 ('Certificates in English and Zertifikate in German sit in one document');
 
 CREATE INDEX snippet_alias_both_idx ON snippet_alias_both
-USING bm25 (id, content)
-WITH (
-    text_fields = '{"content_de": {"tokenizer": {"type": "default", "stemmer": "German"}, "column": "content"}}'
-);
+USING paradedb (id, content, (content::pdb.simple('stemmer=German', 'alias=content_de')));
 
 SELECT id, pdb.snippet_positions(content) FROM snippet_alias_both
 WHERE content ||| 'certificates' OR content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
@@ -104,7 +98,7 @@ CREATE TABLE snippet_alias_computed (
 );
 INSERT INTO snippet_alias_computed (content) VALUES ('cat dog');
 CREATE INDEX snippet_alias_computed_idx ON snippet_alias_computed
-USING bm25 (
+USING paradedb (
     id, content,
     (replace(content, 'cat', 'dog')::pdb.simple('alias=replaced_content'))
 );

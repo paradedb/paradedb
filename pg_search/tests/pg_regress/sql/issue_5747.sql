@@ -27,16 +27,16 @@ EXPLAIN
 SELECT le.id
 FROM pc_small le
 JOIN pc_big sv ON sv.id = le.series_id
-WHERE le.id @@@ paradedb.term('user_id', 'u1')
-  AND sv.id @@@ paradedb.term('state', 'merged')
+WHERE le.user_id === 'u1'
+  AND sv.state === 'merged'
 ORDER BY le.id
 LIMIT 5;
 
 SELECT le.id
 FROM pc_small le
 JOIN pc_big sv ON sv.id = le.series_id
-WHERE le.id @@@ paradedb.term('user_id', 'u1')
-  AND sv.id @@@ paradedb.term('state', 'merged')
+WHERE le.user_id === 'u1'
+  AND sv.state === 'merged'
 ORDER BY le.id
 LIMIT 5;
 DROP TABLE pc_big, pc_small CASCADE;

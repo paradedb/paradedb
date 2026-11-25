@@ -101,12 +101,12 @@ SELECT 'running shoes'::pdb.slop(2)::pdb.const(3);
 --
 -- end-to-end scoring: tokenizer -> boost scales linearly vs plain text baseline
 --
-SELECT id, paradedb.score(id) AS score
+SELECT id, pdb.score(id) AS score
 FROM mock_items
 WHERE description &&& 'shoes'
 ORDER BY id;
 
-SELECT id, paradedb.score(id) AS score
+SELECT id, pdb.score(id) AS score
 FROM mock_items
 WHERE description &&& 'shoes'::pdb.whitespace::pdb.boost(3)
 ORDER BY id;
@@ -114,7 +114,7 @@ ORDER BY id;
 --
 -- end-to-end scoring: tokenizer -> const assigns a fixed score
 --
-SELECT id, paradedb.score(id) AS score
+SELECT id, pdb.score(id) AS score
 FROM mock_items
 WHERE description &&& 'shoes'::pdb.whitespace::pdb.const(5)
 ORDER BY id;

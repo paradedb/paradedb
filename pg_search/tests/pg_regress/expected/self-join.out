@@ -29,16 +29,16 @@ CREATE INDEX test_items_idx ON test_items USING paradedb (id, description);
 -- a.description ||| 'bear' AND b.description ||| 'teddy bear'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id,
-       paradedb.score(a.id) as a_score,
+       pdb.score(a.id) as a_score,
        b.id,
-       paradedb.score(b.id) as b_score
+       pdb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
 WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_items b
-   Output: b.id, paradedb.score(b.id), b.id, paradedb.score(b.id)
+   Output: b.id, pdb.score(b.id), b.id, pdb.score(b.id)
    Table: test_items
    Index: test_items_idx
    Worker Selection: Cost model
@@ -48,9 +48,9 @@ WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
 (8 rows)
 
 SELECT a.id,
-       paradedb.score(a.id) as a_score,
+       pdb.score(a.id) as a_score,
        b.id,
-       paradedb.score(b.id) as b_score
+       pdb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
 WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
@@ -66,9 +66,9 @@ WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
 -- a.description ||| 'bear' OR b.description ||| 'teddy bear'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id,
-       paradedb.score(a.id) as a_score,
+       pdb.score(a.id) as a_score,
        b.id,
-       paradedb.score(b.id) as b_score
+       pdb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
 WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
@@ -77,9 +77,9 @@ LIMIT 1;
                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                       
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: b.id, (paradedb.score(b.id)), b.id, (paradedb.score(b.id))
+   Output: b.id, (pdb.score(b.id)), b.id, (pdb.score(b.id))
    ->  Custom Scan (ParadeDB Base Scan) on public.test_items b
-         Output: b.id, paradedb.score(b.id), b.id, paradedb.score(b.id)
+         Output: b.id, pdb.score(b.id), b.id, pdb.score(b.id)
          Table: test_items
          Index: test_items_idx
          Worker Selection: Cost model
@@ -91,9 +91,9 @@ LIMIT 1;
 (12 rows)
 
 SELECT a.id,
-       paradedb.score(a.id) as a_score,
+       pdb.score(a.id) as a_score,
        b.id,
-       paradedb.score(b.id) as b_score
+       pdb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
 WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
@@ -107,13 +107,13 @@ LIMIT 1;
 -- Test 3: Self-join with subqueries that include score()
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, a.score, b.id, b.score
-FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
-INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+FROM (SELECT pdb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT pdb.score(id) as score, * FROM test_items) b ON a.id = b.id
 WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_items
-   Output: test_items.id, paradedb.score(test_items.id), test_items.id, paradedb.score(test_items.id)
+   Output: test_items.id, pdb.score(test_items.id), test_items.id, pdb.score(test_items.id)
    Table: test_items
    Index: test_items_idx
    Worker Selection: Cost model
@@ -123,8 +123,8 @@ WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
 (8 rows)
 
 SELECT a.id, a.score, b.id, b.score
-FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
-INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+FROM (SELECT pdb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT pdb.score(id) as score, * FROM test_items) b ON a.id = b.id
 WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
  id |   score    | id |   score    
 ----+------------+----+------------
@@ -137,17 +137,17 @@ WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
 -- Test 4: Self-join with subqueries and OR condition
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, a.score, b.id, b.score
-FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
-INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+FROM (SELECT pdb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT pdb.score(id) as score, * FROM test_items) b ON a.id = b.id
 WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                       
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: test_items.id, (paradedb.score(test_items.id)), test_items.id, (paradedb.score(test_items.id))
+   Output: test_items.id, (pdb.score(test_items.id)), test_items.id, (pdb.score(test_items.id))
    ->  Custom Scan (ParadeDB Base Scan) on public.test_items
-         Output: test_items.id, paradedb.score(test_items.id), test_items.id, paradedb.score(test_items.id)
+         Output: test_items.id, pdb.score(test_items.id), test_items.id, pdb.score(test_items.id)
          Table: test_items
          Index: test_items_idx
          Worker Selection: Cost model
@@ -159,8 +159,8 @@ LIMIT 1;
 (12 rows)
 
 SELECT a.id, a.score, b.id, b.score
-FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
-INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+FROM (SELECT pdb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT pdb.score(id) as score, * FROM test_items) b ON a.id = b.id
 WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
@@ -183,9 +183,9 @@ INSERT INTO test_orders (item_id, customer) VALUES
 CREATE INDEX test_orders_idx ON test_orders USING paradedb (order_id, customer);
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id,
-       paradedb.score(i.id) as item_score,
+       pdb.score(i.id) as item_score,
        o.order_id,
-       paradedb.score(o.order_id) as order_score
+       pdb.score(o.order_id) as order_score
 FROM test_items i
 INNER JOIN test_orders o ON i.id = o.item_id
 WHERE i.description ||| 'teddy bear' AND o.customer ||| 'alice';
@@ -193,10 +193,10 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i,
                                                                                                   QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Hash Join
-   Output: i.id, (paradedb.score(i.id)), o.order_id, (paradedb.score(o.order_id))
+   Output: i.id, (pdb.score(i.id)), o.order_id, (pdb.score(o.order_id))
    Hash Cond: (i.id = o.item_id)
    ->  Custom Scan (ParadeDB Base Scan) on public.test_items i
-         Output: i.id, paradedb.score(i.id), paradedb.score(i.id)
+         Output: i.id, pdb.score(i.id), pdb.score(i.id)
          Table: test_items
          Index: test_items_idx
          Worker Selection: Cost model
@@ -204,9 +204,9 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i,
          Scores: true
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"teddy bear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
    ->  Hash
-         Output: o.order_id, o.item_id, (paradedb.score(o.order_id)), (paradedb.score(o.order_id))
+         Output: o.order_id, o.item_id, (pdb.score(o.order_id)), (pdb.score(o.order_id))
          ->  Custom Scan (ParadeDB Base Scan) on public.test_orders o
-               Output: o.order_id, o.item_id, paradedb.score(o.order_id), paradedb.score(o.order_id)
+               Output: o.order_id, o.item_id, pdb.score(o.order_id), pdb.score(o.order_id)
                Table: test_orders
                Index: test_orders_idx
                Worker Selection: Cost model
@@ -216,9 +216,9 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i,
 (21 rows)
 
 SELECT i.id,
-       paradedb.score(i.id) as item_score,
+       pdb.score(i.id) as item_score,
        o.order_id,
-       paradedb.score(o.order_id) as order_score
+       pdb.score(o.order_id) as order_score
 FROM test_items i
 INNER JOIN test_orders o ON i.id = o.item_id
 WHERE i.description ||| 'teddy bear' AND o.customer ||| 'alice';

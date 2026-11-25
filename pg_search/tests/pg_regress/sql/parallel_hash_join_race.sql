@@ -138,9 +138,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| 'ea'
-  AND (c.author @@@ paradedb.match('author', 'brian griffin')
-       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
-       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND (c.author ||| 'brian griffin'
+       OR c.author ||| 'barabara pewterschmidt'
+       OR c.author ||| 'bonnie swanson')
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
 
@@ -148,9 +148,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| 'ea'
-  AND (c.author @@@ paradedb.match('author', 'brian griffin')
-       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
-       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND (c.author ||| 'brian griffin'
+       OR c.author ||| 'barabara pewterschmidt'
+       OR c.author ||| 'bonnie swanson')
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
 
@@ -158,9 +158,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| 'ea'
-  AND (c.author @@@ paradedb.match('author', 'brian griffin')
-       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
-       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND (c.author ||| 'brian griffin'
+       OR c.author ||| 'barabara pewterschmidt'
+       OR c.author ||| 'bonnie swanson')
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
 
@@ -168,9 +168,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| 'ea'
-  AND (c.author @@@ paradedb.match('author', 'brian griffin')
-       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
-       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND (c.author ||| 'brian griffin'
+       OR c.author ||| 'barabara pewterschmidt'
+       OR c.author ||| 'bonnie swanson')
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
 
@@ -178,9 +178,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| 'ea'
-  AND (c.author @@@ paradedb.match('author', 'brian griffin')
-       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
-       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND (c.author ||| 'brian griffin'
+       OR c.author ||| 'barabara pewterschmidt'
+       OR c.author ||| 'bonnie swanson')
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
 
@@ -188,9 +188,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| 'ea'
-  AND (c.author @@@ paradedb.match('author', 'brian griffin')
-       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
-       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND (c.author ||| 'brian griffin'
+       OR c.author ||| 'barabara pewterschmidt'
+       OR c.author ||| 'bonnie swanson')
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
 
@@ -198,9 +198,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| 'ea'
-  AND (c.author @@@ paradedb.match('author', 'brian griffin')
-       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
-       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND (c.author ||| 'brian griffin'
+       OR c.author ||| 'barabara pewterschmidt'
+       OR c.author ||| 'bonnie swanson')
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
 
@@ -210,9 +210,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| 'ea'
-  AND (c.author @@@ paradedb.match('author', 'brian griffin')
-       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
-       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND (c.author ||| 'brian griffin'
+       OR c.author ||| 'barabara pewterschmidt'
+       OR c.author ||| 'bonnie swanson')
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
 
@@ -220,9 +220,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| 'ea'
-  AND (c.author @@@ paradedb.match('author', 'brian griffin')
-       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
-       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND (c.author ||| 'brian griffin'
+       OR c.author ||| 'barabara pewterschmidt'
+       OR c.author ||| 'bonnie swanson')
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
 
@@ -230,9 +230,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| 'ea'
-  AND (c.author @@@ paradedb.match('author', 'brian griffin')
-       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
-       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND (c.author ||| 'brian griffin'
+       OR c.author ||| 'barabara pewterschmidt'
+       OR c.author ||| 'bonnie swanson')
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
 
@@ -242,9 +242,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| $1
-  AND (c.author @@@ paradedb.match('author', $2)
-       OR c.author @@@ paradedb.match('author', $3)
-       OR c.author @@@ paradedb.match('author', $4))
+  AND (c.author ||| $2
+       OR c.author ||| $3
+       OR c.author ||| $4)
   AND DATE(c.date_time_combined) >= $5
   AND DATE(c.date_time_combined) <= $6;
 
@@ -268,9 +268,9 @@ SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
 WHERE dt.full_text ||| $1
-  AND (c.author @@@ paradedb.match('author', $2)
-       OR c.author @@@ paradedb.match('author', $3)
-       OR c.author @@@ paradedb.match('author', $4))
+  AND (c.author ||| $2
+       OR c.author ||| $3
+       OR c.author ||| $4)
   AND DATE(c.date_time_combined) >= $5
   AND DATE(c.date_time_combined) <= $6;
 

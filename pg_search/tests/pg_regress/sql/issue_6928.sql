@@ -17,9 +17,9 @@ FROM generate_series(1, 100) AS i;
 CREATE INDEX issue_6928_docs_idx ON issue_6928_docs USING paradedb (id, body);
 
 -- The lookup stays empty, so the scalar subquery evaluates to NULL while the
--- query runs. A literal `(SELECT NULL::paradedb.searchqueryinput)` would instead
+-- query runs. A literal `(SELECT NULL::pdb.query)` would instead
 -- be folded to a NULL Const and rejected earlier by qual inspection.
-CREATE TABLE issue_6928_lookup (q paradedb.searchqueryinput);
+CREATE TABLE issue_6928_lookup (q pdb.query);
 
 -- Control: the index matches every row.
 SELECT count(*) FROM issue_6928_docs WHERE body @@@ 'document';
@@ -65,15 +65,15 @@ WHERE NOT (body @@@ (SELECT q FROM issue_6928_lookup)) OR body @@@ 'document';
 -- fold for a generic plan.
 SET plan_cache_mode = force_generic_plan;
 
-PREPARE issue_6928_positive(paradedb.searchqueryinput) AS
+PREPARE issue_6928_positive(pdb.query) AS
 SELECT count(*) FROM issue_6928_docs WHERE body @@@ $1;
 
 EXECUTE issue_6928_positive(NULL);
-EXECUTE issue_6928_positive(paradedb.all());
+EXECUTE issue_6928_positive(pdb.all());
 
 DEALLOCATE issue_6928_positive;
 
-PREPARE issue_6928_negated(paradedb.searchqueryinput) AS
+PREPARE issue_6928_negated(pdb.query) AS
 SELECT count(*) FROM issue_6928_docs WHERE NOT (body @@@ $1);
 
 EXECUTE issue_6928_negated(NULL);

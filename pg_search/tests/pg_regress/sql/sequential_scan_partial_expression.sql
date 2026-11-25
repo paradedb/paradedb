@@ -65,7 +65,7 @@ $$;
 SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor
 WHERE divisor <> 0 AND lower(body) === 'alpha';
 SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor
-WHERE divisor <> 0 AND partial_expression_anchor @@@ paradedb.term('lower_body', 'alpha');
+WHERE divisor <> 0 AND lower(body)::pdb.alias('lower_body') === 'alpha';
 
 SET LOCAL paradedb.enable_custom_scan = off;
 SET LOCAL enable_seqscan = off;

@@ -32,11 +32,11 @@ SET debug_parallel_query TO on;
 EXPLAIN (COSTS OFF)
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
+    WHERE bank_id = 'bank1' AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
 FROM drv d ORDER BY d.n;
-                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 2
    ->  Sort
@@ -59,15 +59,15 @@ FROM drv d ORDER BY d.n;
                                          Scores: true
                                             TopK Order By: pdb.score() desc, id asc
                                             TopK Limit: 3
-                                         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+                                         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
                                          ->  Bitmap Index Scan on clean_bank
                                                Index Cond: (bank_id = 'bank1'::text)
 (25 rows)
 
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
+    WHERE bank_id = 'bank1' AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
 FROM drv d ORDER BY d.n;
  n |   ids   
 ---+---------
@@ -81,11 +81,11 @@ FROM drv d ORDER BY d.n;
 EXPLAIN (COSTS OFF)
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE bank_id = (SELECT 'bank' || d.n) AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
-                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 2
    ->  Sort
@@ -109,15 +109,15 @@ FROM drv d ORDER BY d.n;
                                          Scores: true
                                             TopK Order By: pdb.score() desc, id asc
                                             TopK Limit: 3
-                                         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = $2)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+                                         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = $2)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
                                          ->  Bitmap Index Scan on clean_bank
                                                Index Cond: (bank_id = (InitPlan 1).col1)
 (26 rows)
 
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE bank_id = (SELECT 'bank' || d.n) AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
  n |   ids    
 ---+----------
@@ -135,11 +135,11 @@ SET paradedb.enable_bitmap_intersection TO off;
 EXPLAIN (COSTS OFF)
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE bank_id = (SELECT 'bank' || d.n) AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
-                                                                                                                                                                             QUERY PLAN                                                                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 2
    ->  Sort
@@ -162,13 +162,13 @@ FROM drv d ORDER BY d.n;
                                          Scores: true
                                             TopK Order By: pdb.score() desc, id asc
                                             TopK Limit: 3
-                                         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(bank_id = $2)"}]}}]}}
+                                         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(bank_id = $2)"}]}}]}}
 (23 rows)
 
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE bank_id = (SELECT 'bank' || d.n) AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
  n |   ids    
 ---+----------
@@ -181,8 +181,8 @@ SET paradedb.enable_bitmap_intersection TO on;
 EXPLAIN (COSTS OFF)
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE id @@@ paradedb.term('body', (SELECT (d.n * 4 + 1)::text))
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE body === (SELECT (d.n * 4 + 1)::text)
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -213,8 +213,8 @@ FROM drv d ORDER BY d.n;
 
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE id @@@ paradedb.term('body', (SELECT (d.n * 4 + 1)::text))
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE body === (SELECT (d.n * 4 + 1)::text)
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
  n | ids  
 ---+------
@@ -229,11 +229,11 @@ EXPLAIN (COSTS OFF)
 SELECT d.n, (SELECT count(*) FROM (
     SELECT id FROM (
         SELECT id FROM clean_units
-        WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha') OFFSET 0) x
+        WHERE bank_id = 'bank1' AND body ||| 'alpha' OFFSET 0) x
     LIMIT 3) s WHERE d.n > 0) AS rows
 FROM drv d ORDER BY d.n;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 2
    ->  Sort
@@ -252,7 +252,7 @@ FROM drv d ORDER BY d.n;
                                    Bitmap Intersection: clean_bank
                                    Exec Method: NormalScanExecState
                                    Scores: false
-                                   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+                                   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
                                    ->  Bitmap Index Scan on clean_bank
                                          Index Cond: (bank_id = 'bank1'::text)
 (21 rows)
@@ -260,7 +260,7 @@ FROM drv d ORDER BY d.n;
 SELECT d.n, (SELECT count(*) FROM (
     SELECT id FROM (
         SELECT id FROM clean_units
-        WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha') OFFSET 0) x
+        WHERE bank_id = 'bank1' AND body ||| 'alpha' OFFSET 0) x
     LIMIT 3) s WHERE d.n > 0) AS rows
 FROM drv d ORDER BY d.n;
  n | rows 
@@ -274,8 +274,8 @@ FROM drv d ORDER BY d.n;
 SET max_parallel_workers_per_gather TO 0;
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
+    WHERE bank_id = 'bank1' AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s WHERE d.n > 0) AS ids
 FROM drv d ORDER BY d.n;
  n |   ids   
 ---+---------
@@ -286,8 +286,8 @@ FROM drv d ORDER BY d.n;
 
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE bank_id = (SELECT 'bank' || d.n) AND id @@@ paradedb.match('body', 'alpha')
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE bank_id = (SELECT 'bank' || d.n) AND body ||| 'alpha'
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
  n |   ids    
 ---+----------
@@ -298,8 +298,8 @@ FROM drv d ORDER BY d.n;
 
 SELECT d.n, (SELECT array_agg(s.id ORDER BY s.id) FROM (
     SELECT id FROM clean_units
-    WHERE id @@@ paradedb.term('body', (SELECT (d.n * 4 + 1)::text))
-    ORDER BY paradedb.score(id) DESC, id LIMIT 3) s) AS ids
+    WHERE body === (SELECT (d.n * 4 + 1)::text)
+    ORDER BY pdb.score(id) DESC, id LIMIT 3) s) AS ids
 FROM drv d ORDER BY d.n;
  n | ids  
 ---+------
@@ -311,7 +311,7 @@ FROM drv d ORDER BY d.n;
 SELECT d.n, (SELECT count(*) FROM (
     SELECT id FROM (
         SELECT id FROM clean_units
-        WHERE bank_id = 'bank1' AND id @@@ paradedb.match('body', 'alpha') OFFSET 0) x
+        WHERE bank_id = 'bank1' AND body ||| 'alpha' OFFSET 0) x
     LIMIT 3) s WHERE d.n > 0) AS rows
 FROM drv d ORDER BY d.n;
  n | rows 

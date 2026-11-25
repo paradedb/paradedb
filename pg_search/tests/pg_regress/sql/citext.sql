@@ -353,9 +353,9 @@ ORDER BY pdb.score(id) DESC, id;
 SELECT id, content FROM citext_topk WHERE content === 'quick' ORDER BY id;
 SELECT id, content FROM citext_topk WHERE content === 'QUICK' ORDER BY id;  -- expects 0 rows
 
--- paradedb.term() with 'QUICK': raw term lookup — 0 rows since tokens are stored lowercased
+-- pdb.term() with 'QUICK': raw term lookup — 0 rows since tokens are stored lowercased
 SELECT id, content FROM citext_topk
-WHERE content ||| paradedb.term('content', 'QUICK')
+WHERE content @@@ pdb.term('QUICK')
 ORDER BY id;
 
 -- ### (phrase): case-insensitive phrase matching

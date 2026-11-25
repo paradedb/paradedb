@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET plan_cache_mode = force_generic_plan;
 CREATE TABLE stable_plan_docs (id int PRIMARY KEY, tenant_id int, body text);
 INSERT INTO stable_plan_docs VALUES (1, 1, 'canal'), (2, 2, 'canal');
-CREATE INDEX stable_plan_idx ON stable_plan_docs USING bm25 (id, tenant_id, body);
+CREATE INDEX stable_plan_idx ON stable_plan_docs USING paradedb (id, tenant_id, body);
 CREATE FUNCTION stable_plan_tenant() RETURNS int LANGUAGE plpgsql STABLE AS $$
 BEGIN RETURN current_setting('app.tenant_id')::int; END
 $$;
@@ -82,7 +82,7 @@ EXECUTE stable_bool;
 -- Direct search-query expressions must also remain runtime expressions.
 SET app.tenant_id = '1';
 PREPARE stable_query AS SELECT id FROM stable_plan_docs
-WHERE id @@@ paradedb.term('tenant_id', stable_plan_tenant()) ORDER BY id;
+WHERE tenant_id @@@ pdb.term(stable_plan_tenant()) ORDER BY id;
 EXECUTE stable_query;
  id 
 ----
@@ -178,7 +178,7 @@ CREATE TABLE stable_uuid_docs (id int PRIMARY KEY, tenant_id uuid, body text);
 INSERT INTO stable_uuid_docs VALUES
     (1, '00000000-0000-0000-0000-000000000001', 'canal'),
     (2, '00000000-0000-0000-0000-000000000002', 'canal');
-CREATE INDEX stable_uuid_idx ON stable_uuid_docs USING bm25 (id, tenant_id, body);
+CREATE INDEX stable_uuid_idx ON stable_uuid_docs USING paradedb (id, tenant_id, body);
 GRANT SELECT ON stable_uuid_docs TO stable_plan_app;
 ALTER TABLE stable_uuid_docs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stable_uuid_docs FORCE ROW LEVEL SECURITY;

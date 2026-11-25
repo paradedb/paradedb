@@ -26,7 +26,7 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -42,7 +42,7 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
  count | min | max 
 -------+-----+-----
@@ -52,7 +52,7 @@ FROM (
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('custom.score:>990');
+WHERE id @@@ pdb.parse('custom.score:>990');
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
@@ -65,7 +65,7 @@ WHERE id @@@ paradedb.parse('custom.score:>990');
 
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('custom.score:>990');
+WHERE id @@@ pdb.parse('custom.score:>990');
  count 
 -------
      3
@@ -77,7 +77,7 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -97,7 +97,7 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
  count | min | max 
 -------+-----+-----
@@ -127,7 +127,7 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('score:>990')
+    WHERE id @@@ pdb.parse('score:>990')
 ) q;
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
@@ -143,7 +143,7 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('score:>990')
+    WHERE id @@@ pdb.parse('score:>990')
 ) q;
  count | min | max 
 -------+-----+-----
@@ -153,7 +153,7 @@ FROM (
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('score:>990');
+WHERE id @@@ pdb.parse('score:>990');
                                                         QUERY PLAN                                                        
 --------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6197_json_fast_field_repro
@@ -166,7 +166,7 @@ WHERE id @@@ paradedb.parse('score:>990');
 
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('score:>990');
+WHERE id @@@ pdb.parse('score:>990');
  count 
 -------
      3

@@ -83,10 +83,8 @@ INSERT INTO jsm_prices (amt) VALUES
     (4.400),
     (5.500);
 
-CREATE INDEX jsm_items_idx ON jsm_items USING paradedb (id, txt, amt)
-  WITH (text_fields='{"txt":{"fast":true}}', numeric_fields='{"amt":{"fast":true}}');
-CREATE INDEX jsm_prices_idx ON jsm_prices USING paradedb (id, amt)
-  WITH (numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX jsm_items_idx ON jsm_items USING paradedb (id, (txt::pdb.unicode_words('columnar=true')), amt);
+CREATE INDEX jsm_prices_idx ON jsm_prices USING paradedb (id, amt);
 
 ANALYZE jsm_items;
 ANALYZE jsm_prices;
@@ -151,8 +149,7 @@ CREATE TABLE jsm_prices_samescale (
 INSERT INTO jsm_prices_samescale (amt) VALUES
     (1.10), (2.20), (3.30), (4.40), (5.50);
 
-CREATE INDEX jsm_prices_samescale_idx ON jsm_prices_samescale USING paradedb (id, amt)
-  WITH (numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX jsm_prices_samescale_idx ON jsm_prices_samescale USING paradedb (id, amt);
 ANALYZE jsm_prices_samescale;
 
 EXPLAIN (COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM (
@@ -193,8 +190,7 @@ CREATE TABLE jsm_prices_unbounded (
 INSERT INTO jsm_prices_unbounded (amt) VALUES
     (1.10), (2.20), (3.30), (4.40), (5.50);
 
-CREATE INDEX jsm_prices_unbounded_idx ON jsm_prices_unbounded USING paradedb (id, amt)
-  WITH (numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX jsm_prices_unbounded_idx ON jsm_prices_unbounded USING paradedb (id, amt);
 ANALYZE jsm_prices_unbounded;
 
 EXPLAIN (COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM (
@@ -240,8 +236,7 @@ CREATE TABLE jsm_prices_bignumeric (
 INSERT INTO jsm_prices_bignumeric (amt) VALUES
     (1.10), (2.20), (3.30), (4.40), (5.50);
 
-CREATE INDEX jsm_prices_bignumeric_idx ON jsm_prices_bignumeric USING paradedb (id, amt)
-  WITH (numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX jsm_prices_bignumeric_idx ON jsm_prices_bignumeric USING paradedb (id, amt);
 ANALYZE jsm_prices_bignumeric;
 
 EXPLAIN (COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM (
@@ -300,10 +295,8 @@ CREATE TABLE jsm_prices_bignumeric2 (
 INSERT INTO jsm_prices_bignumeric2 (amt) VALUES
     (1.10), (2.20), (3.30), (4.40), (5.50);
 
-CREATE INDEX jsm_items_bignumeric_idx ON jsm_items_bignumeric USING paradedb (id, txt, amt)
-  WITH (text_fields='{"txt":{"fast":true}}', numeric_fields='{"amt":{"fast":true}}');
-CREATE INDEX jsm_prices_bignumeric2_idx ON jsm_prices_bignumeric2 USING paradedb (id, amt)
-  WITH (numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX jsm_items_bignumeric_idx ON jsm_items_bignumeric USING paradedb (id, (txt::pdb.unicode_words('columnar=true')), amt);
+CREATE INDEX jsm_prices_bignumeric2_idx ON jsm_prices_bignumeric2 USING paradedb (id, amt);
 ANALYZE jsm_items_bignumeric;
 ANALYZE jsm_prices_bignumeric2;
 

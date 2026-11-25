@@ -1575,8 +1575,7 @@ impl CustomScan for BaseScan {
 
             // The scan's own target list holds the calls that PostgreSQL places in this scan,
             // such as the PlaceHolderVar of an inheritance parent, translated to this table.
-            let own_tlist: Vec<*mut pg_sys::TargetEntry> = tlist.iter_ptr().collect();
-            for te in own_tlist {
+            for te in tlist.iter_ptr() {
                 for (_, var, attname) in
                     pullout_funcexprs(te.cast(), &funcoids, rti, builder.args().root)
                 {

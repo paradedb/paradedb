@@ -62,6 +62,13 @@ FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
 SELECT id, pdb.score(id) > 0 AS scored FROM inh_parent
 WHERE kind ||| 'a c' ORDER BY pdb.score(id) DESC, id LIMIT 2;
 
+-- INSERT ... SELECT also computes the score and snippet for each table.
+CREATE TEMP TABLE inh_sink (id INT, score REAL, snippet TEXT);
+INSERT INTO inh_sink
+SELECT id, pdb.score(id), pdb.snippet(kind) FROM inh_parent WHERE kind ||| 'a c';
+SELECT id, score > 0 AS scored, snippet FROM inh_sink ORDER BY id;
+DROP TABLE inh_sink;
+
 -- The same with an aggregate above the `Append`.
 SELECT count(*), max(pdb.score(id)) > 0 AS scored FROM inh_parent WHERE kind ||| 'a c';
 SELECT max(pdb.snippet(kind)) FROM inh_parent WHERE kind ||| 'a c';

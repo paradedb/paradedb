@@ -26,7 +26,7 @@ pub use interrupt::{
 };
 
 pub mod glue {
-    use crate::postgres::node::{NodeExt, WalkControl};
+    use crate::postgres::node::NodeExt;
     use pgrx::pg_sys;
 
     use crate::postgres::customscan::mpp::dsm_stream::{
@@ -217,24 +217,18 @@ pub mod glue {
     }
 
     unsafe fn expr_has_mpp_parallel_hazard(expr: *mut pg_sys::Node) -> bool {
-        expr.walk(|node| unsafe {
-            if pg_sys::check_functions_in_node(
+        expr.any(|node| unsafe {
+            pg_sys::check_functions_in_node(
                 node,
                 Some(non_parallel_safe_func_checker),
                 std::ptr::null_mut(),
-            ) {
-                return WalkControl::Break;
-            }
-            match (*node).type_ {
+            ) || matches!(
+                (*node).type_,
                 pg_sys::NodeTag::T_CoerceToDomain
-                | pg_sys::NodeTag::T_NextValueExpr
-                | pg_sys::NodeTag::T_WindowFunc
-                | pg_sys::NodeTag::T_SubLink => WalkControl::Break,
-                pg_sys::NodeTag::T_RestrictInfo => {
-                    WalkControl::VisitChild((*node.cast::<pg_sys::RestrictInfo>()).clause.cast())
-                }
-                _ => WalkControl::Continue,
-            }
+                    | pg_sys::NodeTag::T_NextValueExpr
+                    | pg_sys::NodeTag::T_WindowFunc
+                    | pg_sys::NodeTag::T_SubLink
+            )
         })
     }
 

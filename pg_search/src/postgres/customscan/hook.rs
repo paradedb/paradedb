@@ -27,7 +27,7 @@ use crate::postgres::customscan::builders::custom_path::{
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
-use crate::postgres::node::{MutateControl, NodeExt};
+use crate::postgres::node::{MutateControl, NodeExt, WalkControl};
 use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::search_operator_relations;
@@ -270,64 +270,14 @@ pub unsafe fn register_planner_hook() {
     pg_sys::planner_hook = Some(paradedb_planner_hook);
 }
 
-/// Check if the WHERE clause can be handled by our custom scan.
-///
-/// This function attempts to extract quals the same way `extract_quals` does to determine
-/// if WHERE clause predicates can be pushed down to the index or handled via heap filtering.
-///
-/// Returns:
-/// - `true` if the WHERE clause can be handled
-/// - `false` if the WHERE clause has predicates that cannot be handled
 unsafe fn can_handle_where_clause(parse: *mut pg_sys::Query) -> bool {
-    // If filter_pushdown is enabled, we can handle any WHERE clause via HeapExpr or Qual::All
-    if crate::gucs::enable_filter_pushdown() {
+    let jointree = (*parse).jointree;
+    if gucs::enable_filter_pushdown() || jointree.is_null() || (*jointree).quals.is_null() {
         return true;
     }
 
-    // Check if there's a WHERE clause at all
-    if (*parse).jointree.is_null() {
-        return true; // No WHERE clause
-    }
-
-    let jointree = (*parse).jointree;
-    if (*jointree).quals.is_null() {
-        return true; // No WHERE clause predicates
-    }
-
-    // Use the shared helper to check if we can extract quals from the WHERE clause
-    // If we can't extract quals (either no index found or extraction failed), we can't handle it
-    try_extract_quals_from_query(parse, (*jointree).quals)
-}
-
-/// Shared helper function to check if quals can be extracted from a Query's WHERE clause.
-///
-/// This function encapsulates the common logic of:
-/// 1. Finding a relation with a ParadeDB index in the query's range table
-/// 2. Attempting to extract quals using Query context
-///
-/// Used by `can_handle_where_clause` in the planner hook (to decide if we should replace window functions)
-///
-/// Returns:
-/// - `true` if a ParadeDB index was found AND quals were successfully extracted
-/// - `false` if no ParadeDB index was found OR quals couldn't be extracted
-pub unsafe fn try_extract_quals_from_query(
-    parse: *mut pg_sys::Query,
-    quals_node: *mut pg_sys::Node,
-) -> bool {
-    // Get the range table
-    let rtable = (*parse).rtable;
-    if rtable.is_null() {
-        return false;
-    }
-
-    let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
-    if rtable_list.is_empty() {
-        return false;
-    }
-
-    // Find the first relation RTE with a ParadeDB index
-    for (idx, rte_ptr) in rtable_list.iter_ptr().enumerate() {
-        let rte = rte_ptr;
+    let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+    for (idx, rte) in rtable.iter_ptr().enumerate() {
         if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
             continue;
         }
@@ -338,39 +288,34 @@ pub unsafe fn try_extract_quals_from_query(
             continue;
         }
 
-        // Check if this relation has a ParadeDB index
         let Some((_, bm25_index)) = rel_get_bm25_index(relid) else {
             continue;
         };
 
-        // We found a relation with a ParadeDB index - try to extract quals
-        // Use Query context since we don't have PlannerInfo yet
-        let rti = (idx + 1) as pg_sys::Index; // RTI is 1-indexed
+        let rti = (idx + 1) as pg_sys::Index;
         let mut state = QualExtractState::default();
         let context = PlannerContext::from_query(parse);
 
-        let quals = extract_quals(
-            &context,
-            rti,
-            quals_node,
-            RestrictInfoType::BaseRelation,
-            &bm25_index,
-            false, // Don't convert external to special qual
-            &mut state,
-            true, // Attempt pushdown
-        );
-
-        // CRITICAL: In Query context, if we created HeapExpr but filter_pushdown is disabled,
-        // we must return false to prevent accepting queries we can't handle correctly.
-        // This prevents silent data loss when WHERE clauses can't be fully pushed down.
-        if state.uses_heap_expr && !crate::gucs::enable_filter_pushdown() {
-            return false;
-        }
-
-        return quals.is_some();
+        // Window eligibility only needs to know whether each predicate can run in the scan.
+        let unsupported = (*jointree).quals.walk(|node| match (*node).type_ {
+            pg_sys::NodeTag::T_BoolExpr | pg_sys::NodeTag::T_List => WalkControl::Continue,
+            _ => match extract_quals(
+                &context,
+                rti,
+                node,
+                RestrictInfoType::BaseRelation,
+                &bm25_index,
+                false,
+                &mut state,
+                true,
+            ) {
+                Some(_) => WalkControl::SkipChildren,
+                None => WalkControl::Break,
+            },
+        });
+        return !unsupported && !state.uses_heap_expr;
     }
 
-    // No ParadeDB index found
     false
 }
 
@@ -477,26 +422,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     cursor_options: ::core::ffi::c_int,
     bound_params: pg_sys::ParamListInfo,
 ) -> *mut pg_sys::PlannedStmt {
-    // Clear any existing warnings for this planning cycle
     clear_planner_warnings();
 
-    if !pg_search_extension_installed() {
-        let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
-            prev_hook(parse, query_string, cursor_options, bound_params)
-        } else {
-            pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
-        };
-        return result;
-    }
-
-    replace_window_functions(parse);
-
-    // Call the previous planner hook (e.g., Citus) or standard planner
-    // PREV_PLANNER_HOOK is defined at module level to ensure proper hook chaining
-    //
-    // The relations the query applies a search operator to are recorded while the quals are
-    // still as written, for the scans planned inside this call.
-    let result = search_operator_relations::record_during(parse, || {
+    let plan = || {
         if let Some(prev_hook) = PREV_PLANNER_HOOK {
             pg_sys::ffi::pg_guard_ffi_boundary(|| {
                 prev_hook(parse, query_string, cursor_options, bound_params)
@@ -504,11 +432,14 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         } else {
             pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
         }
-    });
+    };
+    if !pg_search_extension_installed() {
+        return plan();
+    }
 
-    // Emit collected warnings
+    replace_window_functions(parse);
+    let result = search_operator_relations::record_during(parse, plan);
     emit_planner_warnings();
-
     result
 }
 

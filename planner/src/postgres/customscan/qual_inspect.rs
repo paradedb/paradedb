@@ -778,16 +778,11 @@ pub fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo) -> bo
         }
     }
 
-    inner.walk(|node| unsafe {
-        match (*node).type_ {
-            pg_sys::NodeTag::T_SubPlan | pg_sys::NodeTag::T_AlternativeSubPlan => {
-                WalkControl::Break
-            }
-            pg_sys::NodeTag::T_RestrictInfo => {
-                WalkControl::VisitChild((*node.cast::<pg_sys::RestrictInfo>()).clause.cast())
-            }
-            _ => WalkControl::Continue,
-        }
+    inner.any(|node| unsafe {
+        matches!(
+            (*node).type_,
+            pg_sys::NodeTag::T_SubPlan | pg_sys::NodeTag::T_AlternativeSubPlan
+        )
     })
 }
 
@@ -968,6 +963,8 @@ pub fn extract_quals(
         return None;
     }
 
+    unsafe { pg_sys::check_stack_depth() };
+
     if let Some(predicate) = unsafe { SearchPredicate::from_node(node) } {
         return unsafe {
             opexpr(
@@ -985,34 +982,6 @@ pub fn extract_quals(
 
     let external_is_special =
         convert_external_to_special_qual || matches!(ri_type, RestrictInfoType::Join);
-
-    let mut extract_child = |child| {
-        unsafe { pg_sys::check_stack_depth() };
-        extract_quals(
-            context,
-            rti,
-            child,
-            ri_type,
-            indexrel,
-            convert_external_to_special_qual,
-            state,
-            attempt_pushdown,
-        )
-    };
-
-    let mut extract_args = |args, boolop| -> Option<Vec<Qual>> {
-        // The early window planner only needs to know whether it can push down these quals.
-        if matches!(context, PlannerContext::Query(_)) {
-            boolean_terms(node, boolop)
-                .map(&mut extract_child)
-                .collect()
-        } else {
-            unsafe { PgList::<pg_sys::Node>::from_pg(args) }
-                .iter_ptr()
-                .map(&mut extract_child)
-                .collect()
-        }
-    };
 
     match unsafe { (*node).type_ } {
         pg_sys::NodeTag::T_FuncExpr => {
@@ -1037,7 +1006,18 @@ pub fn extract_quals(
         }
 
         pg_sys::NodeTag::T_List => {
-            let mut quals = extract_args(node.cast(), BoolExprType::AND_EXPR)?;
+            let mut quals = unsafe {
+                list(
+                    context,
+                    rti,
+                    node.cast(),
+                    ri_type,
+                    indexrel,
+                    convert_external_to_special_qual,
+                    state,
+                    attempt_pushdown,
+                )
+            }?;
             if quals.len() == 1 {
                 quals.pop()
             } else {
@@ -1053,7 +1033,16 @@ pub fn extract_quals(
             } else {
                 ri.clause
             };
-            let qual = extract_child(clause.cast())?;
+            let qual = extract_quals(
+                context,
+                rti,
+                clause.cast(),
+                ri_type,
+                indexrel,
+                convert_external_to_special_qual,
+                state,
+                attempt_pushdown,
+            )?;
             let from_security_qual = context
                 .planner_info()
                 .is_some_and(|root| unsafe { is_security_clause(root, rti, ri) });
@@ -1093,27 +1082,32 @@ pub fn extract_quals(
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = unsafe { nodecast!(BoolExpr, node) }?;
             let boolexpr = unsafe { &*boolexpr };
+            let mut quals = unsafe {
+                list(
+                    context,
+                    rti,
+                    boolexpr.args,
+                    ri_type,
+                    indexrel,
+                    convert_external_to_special_qual,
+                    state,
+                    attempt_pushdown,
+                )
+            }?;
+
             match boolexpr.boolop {
-                BoolExprType::AND_EXPR | BoolExprType::OR_EXPR => {
-                    let quals = extract_args(boolexpr.args, boolexpr.boolop)?;
-                    if boolexpr.boolop == BoolExprType::AND_EXPR {
-                        Some(Qual::And(quals))
-                    } else {
-                        Some(Qual::Or(quals))
-                    }
-                }
-                BoolExprType::NOT_EXPR => {
-                    let args = unsafe { PgList::<pg_sys::Node>::from_pg(boolexpr.args) };
-                    match extract_child(args.get_ptr(0)?)? {
-                        // Postgres must evaluate `NOT` on heap filters to exclude null rows.
-                        Qual::HeapExpr { .. } => Some(Qual::HeapExpr {
-                            expr_node: node,
-                            expr_desc: deparse_expr(Some(context), indexrel, node),
-                            search_query_input: Box::new(SearchQueryInput::All),
-                        }),
-                        inner => Some(Qual::Not(Box::new(inner))),
-                    }
-                }
+                pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
+                pg_sys::BoolExprType::OR_EXPR => Some(Qual::Or(quals)),
+                pg_sys::BoolExprType::NOT_EXPR => match quals.pop()? {
+                    // Negating the heap filter's match set would keep rows where the
+                    // expression is NULL, so let Postgres evaluate the whole `NOT`).
+                    Qual::HeapExpr { .. } => Some(Qual::HeapExpr {
+                        expr_node: node,
+                        expr_desc: deparse_expr(Some(context), indexrel, node),
+                        search_query_input: Box::new(SearchQueryInput::All),
+                    }),
+                    inner => Some(Qual::Not(Box::new(inner))),
+                },
                 _ => panic!("unexpected `BoolExprType`: {}", boolexpr.boolop),
             }
         }
@@ -1315,31 +1309,33 @@ pub fn extract_quals(
     }
 }
 
-/// Row comparisons can form a nested `OR` before Postgres simplifies the quals.
-fn boolean_terms(
-    root: *mut pg_sys::Node,
-    boolop: BoolExprType::Type,
-) -> impl Iterator<Item = *mut pg_sys::Node> {
-    let mut pending = vec![root];
-    std::iter::from_fn(move || {
-        loop {
-            let node = pending.pop()?;
-            let args =
-                if boolop == BoolExprType::AND_EXPR && unsafe { nodecast!(List, node) }.is_some() {
-                    node.cast()
-                } else if let Some(expr) = unsafe { nodecast!(BoolExpr, node) }
-                    && unsafe { (*expr).boolop } == boolop
-                {
-                    unsafe { (*expr).args }
-                } else {
-                    return Some(node);
-                };
-            let args = unsafe { PgList::<pg_sys::Node>::from_pg(args) };
-            let start = pending.len();
-            pending.extend(args.iter_ptr());
-            pending[start..].reverse();
-        }
-    })
+#[allow(clippy::too_many_arguments)]
+unsafe fn list(
+    context: &PlannerContext,
+    rti: pg_sys::Index,
+    list: *mut pg_sys::List,
+    ri_type: RestrictInfoType,
+    indexrel: &PgSearchRelation,
+    convert_external_to_special_qual: bool,
+    state: &mut QualExtractState,
+    attempt_pushdown: bool,
+) -> Option<Vec<Qual>> {
+    let args = PgList::<pg_sys::Node>::from_pg(list);
+    let mut quals = Vec::new();
+    for child in args.iter_ptr() {
+        quals.push(extract_quals(
+            context,
+            rti,
+            child,
+            ri_type,
+            indexrel,
+            convert_external_to_special_qual,
+            state,
+            attempt_pushdown,
+        )?)
+    }
+
+    Some(quals)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1765,7 +1761,17 @@ pub fn collect_implicit_and_conjuncts(
     node: *mut pg_sys::Node,
     conjuncts: &mut Vec<*mut pg_sys::Node>,
 ) {
-    conjuncts.extend(boolean_terms(node, BoolExprType::AND_EXPR).filter(|term| !term.is_null()));
+    node.walk(|node| unsafe {
+        if (*node).type_ == pg_sys::NodeTag::T_List
+            || nodecast!(BoolExpr, node)
+                .is_some_and(|expr| (*expr).boolop == BoolExprType::AND_EXPR)
+        {
+            WalkControl::Continue
+        } else {
+            conjuncts.push(node);
+            WalkControl::SkipChildren
+        }
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2262,44 +2268,6 @@ mod tests {
     use super::*;
     use pgrx::prelude::*;
     use proptest::prelude::*;
-
-    #[pg_test]
-    fn boolean_qual_grouping_in_query_and_planner_contexts() {
-        unsafe {
-            let yes = pg_sys::makeBoolConst(true, false);
-            let null = pg_sys::makeBoolConst(false, true);
-            let inner = create_bool_expr(BoolExprType::OR_EXPR, vec![null, yes]).unwrap();
-            let mixed = create_bool_expr(BoolExprType::AND_EXPR, vec![yes, null]).unwrap();
-            let tree = create_bool_expr(BoolExprType::OR_EXPR, vec![yes, inner, mixed]).unwrap();
-            let relation = PgSearchRelation::open(pg_sys::RelationRelationId);
-            let extract = |context| {
-                let Some(Qual::Or(terms)) = extract_quals(
-                    &context,
-                    1,
-                    tree,
-                    RestrictInfoType::BaseRelation,
-                    &relation,
-                    false,
-                    &mut QualExtractState::default(),
-                    false,
-                ) else {
-                    panic!("expected an OR qual");
-                };
-                terms
-            };
-
-            let query = PlannerContext::from_query(pgrx::makeNode!(pg_sys::Query).get());
-            assert!(matches!(
-                extract(query).as_slice(),
-                [Qual::All, Qual::Not(_), Qual::All, Qual::And(_)]
-            ));
-            let planner = PlannerContext::from_planner(pgrx::makeNode!(pg_sys::PlannerInfo).get());
-            assert!(matches!(
-                extract(planner).as_slice(),
-                [Qual::All, Qual::Or(_), Qual::And(_)]
-            ));
-        }
-    }
 
     #[pg_test]
     fn test_all_variant() {

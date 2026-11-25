@@ -33,7 +33,6 @@ pub struct VarRef {
 
 pub enum WalkControl {
     Continue,
-    VisitChild(*mut pg_sys::Node),
     SkipChildren,
     Break,
 }
@@ -45,7 +44,8 @@ pub enum MutateControl {
 }
 
 /// Expression-tree traversal in PostgreSQL's child order, including the root.
-/// Null pointers are empty trees. Query and planner nodes need their own traversal.
+/// Null pointers are empty trees. A walk follows the clause of a `RestrictInfo`.
+/// Query contents and other planner nodes need their own traversal.
 ///
 /// The receiver must be null or a valid PostgreSQL expression tree. Other pointers must
 /// be valid for their declared types. Visitors may change fields, but must keep the tree
@@ -55,8 +55,8 @@ pub trait NodeExt: Copy {
     fn walk<F: FnMut(*mut pg_sys::Node) -> WalkControl>(self, visitor: F) -> bool;
 
     /// # Safety
-    /// The input tree must retain its structure during the rewrite. Each replacement
-    /// must have the type and lifetime required by its parent.
+    /// The visitor must keep the input tree intact. Each replacement must match the type
+    /// and lifetime required by its parent.
     unsafe fn mutate(
         self,
         visitor: impl FnMut(*mut pg_sys::Node) -> MutateControl,
@@ -280,22 +280,24 @@ impl<T: pg_sys::PgNode> NodeExt for *mut T {
         loop {
             match visitor(node) {
                 WalkControl::Break => return true,
-                WalkControl::VisitChild(child) if !child.is_null() => {
-                    node = child;
-                    continue;
-                }
-                WalkControl::SkipChildren | WalkControl::VisitChild(_) => {}
-                WalkControl::Continue => {
-                    let start = pending.len();
-                    unsafe {
+                WalkControl::SkipChildren => {}
+                WalkControl::Continue => unsafe {
+                    if let Some(restrict) = nodecast!(RestrictInfo, node) {
+                        let clause = (*restrict).clause;
+                        if !clause.is_null() {
+                            node = clause.cast();
+                            continue;
+                        }
+                    } else {
+                        let start = pending.len();
                         pg_sys::expression_tree_walker(
                             node,
                             Some(push_child),
                             std::ptr::from_mut(&mut pending).cast(),
                         );
+                        pending[start..].reverse();
                     }
-                    pending[start..].reverse();
-                }
+                },
             }
             let Some(next) = pending.pop() else {
                 return false;
@@ -356,7 +358,7 @@ impl<T: pg_sys::PgNode> NodeExt for *mut T {
                         ) {
                             continue;
                         }
-                        // The Postgres walker skips nodes that its mutator copies, including `CaseWhen`.
+                        // The Postgres walker skips `CaseWhen` nodes. The mutator visits them.
                         let start = pending.len();
                         let scratch = scratch.get_or_insert_with(|| {
                             pgrx::PgMemoryContexts::new("pg_search expression children")
@@ -530,8 +532,10 @@ mod tests {
     fn node_walk_skips_children_and_continues_with_siblings() {
         unsafe {
             let (tree, vars) = expression_tree();
+            let restrict = pgrx::makeNode!(pg_sys::RestrictInfo).get();
+            (*restrict).clause = tree;
             let mut visited = Vec::new();
-            assert!(!tree.walk(|node| {
+            assert!(!restrict.walk(|node| {
                 if let Some(expr) = nodecast!(BoolExpr, node)
                     && (*expr).boolop == pg_sys::BoolExprType::OR_EXPR
                 {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795594087506,
+  "lastUpdate": 1795594119325,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -113611,6 +113611,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14997295148-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795594115324,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1693.757892144989,
+            "unit": "median tps",
+            "extra": "avg tps: 1705.2827894089721, max tps: 1896.128808364741, count: 59244"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.851329050954115,
+            "unit": "median tps",
+            "extra": "avg tps: 5.897432109941112, max tps: 6.942436947199562, count: 59244"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1624.8512134031696,
+            "unit": "median tps",
+            "extra": "avg tps: 1617.9653066771086, max tps: 1628.6087105404079, count: 59244"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2796.1921274214037,
+            "unit": "median tps",
+            "extra": "avg tps: 2729.397378755616, max tps: 3024.477028488677, count: 59244"
+          }
+        ],
+        "publication_id": "15003236509-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -159994,6 +160041,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14997295148-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795594119196,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.9050199176287894, max background_merging: 2.0, count: 59244"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.25676052759312, max cpu: 9.770992, count: 59244"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.580815541447237, max mem: 27.5859375, count: 59244"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.624385842708763, max cpu: 9.795918, count: 59244"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 44.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.58952014128013, max mem: 44.6015625, count: 59244"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45324,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45050.53828235771, max block_count: 45324.0, count: 59244"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.969448382958612, max segment_count: 22.0, count: 59244"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.17721,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.00260659183297, max cpu: 33.785824, count: 59244"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 36.875,
+            "unit": "median mem",
+            "extra": "avg mem: 36.85405642343528, max mem: 36.875, count: 59244"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5467734400855555, max cpu: 9.643395, count: 59244"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 43.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.284737233411825, max mem: 45.73828125, count: 59244"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.466165165249069, max cpu: 9.805924, count: 59244"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 44.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.53298435284586, max mem: 44.5390625, count: 59244"
+          }
+        ],
+        "publication_id": "15003236509-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

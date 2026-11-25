@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+- Removed the deprecated `pdb.term_set(bigint)` aggregate. Pass `array_agg(...)` to `pdb.term_set()` to build a term set from a group of rows.

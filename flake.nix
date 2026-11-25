@@ -163,7 +163,8 @@
             fenix = inputs.fenix.packages.${prev.stdenv.hostPlatform.system};
             rust = fenix.fromToolchainName {
               name = toolchain.channel;
-              # Checksum of the Rust distribution manifest for this channel.
+              # Fenix needs the Rust distribution manifest hash for pure evaluation.
+              # Update it when the channel in rust-toolchain.toml changes.
               sha256 = "sha256-MFHoWVcPZKjFrLnQnodCXbUsfZcofGfo9tV9fTTvklg=";
             };
           in

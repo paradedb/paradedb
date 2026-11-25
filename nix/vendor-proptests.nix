@@ -9,6 +9,8 @@ let
 
   # importCargoLock uses name-version as its directory key. Give the DST
   # Proptest fork its own directory so it can coexist with crates.io Proptest.
+  # Once we stop using the Antithesis fork, remove this file and use cargoLock
+  # directly in pg_search.nix.
   blocks = lib.splitString "\n[[package]]\n" lockFileContents;
   header = builtins.head blocks;
   packages = lib.partition (

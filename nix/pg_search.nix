@@ -66,7 +66,7 @@ buildPgrxExtension (finalAttrs: {
   version = rootCargoToml.workspace.package.version;
   src = self;
 
-  cargoDeps = callPackage ./vendor-cargo-deps.nix { } ../Cargo.lock;
+  cargoDeps = callPackage ./vendor-proptests.nix { } ../Cargo.lock;
 
   inherit postgresql;
   # The Nix builder also passes cargoPgrxFlags to `stop`, which does not accept

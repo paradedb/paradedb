@@ -25,8 +25,8 @@ use crate::customscan::operator_oid;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::{is_a, strip_relabel};
 use crate::postgres::var::identity_ops::IdentityOp;
-use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_Var};
-use pgrx::pg_sys::{CoerceViaIO, Const, OpExpr, Var};
+use pgrx::pg_sys::NodeTag::{T_Const, T_OpExpr, T_Var};
+use pgrx::pg_sys::{CoerceViaIO, Const, OpExpr, PgNode, Var};
 use pgrx::{AnyNumeric, PgOid};
 use pgrx::{FromDatum, PgList, pg_sys};
 use std::ffi::CStr;
@@ -512,14 +512,12 @@ pub unsafe fn fieldname_from_var(
     }
 }
 
-pub unsafe fn strip_field_casts(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    loop {
-        node = strip_relabel(node);
-        if !is_a(node, T_CoerceViaIO) {
-            return node;
-        }
-        node = (*node.cast::<CoerceViaIO>()).arg.cast();
+pub unsafe fn strip_field_casts(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    let mut node = strip_relabel(node);
+    while let Some(cast) = node.as_ref().and_then(CoerceViaIO::try_cast) {
+        node = strip_relabel(cast.arg.cast());
     }
+    node
 }
 
 // should be kept in sync with find_one_resolved_var_and_fieldname

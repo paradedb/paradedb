@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795532392250,
+  "lastUpdate": 1795584878614,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -115565,6 +115565,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14865286417-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9daad96337ae7492551288204a03efa985c0d93e",
+          "message": "test: migrate upgrade tests to V2 syntax (#7636)\n\n## Changes\n\n- Use `pdb.all()` for post-upgrade range checks and V2 DDL for the fresh\ntext-key index.\n- Snapshot the regex results on the old release, then drop the old view\nbefore upgrade. Recreate it with V2 term and parser calls after upgrade\nto check the same results, inserts, and reindex behavior.\n- Preserve legacy index DDL and the historical regex queries in the\nold-release setup.\n\n## Tests\n\nLocal PostgreSQL 18.4 smoke checks passed for the range SQL, the fresh\ntext-key index, and comparison of the old and V2 regex views on a\nlegacy-configured index. The cross-version `ALTER EXTENSION` matrix is\nexercised by the upgrade workflow.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-24T17:12:18Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9daad96337ae7492551288204a03efa985c0d93e"
+        },
+        "date": 1795584875090,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 6.74,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 8.757,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 10.068,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 21.978,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 29.563,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 34.191,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p50 latency",
+            "value": 455.446,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p95 latency",
+            "value": 2189.514,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p99 latency",
+            "value": 2792.848,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.624,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 4.497,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 5.067,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.964,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 19.692,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 20.601,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 104.832,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 455.687,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 807.598,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14962852478-latency"
       }
     ],
     "benchmarker msmarco-113m-8cpu-32gb (throughput)": [
@@ -115832,6 +115945,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14865286417-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9daad96337ae7492551288204a03efa985c0d93e",
+          "message": "test: migrate upgrade tests to V2 syntax (#7636)\n\n## Changes\n\n- Use `pdb.all()` for post-upgrade range checks and V2 DDL for the fresh\ntext-key index.\n- Snapshot the regex results on the old release, then drop the old view\nbefore upgrade. Recreate it with V2 term and parser calls after upgrade\nto check the same results, inserts, and reindex behavior.\n- Preserve legacy index DDL and the historical regex queries in the\nold-release setup.\n\n## Tests\n\nLocal PostgreSQL 18.4 smoke checks passed for the range SQL, the fresh\ntext-key index, and comparison of the old and V2 regex views on a\nlegacy-configured index. The cross-version `ALTER EXTENSION` matrix is\nexercised by the upgrade workflow.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-24T17:12:18Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9daad96337ae7492551288204a03efa985c0d93e"
+        },
+        "date": 1795584876408,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 143.6535702397406,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 50.69056780785013,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) QPS",
+            "value": 1.3800443258377704,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 268.75476292566185,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 99.64648961608721,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 5.986000912621568,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14962852478-throughput"
       }
     ],
     "benchmarker msmarco-113m-8cpu-32gb (buffers)": [
@@ -116099,6 +116265,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14865286417-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9daad96337ae7492551288204a03efa985c0d93e",
+          "message": "test: migrate upgrade tests to V2 syntax (#7636)\n\n## Changes\n\n- Use `pdb.all()` for post-upgrade range checks and V2 DDL for the fresh\ntext-key index.\n- Snapshot the regex results on the old release, then drop the old view\nbefore upgrade. Recreate it with V2 term and parser calls after upgrade\nto check the same results, inserts, and reindex behavior.\n- Preserve legacy index DDL and the historical regex queries in the\nold-release setup.\n\n## Tests\n\nLocal PostgreSQL 18.4 smoke checks passed for the range SQL, the fresh\ntext-key index, and comparison of the old and V2 regex views on a\nlegacy-configured index. The cross-version `ALTER EXTENSION` matrix is\nexercised by the upgrade workflow.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-24T17:12:18Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9daad96337ae7492551288204a03efa985c0d93e"
+        },
+        "date": 1795584877457,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 2264.81,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 7133.81,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r99 shared hits/query",
+            "value": 55494.43,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 954.91,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3514.3,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 28955.99,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14962852478-buffers"
       }
     ],
     "benchmarker msmarco-113m-8cpu-32gb (index build)": [
@@ -116291,6 +116510,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14865286417-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "James Sewell",
+            "username": "jamessewell",
+            "email": "james.sewell@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9daad96337ae7492551288204a03efa985c0d93e",
+          "message": "test: migrate upgrade tests to V2 syntax (#7636)\n\n## Changes\n\n- Use `pdb.all()` for post-upgrade range checks and V2 DDL for the fresh\ntext-key index.\n- Snapshot the regex results on the old release, then drop the old view\nbefore upgrade. Recreate it with V2 term and parser calls after upgrade\nto check the same results, inserts, and reindex behavior.\n- Preserve legacy index DDL and the historical regex queries in the\nold-release setup.\n\n## Tests\n\nLocal PostgreSQL 18.4 smoke checks passed for the range SQL, the fresh\ntext-key index, and comparison of the old and V2 regex views on a\nlegacy-configured index. The cross-version `ALTER EXTENSION` matrix is\nexercised by the upgrade workflow.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-24T17:12:18Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9daad96337ae7492551288204a03efa985c0d93e"
+        },
+        "date": 1795584878594,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 131.971362317,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 509635.8359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx peak container memory",
+            "value": 20.575172424316406,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14962852478-index"
       }
     ]
   }

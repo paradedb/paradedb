@@ -2122,6 +2122,9 @@ impl CustomScan for BaseScan {
                 addr_of_mut!(state.csstate.ss),
                 tupdesc,
                 pg_sys::table_slot_callbacks(state.custom_state().heaprel().as_ptr()),
+                // No `TTS_FLAG_OBEYS_NOT_NULL_CONSTRAINTS`: a snapshot older than a `SET NOT NULL`
+                // can still see deleted rows with a NULL in that column, and the flag would
+                // deform them at the wrong offsets.
                 #[cfg(pg19_plus)]
                 0,
             );

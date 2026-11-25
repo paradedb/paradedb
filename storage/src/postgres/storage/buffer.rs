@@ -988,6 +988,11 @@ impl BufferManager {
         self.rbufacc.io_stats = stats;
     }
 
+    /// Makes this manager's reads of existing blocks go through the backend's bulk-read strategy.
+    pub fn set_bulk_read(&mut self) {
+        self.rbufacc.bulk_read = true;
+    }
+
     pub fn new(rel: &PgSearchRelation) -> Self {
         Self {
             rbufacc: RelationBufferAccess::open(rel),

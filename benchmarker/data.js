@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795609496223,
+  "lastUpdate": 1795609523052,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -24346,6 +24346,224 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14918659969-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795609520662,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 26.003,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 97.445,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 319.299,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p50 latency",
+            "value": 63.088,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p95 latency",
+            "value": 144.767,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p99 latency",
+            "value": 224.989,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p50 latency",
+            "value": 0.519,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p95 latency",
+            "value": 0.58,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p99 latency",
+            "value": 0.617,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 43.625,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 135.062,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 223.855,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p50 latency",
+            "value": 100.215,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p95 latency",
+            "value": 233.349,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p99 latency",
+            "value": 274.18,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p50 latency",
+            "value": 0.356,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p95 latency",
+            "value": 0.565,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p99 latency",
+            "value": 0.611,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 65.215,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 182.14,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 213.777,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p50 latency",
+            "value": 67.976,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p95 latency",
+            "value": 190.818,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p99 latency",
+            "value": 340.333,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p50 latency",
+            "value": 0.34,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p95 latency",
+            "value": 0.559,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p99 latency",
+            "value": 0.6,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 27.445,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 136.971,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 227.583,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p50 latency",
+            "value": 70.199,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p95 latency",
+            "value": 141.333,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p99 latency",
+            "value": 299.383,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p50 latency",
+            "value": 0.423,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p95 latency",
+            "value": 0.551,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p99 latency",
+            "value": 0.588,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 24.706,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 125.05,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 278.307,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "15020911656-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -53817,6 +54035,94 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14918659969-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7dd9134349377fb62610ec0ea17c0e55910e09a6",
+          "message": "chore: remove obsolete Stressgres wrappers and fast-field setting (#7671)\n\nRemove the two checkout-specific Stressgres wrappers and the unused\nfast-field GUC, including the docs and regression statements that\nreferenced it. Update the release guide to reflect that release sync no\nlonger edits the Nix package. Formatting and whitespace checks passed.",
+          "timestamp": "2026-11-25T05:01:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7dd9134349377fb62610ec0ea17c0e55910e09a6"
+        },
+        "date": 1795609523037,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 20.32,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) QPS",
+            "value": 13.6,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) updates/sec",
+            "value": 996.48,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 17.76,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) QPS",
+            "value": 8.44,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) updates/sec",
+            "value": 996.08,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 12.48,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) QPS",
+            "value": 11.48,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) updates/sec",
+            "value": 995.52,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 22.6,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) QPS",
+            "value": 12.64,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) updates/sec",
+            "value": 996.28,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 23.64,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "15020911656-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

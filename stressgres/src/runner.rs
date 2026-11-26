@@ -477,13 +477,19 @@ impl MultiTransaction<'_> {
             None => Ok(()),
         }
     }
+
+    fn rollback(&mut self) -> std::result::Result<(), postgres::Error> {
+        let mut result = Ok(());
+        for (xact, io, ..) in self.transactions.drain(..) {
+            result = result.and(io.run(xact.rollback()));
+        }
+        result
+    }
 }
 
 impl Drop for MultiTransaction<'_> {
     fn drop(&mut self) {
-        for (xact, io, ..) in self.transactions.drain(..) {
-            let _ = io.run(xact.rollback());
-        }
+        let _ = self.rollback();
     }
 }
 
@@ -1486,7 +1492,7 @@ impl JobRunner {
                         break;
                     }
                 }
-                let commit_res = {
+                let finish_res = {
                     let mut tx = match conn.transaction() {
                         Ok(tx) => tx,
                         Err(e) if is_ignorable_error(&e, self.suite.ignore_errors()) => {
@@ -1518,13 +1524,18 @@ impl JobRunner {
                     if should_commit {
                         tx.commit()
                     } else {
-                        drop(tx);
-                        Ok(())
+                        tx.rollback()
                     }
                 };
-                if let Err(e) = commit_res {
+                if let Err(e) = finish_res {
                     if is_ignorable_error(&e, self.suite.ignore_errors()) {
                         conn.rollback_best_effort();
+                        // Preserve a statement error even if finalization also got canceled.
+                        if final_result.as_ref().is_some_and(|results| {
+                            results.iter().any(|(result, ..)| result.is_err())
+                        }) {
+                            break;
+                        }
                         return Ok(());
                     }
                     return Err(postgres_anyhow(e));

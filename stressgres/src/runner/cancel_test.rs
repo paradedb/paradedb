@@ -16,18 +16,17 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::shutdown_test::read_packet;
-use super::{GraceWindow, IoPolicy, JobRunner, Suite, SuiteRunner};
+use super::{Conn, IoPolicy, JobRunner, Suite};
 use parking_lot::RwLock;
 use postgres::error::SqlState;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::thread;
-use std::time::Duration;
 use sysinfo::System;
 
-const TEST_TIMEOUT: Duration = Duration::from_secs(10);
+const CANCELED: &[u8] = b"SERROR\0VERROR\0C57014\0Mcanceling statement due to user request\0\0";
 
 fn reply(stream: &mut TcpStream, tag: u8, body: &[u8]) {
     stream.write_all(&[tag]).unwrap();
@@ -37,12 +36,9 @@ fn reply(stream: &mut TcpStream, tag: u8, body: &[u8]) {
     stream.write_all(body).unwrap();
 }
 
-#[test]
-fn canceled_job_keeps_running_on_the_same_connection() {
+fn with_fake_postgres(abort: bool, run: impl FnOnce(Arc<JobRunner>, &mut Conn)) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
-    let (resumed, wait_for_resume) = mpsc::channel();
-    let (finish, wait_for_finish) = mpsc::channel();
     let server = thread::spawn(move || {
         let (mut query, _) = listener.accept().unwrap();
         query.set_nodelay(true).unwrap();
@@ -53,10 +49,39 @@ fn canceled_job_keeps_running_on_the_same_connection() {
             .unwrap();
 
         let mut executions = 0;
+        let mut state = b'I';
+        let mut canceled_rollback = false;
         let mut tag = [0];
         while query.read(&mut tag).unwrap() != 0 {
-            read_packet(&mut query);
+            let body = read_packet(&mut query);
             match tag[0] {
+                b'Q' => {
+                    let sql = body.strip_suffix(b"\0").unwrap();
+                    match sql {
+                        b"START TRANSACTION" if state == b'E' => {
+                            reply(
+                                &mut query,
+                                b'E',
+                                b"SERROR\0C25P02\0Mtransaction aborted\0\0",
+                            );
+                        }
+                        b"START TRANSACTION" => {
+                            state = b'T';
+                            reply(&mut query, b'C', b"START TRANSACTION\0");
+                        }
+                        b"ROLLBACK" if !canceled_rollback => {
+                            canceled_rollback = true;
+                            state = b'E';
+                            reply(&mut query, b'E', CANCELED);
+                        }
+                        b"ROLLBACK" => {
+                            state = b'I';
+                            reply(&mut query, b'C', b"ROLLBACK\0");
+                        }
+                        _ => panic!("unexpected simple query: {}", String::from_utf8_lossy(sql)),
+                    }
+                    reply(&mut query, b'Z', &[state]);
+                }
                 b'P' => reply(&mut query, b'1', b""), // ParseComplete
                 b'D' => {
                     reply(&mut query, b't', b"\0\0"); // No parameters
@@ -71,31 +96,26 @@ fn canceled_job_keeps_running_on_the_same_connection() {
                 b'E' => {
                     executions += 1;
                     // The first Execute is Conn::open's backend PID probe, not a job iteration.
-                    if executions == 3 {
-                        reply(
-                            &mut query,
-                            b'E',
-                            b"SERROR\0VERROR\0C57014\0Mcanceling statement due to user request\0\0",
-                        );
+                    if !abort && executions == 2 {
+                        reply(&mut query, b'E', CANCELED);
                         continue;
-                    }
-                    if executions == 4 {
-                        // Only this session is served: reaching the third job iteration proves
-                        // the worker did not reconnect. Hold it so the test can inspect stats.
-                        resumed.send(()).unwrap();
-                        wait_for_finish.recv_timeout(TEST_TIMEOUT).unwrap();
                     }
                     reply(&mut query, b'D', b"\0\x01\0\0\0\x04\0\0\0\x2a");
                     reply(&mut query, b'C', b"SELECT 1\0");
                 }
                 b'C' => reply(&mut query, b'3', b""), // CloseComplete
-                b'S' => reply(&mut query, b'Z', b"I"), // ReadyForQuery
+                b'S' => reply(&mut query, b'Z', &[state]), // ReadyForQuery
                 b'X' => break,
                 other => panic!("unexpected frontend tag: {}", char::from(other)),
             }
         }
     });
 
+    let sql = if abort {
+        "BEGIN; UPDATE t SET v = v + 1 WHERE id IN (10, 11); ABORT;"
+    } else {
+        "SELECT 1"
+    };
     let suite = Arc::new(Suite::new(
         toml::from_str(&format!(
             r#"
@@ -107,57 +127,48 @@ fn canceled_job_keeps_running_on_the_same_connection() {
             monitor.sql = ""
 
             [[jobs]]
-            sql = "SELECT 1"
-            refresh_ms = 1
+            sql = "{sql}"
             "#,
         ))
         .unwrap(),
     ));
     let job = suite.jobs().next().unwrap().clone();
-    let alive = Arc::new(AtomicBool::new(true));
-    let runner = Arc::new(
-        JobRunner::new(
-            suite,
-            job,
-            false,
-            alive.clone(),
-            Arc::new(RwLock::new(System::new().unwrap())),
-        )
-        .unwrap(),
-    );
-    let worker = thread::spawn({
-        let runner = runner.clone();
-        move || {
-            SuiteRunner::job_runner_worker(
-                Arc::new(AtomicBool::new(false)),
-                Duration::from_millis(1),
-                GraceWindow::fixed(Duration::ZERO),
-                IoPolicy::default(),
-                &runner,
-            )
-        }
-    });
-
-    wait_for_resume
-        .recv_timeout(TEST_TIMEOUT)
-        .expect("job did not resume after cancellation");
-    let stats = runner.runtime_stats();
-    let (conn, stats) = stats.first_key_value().unwrap();
-    let errored = runner.errored();
-    let connection_errored = runner.connection_errored(conn);
-
-    alive.store(false, Ordering::Release);
-    finish.send(()).unwrap();
-    worker.join().unwrap().unwrap();
+    let mut conn = Conn::open(&suite, &job, &IoPolicy::default()).unwrap();
+    let runner = JobRunner::new(
+        suite,
+        job,
+        false,
+        Arc::new(AtomicBool::new(true)),
+        Arc::new(RwLock::new(System::new().unwrap())),
+    )
+    .unwrap();
+    run(Arc::new(runner), &mut conn);
+    drop(conn);
     server.join().unwrap();
+}
 
-    assert_eq!(
-        stats.results.as_ref().unwrap_err().code(),
-        Some(&SqlState::QUERY_CANCELED)
-    );
-    assert!(!errored, "cancellation is not a job failure");
-    assert!(
-        !connection_errored,
-        "cancellation is not a connection failure"
-    );
+#[test]
+fn canceled_job_keeps_running_on_the_same_connection() {
+    with_fake_postgres(false, |runner, conn| {
+        runner.run(conn).unwrap();
+        let stats = runner.runtime_stats();
+        let (info, stats) = stats.first_key_value().unwrap();
+        assert_eq!(
+            stats.results.as_ref().unwrap_err().code(),
+            Some(&SqlState::QUERY_CANCELED)
+        );
+        assert!(!runner.errored());
+        assert!(!runner.connection_errored(info));
+        runner.run(conn).unwrap();
+    });
+}
+
+#[test]
+fn canceled_abort_does_not_poison_the_next_iteration() {
+    with_fake_postgres(true, |runner, conn| {
+        runner.run(conn).unwrap();
+        // No reconnect: without cleanup, START TRANSACTION on this session gets 25P02.
+        runner.run(conn).unwrap();
+        assert!(!runner.errored());
+    });
 }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795680380850,
+  "lastUpdate": 1795680407696,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -113658,6 +113658,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15003236509-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795680404955,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1694.9509066400874,
+            "unit": "median tps",
+            "extra": "avg tps: 1703.7820012454208, max tps: 1894.072238933548, count: 59229"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.875863798752522,
+            "unit": "median tps",
+            "extra": "avg tps: 5.9214238633525955, max tps: 6.9916041740771835, count: 59229"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1829.8913652420954,
+            "unit": "median tps",
+            "extra": "avg tps: 1820.0448881394987, max tps: 1837.8315234889815, count: 59229"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2789.7978832640906,
+            "unit": "median tps",
+            "extra": "avg tps: 2719.4154533293363, max tps: 3006.917586495997, count: 59229"
+          }
+        ],
+        "publication_id": "15097693170-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -160142,6 +160189,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15003236509-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795680407569,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 1.0662850968275677, max background_merging: 3.0, count: 59229"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.335856642165627, max cpu: 9.8209715, count: 59229"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 27.446438096730486, max mem: 27.44921875, count: 59229"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.591105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.629037287234644, max cpu: 9.886715, count: 59229"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 45.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.03449996517753, max mem: 45.0390625, count: 59229"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45273,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45000.36411217478, max block_count: 45273.0, count: 59229"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.149369396748215, max segment_count: 20.0, count: 59229"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.054754,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.02450263522701, max cpu: 33.4995, count: 59229"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 37.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 37.444194421757075, max mem: 37.46484375, count: 59229"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.591105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.459099774917997, max cpu: 9.217475, count: 59229"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 44.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.51502134459049, max mem: 44.51953125, count: 59229"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.591105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.456874392715259, max cpu: 9.805924, count: 59229"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 44.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.97992603391075, max mem: 44.98828125, count: 59229"
+          }
+        ],
+        "publication_id": "15097693170-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

@@ -69,6 +69,7 @@ fn main() -> anyhow::Result<()> {
                 args.paused,
                 args.grace.window(),
                 args.grace.operation_timeout(),
+                args.cancel.cancel_rate,
                 SetupMode::Full,
             )?;
             tui::run(suite_runner)?;
@@ -89,6 +90,7 @@ fn main() -> anyhow::Result<()> {
                 false,
                 args.grace.window(),
                 args.grace.operation_timeout(),
+                args.cancel.cancel_rate,
                 setup_mode,
             )?;
             // `--setup-only` has built the schema and is done; the workload runs later in a
@@ -123,6 +125,7 @@ fn main() -> anyhow::Result<()> {
                 false,
                 GraceWindow::fixed(Duration::ZERO),
                 None,
+                args.cancel.cancel_rate,
                 SetupMode::Full,
             )?;
             headless::run(

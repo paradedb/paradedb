@@ -130,11 +130,7 @@ pub fn run(suite_runner: Arc<SuiteRunner>) -> anyhow::Result<()> {
                 });
             }
         }
-        cursive.add_global_callback('q', move |c| {
-            sr.terminate();
-            let _ = sr.wait_for_finish();
-            c.quit();
-        });
+        cursive.add_global_callback('q', |c| c.quit());
     }
     {
         let sr = suite_runner.clone();
@@ -197,6 +193,8 @@ pub fn run(suite_runner: Arc<SuiteRunner>) -> anyhow::Result<()> {
 
     cursive.set_autorefresh(true);
     cursive.run();
+    suite_runner.terminate();
+    let _ = suite_runner.wait_for_finish();
     Ok(())
 }
 

@@ -16,6 +16,8 @@ cargo run -p stressgres -- ui stressgres/suites/single-node-planner-paths.toml
 cargo run -p stressgres -- headless stressgres/suites/single-node-planner-paths.toml --runtime=300000 --log-file=logs/test.log
 ```
 
+Add `--cancel-rate=0.2` to `headless`, `ui`, or `auto` to check about once every five seconds for a running job or monitor to cancel at random. The rate is suite-wide, not per job. At shutdown Stressgres reports successful random sends per job or monitor, not whether the query received them. Canceled queries don't fail the run. The default rate is `0` (off).
+
 - Run headless mode tolerating transient database faults (e.g. during DST runs)
 
 ```bash

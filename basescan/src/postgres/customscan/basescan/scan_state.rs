@@ -93,6 +93,8 @@ pub struct BaseScanState {
     pub runtime_context: Option<NonNull<pg_sys::ExprContext>>,
     pub visibility_checker: Option<VisibilityChecker>,
     pub doc_from_heap_state: Option<HeapFetchState>,
+    /// What `scan_rel_is_read_only` returned at scan start, for the fetch states a rescan rebuilds.
+    pub rel_read_only: bool,
     pub search_reader: Option<SearchIndexReader>,
     /// Executor startup before `SearchIndexReader::open`; consumed into the
     /// reader's flat `scan_init_ns` metric on first execution.
@@ -578,16 +580,19 @@ impl BaseScanState {
         self.telemetry.reset();
         self.virtual_tuple_count = 0;
         if self.visibility_checker.is_some() {
-            let mut checker = VisibilityChecker::with_rel_and_snap(self.heaprel(), unsafe {
-                pg_sys::GetActiveSnapshot()
-            });
+            let mut checker = VisibilityChecker::for_scan(
+                self.heaprel(),
+                unsafe { pg_sys::GetActiveSnapshot() },
+                self.rel_read_only,
+            );
             if let Some(reader) = &self.search_reader {
                 checker.set_ffhelper(Arc::new(FFHelper::for_ctid(reader)));
             }
             self.visibility_checker = Some(checker);
         }
         if self.doc_from_heap_state.is_some() {
-            self.doc_from_heap_state = Some(HeapFetchState::new(self.heaprel()));
+            self.doc_from_heap_state =
+                Some(HeapFetchState::for_scan(self.heaprel(), self.rel_read_only));
         }
         self.window_aggregate_results = None;
         self.exec_method_mut().reset(self);

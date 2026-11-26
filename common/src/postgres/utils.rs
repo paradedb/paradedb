@@ -97,17 +97,51 @@ pub unsafe fn make_tuple_table_slot(
     }
 }
 
-/// `table_index_fetch_begin` with no scan options; PG19 added the flags argument.
+/// `table_index_fetch_begin`; PG19 added the flags argument.
+///
+/// With `rel_read_only`, PG19 may set visibility map bits when it prunes a page it fetches
+/// from. Pass what [`scan_rel_is_read_only`] returns, or `false` outside a scan node.
 ///
 /// # Safety
 ///
 /// `rel` must be an open heap relation.
-pub unsafe fn table_index_fetch_begin(rel: pg_sys::Relation) -> *mut pg_sys::IndexFetchTableData {
+pub unsafe fn table_index_fetch_begin(
+    rel: pg_sys::Relation,
+    rel_read_only: bool,
+) -> *mut pg_sys::IndexFetchTableData {
     unsafe {
         #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
-        return pg_sys::table_index_fetch_begin(rel);
+        {
+            let _ = rel_read_only;
+            pg_sys::table_index_fetch_begin(rel)
+        }
         #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
-        return pg_sys::table_index_fetch_begin(rel, pg_sys::ScanOptions::SO_NONE);
+        {
+            let flags = if rel_read_only {
+                pg_sys::ScanOptions::SO_HINT_REL_READ_ONLY
+            } else {
+                pg_sys::ScanOptions::SO_NONE
+            };
+            pg_sys::table_index_fetch_begin(rel, flags)
+        }
+    }
+}
+
+/// Whether the query leaves the scan node's relation unmodified, as `ScanRelIsReadOnly` reports
+/// it. Always `false` before PG19, which has no use for the answer.
+///
+/// # Safety
+///
+/// `ss` must be a scan state whose plan and executor state are set.
+pub unsafe fn scan_rel_is_read_only(ss: *mut pg_sys::ScanState) -> bool {
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+    {
+        let _ = ss;
+        false
+    }
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+    unsafe {
+        pg_sys::ScanRelIsReadOnly(ss)
     }
 }
 

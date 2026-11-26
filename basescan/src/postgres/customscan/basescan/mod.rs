@@ -2106,13 +2106,18 @@ impl CustomScan for BaseScan {
             }
 
             // setup the structures we need to do mvcc checking and heap fetching
-            state.custom_state_mut().visibility_checker =
-                Some(VisibilityChecker::with_rel_and_snap(
-                    state.custom_state().heaprel(),
-                    pg_sys::GetActiveSnapshot(),
-                ));
-            state.custom_state_mut().doc_from_heap_state =
-                Some(HeapFetchState::new(state.custom_state().heaprel()));
+            let rel_read_only =
+                crate::postgres::utils::scan_rel_is_read_only(&raw mut state.csstate.ss);
+            state.custom_state_mut().rel_read_only = rel_read_only;
+            state.custom_state_mut().visibility_checker = Some(VisibilityChecker::for_scan(
+                state.custom_state().heaprel(),
+                pg_sys::GetActiveSnapshot(),
+                rel_read_only,
+            ));
+            state.custom_state_mut().doc_from_heap_state = Some(HeapFetchState::for_scan(
+                state.custom_state().heaprel(),
+                rel_read_only,
+            ));
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();

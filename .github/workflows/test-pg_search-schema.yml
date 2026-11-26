@@ -19,7 +19,6 @@ on:
       - "index_write/**"
       - "joinscan/**"
       - "macros/**"
-      - "pg_cfg/**"
       - "pg_search/**"
       - "!pg_search/README.md"
       - "planner/**"

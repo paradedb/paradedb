@@ -421,11 +421,11 @@ unsafe fn get_parallel_scan_state(scan: IndexScanDesc) -> Option<&'static mut Pa
 
     let ps = (*scan).parallel_scan;
     let offset = {
-        #[cfg(not(pg18_plus))]
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
         {
             (*ps).ps_offset
         }
-        #[cfg(pg18_plus)]
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
         {
             (*ps).ps_offset_am
         }

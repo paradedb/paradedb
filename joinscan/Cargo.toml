@@ -19,9 +19,6 @@ pg_test = ["dep:proptest", "scan/pg_test", "planner/pg_test"]
 # Leaf crate for multi-table `JoinScan`, `AggregateScan`, DataFusion plan translation, and MPP
 # distributed worker execution. Do NOT add `basescan` or `index_write` here so all three leaf
 # crates (`index_write`, `basescan`, `joinscan`) compile in parallel.
-[build-dependencies]
-pg_cfg = { path = "../pg_cfg" }
-
 [dependencies]
 scan = { path = "../scan", default-features = false }
 planner = { path = "../planner", default-features = false }

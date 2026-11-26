@@ -117,11 +117,11 @@ impl std::fmt::Debug for BitmapCursorSource {
 pub unsafe fn create_area() -> *mut pg_sys::dsa_area {
     unsafe {
         let tranche = pg_sys::BuiltinTrancheIds::LWTRANCHE_PARALLEL_QUERY_DSA as i32;
-        #[cfg(not(pg17_plus))]
+        #[cfg(any(feature = "pg15", feature = "pg16"))]
         {
             pg_sys::dsa_create(tranche)
         }
-        #[cfg(pg17_plus)]
+        #[cfg(not(any(feature = "pg15", feature = "pg16")))]
         {
             pg_sys::dsa_create_ext(tranche, 1024 * 1024, 1 << 40)
         }
@@ -232,7 +232,7 @@ impl SharedPages {
         }
     }
 
-    #[cfg(pg18_plus)]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     unsafe fn iterate(&mut self) -> Option<CachedPage> {
         unsafe {
             let mut res = pg_sys::TBMIterateResult::default();
@@ -260,7 +260,7 @@ impl SharedPages {
         }
     }
 
-    #[cfg(not(pg18_plus))]
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
     unsafe fn iterate(&mut self) -> Option<CachedPage> {
         unsafe {
             let res = pg_sys::tbm_shared_iterate(self.iter);
@@ -513,9 +513,9 @@ pub unsafe fn free_shared_table(area: *mut pg_sys::dsa_area, table: pg_sys::dsa_
 /// Where a cursor's pages come from.
 enum CursorIter {
     /// A private iterator the cursor owns.
-    #[cfg(not(pg18_plus))]
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
     Private(*mut pg_sys::TBMIterator),
-    #[cfg(pg18_plus)]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     Private(*mut pg_sys::TBMPrivateIterator),
     /// The next page to read from the source's page cache.
     Cached { next: usize },
@@ -556,9 +556,9 @@ pub struct BitmapCursor {
 impl BitmapCursor {
     unsafe fn private(tbm: *mut pg_sys::TIDBitmap, counters: *const CursorCounters) -> Self {
         unsafe {
-            #[cfg(not(pg18_plus))]
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
             let iter = CursorIter::Private(pg_sys::tbm_begin_iterate(tbm));
-            #[cfg(pg18_plus)]
+            #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
             let iter = CursorIter::Private(pg_sys::tbm_begin_private_iterate(tbm));
             Self::new(iter, counters)
         }
@@ -696,7 +696,7 @@ impl BitmapCursor {
         });
     }
 
-    #[cfg(pg18_plus)]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     unsafe fn next_private_page(&mut self) {
         unsafe {
             let mut res = pg_sys::TBMIterateResult::default();
@@ -728,7 +728,7 @@ impl BitmapCursor {
         }
     }
 
-    #[cfg(not(pg18_plus))]
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
     unsafe fn next_private_page(&mut self) {
         let res = match &mut self.iter {
             CursorIter::Private(iter) => unsafe { pg_sys::tbm_iterate(*iter) },
@@ -765,9 +765,9 @@ crate::impl_safe_drop!(BitmapCursor, |self| {
     let owner = self.owner;
     owner.run_if_live(|| unsafe {
         match self.iter {
-            #[cfg(not(pg18_plus))]
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
             CursorIter::Private(iter) => pg_sys::tbm_end_iterate(iter),
-            #[cfg(pg18_plus)]
+            #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
             CursorIter::Private(iter) => pg_sys::tbm_end_private_iterate(iter),
             CursorIter::Cached { .. } => {}
         }

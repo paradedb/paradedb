@@ -354,7 +354,7 @@ pub fn facet_encoded_str_to_ltree_text(s: &str) -> String {
 }
 
 pub enum CollationProvider {
-    #[cfg(pg17_plus)]
+    #[cfg(not(any(feature = "pg15", feature = "pg16")))]
     Builtin,
     Icu,
     Libc,
@@ -364,7 +364,7 @@ pub enum CollationProvider {
 impl From<u8> for CollationProvider {
     fn from(c: u8) -> Self {
         match c {
-            #[cfg(pg17_plus)]
+            #[cfg(not(any(feature = "pg15", feature = "pg16")))]
             pg_sys::COLLPROVIDER_BUILTIN => Self::Builtin,
             pg_sys::COLLPROVIDER_ICU => Self::Icu,
             pg_sys::COLLPROVIDER_LIBC => Self::Libc,
@@ -419,7 +419,7 @@ mod tests {
     use super::*;
     use pgrx::{PgTryBuilder, Spi, pg_guard, pg_test};
 
-    #[cfg(not(pg19_plus))]
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
     #[pg_guard]
     unsafe extern "C-unwind" fn reject_planning(
         _parse: *mut pg_sys::Query,
@@ -430,7 +430,7 @@ mod tests {
         pgrx::error!("catalog discovery must not invoke planner hooks");
     }
 
-    #[cfg(pg19_plus)]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
     #[pg_guard]
     unsafe extern "C-unwind" fn reject_planning(
         _parse: *mut pg_sys::Query,

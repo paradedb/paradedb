@@ -31,13 +31,13 @@ const IMMUTABLE_SEGMENT_ROWS: i32 = 250;
 const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 // PostgreSQL 19 renamed the `BufferPin` wait event and split `BufferContent` by lock mode.
-#[cfg(not(pg19_plus))]
+#[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
 const CLEANUP_LOCK_WAIT: &str = "BufferPin";
-#[cfg(pg19_plus)]
+#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
 const CLEANUP_LOCK_WAIT: &str = "BufferCleanup";
-#[cfg(not(pg19_plus))]
+#[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
 const EXCLUSIVE_LOCK_WAIT: &str = "BufferContent";
-#[cfg(pg19_plus)]
+#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
 const EXCLUSIVE_LOCK_WAIT: &str = "BufferExclusive";
 
 fn connect() -> Client {

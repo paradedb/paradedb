@@ -516,7 +516,7 @@ unsafe fn paradedb_planner_hook_impl(
 
 // One entry point per signature: `#[pg_guard]` forwards every parameter, including one that a
 // `cfg` removes.
-#[cfg(not(pg19_plus))]
+#[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
 #[pg_guard]
 unsafe extern "C-unwind" fn paradedb_planner_hook(
     parse: *mut pg_sys::Query,
@@ -533,7 +533,7 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     })
 }
 
-#[cfg(pg19_plus)]
+#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
 #[pg_guard]
 unsafe extern "C-unwind" fn paradedb_planner_hook(
     parse: *mut pg_sys::Query,

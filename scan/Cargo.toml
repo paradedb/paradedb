@@ -19,9 +19,6 @@ pg_test = ["dep:proptest", "common/pg_test", "index_read/pg_test"]
 # Keep this crate focused on shared DataFusion physical operators and MPP stream primitives.
 # Do NOT add `datafusion-distributed`, `datafusion-proto`, `tonic`, `prost`, `planner`, or
 # `index_write` here so `scan` and `basescan` do not wait on the gRPC/protobuf or planner stacks.
-[build-dependencies]
-pg_cfg = { path = "../pg_cfg" }
-
 [dependencies]
 common = { path = "../common", default-features = false }
 index_read = { path = "../index_read", default-features = false }

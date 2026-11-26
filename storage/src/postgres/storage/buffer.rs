@@ -381,7 +381,7 @@ impl Deref for BufferMut {
 
 #[cfg(feature = "pg15")]
 pub(crate) type IndexLocator = pg_sys::RelFileNode;
-#[cfg(pg16_plus)]
+#[cfg(not(feature = "pg15"))]
 pub(crate) type IndexLocator = pg_sys::RelFileLocator;
 
 crate::impl_safe_drop!(BufferMut, |self| {
@@ -671,7 +671,7 @@ impl<'a> Page<'a> {
             let lsn = self.header().pd_lsn;
             ((lsn.xlogid as u64) << 32) | lsn.xrecoff as u64
         }
-        #[cfg(pg16_plus)]
+        #[cfg(not(feature = "pg15"))]
         unsafe {
             pg_sys::PageGetLSN(self.pg_page)
         }
@@ -733,9 +733,9 @@ pub struct PageMut<'a> {
 }
 
 /// The item pointer `PageAddItemExtended` takes. PG19 removed the `Item` typedef.
-#[cfg(not(pg19_plus))]
+#[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
 pub type Item = pg_sys::Item;
-#[cfg(pg19_plus)]
+#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
 pub type Item = *const std::ffi::c_void;
 
 impl<'a> PageMut<'a> {
@@ -866,7 +866,7 @@ impl<'a> PageMut<'a> {
                 xrecoff: lsn as u32,
             };
         }
-        #[cfg(pg16_plus)]
+        #[cfg(not(feature = "pg15"))]
         unsafe {
             pg_sys::PageSetLSN(self.pg_page, lsn);
         }

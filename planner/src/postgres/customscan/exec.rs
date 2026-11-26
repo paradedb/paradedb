@@ -61,9 +61,9 @@ pub extern "C-unwind" fn rescan_custom_scan<CS: CustomScan>(node: *mut pg_sys::C
     // (such as joining MPP parallel workers) into this node's `Instrumentation`
     // without flipping `running` before the next loop starts.
     unsafe {
-        #[cfg(not(pg19_plus))]
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
         let instr = (*node).ss.ps.instrument;
-        #[cfg(pg19_plus)]
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
         let instr: *mut pg_sys::Instrumentation = {
             let node_instr = (*node).ss.ps.instrument;
             if node_instr.is_null() {

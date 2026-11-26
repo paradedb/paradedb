@@ -333,9 +333,9 @@ pub unsafe fn resolve_join_conditions(
         jointype,
         pg_sys::JoinType::JOIN_SEMI | pg_sys::JoinType::JOIN_ANTI
     );
-    #[cfg(pg16_plus)]
+    #[cfg(not(feature = "pg15"))]
     let is_semi_or_anti = is_semi_or_anti || jointype == pg_sys::JoinType::JOIN_RIGHT_ANTI;
-    #[cfg(pg18_plus)]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     let is_semi_or_anti = is_semi_or_anti || jointype == pg_sys::JoinType::JOIN_RIGHT_SEMI;
 
     let mut absorbed_clauses: Vec<*mut pg_sys::Node> = Vec::new();

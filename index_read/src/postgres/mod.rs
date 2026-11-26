@@ -981,7 +981,7 @@ impl ParallelScanState {
         }
         let writes_claims = source_idx == 0;
 
-        #[cfg(pg16_plus)]
+        #[cfg(not(feature = "pg15"))]
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
 
         loop {
@@ -996,7 +996,7 @@ impl ParallelScanState {
             // before the leader walks the whole pool, which improves the
             // reproducibility of parallel-worker issues; UNIONs under a Gather node
             // may run without workers at all, hence the deadline escape.
-            #[cfg(pg16_plus)]
+            #[cfg(not(feature = "pg15"))]
             if writes_claims
                 && unsafe { pg_sys::debug_parallel_query } != 0
                 && parallel_worker_number == -1

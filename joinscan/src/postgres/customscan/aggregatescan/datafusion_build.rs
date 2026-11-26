@@ -815,7 +815,7 @@ unsafe fn is_removed_rel(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node
     // Postgres 15 keeps the entry and marks it dead; later versions clear it.
     #[cfg(feature = "pg15")]
     let dead = !rel.is_null() && (*rel).reloptkind == pg_sys::RelOptKind::RELOPT_DEADREL;
-    #[cfg(pg16_plus)]
+    #[cfg(not(feature = "pg15"))]
     let dead = false;
     rel.is_null() || dead
 }
@@ -1360,10 +1360,10 @@ struct PathSearchClause {
     /// in `overlap`; PG16+ discriminates by `rinfo_serial`. Recorded on every
     /// version anyway so the constructor takes one plain parameter rather than
     /// a cfg-split `origin`/`_origin` pair.
-    #[cfg_attr(pg16_plus, allow(dead_code))]
+    #[cfg_attr(not(feature = "pg15"), allow(dead_code))]
     origin: RestrictInfoOrigin,
     // PG15 has no planner-assigned RestrictInfo identity to compare.
-    #[cfg(pg16_plus)]
+    #[cfg(not(feature = "pg15"))]
     rinfo_serial: i32,
 }
 
@@ -1407,7 +1407,7 @@ impl PathSearchClause {
             }
         }
 
-        #[cfg(pg16_plus)]
+        #[cfg(not(feature = "pg15"))]
         {
             (self.rinfo_serial == other.rinfo_serial).then_some(PathSearchClauseOverlap::Duplicate)
         }
@@ -1600,7 +1600,7 @@ unsafe fn classify_path_restrictinfo(
                 let candidate = PathSearchClause {
                     clause,
                     origin,
-                    #[cfg(pg16_plus)]
+                    #[cfg(not(feature = "pg15"))]
                     rinfo_serial: (*ri).rinfo_serial,
                 };
                 let overlap = info
@@ -1732,7 +1732,7 @@ fn walk_path_restrictinfo(
 /// The node carries no predicate, and the join type comes from the parse tree,
 /// so the inventory can continue below it. Any other deduplicating path over a
 /// join relation stays opaque.
-#[cfg(not(pg19_plus))]
+#[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
 unsafe fn semijoin_unique_subpath(
     _root: *mut pg_sys::PlannerInfo,
     path: *mut pg_sys::Path,
@@ -1743,7 +1743,7 @@ unsafe fn semijoin_unique_subpath(
         .then(|| (*(path as *mut pg_sys::UniquePath)).subpath)
 }
 
-#[cfg(pg19_plus)]
+#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
 unsafe fn semijoin_unique_subpath(
     root: *mut pg_sys::PlannerInfo,
     path: *mut pg_sys::Path,

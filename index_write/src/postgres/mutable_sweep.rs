@@ -79,16 +79,16 @@ pub fn init() {
 
 unsafe fn connect(database: Option<pg_sys::Oid>) {
     unsafe extern "C-unwind" {
-        #[cfg(not(pg19_plus))]
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
         #[link_name = "die"]
         fn worker_sigterm(signal: i32);
-        #[cfg(pg19_plus)]
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
         #[link_name = "die"]
         fn worker_sigterm(signal: i32, info: *const pg_sys::pg_signal_info);
     }
-    #[cfg(not(pg18_plus))]
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
     pg_sys::pqsignal(pg_sys::SIGTERM as i32, Some(worker_sigterm));
-    #[cfg(pg18_plus)]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     pg_sys::pqsignal_be(pg_sys::SIGTERM as i32, Some(worker_sigterm));
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP);
     BackgroundWorker::connect_worker_to_spi_by_oid(database, None);
@@ -122,7 +122,7 @@ unsafe extern "C-unwind" fn mutable_sweep_launcher(_arg: pg_sys::Datum) {
                 for backend in 1..=pg_sys::pgstat_fetch_stat_numbackends() {
                     #[cfg(feature = "pg15")]
                     let status = pg_sys::pgstat_fetch_stat_beentry(backend);
-                    #[cfg(pg16_plus)]
+                    #[cfg(not(feature = "pg15"))]
                     let status = {
                         let entry = pg_sys::pgstat_get_local_beentry_by_index(backend);
                         if entry.is_null() {

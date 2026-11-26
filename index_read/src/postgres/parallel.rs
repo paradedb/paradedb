@@ -46,7 +46,7 @@ pub unsafe extern "C-unwind" fn amparallelrescan(scan: pg_sys::IndexScanDesc) {
     }
 }
 
-#[cfg(not(pg17_plus))]
+#[cfg(any(feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amestimateparallelscan() -> pg_sys::Size {
     ParallelScanState::size_of(&[u16::MAX as usize], false, false)
@@ -65,7 +65,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     ParallelScanState::size_of(&[u16::MAX as usize], false, false)
 }
 
-#[cfg(pg18_plus)]
+#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
 #[pg_guard]
 pub extern "C-unwind" fn amestimateparallelscan(
     rel: *mut pg_sys::RelationData,
@@ -91,11 +91,11 @@ unsafe fn bm25_shared_state(
         scan.parallel_scan
             .cast::<std::ffi::c_void>()
             .add({
-                #[cfg(not(pg18_plus))]
+                #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
                 {
                     (*scan.parallel_scan).ps_offset
                 }
-                #[cfg(pg18_plus)]
+                #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
                 {
                     (*scan.parallel_scan).ps_offset_am
                 }

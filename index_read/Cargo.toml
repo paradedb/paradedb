@@ -20,9 +20,6 @@ block_tracker = ["storage/block_tracker"]
 # Keep this crate focused on Tantivy index reading, queries, and heap/MVCC visibility. Do NOT add
 # `datafusion`, `tonic`, or `prost` here so `index_read`, `index_write`, and `planner` can compile
 # without waiting for DataFusion.
-[build-dependencies]
-pg_cfg = { path = "../pg_cfg" }
-
 [dependencies]
 common = { path = "../common", default-features = false }
 storage = { path = "../storage", default-features = false }

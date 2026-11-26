@@ -177,7 +177,7 @@ pub mod glue {
     }
 
     pub fn debug_parallel_query_is_active() -> bool {
-        #[cfg(pg16_plus)]
+        #[cfg(not(feature = "pg15"))]
         {
             unsafe {
                 pg_sys::debug_parallel_query != pg_sys::DebugParallelMode::DEBUG_PARALLEL_OFF as i32
@@ -190,7 +190,7 @@ pub mod glue {
     }
 
     pub fn debug_parallel_query_is_regress() -> bool {
-        #[cfg(pg16_plus)]
+        #[cfg(not(feature = "pg15"))]
         {
             unsafe {
                 pg_sys::debug_parallel_query

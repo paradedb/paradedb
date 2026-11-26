@@ -263,7 +263,7 @@ impl HeapFieldFilter {
                 )
             };
 
-            #[cfg(pg16_plus)]
+            #[cfg(not(feature = "pg15"))]
             let new_node = pg_sys::expression_tree_mutator_impl(
                 expr_node,
                 Some(param_resolver_mutator),
@@ -320,7 +320,7 @@ unsafe extern "C-unwind" fn param_resolver_mutator(
         pg_sys::expression_tree_mutator(node, Some(param_resolver_mutator), context)
     }
 
-    #[cfg(pg16_plus)]
+    #[cfg(not(feature = "pg15"))]
     {
         pg_sys::expression_tree_mutator_impl(node, Some(param_resolver_mutator), context)
     }

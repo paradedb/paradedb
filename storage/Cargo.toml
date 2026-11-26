@@ -19,9 +19,6 @@ block_tracker = []                  # for debugging when blocks are acquired and
 
 # Keep this crate focused on Postgres block/WAL/FSM storage primitives. Do NOT add `datafusion`,
 # `arrow-*`, or `tokio` here so `storage` can compile in parallel with the Arrow/DataFusion stack.
-[build-dependencies]
-pg_cfg = { path = "../pg_cfg" }
-
 [dependencies]
 common = { path = "../common", default-features = false }
 anyhow.workspace = true

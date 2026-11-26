@@ -140,7 +140,7 @@ unsafe fn runs_alone(subquery: *mut pg_sys::Query) -> bool {
     // role.
     #[cfg(feature = "pg15")]
     let check_as_user = (*table).checkAsUser;
-    #[cfg(pg16_plus)]
+    #[cfg(not(feature = "pg15"))]
     let check_as_user = PgList::<pg_sys::RTEPermissionInfo>::from_pg(query.rteperminfos)
         .get_ptr(((*table).perminfoindex as usize).wrapping_sub(1))
         .map_or(pg_sys::Oid::INVALID, |rights| (*rights).checkAsUser);

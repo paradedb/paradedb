@@ -3112,11 +3112,11 @@ impl JoinScan {
                     };
                     let col = batch.column(col_idx);
                     let expected_type = {
-                        #[cfg(not(pg18_plus))]
+                        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
                         {
                             (*target_tupdesc).attrs.as_slice(natts)[i].atttypid
                         }
-                        #[cfg(pg18_plus)]
+                        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
                         {
                             (*pg_sys::TupleDescAttr(target_tupdesc, i as i32)).atttypid
                         }

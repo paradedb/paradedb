@@ -9,7 +9,6 @@ members = [
   "index_write",
   "joinscan",
   "macros",
-  "pg_cfg",
   "pg_search",
   "planner",
   "scan",

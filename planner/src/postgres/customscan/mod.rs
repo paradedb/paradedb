@@ -287,7 +287,7 @@ impl CreateUpperPathsHookArgs {
         let pathkeys = unsafe { PgList::<pg_sys::PathKey>::from_pg(self.root().group_pathkeys) };
         #[cfg(feature = "pg15")]
         let count = pathkeys.len();
-        #[cfg(pg16_plus)]
+        #[cfg(not(feature = "pg15"))]
         let count = self.root().num_groupby_pathkeys as usize;
         pathkeys.iter_ptr().take(count).collect()
     }

@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+- Building or merging a vector index reads the IVF training sample fewer times. When the sample does not fit in `maintenance_work_mem`, the meso clustering step trains in memory on rows spread evenly over the sample and reads the rest of the sample once, instead of reading the sample again on every iteration.

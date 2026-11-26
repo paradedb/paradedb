@@ -109,8 +109,15 @@ fn read_only_scan_sets_visibility_map(mut conn: PgConnection) {
         )
         .execute(conn);
 
-        let rows: Vec<(String,)> =
-            format!("SELECT pad FROM {table} WHERE body @@@ 'apple' {scan_suffix}").fetch(conn);
+        // PostgreSQL's own scans pass the hint too, so the plan has to be ours.
+        let query = format!("SELECT pad FROM {table} WHERE body @@@ 'apple' {scan_suffix}");
+        let plan: Vec<(String,)> = format!("EXPLAIN (COSTS OFF) {query}").fetch(conn);
+        assert!(
+            plan.iter()
+                .any(|(line,)| line.contains("ParadeDB Base Scan")),
+            "{plan:?}"
+        );
+        let rows: Vec<(String,)> = query.fetch(conn);
         assert_eq!(rows.len(), 4000);
 
         // ANALYZE counts the visibility map's bits into `relallvisible` and sets none itself.

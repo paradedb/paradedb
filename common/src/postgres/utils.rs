@@ -130,13 +130,16 @@ pub unsafe fn table_index_fetch_begin(
 /// Whether the query leaves the scan node's relation unmodified, as `ScanRelIsReadOnly` reports
 /// it. Always `false` before PG19, which has no use for the answer.
 ///
+/// Only for a node that scans one relation. A join's custom scan has `scanrelid` 0, which
+/// `ScanRelIsReadOnly` would report as read-only whatever the query does.
+///
 /// # Safety
 ///
 /// `ss` must be a scan state whose plan and executor state are set.
 pub unsafe fn scan_rel_is_read_only(ss: *mut pg_sys::ScanState) -> bool {
+    debug_assert!(unsafe { (*(*ss).ps.plan.cast::<pg_sys::Scan>()).scanrelid } != 0);
     #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
     {
-        let _ = ss;
         false
     }
     #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]

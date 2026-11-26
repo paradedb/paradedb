@@ -54,7 +54,6 @@ ANALYZE orders;
 
 SET paradedb.enable_aggregate_custom_scan = on;
 SET paradedb.enable_join_custom_scan = on;
-SET paradedb.enable_fast_field_exec = on;
 
 -- Force the (products INNER users) sub-join order so PG pushes the cross-table
 -- OR down into the sub-join's `joinrestrictinfo`. Without this nesting the

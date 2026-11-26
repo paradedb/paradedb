@@ -96,13 +96,13 @@ USING paradedb ((id::pdb.literal), (content::pdb.simple('columnar=true')), (titl
 -- They serve as a direct reference to verify that join-level score propagation
 -- and aggregation calculate correct values without distortion or RTI confusion.
 -- Baseline 1: Single-table scores for the conjunctive join terms
-SELECT 'documents' AS tbl, id, 'postgres' AS query, paradedb.score(id) AS score
+SELECT 'documents' AS tbl, id, 'postgres' AS query, pdb.score(id) AS score
 FROM documents WHERE content ||| 'postgres'
 UNION ALL
-SELECT 'files' AS tbl, id, 'index' AS query, paradedb.score(id) AS score
+SELECT 'files' AS tbl, id, 'index' AS query, pdb.score(id) AS score
 FROM files WHERE content ||| 'index'
 UNION ALL
-SELECT 'pages' AS tbl, id, 'vector' AS query, paradedb.score(id) AS score
+SELECT 'pages' AS tbl, id, 'vector' AS query, pdb.score(id) AS score
 FROM pages WHERE content ||| 'vector'
 ORDER BY tbl, score DESC, id ASC;
     tbl    |   id   |  query   |   score    
@@ -124,13 +124,13 @@ ORDER BY tbl, score DESC, id ASC;
 (14 rows)
 
 -- Baseline 2: Single-table scores for the disjunctive cross-table term ('search')
-SELECT 'documents' AS tbl, id, 'search' AS query, paradedb.score(id) AS score
+SELECT 'documents' AS tbl, id, 'search' AS query, pdb.score(id) AS score
 FROM documents WHERE content ||| 'search'
 UNION ALL
-SELECT 'files' AS tbl, id, 'search' AS query, paradedb.score(id) AS score
+SELECT 'files' AS tbl, id, 'search' AS query, pdb.score(id) AS score
 FROM files WHERE content ||| 'search'
 UNION ALL
-SELECT 'pages' AS tbl, id, 'search' AS query, paradedb.score(id) AS score
+SELECT 'pages' AS tbl, id, 'search' AS query, pdb.score(id) AS score
 FROM pages WHERE content ||| 'search'
 ORDER BY tbl, score DESC, id ASC;
     tbl    |   id   | query  |   score    
@@ -143,7 +143,7 @@ ORDER BY tbl, score DESC, id ASC;
 (5 rows)
 
 -- Baseline 3: Single-table scores for within-table disjunction ('postgres OR search')
-SELECT 'documents' AS tbl, id, 'postgres OR search' AS query, paradedb.score(id) AS score
+SELECT 'documents' AS tbl, id, 'postgres OR search' AS query, pdb.score(id) AS score
 FROM documents WHERE (content ||| 'postgres' OR content ||| 'search')
 ORDER BY score DESC, id ASC;
     tbl    |  id   |       query        |   score    
@@ -168,10 +168,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -183,7 +183,7 @@ LIMIT 10;
                                                                                                                                                  QUERY PLAN                                                                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Output: documents.id, files.id, pages.id, (paradedb.score(documents.id)), (paradedb.score(files.id)), (paradedb.score(pages.id)), (((paradedb.score(documents.id) + paradedb.score(files.id)) + paradedb.score(pages.id)))
+   Output: documents.id, files.id, pages.id, (pdb.score(documents.id)), (pdb.score(files.id)), (pdb.score(pages.id)), (((pdb.score(documents.id) + pdb.score(files.id)) + pdb.score(pages.id)))
    Relation Tree: (documents INNER files) INNER pages
    Join Cond: pages.fileId = files.id, documents.id = files.documentId
    Limit: 10
@@ -205,10 +205,10 @@ LIMIT 10;
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -239,9 +239,9 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(documents.id) + pdb.score(files.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 WHERE documents.content ||| 'postgres'
@@ -251,7 +251,7 @@ LIMIT 10;
                                                                                                                           QUERY PLAN                                                                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Output: documents.id, files.id, (paradedb.score(documents.id)), (paradedb.score(files.id)), ((paradedb.score(documents.id) + paradedb.score(files.id)))
+   Output: documents.id, files.id, (pdb.score(documents.id)), (pdb.score(files.id)), ((pdb.score(documents.id) + pdb.score(files.id)))
    Relation Tree: documents INNER files
    Join Cond: documents.id = files.documentId
    Limit: 10
@@ -269,9 +269,9 @@ LIMIT 10;
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(documents.id) + pdb.score(files.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 WHERE documents.content ||| 'postgres'
@@ -296,7 +296,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS pdb_score
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS pdb_score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -308,7 +308,7 @@ LIMIT 10;
                                                                                                                                  QUERY PLAN                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Output: documents.id, files.id, pages.id, (((paradedb.score(documents.id) + paradedb.score(files.id)) + paradedb.score(pages.id)))
+   Output: documents.id, files.id, pages.id, (((pdb.score(documents.id) + pdb.score(files.id)) + pdb.score(pages.id)))
    Relation Tree: (documents INNER files) INNER pages
    Join Cond: pages.fileId = files.id, documents.id = files.documentId
    Limit: 10
@@ -331,7 +331,7 @@ LIMIT 10;
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS pdb_score
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS pdb_score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -363,10 +363,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -378,7 +378,7 @@ LIMIT 10;
                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Output: documents.id, files.id, pages.id, (paradedb.score(documents.id)), (paradedb.score(files.id)), (paradedb.score(pages.id)), (((paradedb.score(documents.id) + paradedb.score(files.id)) + paradedb.score(pages.id)))
+   Output: documents.id, files.id, pages.id, (pdb.score(documents.id)), (pdb.score(files.id)), (pdb.score(pages.id)), (((pdb.score(documents.id) + pdb.score(files.id)) + pdb.score(pages.id)))
    Relation Tree: (documents INNER files) INNER pages
    Join Cond: pages.fileId = files.id, documents.id = files.documentId
    Join Predicate: (documents:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR files:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR pages:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
@@ -402,10 +402,10 @@ LIMIT 10;
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -431,19 +431,19 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(pages.id) AS page_score
+       pdb.score(pages.id) AS page_score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
 WHERE documents.content ||| 'search'
    OR files.content ||| 'search'
    OR pages.content ||| 'search'
-ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
+ORDER BY pdb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Output: documents.id, files.id, pages.id, (paradedb.score(pages.id))
+   Output: documents.id, files.id, pages.id, (pdb.score(pages.id))
    Relation Tree: (documents INNER files) INNER pages
    Join Cond: pages.fileId = files.id, documents.id = files.documentId
    Join Predicate: (documents:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR files:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR pages:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
@@ -467,14 +467,14 @@ LIMIT 10;
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(pages.id) AS page_score
+       pdb.score(pages.id) AS page_score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
 WHERE documents.content ||| 'search'
    OR files.content ||| 'search'
    OR pages.content ||| 'search'
-ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
+ORDER BY pdb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
  doc_id | file_id | page_id | page_score 
 --------+---------+---------+------------
@@ -493,10 +493,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -507,7 +507,7 @@ LIMIT 10;
                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Output: documents.id, files.id, pages.id, (paradedb.score(documents.id)), (paradedb.score(files.id)), (paradedb.score(pages.id)), (((paradedb.score(documents.id) + paradedb.score(files.id)) + paradedb.score(pages.id)))
+   Output: documents.id, files.id, pages.id, (pdb.score(documents.id)), (pdb.score(files.id)), (pdb.score(pages.id)), (((pdb.score(documents.id) + pdb.score(files.id)) + pdb.score(pages.id)))
    Relation Tree: (documents INNER files) INNER pages
    Join Cond: pages.fileId = files.id, documents.id = files.documentId
    Join Predicate: (files:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR pages:{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
@@ -531,10 +531,10 @@ LIMIT 10;
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -553,26 +553,26 @@ LIMIT 10;
 -- =============================================================================
 -- TEST 6: 3-way join sorting by single-relation score
 -- =============================================================================
--- Verifies that ORDER BY paradedb.score(pages.id) sorts solely by pages relevance
+-- Verifies that ORDER BY pdb.score(pages.id) sorts solely by pages relevance
 -- rather than the sum across tables.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) AS doc_score
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) AS doc_score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
 WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
   AND pages.content ||| 'vector'
-ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
+ORDER BY pdb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
                                                                                                                                  QUERY PLAN                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Output: documents.id, files.id, pages.id, (paradedb.score(pages.id)), (paradedb.score(documents.id))
+   Output: documents.id, files.id, pages.id, (pdb.score(pages.id)), (pdb.score(documents.id))
    Relation Tree: (documents INNER files) INNER pages
    Join Cond: pages.fileId = files.id, documents.id = files.documentId
    Limit: 10
@@ -595,15 +595,15 @@ LIMIT 10;
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) AS doc_score
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) AS doc_score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
 WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
   AND pages.content ||| 'vector'
-ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
+ORDER BY pdb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
  doc_id | file_id | page_id | page_score | doc_score  
 --------+---------+---------+------------+------------
@@ -624,10 +624,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -639,7 +639,7 @@ LIMIT 10;
                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Output: documents.id, files.id, pages.id, (paradedb.score(documents.id)), (paradedb.score(files.id)), (paradedb.score(pages.id)), (((paradedb.score(documents.id) + paradedb.score(files.id)) + paradedb.score(pages.id)))
+   Output: documents.id, files.id, pages.id, (pdb.score(documents.id)), (pdb.score(files.id)), (pdb.score(pages.id)), (((pdb.score(documents.id) + pdb.score(files.id)) + pdb.score(pages.id)))
    Relation Tree: (documents INNER files) INNER pages
    Join Cond: pages.fileId = files.id, documents.id = files.documentId
    Limit: 10
@@ -662,10 +662,10 @@ LIMIT 10;
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -691,9 +691,9 @@ SET paradedb.rank_join_min_rows = 0;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(documents.id) + pdb.score(files.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 WHERE documents.content ||| 'postgres'
@@ -720,9 +720,9 @@ LIMIT 10;
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(documents.id) + pdb.score(files.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 WHERE documents.content ||| 'postgres'
@@ -743,17 +743,17 @@ SET paradedb.max_topk_chunk_size = 2;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(documents.id) + pdb.score(files.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
 ORDER BY score DESC
 LIMIT 10;
-                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
    Relation Tree: documents INNER files
    Join Cond: documents.id = files.documentId
@@ -765,16 +765,16 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[documents, files], metrics=[output_rows=5, output_bytes=200.0 B, output_batches=4, ctids_fetched=10, ctids_lazy=0]
      :       RankJoinExec: mode=CollectLeft, on=[(id@2, documentId@2)], order=[pdb.score(documents)@0 + pdb.score(files)@3 DESC], projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4], metrics=[output_rows=5, output_bytes=200.0 B, output_batches=4]
      :         CooperativeExec
-     :           PgSearchScan: table=documents, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=108.0 B, output_batches=3, dynamic_filter_pushdown_automaton=1, dynamic_filter_pushdown_score=1, queries=3, ra_queries=1, rows_pruned=0, rows_scanned=3]
+     :           PgSearchScan: table=documents, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=108.0 B, output_batches=3, dynamic_filter_pushdown_linear=1, dynamic_filter_pushdown_score=1, queries=3, ra_queries=1, rows_pruned=0, rows_scanned=3]
      :         CooperativeExec
-     :           PgSearchScan: table=files, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=180.0 B, output_batches=4, dynamic_filter_pushdown_automaton=1, dynamic_filter_pushdown_score=1, queries=6, ra_queries=3, rows_pruned=0, rows_scanned=5]
+     :           PgSearchScan: table=files, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=180.0 B, output_batches=4, dynamic_filter_pushdown_linear=1, dynamic_filter_pushdown_score=1, queries=6, ra_queries=3, rows_pruned=0, rows_scanned=5]
 (14 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(documents.id) + pdb.score(files.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 WHERE documents.content ||| 'postgres'
@@ -795,7 +795,7 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS pdb_score
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS pdb_score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -828,7 +828,7 @@ LIMIT 10;
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS pdb_score
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS pdb_score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -851,9 +851,9 @@ LIMIT 10;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(documents.id) + pdb.score(files.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 WHERE documents.content ||| 'search'
@@ -881,9 +881,9 @@ LIMIT 10;
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(documents.id) + pdb.score(files.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 WHERE documents.content ||| 'search'
@@ -901,10 +901,10 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -930,7 +930,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=documents, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=4, dynamic_filter_pushdown_automaton=1, dynamic_filter_pushdown_score=1, queries=4, ra_queries=3, rows_pruned=0, rows_scanned=2]
      :           CooperativeExec
-     :             PgSearchScan: table=files, segments=1, lazy_sort=20, dynamic_filters=2, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=180.0 B, output_batches=3, dynamic_filter_pushdown_automaton=1, queries=3, ra_queries=2, rows_pruned=0, rows_scanned=3]
+     :             PgSearchScan: table=files, segments=1, lazy_sort=20, dynamic_filters=2, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=180.0 B, output_batches=3, dynamic_filter_pushdown_linear=1, queries=3, ra_queries=2, rows_pruned=0, rows_scanned=3]
      :         CooperativeExec
      :           PgSearchScan: table=pages, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=4, output_bytes=120.0 B, output_batches=3, dynamic_filter_pushdown_automaton=1, queries=3, ra_queries=2, rows_pruned=0, rows_scanned=4]
 (18 rows)
@@ -938,10 +938,10 @@ LIMIT 10;
 SELECT documents.id AS doc_id,
        files.id AS file_id,
        pages.id AS page_id,
-       paradedb.score(documents.id) AS doc_score,
-       paradedb.score(files.id) AS file_score,
-       paradedb.score(pages.id) AS page_score,
-       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+       pdb.score(documents.id) AS doc_score,
+       pdb.score(files.id) AS file_score,
+       pdb.score(pages.id) AS page_score,
+       pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
@@ -962,15 +962,15 @@ LIMIT 10;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT documents.id AS doc_id,
        files.id AS file_id,
-       paradedb.score(files.id) AS file_score
+       pdb.score(files.id) AS file_score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
-ORDER BY paradedb.score(files.id) DESC, documents.id ASC
+ORDER BY pdb.score(files.id) DESC, documents.id ASC
 LIMIT 10;
-                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
    Relation Tree: documents INNER files
    Join Cond: documents.id = files.documentId
@@ -982,19 +982,19 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[documents, files], metrics=[output_rows=5, output_bytes=180.0 B, output_batches=2, ctids_fetched=10, ctids_lazy=0]
      :       RankJoinExec: mode=CollectLeft, on=[(id@1, documentId@2)], order=[pdb.score(files)@2 DESC, id@1 ASC NULLS LAST], projection=[ctid_0@0, id@1, pdb.score(files)@2, ctid_1@3], metrics=[output_rows=5, output_bytes=180.0 B, output_batches=2]
      :         CooperativeExec
-     :           PgSearchScan: table=documents, segments=1, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=88.0 B, output_batches=1, dynamic_filter_pushdown_automaton=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=3]
+     :           PgSearchScan: table=documents, segments=1, lazy_sort=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=88.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=3]
      :         CooperativeExec
      :           PgSearchScan: table=files, segments=1, lazy_sort=26, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=140.0 B, output_batches=1, queries=1]
 (14 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
-       paradedb.score(files.id) AS file_score
+       pdb.score(files.id) AS file_score
 FROM documents
 JOIN files ON documents.id = files."documentId"
 WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
-ORDER BY paradedb.score(files.id) DESC, documents.id ASC
+ORDER BY pdb.score(files.id) DESC, documents.id ASC
 LIMIT 10;
  doc_id | file_id | file_score 
 --------+---------+------------

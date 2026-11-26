@@ -28,16 +28,16 @@ CREATE INDEX score_items_idx ON score_items USING paradedb (id, description);
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) >= 0
+  AND pdb.score(id) >= 0
 ORDER BY id;
 
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) >= 0
+  AND pdb.score(id) >= 0
 ORDER BY id;
 
 -- =============================================================================
@@ -46,16 +46,16 @@ ORDER BY id;
 
 -- We expect one row to match 'PostgreSQL' with a positive score
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) > 0.1
+  AND pdb.score(id) > 0.1
 ORDER BY id;
 
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) > 0.1
+  AND pdb.score(id) > 0.1
 ORDER BY id;
 
 -- =============================================================================
@@ -63,16 +63,16 @@ ORDER BY id;
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) > 10.0
+  AND pdb.score(id) > 10.0
 ORDER BY id;
 
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) > 10.0
+  AND pdb.score(id) > 10.0
 ORDER BY id;
 
 -- =============================================================================
@@ -80,18 +80,18 @@ ORDER BY id;
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) >= 0
-  AND paradedb.score(id) < 100
+  AND pdb.score(id) >= 0
+  AND pdb.score(id) < 100
 ORDER BY id;
 
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
 WHERE description ||| 'PostgreSQL'
-  AND paradedb.score(id) >= 0
-  AND paradedb.score(id) < 100
+  AND pdb.score(id) >= 0
+  AND pdb.score(id) < 100
 ORDER BY id;
 
 -- =============================================================================
@@ -101,14 +101,14 @@ ORDER BY id;
 -- This test verifies that if there are no other query inputs, the ScoreFilter
 -- correctly defaults to SearchQueryInput::All.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
-WHERE paradedb.score(id) >= 0
+WHERE pdb.score(id) >= 0
 ORDER BY id;
 
-SELECT id, description, paradedb.score(id)
+SELECT id, description, pdb.score(id)
 FROM score_items
-WHERE paradedb.score(id) >= 0
+WHERE pdb.score(id) >= 0
 ORDER BY id;
 
 -- CLEANUP

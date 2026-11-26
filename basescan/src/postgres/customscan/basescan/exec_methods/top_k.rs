@@ -440,10 +440,10 @@ impl ExecMethod for TopKScanExecState {
         }
 
         if self.runtime.is_none() {
-            self.runtime = Some(
-                PgTokioRuntime::new()
-                    .expect("Failed to create tokio runtime for DataFusion stream execution"),
-            );
+            let runtime = PgTokioRuntime::new()
+                .expect("Failed to create tokio runtime for DataFusion stream execution");
+            state.register_runtime_for_dsm_detach(&runtime);
+            self.runtime = Some(runtime);
         }
 
         loop {
@@ -534,6 +534,7 @@ impl ExecMethod for TopKScanExecState {
         self.current_record_batch = None;
         self.current_batch_row_idx = 0;
         self.runtime = None;
+        state.clear_runtime_for_dsm_detach();
         self.found = 0;
 
         // Get window aggregates from state if available

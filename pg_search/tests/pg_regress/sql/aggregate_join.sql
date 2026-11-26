@@ -1050,14 +1050,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
-WHERE i.id @@@ paradedb.all()
+WHERE i.id @@@ pdb.all()
 GROUP BY i.metadata->>'category';
 
 -- Test 17.2: JSON sub-field GROUP BY results
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
-WHERE i.id @@@ paradedb.all()
+WHERE i.id @@@ pdb.all()
 GROUP BY i.metadata->>'category'
 ORDER BY category;
 
@@ -1066,7 +1066,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
-WHERE i.id @@@ paradedb.all()
+WHERE i.id @@@ pdb.all()
 GROUP BY i.metadata->>'category'
 ORDER BY category;
 SET paradedb.enable_aggregate_custom_scan TO on;

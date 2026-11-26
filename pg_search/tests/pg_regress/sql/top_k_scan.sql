@@ -89,42 +89,40 @@ FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
   AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
-  AND (id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
-       tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)))
-  AND (NOT id @@@ paradedb.exists('removed_at'))
-  AND (id @@@ paradedb.all())
+  AND (notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true'))
+  AND (NOT removed_at @@@ pdb.exists())
+  AND (id @@@ pdb.all())
 ORDER BY time_period DESC
 LIMIT 25;
 
--- Test 3: Same query without paradedb.all() operator
-\echo 'Test 3: Without paradedb.all() operator'
+-- Test 3: Same query without pdb.all() operator
+\echo 'Test 3: Without pdb.all() operator'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, tenant_id, source_id, notes, is_active, time_period
 FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
   AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
-  AND (id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
-       tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)))
-  AND (NOT id @@@ paradedb.exists('removed_at'))
+  AND (notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true'))
+  AND (NOT removed_at @@@ pdb.exists())
 ORDER BY time_period DESC
 LIMIT 25;
 
--- Test 4: Testing the impact of paradedb.all() alone
-\echo 'Test 4: Testing paradedb.all() by itself'
+-- Test 4: Testing the impact of pdb.all() alone
+\echo 'Test 4: Testing pdb.all() by itself'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, notes
 FROM records
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 25;
 
--- Test 5: Testing NOT with paradedb.exists
-\echo 'Test 5: Testing NOT with paradedb.exists'
+-- Test 5: Testing NOT with pdb.exists
+\echo 'Test 5: Testing NOT with pdb.exists'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, notes
 FROM records
-WHERE NOT id @@@ paradedb.exists('removed_at')
+WHERE NOT removed_at @@@ pdb.exists()
 ORDER BY id
 LIMIT 25;
 
@@ -144,17 +142,16 @@ SELECT id, tenant_id, notes
 FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
-  AND id @@@ paradedb.match('notes', 'check')
+  AND notes ||| 'check'
 ORDER BY time_period DESC
 LIMIT 25;
 
 -- Test 8: Testing with each complex component isolated
-\echo 'Test 8: Component isolation - paradedb.match'
+\echo 'Test 8: Component isolation - pdb.match'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, notes
 FROM records
-WHERE id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
-       tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false))
+WHERE notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true')
 LIMIT 25;
 
 -- Test 9: Query with all columns
@@ -172,10 +169,9 @@ FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
   AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
-  AND (id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
-       tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)))
-  AND (NOT id @@@ paradedb.exists('removed_at'))
-  AND (id @@@ paradedb.all())
+  AND (notes &&& 'check'::pdb.ngram(3, 3, 'prefix_only=false', 'remove_long=255', 'lowercase=true'))
+  AND (NOT removed_at @@@ pdb.exists())
+  AND (id @@@ pdb.all())
 ORDER BY time_period DESC
 LIMIT 25;
 
@@ -186,7 +182,7 @@ SELECT id, flow_type, state, tags, process_method
 FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
-  AND (id @@@ paradedb.match('notes', 'check'))
+  AND (notes ||| 'check')
 ORDER BY time_period DESC
 LIMIT 25;
 
@@ -195,7 +191,7 @@ LIMIT 25;
 EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
 SELECT state, id
 FROM records
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND state IS NULL
 ORDER BY state, id
 LIMIT 10000;
@@ -205,7 +201,7 @@ LIMIT 10000;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code
 FROM records
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY state, flow_type, currency_code, id
     LIMIT 25;
 
@@ -214,7 +210,7 @@ ORDER BY state, flow_type, currency_code, id
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code, tenant_id
 FROM records
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, id
     LIMIT 25;
 
@@ -223,7 +219,7 @@ ORDER BY state, flow_type, currency_code, tenant_id, id
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code, tenant_id, source_id
 FROM records
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, source_id, id
     LIMIT 25;
 

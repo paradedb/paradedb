@@ -90,7 +90,7 @@ ANALYZE;
 -- Expected: 26 rows. JoinScan absent from EXPLAIN.
 SELECT count(*) FROM (
     SELECT c.id, c.name FROM lj_companies c
-    WHERE c.id @@@ paradedb.all()
+    WHERE c.id @@@ pdb.all()
       AND NOT EXISTS (
           SELECT 1 FROM lj_excluded_emails e
           WHERE e.company_id = c.id
@@ -107,7 +107,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
 -- Verify JoinScan is NOT used (bailed out)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT c.id, c.name FROM lj_companies c
-WHERE c.id @@@ paradedb.all()
+WHERE c.id @@@ pdb.all()
   AND NOT EXISTS (
       SELECT 1 FROM lj_excluded_emails e
       WHERE e.company_id = c.id
@@ -115,8 +115,8 @@ WHERE c.id @@@ paradedb.all()
 ORDER BY c.name ASC
 LIMIT 26;
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, e)
-                              QUERY PLAN                              
-----------------------------------------------------------------------
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: c.name
@@ -128,7 +128,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
                      Exec Method: NormalScanExecState
                      Scores: false
                      Full Index Scan: true
-                     Tantivy Query: {"with_index":{"query":"all"}}
+                     Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
                ->  Hash
                      ->  Seq Scan on lj_excluded_emails e
 (14 rows)
@@ -145,7 +145,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
 SELECT count(*) FROM (
     SELECT c.id FROM lj_companies c
     JOIN lj_people p ON c.id = p.company_id
-    WHERE c.id @@@ paradedb.all()
+    WHERE c.id @@@ pdb.all()
       AND c.id IN (SELECT company_id FROM lj_job_openings)
     ORDER BY c.id ASC
     LIMIT 26
@@ -164,7 +164,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
 SELECT count(*) FROM (
     SELECT c.id, p.name FROM lj_companies c
     JOIN lj_people p ON c.id = p.company_id
-    WHERE c.id @@@ paradedb.all()
+    WHERE c.id @@@ pdb.all()
       AND (p.dept_id IS NULL
            OR p.dept_id IN (
                SELECT id FROM lj_departments WHERE active))
@@ -186,7 +186,7 @@ WARNING:  JoinScan not used: OR-nested subquery cannot be pushed into the scan (
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT c.id, p.name FROM lj_companies c
 JOIN lj_people p ON c.id = p.company_id
-WHERE c.id @@@ paradedb.all()
+WHERE c.id @@@ pdb.all()
 ORDER BY c.id ASC
 LIMIT 26;
                                                           QUERY PLAN                                                           
@@ -202,7 +202,7 @@ LIMIT 26;
      :     VisibilityFilterExec: tables=[c, p]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
 (14 rows)
@@ -214,7 +214,7 @@ LIMIT 26;
 -- should bail out.
 SELECT count(*) FROM (
     SELECT c.id FROM lj_companies c
-    WHERE c.id @@@ paradedb.all()
+    WHERE c.id @@@ pdb.all()
       AND NOT EXISTS (
           SELECT 1 FROM lj_excluded_emails e
           WHERE e.company_id = c.id
@@ -237,7 +237,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
 SELECT count(*) FROM (
     SELECT p.id
     FROM lj_people p
-    WHERE p.id @@@ paradedb.all()
+    WHERE p.id @@@ pdb.all()
       AND p.seniority_slug IN ('manager', 'director')
       AND NOT EXISTS (
           SELECT ec.id FROM lj_excluded_contacts ec
@@ -261,7 +261,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.id
 FROM lj_people p
-WHERE p.id @@@ paradedb.all()
+WHERE p.id @@@ pdb.all()
   AND p.seniority_slug IN ('manager', 'director')
   AND NOT EXISTS (
       SELECT ec.id FROM lj_excluded_contacts ec
@@ -276,8 +276,8 @@ ORDER BY p.id DESC
 LIMIT 26;
 WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: c, p)
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: ec, p)
-                                                                                                                     QUERY PLAN                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: p.id DESC
@@ -293,7 +293,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
                            Exec Method: NormalScanExecState
                            Scores: false
                            Full Index Scan: true
-                           Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+                           Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
                            SubPlan 1
                              ->  Seq Scan on lj_companies c
 (18 rows)

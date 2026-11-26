@@ -35,7 +35,7 @@ SELECT
     metadata_json->>'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->>'value'
 ORDER BY count DESC, value;
                                                        QUERY PLAN                                                        
@@ -55,7 +55,7 @@ SELECT
     metadata_json->>'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->>'value'
 ORDER BY count DESC, value;
  value  | count 
@@ -78,7 +78,7 @@ SELECT
     metadata_json->'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->'value'
 ORDER BY count DESC;
                                                                     QUERY PLAN                                                                     
@@ -97,7 +97,7 @@ SELECT
     metadata_json->'value' AS value,
     COUNT(*) AS count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->'value'
 ORDER BY count DESC;
   value   | count 
@@ -121,7 +121,7 @@ SELECT
     MIN((metadata_json->>'count')::INT) AS min_count,
     MAX((metadata_json->>'count')::INT) AS max_count
 FROM json_test
-WHERE id @@@ paradedb.exists('metadata_json.value')
+WHERE (metadata_json -> 'value') @@@ pdb.exists()
 GROUP BY metadata_json->>'value'
 ORDER BY value;
  value  | count | min_count | max_count 
@@ -131,24 +131,6 @@ ORDER BY value;
  cherry |     1 |         6 |         6
  orange |     1 |         7 |         7
 (4 rows)
-
--- Test 4: Verify with paradedb.aggregate directly
-SELECT 'Test 4: Direct paradedb.aggregate call';
-                ?column?                
-----------------------------------------
- Test 4: Direct paradedb.aggregate call
-(1 row)
-
-SELECT * FROM paradedb.aggregate(
-    index=>'json_test_idx',
-    query=>paradedb.exists('metadata_json.value'),
-    agg=>'{"buckets": { "terms": { "field": "metadata_json.value" }}}',
-    visibility=>'transaction'
-) ORDER BY 1;
-                                                                                                             aggregate                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": {"buckets": [{"key": "apple", "doc_count": 3}, {"key": "banana", "doc_count": 3}, {"key": "cherry", "doc_count": 1}, {"key": "orange", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
-(1 row)
 
 -- Test 5: JSON projection without filter (should still work)
 SELECT 'Test 5: Without WHERE clause';

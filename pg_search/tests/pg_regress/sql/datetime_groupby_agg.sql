@@ -48,14 +48,14 @@ SELECT
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()
 GROUP BY transactions.as_of_date;
 
 SELECT 
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date NULLS LAST;
 
@@ -72,7 +72,7 @@ WHERE transactions.organization_id = 'org1'
     AND transactions.live_mode = TRUE
     AND transactions.discarded_at IS NULL
     AND transactions.unledgered_amount != 0
-    AND transactions.id @@@ paradedb.all()
+    AND transactions.id @@@ pdb.all()
     AND transactions.as_of_date BETWEEN '2025-12-25' AND '2026-02-01'
 GROUP BY transactions.as_of_date;
 
@@ -84,7 +84,7 @@ WHERE transactions.organization_id = 'org1'
     AND transactions.live_mode = TRUE
     AND transactions.discarded_at IS NULL
     AND transactions.unledgered_amount != 0
-    AND transactions.id @@@ paradedb.all()
+    AND transactions.id @@@ pdb.all()
     AND transactions.as_of_date BETWEEN '2025-12-25' AND '2026-02-01'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
@@ -98,7 +98,7 @@ SELECT
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()
     AND transactions.as_of_date < '2025-12-29'
 GROUP BY transactions.as_of_date;
 
@@ -106,7 +106,7 @@ SELECT
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()
     AND transactions.as_of_date < '2025-12-29'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
@@ -120,7 +120,7 @@ SELECT
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()
     AND transactions.as_of_date > '2025-12-28'
 GROUP BY transactions.as_of_date;
 
@@ -128,7 +128,7 @@ SELECT
     COUNT(*) AS count_all,
     transactions.as_of_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()
     AND transactions.as_of_date > '2025-12-28'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
@@ -142,14 +142,14 @@ SELECT
     MIN(as_of_date) AS min_date,
     MAX(as_of_date) AS max_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()
     AND transactions.live_mode = TRUE;
 
 SELECT 
     MIN(as_of_date) AS min_date,
     MAX(as_of_date) AS max_date
 FROM transactions
-WHERE transactions.id @@@ paradedb.all()
+WHERE transactions.id @@@ pdb.all()
     AND transactions.live_mode = TRUE;
 
 -- =====================================================================

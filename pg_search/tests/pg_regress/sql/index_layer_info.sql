@@ -75,7 +75,7 @@ SELECT id, CASE WHEN id % 2 = 0 THEN 'common' ELSE 'other' END AS body
 FROM generate_series(1, 512) AS id;
 
 CREATE INDEX bitmap_size_idx ON bitmap_size_items
-USING bm25 (id, body) WITH (target_segment_count = 1);
+USING paradedb (id, body) WITH (target_segment_count = 1);
 
 SELECT bool_and(posting_bitmaps_bytes > 0 AND posting_bitmaps_bytes < byte_size) AS bitmap_size_reported
 FROM paradedb.index_info('bitmap_size_idx');
@@ -90,7 +90,7 @@ FROM paradedb.index_info('bitmap_size_idx');
 
 DROP INDEX bitmap_size_idx;
 CREATE INDEX bitmap_size_idx ON bitmap_size_items
-USING bm25 (id, (body::pdb.simple('bitmap_postings=false'))) WITH (target_segment_count = 1);
+USING paradedb (id, (body::pdb.simple('bitmap_postings=false'))) WITH (target_segment_count = 1);
 
 SELECT bool_and(posting_bitmaps_bytes IS NULL) AS absent_bitmap_size_is_null
 FROM paradedb.index_info('bitmap_size_idx');

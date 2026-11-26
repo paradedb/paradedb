@@ -31,6 +31,7 @@ use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::{MergePins, MetaPage};
 use crate::postgres::{IsLogicalWorker, PgSearchRelation};
+use common::dst;
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;
@@ -630,6 +631,13 @@ pub unsafe fn merge_index(
             if merge_result.is_err() {
                 break;
             }
+            for segment_id in &candidate.0 {
+                crate::postgres::storage::mutable_cache::invalidate_segment(
+                    pg_sys::MyDatabaseId,
+                    indexrel.oid(),
+                    segment_id.uuid_bytes(),
+                );
+            }
             if mode == MergeMode::Background {
                 garbage_collect_index(indexrel, current_xid, next_xid);
             }
@@ -1090,9 +1098,14 @@ mod tests {
             .filter(|entry| !entry.is_deleted())
             .map(|entry| entry.segment_id())
             .collect::<Vec<_>>();
-        Spi::run(
-            "INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,1024) i)::vector FROM generate_series(2049,4096) g",
-        ).unwrap();
+        let total_rows = VECTOR_METADATA_ROWS * 2;
+        let first_inserted_row = VECTOR_METADATA_ROWS + 1;
+        Spi::run(&format!(
+            "INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
+             FROM generate_series(1,{VECTOR_METADATA_DIMENSIONS}) i)::vector
+             FROM generate_series({first_inserted_row},{total_rows}) g",
+        ))
+        .unwrap();
         let current = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) };
         assert!(old.iter().all(|id| {
             current
@@ -1101,7 +1114,10 @@ mod tests {
         }));
         assert!(WARNED_VECTOR_INDEXES.with(|warned| warned.borrow().contains(&oid)));
         // A repeated write keeps the same backend warning state while skipping the unsupported segment.
-        Spi::run("UPDATE metadata_vectors SET vec = vec WHERE id = 4096").unwrap();
+        Spi::run(&format!(
+            "UPDATE metadata_vectors SET vec = vec WHERE id = {total_rows}"
+        ))
+        .unwrap();
         assert!(WARNED_VECTOR_INDEXES.with(|warned| warned.borrow().contains(&oid)));
         expect_reindex(&vector_query());
         drop(indexrel);
@@ -1109,7 +1125,7 @@ mod tests {
         Spi::run(&vector_query()).unwrap();
         assert_eq!(
             Spi::get_one::<i64>("SELECT count(*) FROM metadata_vectors").unwrap(),
-            Some(4096)
+            Some(total_rows)
         );
     }
 

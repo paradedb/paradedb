@@ -54,8 +54,8 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.t
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
-SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
+SELECT a.id, pdb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
+SELECT a.id, pdb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
 
 -- =============================================================================
 -- Cross-table OR search predicate as a WHERE (post-join) filter
@@ -119,7 +119,7 @@ LIMIT 8;
 
 -- =============================================================================
 -- Baselines with JoinScan off: results must match the sections above.
--- paradedb.score() on the nullable side has no non-JoinScan fallback, so it
+-- pdb.score() on the nullable side has no non-JoinScan fallback, so it
 -- has no baseline here.
 -- =============================================================================
 

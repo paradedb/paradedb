@@ -13,12 +13,12 @@ CREATE INDEX on mock_items USING paradedb (id, description, rating, category, (m
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, rating, COUNT(*)
 FROM mock_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
-                                                               QUERY PLAN                                                                
------------------------------------------------------------------------------------------------------------------------------------------
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Backend: DataFusion
@@ -29,12 +29,12 @@ LIMIT 5;
            : SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST, rating@1 ASC NULLS LAST], preserve_partitioning=[false]
            :   AggregateExec: mode=Single, gby=[id@0 as id, rating@1 as rating], aggr=[count(1) as agg_0]
            :     CooperativeExec
-           :       PgSearchScan: table=mock_items, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+           :       PgSearchScan: table=mock_items, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 
 SELECT id, rating, COUNT(*)
 FROM mock_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
@@ -50,7 +50,7 @@ LIMIT 5;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, metadata->>'color' AS color, COUNT(*)
 FROM mock_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id, metadata->>'color'
 ORDER BY id, metadata->>'color'
 LIMIT 5;
@@ -59,7 +59,7 @@ LIMIT 5;
  Limit
    ->  Custom Scan (ParadeDB Aggregate Scan) on mock_items
          Index: mock_items_id_description_rating_category_metadata_idx
-         Tantivy Query: {"with_index":{"query":"all"}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
            Applies to Aggregates: COUNT(*)
            Group By: id, metadata.color
            Limit: 5
@@ -68,7 +68,7 @@ LIMIT 5;
 
 SELECT id, metadata->>'color' AS color, COUNT(*)
 FROM mock_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id, metadata->>'color'
 ORDER BY id, metadata->>'color'
 LIMIT 5;

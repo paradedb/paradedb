@@ -20,8 +20,9 @@ use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::io_stats::Trace;
 use crate::index::reader::segment_component::SegmentComponentReader;
-use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::buffile::{self, BufFileReleaseGuard, TempFileOwner};
+use crate::index::writer::segment_component::{SegmentComponentWriter, SharedCheckpoint};
+use crate::postgres::buffile::{self, TempFileOwner};
+use crate::postgres::customscan::mpp::run_on_main_thread;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
@@ -32,7 +33,9 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::mutable_cache::{self, MutableCacheKey};
 use crate::postgres::utils::ActiveSnapshotGuard;
+use common::dst;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use std::any::Any;
@@ -51,7 +54,7 @@ use tantivy::directory::error::{
     DeleteError, LockError, OpenDirectoryError, OpenReadError, OpenWriteError,
 };
 use tantivy::directory::{
-    DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
+    DirectoryLock, DirectoryPanicHandler, FileHandle, FileSlice, InnerWritePtr, Lock, RamDirectory,
     TempFilePtr, WatchCallback, WatchHandle,
 };
 use tantivy::index::{SegmentId, SegmentMetaInventory};
@@ -74,10 +77,9 @@ pub(super) struct PgTempFile {
 
 impl PgTempFile {
     pub(super) fn create() -> Self {
-        let release_guard = BufFileReleaseGuard::register();
         let file = unsafe { buffile::create_temp_buffile() };
         Self {
-            file: TempFileOwner::new(file, release_guard),
+            file: TempFileOwner::new(file),
         }
     }
 }
@@ -117,23 +119,7 @@ impl Seek for PgTempFile {
     }
 }
 
-/// The `(max_doc, num_deleted_docs)` pair of a mutable segment's meta entry as one reader
-/// loaded it. A mutable segment is materialized from the heap on open, from the prefix of its
-/// add/remove log these two counts bound, so two opens agree on the segment's `DocId` space
-/// only if they use the same pair. Distinct from [`SegmentMetaEntry::mutable_snapshot`], which
-/// returns the ctid set a bound selects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MutableSegmentBound {
-    pub max_doc: u32,
-    pub num_deleted_docs: u32,
-}
-
-impl MutableSegmentBound {
-    /// Docs the materialized segment exposes: Adds minus Removes.
-    pub fn live_docs(self) -> u32 {
-        self.max_doc - self.num_deleted_docs
-    }
-}
+pub use crate::postgres::storage::block::MutableSegmentBound;
 
 /// One segment of a [`SegmentView`], in the origin reader's ordinal position.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -261,7 +247,7 @@ impl SegmentView {
 
     /// A view that only pins the segment set. Ordinal order is the iterator's (arbitrary for a
     /// set), and it carries no replay data, so it is only for readers whose addresses never
-    /// leave the process (a `paradedb.aggregate` worker).
+    /// leave the process (an aggregation worker).
     pub fn from_unordered_ids(ids: impl IntoIterator<Item = SegmentId>) -> Self {
         Self::new(
             ids.into_iter()
@@ -350,9 +336,9 @@ enum LoadedSegmentMetaEntry {
         meta: SegmentMetaEntry,
         tantivy_meta: SegmentMeta,
         entry: SegmentMetaEntryMutable,
-        // Created lazily on first read so that indexing occurs in whichever parallel worker is
-        // responsible for this segment.
-        directory: Arc<OnceLock<(RamDirectory, pg_sys::TransactionId)>>,
+        // Resolved lazily on first read: loaded from the shared-memory mutable segment cache if
+        // present, or indexed by whichever process touches it first and published to shared memory.
+        directory: Arc<OnceLock<(Arc<dyn Directory>, pg_sys::TransactionId)>>,
     },
 }
 
@@ -383,7 +369,14 @@ fn retired_snapshot_conflict_horizon(
     latest
 }
 
-type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
+/// A component this directory opened for writing: where it starts, its length as it grows, and
+/// its checkpoint once the writer made one.
+#[derive(Debug)]
+struct NewFile {
+    entry: FileEntry,
+    total_bytes: Arc<AtomicUsize>,
+    checkpoint: SharedCheckpoint,
+}
 /// Tantivy Directory trait implementation over block storage
 /// This Directory implementation respects Postgres MVCC visibility rules
 /// and should back all Tantivy Indexes used in insert and scan operations
@@ -401,7 +394,7 @@ pub struct MVCCDirectory {
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
     // it's cloned a lot!
     readers: Arc<Mutex<HashMap<PathBuf, Arc<dyn FileHandle>>>>,
-    new_files: Arc<Mutex<HashMap<PathBuf, AtomicFileEntry>>>,
+    new_files: Arc<Mutex<HashMap<PathBuf, NewFile>>>,
 
     // a lazily loaded [`IndexMeta`], which is only created once per MVCCDirectory instance
     // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
@@ -472,13 +465,9 @@ impl MVCCDirectory {
             .iter()
             .filter_map(|(id, lsme)| match lsme {
                 LoadedSegmentMetaEntry::Persisted { .. } => None,
-                LoadedSegmentMetaEntry::Memory { meta, .. } => Some((
-                    *id,
-                    MutableSegmentBound {
-                        max_doc: meta.max_doc(),
-                        num_deleted_docs: meta.num_deleted_docs() as u32,
-                    },
-                )),
+                LoadedSegmentMetaEntry::Memory { meta, .. } => {
+                    meta.mutable_bound().map(|bound| (*id, bound))
+                }
             })
             .collect()
     }
@@ -557,9 +546,9 @@ impl MVCCDirectory {
                         OpenDirectoryError::DoesNotExist(path.to_path_buf()),
                     ));
                 }
-                let file_handle = directory
-                    .get_or_init(|| {
-                        crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+                let dir = directory.get_or_init(|| {
+                    run_on_main_thread(|_| {
+                        let build = || {
                             let _snapshot_guard = ActiveSnapshotGuard::ensure();
                             let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
                                 let heaprel = self
@@ -579,19 +568,33 @@ impl MVCCDirectory {
                                 expression_state,
                                 &self.mvcc_style,
                             )
-                            .expect("Failed to index mutable segment.")
-                        })
-                    })
-                    .0
-                    .get_file_handle(path)
-                    .map_err(|err| match err {
-                        OpenReadError::FileDoesNotExist(missing) => {
-                            TantivyError::OpenDirectoryError(OpenDirectoryError::DoesNotExist(
-                                missing,
-                            ))
+                        };
+                        let key = MutableCacheKey::for_segment(&self.indexrel, &meta).expect(
+                            "LoadedSegmentMetaEntry::Memory should have a mutable SegmentMetaEntry",
+                        );
+                        if matches!(
+                            &*self.mvcc_style,
+                            MvccSatisfies::Snapshot
+                                | MvccSatisfies::ParallelWorker(_)
+                                | MvccSatisfies::LargestSegment
+                        ) {
+                            mutable_cache::get_or_build(&key, || build().map(|(dir, _)| dir))
+                                .map(|dir| (dir, pg_sys::InvalidTransactionId))
+                        } else {
+                            // Maintenance must recheck heap visibility instead of retaining cached dead rows.
+                            build().map(|(dir, horizon)| {
+                                (Arc::new(dir) as Arc<dyn Directory>, horizon)
+                            })
                         }
-                        other => other.into(),
-                    })?;
+                        .expect("Failed to index mutable segment.")
+                    })
+                });
+                let file_handle = dir.0.get_file_handle(path).map_err(|err| match err {
+                    OpenReadError::FileDoesNotExist(missing) => {
+                        TantivyError::OpenDirectoryError(OpenDirectoryError::DoesNotExist(missing))
+                    }
+                    other => other.into(),
+                })?;
                 Ok(file_handle)
             }
         }
@@ -689,12 +692,10 @@ impl Directory for MVCCDirectory {
                 Entry::Vacant(vacant) => match self.file_entry(path) {
                     Ok(file_handle) => Ok(vacant.insert(file_handle).clone()),
                     Err(err) => {
-                        let file_entry = if let Some((file_entry, total_bytes)) =
-                            self.new_files.lock().get(path)
-                        {
+                        let file_entry = if let Some(file) = self.new_files.lock().get(path) {
                             FileEntry {
-                                starting_block: file_entry.starting_block,
-                                total_bytes: total_bytes.load(Ordering::Relaxed),
+                                starting_block: file.entry.starting_block,
+                                total_bytes: file.total_bytes.load(Ordering::Relaxed),
                             }
                         } else if let TantivyError::OpenDirectoryError(
                             OpenDirectoryError::DoesNotExist(missing),
@@ -728,6 +729,56 @@ impl Directory for MVCCDirectory {
             };
         reader
     }
+    /// The reader resolves blocks through the checkpoint the writer shared, and is not cached: a
+    /// read of `path` after its writer terminates opens the finished component.
+    ///
+    /// No read overlaps a write. The writer refuses a write while the reader is open, and no
+    /// reader opens once bytes follow the checkpoint: the writer buffers, so those bytes could
+    /// reach the prefix's last page under it.
+    fn open_unfinished(&self, path: &Path, len: usize) -> Result<FileSlice, OpenReadError> {
+        let refused = |reason: String| {
+            OpenReadError::wrap_io_error(
+                io::Error::new(io::ErrorKind::InvalidInput, reason),
+                path.to_path_buf(),
+            )
+        };
+        let (starting_block, blocks) = {
+            let new_files = self.new_files.lock();
+            let file = new_files
+                .get(path)
+                .ok_or_else(|| refused("file is not open for writing".to_string()))?;
+            let checkpoint = file
+                .checkpoint
+                .get()
+                .ok_or_else(|| refused("file is not checkpointed".to_string()))?;
+            if len > checkpoint.len {
+                return Err(refused(format!(
+                    "{len} bytes requested of a file checkpointed at {} bytes",
+                    checkpoint.len
+                )));
+            }
+            if file.total_bytes.load(Ordering::Relaxed) != checkpoint.len {
+                return Err(refused("file was written after its checkpoint".to_string()));
+            }
+            (file.entry.starting_block, checkpoint.blocks.clone())
+        };
+        let reader = unsafe {
+            SegmentComponentReader::new_unfinished(
+                &self.indexrel,
+                FileEntry {
+                    starting_block,
+                    total_bytes: len,
+                },
+                blocks,
+                self.io_stats.as_ref().and_then(|stats| {
+                    path.component_type()
+                        .map(|component| stats.component(&component))
+                }),
+            )
+        };
+        Ok(FileSlice::new(Arc::new(reader)))
+    }
+
     /// delete is called by Tantivy's garbage collection
     /// We handle this ourselves in amvacuumcleanup
     fn delete(&self, _path: &Path) -> result::Result<(), DeleteError> {
@@ -744,7 +795,11 @@ impl Directory for MVCCDirectory {
         let writer = unsafe { SegmentComponentWriter::new(&self.indexrel, path) };
         self.new_files.lock().insert(
             path.to_path_buf(),
-            (writer.file_entry(), writer.total_bytes()),
+            NewFile {
+                entry: writer.file_entry(),
+                total_bytes: writer.total_bytes(),
+                checkpoint: writer.checkpointed(),
+            },
         );
         Ok(Box::new(writer))
     }
@@ -755,14 +810,14 @@ impl Directory for MVCCDirectory {
 
     /// atomic_read is used by Tantivy to read from managed.json and meta.json
     /// This function should never be called by our Tantivy fork because we read from them ourselves
-    fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        unimplemented!("atomic_read should not be called for {:?}", path);
+    fn atomic_read(&self, _path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
+        unimplemented!("atomic_read should not be called");
     }
 
     /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
     /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
-    fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
-        unimplemented!("atomic_write should not be called for {:?}", path);
+    fn atomic_write(&self, _path: &Path, _data: &[u8]) -> io::Result<()> {
+        unimplemented!("atomic_write should not be called");
     }
 
     /// Postgres block storage handles flushing to disk for us
@@ -827,12 +882,12 @@ impl Directory for MVCCDirectory {
         let payload = if let Some(payload) = payload.downcast_mut::<HashMap<PathBuf, FileEntry>>() {
             payload
         } else {
-            for (path, (file_entry, total_bytes)) in self.new_files.lock().iter() {
+            for (path, file) in self.new_files.lock().iter() {
                 file_entries.insert(
                     path.clone(),
                     FileEntry {
-                        starting_block: file_entry.starting_block,
-                        total_bytes: total_bytes.load(Ordering::Relaxed),
+                        starting_block: file.entry.starting_block,
+                        total_bytes: file.total_bytes.load(Ordering::Relaxed),
                     },
                 );
             }
@@ -1136,20 +1191,14 @@ pub fn index_memory_segment(
     let categorized_fields = search_schema.categorized_fields();
     let created_by_version = indexrel.created_by_version();
 
-    // Query-visible materialization (Snapshot / ParallelWorker / LargestSegment) fetches each ctid
-    // with the active MVCC snapshot; maintenance materialization (e.g. Mergeable) must index every
-    // live ctid regardless of any single snapshot. See the `HeapDocFetcher` docs for the full
-    // reasoning. Because query-visible materialization happens lazily inside query planning or
-    // execution, the active snapshot here is the snapshot that defines query-visible heap rows,
-    // so indexing an invisible ctid as empty cannot change a query result or estimate.
-    let query_visible = match mvcc_style {
-        MvccSatisfies::Snapshot
-        | MvccSatisfies::ParallelWorker(_)
-        | MvccSatisfies::LargestSegment => true,
-        MvccSatisfies::Vacuum | MvccSatisfies::VacuumMerge { .. } | MvccSatisfies::Mergeable => {
-            false
-        }
-    };
+    // Shared entries must include rows visible to later snapshots, not just the builder's.
+    let query_visible = !crate::gucs::enable_mutable_segment_cache()
+        && matches!(
+            mvcc_style,
+            MvccSatisfies::Snapshot
+                | MvccSatisfies::ParallelWorker(_)
+                | MvccSatisfies::LargestSegment
+        );
 
     let mut fetcher = HeapDocFetcher::new(
         heap_fetch_state,
@@ -1267,7 +1316,7 @@ mod tests {
                     CASE WHEN i % 3 = 0 THEN 'b' END, CASE WHEN i % 7 = 0 THEN 'c' END, 'all')
                 FROM generate_series(0, 2302) i;
             CREATE INDEX bitmap_counts_idx ON bitmap_counts USING paradedb
-                (id, (data::pdb.simple)) WITH (key_field='id');",
+                (id, (data::pdb.simple));",
         )
         .unwrap();
         let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'bitmap_counts_idx'::regclass::oid")
@@ -1320,6 +1369,111 @@ mod tests {
         )
         .unwrap();
         verify();
+    }
+
+    /// A checkpointed component reads back while its writer is still open. A write is refused
+    /// while that reader is open, and changes nothing. The bytes written once it is dropped join
+    /// the file at terminate, and every page the file took sits in its finished chain or in the
+    /// FSM.
+    #[pg_test]
+    unsafe fn test_checkpointed_component_reads_before_terminate() {
+        use crate::postgres::storage::LinkedBytesList;
+        use crate::postgres::storage::block::bm25_max_free_space;
+        use tantivy::HasLen;
+        use tantivy::directory::TerminatingWrite;
+
+        Spi::run("CREATE TABLE checkpointed (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX checkpointed_idx ON checkpointed USING paradedb (id, data)")
+            .unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'checkpointed_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        let nblocks = || unsafe {
+            pg_sys::RelationGetNumberOfBlocksInFork(indexrel.as_ptr(), indexrel.fork_number())
+        };
+        let first_new_block = nblocks();
+
+        // The writer's block map packs 128 data pages to a chunk: the checkpoint lands several
+        // chunks in, partway through a page, and the file ends several chunks later.
+        let page = bm25_max_free_space();
+        let checkpointed = 5 * 128 * page + page / 3;
+        let total = checkpointed + 3 * 128 * page + 17;
+        let bytes: Vec<u8> = (0..total)
+            .map(|i| ((i / page * 37 + i) % 251) as u8)
+            .collect();
+
+        let directory = MvccSatisfies::Snapshot.directory(&indexrel);
+        let path = PathBuf::from(format!(
+            "{}.vec",
+            SegmentId::generate_random().uuid_string()
+        ));
+        let mut writer = directory.open_write(&path).unwrap();
+        writer.write_all(&bytes[..checkpointed]).unwrap();
+        assert!(directory.open_unfinished(&path, 0).is_err());
+        writer.checkpoint().unwrap();
+        assert!(directory.open_unfinished(&path, checkpointed + 1).is_err());
+
+        let prefix = directory.open_unfinished(&path, checkpointed).unwrap();
+        assert_eq!(prefix.len(), checkpointed);
+        let ranges = [
+            0..1,
+            page - 1..page + 1,
+            127 * page..129 * page + 5,
+            3 * 128 * page - 7..3 * 128 * page + 7,
+            checkpointed - page / 3 - 1..checkpointed,
+            checkpointed - 1..checkpointed,
+        ];
+        for range in &ranges {
+            let read = prefix.read_bytes_slice(range.clone()).unwrap();
+            assert_eq!(read.as_slice(), &bytes[range.clone()], "{range:?}");
+        }
+
+        // The refused write is larger than the writers' buffers, so it would have reached pages.
+        let written = || {
+            directory.new_files.lock()[&path]
+                .total_bytes
+                .load(Ordering::Relaxed)
+        };
+        let blocks = nblocks();
+        let refused = writer.write_all(&bytes[checkpointed..]).unwrap_err();
+        assert_eq!(refused.kind(), io::ErrorKind::ResourceBusy);
+        assert_eq!(written(), checkpointed);
+        assert_eq!(nblocks(), blocks);
+        drop(prefix);
+
+        writer.write_all(&bytes[checkpointed..]).unwrap();
+        assert_eq!(written(), total);
+        assert!(directory.open_unfinished(&path, checkpointed).is_err());
+        assert!(writer.checkpoint().is_err());
+        writer.terminate().unwrap();
+
+        let finished = directory.open_read(&path).unwrap();
+        assert_eq!(finished.len(), total);
+        assert!(finished.read_bytes().unwrap().as_slice() == bytes.as_slice());
+
+        let header = directory.new_files.lock()[&path].entry.starting_block;
+        let chain: HashSet<pg_sys::BlockNumber> = LinkedBytesList::open(&indexrel, header)
+            .freeable_blocks()
+            .collect();
+        assert!(chain.len() > total.div_ceil(page));
+        let free: HashSet<pg_sys::BlockNumber> = Spi::connect(|client| {
+            client
+                .select(
+                    "SELECT free_blockno FROM paradedb.fsm_info('checkpointed_idx')",
+                    None,
+                    &[],
+                )
+                .unwrap()
+                .map(|row| row.get::<i64>(1).unwrap().unwrap() as pg_sys::BlockNumber)
+                .collect()
+        });
+        for block in first_new_block..nblocks() {
+            assert!(
+                chain.contains(&block) || free.contains(&block),
+                "page {block} is neither in the file nor free"
+            );
+        }
     }
 
     #[pg_test]

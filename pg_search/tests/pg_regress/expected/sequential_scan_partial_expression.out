@@ -100,7 +100,7 @@ WHERE divisor <> 0 AND lower(body) === 'alpha';
 (1 row)
 
 SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor
-WHERE divisor <> 0 AND partial_expression_anchor @@@ paradedb.term('lower_body', 'alpha');
+WHERE divisor <> 0 AND lower(body)::pdb.alias('lower_body') === 'alpha';
  array_agg 
 -----------
  {1,4}

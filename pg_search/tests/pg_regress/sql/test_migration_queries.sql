@@ -61,25 +61,6 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM products WHERE description ||| 'running shoes' OR category ||| 'running shoes' ORDER BY id;
 SELECT * FROM products WHERE description ||| 'running shoes' OR category ||| 'running shoes' ORDER BY id;
 
--- multi_match with disjunction_max
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT * FROM products
-WHERE id @@@ paradedb.disjunction_max(
-  disjuncts => ARRAY[
-    paradedb.match('description', 'running shoes'),
-    paradedb.match('category', 'running shoes')
-  ],
-  tie_breaker => 0.3
-) ORDER BY id;
-SELECT * FROM products
-WHERE id @@@ paradedb.disjunction_max(
-  disjuncts => ARRAY[
-    paradedb.match('description', 'running shoes'),
-    paradedb.match('category', 'running shoes')
-  ],
-  tie_breaker => 0.3
-) ORDER BY id;
-
 -- query_string (pdb.parse)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM products WHERE description @@@ pdb.parse('running AND shoes') ORDER BY id;
@@ -153,69 +134,12 @@ WHERE description ||| 'shoes'
   AND rating = 5
 ORDER BY id;
 
--- bool (paradedb.boolean)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT * FROM products
-WHERE id @@@ paradedb.boolean(
-  must => ARRAY[paradedb.match('description', 'shoes')],
-  should => ARRAY[paradedb.term('category', 'footwear')]
-)
-AND NOT (price >= 100)
-AND rating = 5
-ORDER BY id;
-SELECT * FROM products
-WHERE id @@@ paradedb.boolean(
-  must => ARRAY[paradedb.match('description', 'shoes')],
-  should => ARRAY[paradedb.term('category', 'footwear')]
-)
-AND NOT (price >= 100)
-AND rating = 5
-ORDER BY id;
-
--- boosting
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT * FROM products
-WHERE id @@@ paradedb.boolean(
-  must => ARRAY[paradedb.match('description', 'shoes')],
-  should => ARRAY[paradedb.boost(-0.5, paradedb.match('description', 'cheap'))]
-) ORDER BY id;
-SELECT * FROM products
-WHERE id @@@ paradedb.boolean(
-  must => ARRAY[paradedb.match('description', 'shoes')],
-  should => ARRAY[paradedb.boost(-0.5, paradedb.match('description', 'cheap'))]
-) ORDER BY id;
-
 -- constant_score
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM products
-WHERE id @@@ paradedb.const_score(
-  score => 1.5,
-  query => paradedb.term('category', 'electronics')
-) ORDER BY id;
+WHERE category === 'electronics'::pdb.const(1.5) ORDER BY id;
 SELECT * FROM products
-WHERE id @@@ paradedb.const_score(
-  score => 1.5,
-  query => paradedb.term('category', 'electronics')
-) ORDER BY id;
-
--- dis_max
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT * FROM products
-WHERE id @@@ paradedb.disjunction_max(
-  disjuncts => ARRAY[
-    paradedb.match('description', 'shoes'),
-    paradedb.term('category', 'footwear')
-  ],
-  tie_breaker => 0.5
-) ORDER BY id;
-SELECT * FROM products
-WHERE id @@@ paradedb.disjunction_max(
-  disjuncts => ARRAY[
-    paradedb.match('description', 'shoes'),
-    paradedb.term('category', 'footwear')
-  ],
-  tie_breaker => 0.5
-) ORDER BY id;
+WHERE category === 'electronics'::pdb.const(1.5) ORDER BY id;
 
 -------------------------------------------------------------
 -- Specialized Queries

@@ -26,17 +26,17 @@
 //!
 //! There are two distinct mechanisms for dynamic filter pushdown:
 //!
-//! 1. **Query-Time Pushdown (Inverted Index):** Filters that are known before the scan
-//!    begins (such as `InList` predicates from a completed HashJoin build-side) are
-//!    intercepted during the first `poll_next` of the scan stream. They are converted
-//!    into native Tantivy queries (e.g., `TermSetQuery`) and `AND`ed into the main
-//!    search query. This filters documents *while* executing the search, leveraging
-//!    the inverted index for maximum performance.
+//! 1. **Query-Time Pushdown (Index):** Filters that are known before the scan begins
+//!    (such as `InList` and `HashTableLookupExpr` predicates from a completed HashJoin
+//!    build-side) are intercepted during the first `poll_next` of the scan stream. They
+//!    are converted into native Tantivy queries (`TermSetQuery` / `TermPredicateQuery`)
+//!    and `AND`ed into the main search query. This filters documents *while* executing
+//!    the search, leveraging inverted index postings or dictionary/columnar fast fields.
 //!
 //! 2. **Pre-Filter Pushdown (Fast Fields):** Evolving thresholds (such as the rolling
 //!    Top K threshold from `SortExec`) or filters that cannot be (or should not be on
 //!    standard unsorted scans, e.g. high-density `InList`s that would fall back to Tantivy
-//!    `LinearScan`; see [`InListLinearFallback`]) mapped to the inverted index are applied as
+//!    `LinearScan`; see [`InListLinearFallback`]) pushed into the Tantivy query are applied as
 //!    `PreFilter`s *after* the search but *before* heap visibility (`fetch_ctids`) and Arrow
 //!    column materialization. These evaluate directly against Tantivy fast fields (using
 //!    term-ordinal bounds/sets for strings or direct numeric comparisons).
@@ -54,8 +54,9 @@
 //!        │
 //!        │  at first poll_next
 //!        ▼
-//! try_dynamic_filter_pushdown()      ← Converts eligible static filters (like InList)
-//!                                      into a Tantivy Query and modifies the SearchIndexReader.
+//! try_dynamic_filter_pushdown()      ← Converts eligible InList and HashTableLookupExpr
+//!                                      filters into Tantivy Queries (TermSetQuery /
+//!                                      TermPredicateQuery) on the SearchIndexReader.
 //!                                      Rewrites pushed-down DataFusion exprs to lit(true).
 //!        │
 //!        │  on first batch or when DynamicFilterTracker::changed() fires
@@ -82,19 +83,24 @@
 //!
 //! # Observability
 //!
-//! `EXPLAIN (ANALYZE)` on a `PgSearchScan` node shows `rows_pruned` and
-//! `rows_scanned` metrics when dynamic filters are active. `rows_pruned > 0`
-//! confirms that pre-filtering is working. The `dynamic_filters=N` annotation
-//! in the non-ANALYZE plan shows how many filters were pushed down.
+//! `EXPLAIN (ANALYZE)` on a `PgSearchScan` node reports query-time pushdown via
+//! `dynamic_filter_pushdown_<strategy>` (`TermSetQuery`) and
+//! `dynamic_filter_pushdown_hash_<strategy>` (`TermPredicateQuery`), and batch-level
+//! pre-filtering via `rows_pruned` and `rows_scanned` (`rows_pruned > 0` confirms
+//! pre-filtering ran). The `dynamic_filters=N` annotation in the non-ANALYZE plan shows
+//! how many dynamic filters were attached to the scan.
 
 use std::ops::Bound;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
-use datafusion::arrow::array::{Array, ArrayRef, BooleanArray, NullArray, UInt64Array};
+use datafusion::arrow::array::{
+    Array, ArrayRef, BinaryViewArray, BooleanArray, Float64Array, Int64Array, NullArray,
+    StringViewArray, TimestampMicrosecondArray, UInt64Array,
+};
 use datafusion::arrow::compute::cast;
-use datafusion::arrow::datatypes::{DataType, Field, Schema};
-use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+use datafusion::arrow::record_batch::{RecordBatch, RecordBatchOptions};
 use datafusion::common::ScalarValue;
 use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion};
 use datafusion::logical_expr::Operator;
@@ -105,18 +111,21 @@ use datafusion::physical_expr::expressions::{
 use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::joins::HashTableLookupExpr;
 use parking_lot::Mutex;
-use tantivy::{Score, SegmentOrdinal};
+use tantivy::columnar::{ColumnType, MonotonicallyMappableToU64};
+use tantivy::{ProbeCost, ProbePerDocCost, ProbeSetupCost, Score, SegmentOrdinal};
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::postgres::pdb_owned_value::{PdbOwnedValue, PdbOwnedValueScalarExt};
+use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::query::value_to_term;
 use crate::scan::deferred_encode::is_deferred_field;
 use tantivy::Term;
 use tantivy::query::{
-    BooleanQuery, ConstScoreQuery, Occur, Query, TermQuery, TermSetQuery, TermSetStrategyConfig,
+    BooleanQuery, BoundsRange, ConstScoreQuery, ExactFastField, ExactPostings, Occur, Query,
+    TermPredicate, TermPredicateQuery, TermQuery, TermSetQuery, TermSetStrategyConfig, TinySet,
 };
-use tantivy::schema::IndexRecordOption;
+use tantivy::schema::{DATE_TIME_PRECISION_INDEXED, FieldType, IndexRecordOption};
 
 /// Point-lookup request payload pushed from [`crate::scan::rank_join_exec::RankJoinExec`] down to
 /// [`crate::scan::execution_plan::PgSearchScanPlan`] (and across nested `RankJoinExec` nodes) to
@@ -134,10 +143,11 @@ use tantivy::schema::IndexRecordOption;
 /// synchronous, bidirectional RPC protocol through DataFusion's [`DynamicFilterPhysicalExpr`]:
 ///
 /// 1. **One-shot RPC request/reset lifecycle (not a persistent monotonic filter):**
-///    Normal dynamic filters (`HashJoinExec`'s build-side `InListExpr`, or `SortExec` /
-///    `SegmentedTopKExec`'s rolling threshold) are published once or tightened monotonically and
-///    restrict every subsequent batch. By contrast, `RankJoinExec` writes a `RankLookupPhysicalExpr`
-///    into a side's `DynamicFilterPhysicalExpr` immediately before polling `child_stream.next().await`
+///    Normal dynamic filters (`HashJoinExec`'s build-side `InListExpr` / `HashTableLookupExpr`, or
+///    `SortExec` / `SegmentedTopKExec`'s rolling threshold) are published once or tightened
+///    monotonically and restrict every subsequent batch. By contrast, `RankJoinExec` writes a
+///    `RankLookupPhysicalExpr` into a side's `DynamicFilterPhysicalExpr` immediately before polling
+///    `child_stream.next().await`
 ///    for an `RA` probe. At the top of `poll_next` in `lazy_sort.rs`,
 ///    `LazySortStreamState::take_pending_ra_lookup` immediately consumes the request by resetting
 ///    `dyn_filter.update(lit(true))` and executes a single out-of-band `reader.search_ra_lookup`
@@ -378,6 +388,31 @@ pub fn supports_ra_lookup_column(
     PdbOwnedValue::supports_execution_data_type(data_type, &field.field_type())
 }
 
+/// Returns `true` if `col_name` with Arrow `data_type` can push down a single-column dynamic join
+/// filter (`InListExpr` or `HashTableLookupExpr`) into Tantivy via [`try_dynamic_filter_pushdown`]
+/// regardless of build-side cardinality, taking `paradedb.hash_join_filter_pushdown` into account.
+pub fn supports_probe_dynamic_filter_column(
+    col_name: &str,
+    data_type: &DataType,
+    schema: &crate::schema::SearchIndexSchema,
+) -> bool {
+    match crate::gucs::hash_join_filter_pushdown() {
+        crate::gucs::HashJoinFilterPushdown::Auto | crate::gucs::HashJoinFilterPushdown::Hash => {}
+        crate::gucs::HashJoinFilterPushdown::InList | crate::gucs::HashJoinFilterPushdown::Off => {
+            return false;
+        }
+    }
+    let Some(search_field) = schema.search_field(col_name) else {
+        return false;
+    };
+    let tantivy_schema = schema.tantivy_schema();
+    let Ok(tantivy_field) = tantivy_schema.get_field(col_name) else {
+        return false;
+    };
+    let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
+    resolve_predicate_exact_postings(data_type, &search_field, tantivy_field_type).is_some()
+}
+
 /// Convert a [`RankLookupPhysicalExpr`] into a zero-scoring Tantivy query (`ConstScoreQuery(..., 0.0)`)
 /// suitable for `reader.and_query(...)` during a Random Access (`RA`) point lookup.
 pub fn try_convert_rank_lookup_to_query(
@@ -434,7 +469,9 @@ pub fn try_convert_rank_lookup_to_query(
             strategy_sink,
             ..TermSetStrategyConfig::default()
         };
-        let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
+        let term_set_query = TermSetQuery::new(terms)
+            .with_strategy_config(cfg)
+            .with_exact_fast_field(field.exact_fast_field_for_term_set());
         return Some(Box::new(ConstScoreQuery::new(term_set_query, 0.0)));
     }
 
@@ -626,8 +663,7 @@ impl PreFilter {
         }
 
         let batch_schema = Arc::new(Schema::new(fields));
-        let options = datafusion::arrow::record_batch::RecordBatchOptions::new()
-            .with_row_count(Some(num_rows));
+        let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
         let batch = RecordBatch::try_new_with_options(batch_schema, arrays, &options)
             .map_err(|e| format!("Failed to build RecordBatch: {}", e))?;
 
@@ -689,7 +725,7 @@ pub fn collect_filters(
     }
 
     // Ignore trivial `true` literals (e.g. uninitialized TopK dynamic filters or
-    // `InList` nodes rewritten to `lit(true)` after inverted-index pushdown).
+    // `InList` / `HashTableLookupExpr` nodes rewritten to `lit(true)` after index pushdown).
     if let Some(lit) = expr.downcast_ref::<Literal>()
         && matches!(lit.value(), ScalarValue::Boolean(Some(true)))
     {
@@ -897,7 +933,12 @@ fn is_supported(
             // `InListExpr::children()`, which allocates a `Vec` of `1 + list.len()` refs.
             return Ok(TreeNodeRecursion::Jump);
         } else if node.is::<HashTableLookupExpr>() {
-            // We only support HashTableLookupExpr for non-string columns.
+            // Eligible single-column `HashTableLookupExpr`s are already converted to
+            // `TermPredicateQuery` and replaced with `lit(true)` by `try_dynamic_filter_pushdown`
+            // (unless disabled by `paradedb.hash_join_filter_pushdown`). Remaining lookups (e.g.
+            // multi-column composite keys, lookups nested under `OR`, or when predicate pushdown is
+            // disabled) can only run in `PreFilter` on non-string columns because string fast
+            // fields carry segment-local `UInt64` ordinals rather than `Utf8View` values here.
             let mut is_numeric = true;
             let mut lookup_columns = Vec::new();
 
@@ -1203,18 +1244,549 @@ fn extract_physical_scalar_value(expr: &Arc<dyn PhysicalExpr>) -> Option<ScalarV
     None
 }
 
-fn extract_in_list_exprs<'a>(
+fn extract_pushdown_candidates<'a>(
     expr: &'a Arc<dyn PhysicalExpr>,
     in_lists: &mut Vec<&'a Arc<dyn PhysicalExpr>>,
+    hash_lookups: &mut Vec<&'a Arc<dyn PhysicalExpr>>,
 ) {
     if expr.is::<InListExpr>() {
         in_lists.push(expr);
+    } else if expr.is::<HashTableLookupExpr>() {
+        hash_lookups.push(expr);
     } else if let Some(binary) = expr.downcast_ref::<BinaryExpr>()
         && matches!(binary.op(), Operator::And)
     {
-        extract_in_list_exprs(binary.left(), in_lists);
-        extract_in_list_exprs(binary.right(), in_lists);
+        extract_pushdown_candidates(binary.left(), in_lists, hash_lookups);
+        extract_pushdown_candidates(binary.right(), in_lists, hash_lookups);
     }
+}
+
+/// Tantivy [`TermPredicate`] adapter around a single-column DataFusion membership expression
+/// ([`HashTableLookupExpr`] or fallback [`InListExpr`]).
+///
+/// Evaluates the remapped expression over a 1-column `RecordBatch` carrying the scan schema's
+/// exact Arrow `DataType` so DataFusion's type-sensitive hashing (`Utf8View` inlined views vs
+/// `Utf8`, `ArrayMap` integer offsets) matches `HashJoinExec`.
+struct ExprTermPredicate {
+    expr: Arc<dyn PhysicalExpr>,
+    batch_schema: SchemaRef,
+    probe_data_type: DataType,
+}
+
+impl std::fmt::Debug for ExprTermPredicate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExprTermPredicate")
+            .field("expr", &self.expr)
+            .field("probe_data_type", &self.probe_data_type)
+            .finish()
+    }
+}
+
+impl ExprTermPredicate {
+    fn evaluate_array(&self, array: ArrayRef, num_rows: usize, out: &mut [TinySet]) {
+        debug_assert_eq!(array.data_type(), &self.probe_data_type);
+        let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
+        let batch = RecordBatch::try_new_with_options(
+            Arc::clone(&self.batch_schema),
+            vec![array],
+            &options,
+        )
+        .expect("ExprTermPredicate batch schema must match array type and row count");
+
+        let result = self
+            .expr
+            .evaluate(&batch)
+            .and_then(|cv| cv.into_array(num_rows))
+            .expect("ExprTermPredicate expression evaluation must succeed");
+
+        let bool_arr = result
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("ExprTermPredicate expression must produce a BooleanArray");
+
+        if bool_arr.null_count() == 0 {
+            let chunks = bool_arr.values().bit_chunks();
+            for (dst, word) in out.iter_mut().zip(chunks.iter()) {
+                *dst = TinySet::deserialize(word.to_le_bytes());
+            }
+            if chunks.remainder_len() > 0 {
+                out[chunks.iter().len()] =
+                    TinySet::deserialize(chunks.remainder_bits().to_le_bytes());
+            }
+        } else {
+            for i in 0..num_rows {
+                if bool_arr.is_valid(i) && bool_arr.value(i) {
+                    out[i / 64].insert_mut((i % 64) as u32);
+                }
+            }
+        }
+    }
+}
+
+impl TermPredicate for ExprTermPredicate {
+    fn filter_bytes(&self, data: &[u8], offsets: &[u32], out: &mut [TinySet]) {
+        let num_rows = offsets.len().saturating_sub(1);
+        if num_rows == 0 {
+            return;
+        }
+        // `resolve_predicate_exact_postings` restricts bytes/string columns to the view types
+        // emitted by `SearchFieldType::arrow_data_type` (`BinaryView` and `Utf8View`).
+        let array: ArrayRef = if matches!(self.probe_data_type, DataType::BinaryView) {
+            Arc::new(BinaryViewArray::from_iter_values(
+                (0..num_rows).map(|i| &data[offsets[i] as usize..offsets[i + 1] as usize]),
+            ))
+        } else {
+            let mut views = Vec::with_capacity(num_rows);
+            for i in 0..num_rows {
+                let bytes = &data[offsets[i] as usize..offsets[i + 1] as usize];
+                let s = std::str::from_utf8(bytes)
+                    .expect("Tantivy Str dictionary entry must be valid UTF-8");
+                views.push(s);
+            }
+            Arc::new(StringViewArray::from_iter_values(views))
+        };
+        self.evaluate_array(array, num_rows, out);
+    }
+
+    fn filter_monotonic_u64s(&self, col_type: ColumnType, values: &[u64], out: &mut [TinySet]) {
+        let num_rows = values.len();
+        if num_rows == 0 {
+            return;
+        }
+        // `WhichFastField::arrow_data_type` / `SearchFieldType::arrow_data_type` widens all
+        // integer and float scan columns to 64-bit (`Int64`, `UInt64`, `Float64`) and all
+        // datetime columns to `Timestamp(Microsecond, None)`, so narrow numeric types never
+        // appear in `self.probe_data_type`.
+        let array: ArrayRef = match (col_type, &self.probe_data_type) {
+            (ColumnType::I64, DataType::Timestamp(TimeUnit::Microsecond, None)) => {
+                Arc::new(TimestampMicrosecondArray::from_iter_values(
+                    values
+                        .iter()
+                        .map(|&v| <i64 as MonotonicallyMappableToU64>::from_u64(v)),
+                ))
+            }
+            (ColumnType::I64, DataType::Int64) => Arc::new(Int64Array::from_iter_values(
+                values
+                    .iter()
+                    .map(|&v| <i64 as MonotonicallyMappableToU64>::from_u64(v)),
+            )),
+            (ColumnType::U64, DataType::UInt64) => {
+                Arc::new(UInt64Array::from_iter_values(values.iter().copied()))
+            }
+            (ColumnType::F64, DataType::Float64) => Arc::new(Float64Array::from_iter_values(
+                values
+                    .iter()
+                    .map(|&v| <f64 as MonotonicallyMappableToU64>::from_u64(v)),
+            )),
+            (ColumnType::Bool, DataType::Boolean) => {
+                Arc::new(BooleanArray::from_iter(values.iter().map(|&v| {
+                    Some(<bool as MonotonicallyMappableToU64>::from_u64(v))
+                })))
+            }
+            (ColumnType::DateTime, DataType::Timestamp(TimeUnit::Microsecond, None)) => Arc::new(
+                TimestampMicrosecondArray::from_iter_values(values.iter().map(|&v| {
+                    datetime_to_pg_micros(
+                        <tantivy::DateTime as MonotonicallyMappableToU64>::from_u64(v),
+                    )
+                })),
+            ),
+            _ => unreachable!("unsupported (ColumnType, DataType) pair in ExprTermPredicate"),
+        };
+        self.evaluate_array(array, num_rows, out);
+    }
+
+    fn probe_cost(&self) -> ProbeCost {
+        // Each invocation allocates a 1-column Arrow `RecordBatch` and dispatches into
+        // DataFusion's vectorized `PhysicalExpr::evaluate`. Setting `setup` above
+        // `ProbeCost::BATCH_SETUP_THRESHOLD` ensures Tantivy batches probes through
+        // `seek_danger_batch` / `BatchFilteredScorer` and defers evaluation past WAND/MaxScore
+        // score pruning.
+        ProbeCost::new(ProbeSetupCost(300), ProbePerDocCost(10))
+    }
+}
+
+/// Extracts optional tightest `[lower, upper]` `Term` bounds on `col` from top-level `AND`
+/// conjuncts (such as the `col >= min AND col <= max` bounds published alongside
+/// `HashTableLookupExpr` by `HashJoinExec`).
+fn extract_conjunct_term_bounds(
+    expr: &Arc<dyn PhysicalExpr>,
+    col: &Column,
+    field_type: &crate::schema::SearchFieldType,
+    tantivy_field: tantivy::schema::Field,
+    tantivy_field_type: &FieldType,
+    index_created_by_version: Option<crate::api::version::Version>,
+) -> BoundsRange<Term> {
+    if let FieldType::Date(opts) = tantivy_field_type
+        && opts.get_precision() != DATE_TIME_PRECISION_INDEXED
+    {
+        return BoundsRange::new(Bound::Unbounded, Bound::Unbounded);
+    }
+
+    struct ConjunctBoundsVisitor<'a> {
+        col: &'a Column,
+        field_type: &'a crate::schema::SearchFieldType,
+        tantivy_field: tantivy::schema::Field,
+        tantivy_field_type: &'a FieldType,
+        index_created_by_version: Option<crate::api::version::Version>,
+        bounds: BoundsRange<Term>,
+    }
+
+    impl ConjunctBoundsVisitor<'_> {
+        fn visit(&mut self, node: &Arc<dyn PhysicalExpr>) {
+            let Some(binary) = node.downcast_ref::<BinaryExpr>() else {
+                return;
+            };
+            if matches!(binary.op(), Operator::And) {
+                self.visit(binary.left());
+                self.visit(binary.right());
+                return;
+            }
+
+            let (col, op, lit) = if let (Some(c), Some(l)) = (
+                binary.left().downcast_ref::<Column>(),
+                binary.right().downcast_ref::<Literal>(),
+            ) {
+                (c, *binary.op(), l)
+            } else if let (Some(l), Some(c), Some(flipped)) = (
+                binary.left().downcast_ref::<Literal>(),
+                binary.right().downcast_ref::<Column>(),
+                flip_operator(binary.op()),
+            ) {
+                (c, flipped, l)
+            } else {
+                return;
+            };
+
+            if col.index() != self.col.index()
+                || col.name() != self.col.name()
+                || lit.value().is_null()
+            {
+                return;
+            }
+            let Some(owned) = PdbOwnedValue::from_execution_scalar(lit.value(), self.field_type)
+            else {
+                return;
+            };
+            let Ok(term) = value_to_term(
+                self.tantivy_field,
+                &owned,
+                self.tantivy_field_type,
+                None,
+                self.index_created_by_version,
+            ) else {
+                return;
+            };
+
+            let tighten_lo = |current: &mut Bound<Term>, candidate: Bound<Term>| {
+                let replace = match (&*current, &candidate) {
+                    (Bound::Unbounded, _) => true,
+                    (Bound::Included(cur), Bound::Included(cand)) => {
+                        cand.serialized_value_bytes() > cur.serialized_value_bytes()
+                    }
+                    (Bound::Included(cur), Bound::Excluded(cand)) => {
+                        cand.serialized_value_bytes() >= cur.serialized_value_bytes()
+                    }
+                    (Bound::Excluded(cur), Bound::Included(cand)) => {
+                        cand.serialized_value_bytes() > cur.serialized_value_bytes()
+                    }
+                    (Bound::Excluded(cur), Bound::Excluded(cand)) => {
+                        cand.serialized_value_bytes() > cur.serialized_value_bytes()
+                    }
+                    (_, Bound::Unbounded) => false,
+                };
+                if replace {
+                    *current = candidate;
+                }
+            };
+            let tighten_hi = |current: &mut Bound<Term>, candidate: Bound<Term>| {
+                let replace = match (&*current, &candidate) {
+                    (Bound::Unbounded, _) => true,
+                    (Bound::Included(cur), Bound::Included(cand)) => {
+                        cand.serialized_value_bytes() < cur.serialized_value_bytes()
+                    }
+                    (Bound::Included(cur), Bound::Excluded(cand)) => {
+                        cand.serialized_value_bytes() <= cur.serialized_value_bytes()
+                    }
+                    (Bound::Excluded(cur), Bound::Included(cand)) => {
+                        cand.serialized_value_bytes() < cur.serialized_value_bytes()
+                    }
+                    (Bound::Excluded(cur), Bound::Excluded(cand)) => {
+                        cand.serialized_value_bytes() < cur.serialized_value_bytes()
+                    }
+                    (_, Bound::Unbounded) => false,
+                };
+                if replace {
+                    *current = candidate;
+                }
+            };
+
+            match op {
+                Operator::GtEq => tighten_lo(&mut self.bounds.lower_bound, Bound::Included(term)),
+                Operator::Gt => tighten_lo(&mut self.bounds.lower_bound, Bound::Excluded(term)),
+                Operator::LtEq => tighten_hi(&mut self.bounds.upper_bound, Bound::Included(term)),
+                Operator::Lt => tighten_hi(&mut self.bounds.upper_bound, Bound::Excluded(term)),
+                Operator::Eq => {
+                    tighten_lo(&mut self.bounds.lower_bound, Bound::Included(term.clone()));
+                    tighten_hi(&mut self.bounds.upper_bound, Bound::Included(term));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut visitor = ConjunctBoundsVisitor {
+        col,
+        field_type,
+        tantivy_field,
+        tantivy_field_type,
+        index_created_by_version,
+        bounds: BoundsRange::new(Bound::Unbounded, Bound::Unbounded),
+    };
+    visitor.visit(expr);
+    visitor.bounds
+}
+
+/// Checks whether `probe_data_type`, `search_field`, and `tantivy_field_type` store identical
+/// raw values in Tantivy (without lossy normalization, facet `\0` encoding, IPv6 mapping, or
+/// JSON path prefixes) and returns [`ExactPostings`] when at least one of the fast field or
+/// exact inverted index postings can evaluate [`ExprTermPredicate`].
+///
+/// Only the 7 scalar Arrow types emitted by `SearchFieldType::arrow_data_type` (`Int64`,
+/// `UInt64`, `Float64`, `Boolean`, `Timestamp(Microsecond, None)`, `Utf8View`, `BinaryView`)
+/// are matched here because eager named scan columns never carry narrower numeric or non-view
+/// string/binary Arrow types.
+fn resolve_predicate_exact_postings(
+    probe_data_type: &DataType,
+    search_field: &crate::schema::SearchField,
+    tantivy_field_type: &FieldType,
+) -> Option<ExactPostings> {
+    use crate::schema::SearchFieldType;
+
+    let (has_exact_fast_field, exact_postings) = match tantivy_field_type {
+        FieldType::I64(opts)
+            if matches!(
+                search_field.field_type(),
+                SearchFieldType::I64(_) | SearchFieldType::Numeric64(..)
+            ) && matches!(
+                probe_data_type,
+                DataType::Int64 | DataType::Timestamp(TimeUnit::Microsecond, None)
+            ) =>
+        {
+            (
+                opts.is_fast(),
+                if opts.is_indexed() {
+                    ExactPostings::Available
+                } else {
+                    ExactPostings::Unavailable
+                },
+            )
+        }
+        FieldType::U64(opts)
+            if matches!(search_field.field_type(), SearchFieldType::U64(_))
+                && matches!(probe_data_type, DataType::UInt64) =>
+        {
+            (
+                opts.is_fast(),
+                if opts.is_indexed() {
+                    ExactPostings::Available
+                } else {
+                    ExactPostings::Unavailable
+                },
+            )
+        }
+        FieldType::F64(opts)
+            if matches!(search_field.field_type(), SearchFieldType::F64(_))
+                && matches!(probe_data_type, DataType::Float64) =>
+        {
+            (
+                opts.is_fast(),
+                if opts.is_indexed() {
+                    ExactPostings::Available
+                } else {
+                    ExactPostings::Unavailable
+                },
+            )
+        }
+        FieldType::Bool(opts)
+            if matches!(search_field.field_type(), SearchFieldType::Bool(_))
+                && matches!(probe_data_type, DataType::Boolean) =>
+        {
+            (
+                opts.is_fast(),
+                if opts.is_indexed() {
+                    ExactPostings::Available
+                } else {
+                    ExactPostings::Unavailable
+                },
+            )
+        }
+        FieldType::Date(opts)
+            if matches!(search_field.field_type(), SearchFieldType::Date(_))
+                && matches!(
+                    probe_data_type,
+                    DataType::Timestamp(TimeUnit::Microsecond, None)
+                ) =>
+        {
+            (
+                opts.is_fast(),
+                if opts.is_indexed() && opts.get_precision() == DATE_TIME_PRECISION_INDEXED {
+                    ExactPostings::Available
+                } else {
+                    ExactPostings::Unavailable
+                },
+            )
+        }
+        FieldType::Bytes(opts)
+            if search_field.is_numeric_bytes()
+                && matches!(probe_data_type, DataType::BinaryView) =>
+        {
+            (
+                opts.is_fast(),
+                if opts.is_indexed() {
+                    ExactPostings::Available
+                } else {
+                    ExactPostings::Unavailable
+                },
+            )
+        }
+        #[allow(deprecated)]
+        FieldType::Str(opts)
+            if matches!(
+                search_field.field_type(),
+                SearchFieldType::Text(_)
+                    | SearchFieldType::Tokenized(..)
+                    | SearchFieldType::Uuid(_)
+            ) && matches!(probe_data_type, DataType::Utf8View) =>
+        {
+            // Reject normalized fast fields (e.g. `citext` or `normalizer=lowercase`):
+            // `TermSetWeight` reads the `StrColumn` dictionary directly, which would
+            // hash lowercased strings rather than the scan's raw values.
+            if opts.is_fast() && opts.get_fast_field_tokenizer_name() != Some("raw") {
+                return None;
+            }
+            let raw_postings = if opts.get_indexing_options().is_some() && search_field.is_keyword()
+            {
+                ExactPostings::Available
+            } else {
+                ExactPostings::Unavailable
+            };
+            (opts.is_fast(), raw_postings)
+        }
+        _ => return None,
+    };
+
+    if !has_exact_fast_field && exact_postings == ExactPostings::Unavailable {
+        return None;
+    }
+    Some(exact_postings)
+}
+
+/// Extracts the single probe [`Column`] from a [`HashTableLookupExpr`] or non-negated
+/// [`InListExpr`] and remaps that column to index `0` for [`ExprTermPredicate`]'s 1-column batch.
+///
+/// Only bare `Column` probes are accepted (matching `try_convert_in_list_to_query` and
+/// `RankJoinRule::leaf_supports_probe_pushdown`): same-family integer joins (`int4 = int8`)
+/// already share `DataType::Int64`, while cross-type Postgres join keys (such as `float8 = int4`)
+/// are projected through `pdb_eval_expr_*` rather than a DataFusion `CastExpr` over a scan column.
+fn remap_predicate_expr_to_zero(
+    expr_arc: &Arc<dyn PhysicalExpr>,
+) -> Option<(&Column, Arc<dyn PhysicalExpr>)> {
+    let children = expr_arc.children();
+    let (probe_expr, rest_children): (&Arc<dyn PhysicalExpr>, &[&Arc<dyn PhysicalExpr>]) =
+        if let Some(in_list) = expr_arc.downcast_ref::<InListExpr>() {
+            if in_list.negated() || children.is_empty() {
+                return None;
+            }
+            (children[0], &children[1..])
+        } else if children.len() == 1 {
+            (children[0], &[])
+        } else {
+            // TODO: Support multi-column composite HashTableLookupExpr pushdown.
+            return None;
+        };
+
+    let col = probe_expr.downcast_ref::<Column>()?;
+    let zero_col: Arc<dyn PhysicalExpr> = Arc::new(Column::new(col.name(), 0));
+
+    let mut new_children = Vec::with_capacity(1 + rest_children.len());
+    new_children.push(zero_col);
+    new_children.extend(rest_children.iter().map(|c| Arc::clone(c)));
+    let remapped_expr = Arc::clone(expr_arc).with_new_children(new_children).ok()?;
+    Some((col, remapped_expr))
+}
+
+fn try_convert_predicate_to_query(
+    expr_arc: &Arc<dyn PhysicalExpr>,
+    root_expr: &Arc<dyn PhysicalExpr>,
+    scan_schema: &Schema,
+    schema: &crate::schema::SearchIndexSchema,
+    index_created_by_version: Option<crate::api::version::Version>,
+    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
+) -> Option<Box<dyn Query>> {
+    let (col, remapped_expr) = remap_predicate_expr_to_zero(expr_arc)?;
+
+    let scan_field = scan_schema.fields().get(col.index())?;
+    if scan_field.name() != col.name()
+        || is_deferred_field(scan_field)
+        || matches!(
+            scan_field.data_type(),
+            DataType::List(_) | DataType::LargeList(_) | DataType::FixedSizeList(..)
+        )
+    {
+        return None;
+    }
+
+    let search_field = schema.search_field(col.name())?;
+    let tantivy_schema = schema.tantivy_schema();
+    let tantivy_field = tantivy_schema.get_field(col.name()).ok()?;
+    let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
+    let probe_data_type = scan_field.data_type().clone();
+    let exact_postings =
+        resolve_predicate_exact_postings(&probe_data_type, &search_field, tantivy_field_type)?;
+
+    let batch_schema = Arc::new(Schema::new(vec![Field::new(
+        col.name(),
+        probe_data_type.clone(),
+        true,
+    )]));
+
+    let field_type = search_field.field_type();
+    let bounds = if search_field.stats_order_matches_values() {
+        extract_conjunct_term_bounds(
+            root_expr,
+            col,
+            &field_type,
+            tantivy_field,
+            tantivy_field_type,
+            index_created_by_version,
+        )
+    } else {
+        BoundsRange::new(Bound::Unbounded, Bound::Unbounded)
+    };
+
+    let cfg = TermSetStrategyConfig {
+        gallop_enabled: crate::gucs::term_set_gallop_enabled(),
+        bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique(),
+        bitset_max_density_multi: crate::gucs::term_set_bitset_max_density_multi(),
+        strategy_sink,
+        ..TermSetStrategyConfig::default()
+    };
+
+    let predicate = Arc::new(ExprTermPredicate {
+        expr: remapped_expr,
+        batch_schema,
+        probe_data_type,
+    });
+    // `resolve_predicate_exact_postings` already rejected non-`"raw"` fast fields on `Str`
+    // columns, so `ExactFastField::Available` lets `TermSetWeight` use the raw `StrColumn`
+    // dictionary for both `pdb.literal` (`"keyword"` + `"raw"`) and tokenized `TEXT | FAST`
+    // columns with `ExactPostings::Unavailable`.
+    let pred_query = TermPredicateQuery::new(tantivy_field, predicate)
+        .with_bounds(bounds)
+        .with_exact_postings(exact_postings)
+        .with_exact_fast_field(ExactFastField::Available)
+        .with_strategy_config(cfg);
+    Some(Box::new(ConstScoreQuery::new(pred_query, 0.0)))
 }
 
 /// Policy for join-derived `InList` predicates whose density exceeds the `BitsetFromPostings`
@@ -1229,12 +1801,15 @@ pub enum InListLinearFallback {
     PushToIndex,
 }
 
-/// Outcome of trying to convert one join-derived `InList` predicate.
+/// Outcome of trying to convert one join-derived `InList` predicate into a `TermSetQuery`.
 enum InListPushdown {
-    /// AND the converted term-set query into the tantivy search.
+    /// AND the converted `TermSetQuery` into the tantivy search.
     Query(Box<dyn Query>),
-    /// Not convertible (or faster as a vectorized batch pre-filter than Tantivy
-    /// `LinearScan`); keep it as a batch-level pre-filter.
+    /// Not convertible to a `TermSetQuery` (e.g. tokenized text, datetime, or `NumericBytes`);
+    /// fall back to [`try_convert_predicate_to_query`] (`TermPredicateQuery`).
+    FallbackToPredicate,
+    /// Intentionally keep as a batch-level pre-filter (negated, empty, or high-density numeric
+    /// `InList` deferred by `InListLinearFallback::KeepAsPreFilter`).
     Keep,
 }
 
@@ -1247,7 +1822,7 @@ fn try_convert_in_list_to_query(
     sorted_by_field: Option<&str>,
     linear_fallback: InListLinearFallback,
 ) -> InListPushdown {
-    if in_list.negated() {
+    if in_list.negated() || in_list.list().is_empty() {
         return InListPushdown::Keep;
     }
 
@@ -1258,21 +1833,15 @@ fn try_convert_in_list_to_query(
         return InListPushdown::Keep;
     };
 
-    if field.is_text() && !field.is_keyword() {
-        return InListPushdown::Keep;
-    }
-
-    let field_type = field.field_type();
-
-    // On standard unsorted scans (`InListLinearFallback::KeepAsPreFilter`), integrating the
-    // term set into the Tantivy query only pays when the segments admit an index-driven
-    // strategy. Past its density gate tantivy's planner falls back to `LinearScan`, a
-    // per-candidate fast-field probe inside the scorer. Keeping the `InListExpr` as a
-    // batch-level `PreFilter` instead evaluates its vectorized `static_filter` hash set over
-    // the fast-field batch before heap visibility (`fetch_ctids`) and non-filter column
-    // materialization. The gate only guards that fallback: a keyword column or one without a
-    // fast representation routes to the FST automaton, and a column the segments are sorted by
-    // routes to gallop, both index-driven at any density.
+    // On standard unsorted scans (`InListLinearFallback::KeepAsPreFilter`), integrating a
+    // numeric `InList` into the Tantivy query only pays when the segments admit an index-driven
+    // strategy. Past its density gate `TermSetWeight` falls back to `LinearScan`, a per-candidate
+    // fast-field probe inside the scorer. Keeping a dense numeric `InListExpr` as a batch-level
+    // `PreFilter` instead evaluates its vectorized `static_filter` hash set over the fast-field
+    // batch before heap visibility (`fetch_ctids`) and non-filter column materialization.
+    // Keyword text columns (`field.is_text()`), fields without a fast representation, and columns
+    // the segments are sorted by all push down directly (`TermSetWeight` resolves dictionary
+    // ordinals / postings or gallops the sorted column inside the search).
     // On `lazy_sort` scans (`InListLinearFallback::PushToIndex`), leaving the `InList` out of
     // the Tantivy query causes the top-K collector to fill its window with non-matching rows
     // that `PreFilter` then discards, forcing expanding top-K re-queries; always push to the
@@ -1287,6 +1856,11 @@ fn try_convert_in_list_to_query(
         }
     }
 
+    if field.is_text() && !field.is_keyword() {
+        return InListPushdown::FallbackToPredicate;
+    }
+
+    let field_type = field.field_type();
     let tantivy_schema = schema.tantivy_schema();
     let Ok(tantivy_field) = tantivy_schema.get_field(col.name()) else {
         return InListPushdown::Keep;
@@ -1315,21 +1889,20 @@ fn try_convert_in_list_to_query(
         .collect();
 
     let Some(terms) = terms else {
-        return InListPushdown::Keep;
+        return InListPushdown::FallbackToPredicate;
     };
     if terms.is_empty() {
         return InListPushdown::Keep;
     }
 
     // Build a strategy config from the paradedb.term_set_* GUCs so the
-    // dispatch thresholds (kill switch, gallop density gate, and the
-    // first-column bitset density gate) can be tuned in production
-    // without a recompile. Defaults mirror `TermSetStrategyConfig::default()`
-    // in tantivy. `subsequent_bitset_max_density` is not exposed because
-    // it gates a branch tantivy doesn't reach in production today;
-    // leave it at the tantivy default via struct update syntax. The
-    // optional `strategy_sink` is a per-scan AtomicU8 the planner stores
-    // its decision into so EXPLAIN ANALYZE can report which strategy fired.
+    // dispatch thresholds (gallop kill-switch and first-column bitset
+    // density gates) can be tuned in production without a recompile.
+    // Defaults mirror `TermSetStrategyConfig::default()` in tantivy;
+    // `subsequent_bitset_max_density` stays at the tantivy default via
+    // struct update syntax. The optional `strategy_sink` is a per-scan
+    // AtomicU8 the planner stores its decision into so EXPLAIN ANALYZE
+    // can report which strategy fired.
     let cfg = TermSetStrategyConfig {
         gallop_enabled: crate::gucs::term_set_gallop_enabled(),
         bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique(),
@@ -1338,37 +1911,65 @@ fn try_convert_in_list_to_query(
         ..TermSetStrategyConfig::default()
     };
 
-    let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
+    let term_set_query = TermSetQuery::new(terms)
+        .with_strategy_config(cfg)
+        .with_exact_fast_field(field.exact_fast_field_for_term_set());
     let const_score_query = ConstScoreQuery::new(term_set_query, 0.0);
     InListPushdown::Query(Box::new(const_score_query) as Box<dyn Query>)
 }
 
-/// Try to push down `InList` expressions from `dynamic_filters` into the search query.
+/// Per-flavor strategy sinks passed into [`try_dynamic_filter_pushdown`].
+pub struct DynamicFilterStrategySinks {
+    inlist: Option<Arc<std::sync::atomic::AtomicU8>>,
+    hash: Option<Arc<std::sync::atomic::AtomicU8>>,
+}
+
+impl DynamicFilterStrategySinks {
+    pub fn new(
+        inlist: Option<Arc<std::sync::atomic::AtomicU8>>,
+        hash: Option<Arc<std::sync::atomic::AtomicU8>>,
+    ) -> Self {
+        Self { inlist, hash }
+    }
+}
+
+/// Which dynamic-filter flavors were pushed down into the Tantivy query by
+/// [`try_dynamic_filter_pushdown`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DynamicFilterPushdownOutcome {
+    pub inlist: bool,
+    pub hash: bool,
+}
+
+/// Try to push down `InList` and `HashTableLookupExpr` expressions from `dynamic_filters`
+/// into the search query, gated by `paradedb.hash_join_filter_pushdown`.
 ///
-/// This is called during the first `poll_next` of the scan stream to convert eligible `InList`
-/// predicates (e.g. generated from a `HashJoin` build side) into native Tantivy `TermSet` queries.
-///
-/// By modifying the `SearchIndexReader` directly, this optimization allows Tantivy to filter
-/// documents via its inverted index *while* executing the search, rather than filtering them
-/// via fast fields after the search has returned. `linear_fallback` controls whether
-/// high-density `InList` predicates that exceed `term_set_bitset_max_density_multi` are kept
-/// as vectorized batch `PreFilter`s ([`InListLinearFallback::KeepAsPreFilter`] on standard
-/// unsorted scans) or still pushed into the index ([`InListLinearFallback::PushToIndex`] on
-/// `lazy_sort` top-K scans so top-K collectors filter during collection).
+/// This is called during the first `poll_next` of the scan stream to convert eligible
+/// build-side predicates from `HashJoinExec` into native Tantivy `TermSetQuery` or
+/// `TermPredicateQuery` filters (`InListExpr`s that cannot build a `TermSetQuery`, such as
+/// tokenized text, datetimes, or `NumericBytes`, fall back to `TermPredicateQuery` under
+/// `auto` mode).
 ///
 /// If any expressions are successfully pushed down, this function:
 /// 1. Combines them into a `BooleanQuery` and `AND`s it into the `reader`'s query.
 /// 2. Mutates the provided `dynamic_filters` array in-place, rewriting the DataFusion
 ///    expressions to replace the pushed down nodes with `lit(true)` so they are not evaluated again.
-/// 3. Returns `true` to indicate that a pushdown occurred.
+/// 3. Returns a [`DynamicFilterPushdownOutcome`] indicating which filter flavors pushed down.
 pub fn try_dynamic_filter_pushdown(
     reader: &mut crate::index::reader::index::SearchIndexReader,
+    scan_schema: &Schema,
     dynamic_filters: &mut [Arc<dyn PhysicalExpr>],
-    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
+    sinks: DynamicFilterStrategySinks,
     linear_fallback: InListLinearFallback,
-) -> bool {
+) -> DynamicFilterPushdownOutcome {
+    let pushdown_mode = crate::gucs::hash_join_filter_pushdown();
+    if pushdown_mode == crate::gucs::HashJoinFilterPushdown::Off {
+        return DynamicFilterPushdownOutcome::default();
+    }
+
     let mut pushed_down_queries: Vec<Box<dyn Query>> = Vec::new();
     let mut pushed_down_pointers = HashSet::default();
+    let mut outcome = DynamicFilterPushdownOutcome::default();
     let schema = reader.schema();
     let index_created_by_version = reader.index_created_by_version();
     let max_segment_docs = reader
@@ -1388,25 +1989,57 @@ pub fn try_dynamic_filter_pushdown(
         };
 
         let mut extracted_in_lists = Vec::new();
-        extract_in_list_exprs(&current_expr, &mut extracted_in_lists);
+        let mut extracted_hash_lookups = Vec::new();
+        extract_pushdown_candidates(
+            &current_expr,
+            &mut extracted_in_lists,
+            &mut extracted_hash_lookups,
+        );
 
-        for in_list_arc in extracted_in_lists {
-            let in_list = in_list_arc.downcast_ref::<InListExpr>().unwrap();
+        if pushdown_mode == crate::gucs::HashJoinFilterPushdown::Hash {
+            extracted_hash_lookups.extend(extracted_in_lists);
+        } else {
+            for in_list_arc in extracted_in_lists {
+                let in_list = in_list_arc.downcast_ref::<InListExpr>().unwrap();
 
-            match try_convert_in_list_to_query(
-                in_list,
-                schema,
-                index_created_by_version,
-                strategy_sink.clone(),
-                max_segment_docs,
-                sorted_by_field.as_deref(),
-                linear_fallback,
-            ) {
-                InListPushdown::Query(query) => {
-                    pushed_down_queries.push(query);
-                    pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
+                match try_convert_in_list_to_query(
+                    in_list,
+                    schema,
+                    index_created_by_version,
+                    sinks.inlist.clone(),
+                    max_segment_docs,
+                    sorted_by_field.as_deref(),
+                    linear_fallback,
+                ) {
+                    InListPushdown::Query(query) => {
+                        pushed_down_queries.push(query);
+                        pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
+                        outcome.inlist = true;
+                    }
+                    InListPushdown::FallbackToPredicate
+                        if pushdown_mode == crate::gucs::HashJoinFilterPushdown::Auto =>
+                    {
+                        extracted_hash_lookups.push(in_list_arc);
+                    }
+                    InListPushdown::FallbackToPredicate | InListPushdown::Keep => {}
                 }
-                InListPushdown::Keep => {}
+            }
+        }
+
+        if pushdown_mode != crate::gucs::HashJoinFilterPushdown::InList {
+            for predicate_arc in extracted_hash_lookups {
+                if let Some(query) = try_convert_predicate_to_query(
+                    predicate_arc,
+                    &current_expr,
+                    scan_schema,
+                    schema,
+                    index_created_by_version,
+                    sinks.hash.clone(),
+                ) {
+                    pushed_down_queries.push(query);
+                    pushed_down_pointers.insert(Arc::as_ptr(predicate_arc) as *const () as usize);
+                    outcome.hash = true;
+                }
             }
         }
 
@@ -1421,10 +2054,9 @@ pub fn try_dynamic_filter_pushdown(
                             true,
                             TreeNodeRecursion::Jump,
                         ))
-                    } else if node.is::<InListExpr>() {
-                        // A sibling `InListExpr` that returned `InListPushdown::Keep` cannot
-                        // contain nested `InListExpr`s; jump past `map_children` to avoid
-                        // allocating and cloning its literal list.
+                    } else if node.is::<InListExpr>() || node.is::<HashTableLookupExpr>() {
+                        // A sibling membership node that stayed in `PreFilter` cannot contain
+                        // nested membership nodes; jump past `map_children` to avoid cloning.
                         Ok(Transformed::new(node, false, TreeNodeRecursion::Jump))
                     } else {
                         Ok(Transformed::no(node))
@@ -1439,17 +2071,16 @@ pub fn try_dynamic_filter_pushdown(
         }
     }
 
-    if pushed_down_queries.is_empty() {
-        false
-    } else {
+    if !pushed_down_queries.is_empty() {
         let combined_musts: Vec<(Occur, Box<dyn Query>)> = pushed_down_queries
             .into_iter()
             .map(|q| (Occur::Must, q))
             .collect();
         let boolean_query = BooleanQuery::new(combined_musts);
         reader.inject_and_query(Box::new(boolean_query));
-        true
     }
+
+    outcome
 }
 
 #[cfg(test)]
@@ -1644,5 +2275,78 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn expr_term_predicate_remaps_and_evaluates_in_list() {
+        use super::{ExprTermPredicate, remap_predicate_expr_to_zero};
+        use datafusion::arrow::array::{StringViewArray, TimestampMicrosecondArray};
+        use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+        use datafusion::physical_plan::expressions::InListExpr;
+        use tantivy::columnar::{ColumnType, MonotonicallyMappableToU64};
+        use tantivy::query::{TermPredicate, TinySet};
+
+        // Timestamp InList on column index 1 (non-zero) remapped to 0 and evaluated via
+        // `filter_monotonic_u64s`.
+        let ts_type = DataType::Timestamp(TimeUnit::Microsecond, None);
+        let ts_schema = Arc::new(Schema::new(vec![
+            Field::new("pad", DataType::Int64, true),
+            Field::new("ts", ts_type.clone(), true),
+        ]));
+        let ts_col = Arc::new(Column::new("ts", 1)) as Arc<dyn PhysicalExpr>;
+        let ts_vals = Arc::new(TimestampMicrosecondArray::from(vec![100_i64, 300_i64]));
+        let ts_in_list =
+            Arc::new(InListExpr::try_new_from_array(ts_col, ts_vals, false, &ts_schema).unwrap())
+                as Arc<dyn PhysicalExpr>;
+
+        let (col, remapped) = remap_predicate_expr_to_zero(&ts_in_list).unwrap();
+        assert_eq!(col.index(), 1);
+        let pred = ExprTermPredicate {
+            expr: remapped,
+            batch_schema: Arc::new(Schema::new(vec![Field::new("ts", ts_type.clone(), true)])),
+            probe_data_type: ts_type,
+        };
+        let encoded: Vec<u64> = [50_i64, 100, 200, 300]
+            .into_iter()
+            .map(MonotonicallyMappableToU64::to_u64)
+            .collect();
+        let mut out = [TinySet::empty()];
+        pred.filter_monotonic_u64s(ColumnType::I64, &encoded, &mut out);
+        assert_eq!(out[0].into_iter().collect::<Vec<_>>(), vec![1, 3]);
+
+        // StringView InList on column index 1 evaluated via `filter_bytes`.
+        let str_schema = Arc::new(Schema::new(vec![
+            Field::new("pad", DataType::Int64, true),
+            Field::new("body", DataType::Utf8View, true),
+        ]));
+        let str_col = Arc::new(Column::new("body", 1)) as Arc<dyn PhysicalExpr>;
+        let str_vals = Arc::new(StringViewArray::from(vec!["alpha", "gamma"]));
+        let str_in_list = Arc::new(
+            InListExpr::try_new_from_array(str_col, str_vals, false, &str_schema).unwrap(),
+        ) as Arc<dyn PhysicalExpr>;
+
+        let (_, remapped_str) = remap_predicate_expr_to_zero(&str_in_list).unwrap();
+        let str_pred = ExprTermPredicate {
+            expr: remapped_str,
+            batch_schema: Arc::new(Schema::new(vec![Field::new(
+                "body",
+                DataType::Utf8View,
+                true,
+            )])),
+            probe_data_type: DataType::Utf8View,
+        };
+        let data = b"alphabeta_gammadelta";
+        let offsets = [0u32, 5, 10, 15, 20];
+        let mut out = [TinySet::empty()];
+        str_pred.filter_bytes(data, &offsets, &mut out);
+        assert_eq!(out[0].into_iter().collect::<Vec<_>>(), vec![0, 2]);
+
+        // Negated InList must be rejected.
+        let neg_col = Arc::new(Column::new("body", 1)) as Arc<dyn PhysicalExpr>;
+        let neg_vals = Arc::new(StringViewArray::from(vec!["alpha"]));
+        let neg_in_list =
+            Arc::new(InListExpr::try_new_from_array(neg_col, neg_vals, true, &str_schema).unwrap())
+                as Arc<dyn PhysicalExpr>;
+        assert!(remap_predicate_expr_to_zero(&neg_in_list).is_none());
     }
 }

@@ -89,10 +89,7 @@ runs:
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-      run: |
-        RUST_BACKTRACE=1 cargo pgrx start "pg${INPUTS_PG_VERSION}"
-        # Necessary for the ephemeral Postgres test to have proper permissions
-        sudo chown -R $(whoami) /var/run/postgresql/
+      run: RUST_BACKTRACE=1 cargo pgrx start "pg${INPUTS_PG_VERSION}"
 
     - name: Create pg_search Extension
       working-directory: pg_search/
@@ -158,7 +155,7 @@ runs:
       shell: bash
       run: |
         SYNTHETIC_VERSION="999.0.0"
-        ./scripts/release.sh set-version "$SYNTHETIC_VERSION" --skip-nix
+        ./scripts/release.sh set-version "$SYNTHETIC_VERSION"
         # Extend the actual chain tip, including a release commit whose tag is missing.
         PREV_VERSION=$(./scripts/release.sh latest-sql-version)
         cargo pgrx migrate assemble "$SYNTHETIC_VERSION" --package pg_search \
@@ -183,10 +180,7 @@ runs:
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-      run: |
-        RUST_BACKTRACE=1 cargo pgrx start "pg${INPUTS_PG_VERSION}"
-        # Necessary for the ephemeral Postgres test to have proper permissions
-        sudo chown -R $(whoami) /var/run/postgresql/
+      run: RUST_BACKTRACE=1 cargo pgrx start "pg${INPUTS_PG_VERSION}"
 
     - name: Alter pg_search extension to the latest version
       working-directory: pg_search/
@@ -249,16 +243,32 @@ runs:
           psql -v ON_ERROR_STOP=1 -h localhost -p "288${INPUTS_PG_VERSION}" "$db" -f "$case_dir/queries.sql"
         done
 
-    # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
-    - name: Run pg_search Integration Tests
-      working-directory: tests/
+    # TODO: Expand post-upgrade tests to cover the entire ParadeDB SQL API.
+    # Track expanded tokenizer coverage in https://github.com/paradedb/paradedb/issues/6954.
+    - name: Smoke Test New Indexes After Upgrade
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: |
-        export DATABASE_URL=postgresql://$(whoami)"@localhost:288${INPUTS_PG_VERSION}/postgres"
-        export PG_CONFIG="/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin/pg_config"
-        RUST_BACKTRACE=1 cargo test --jobs $(nproc)
+        psql -v ON_ERROR_STOP=1 -h localhost -p "288${INPUTS_PG_VERSION}" postgres <<'SQL'
+        BEGIN;
+
+        CREATE TABLE upgrade_smoke (id integer PRIMARY KEY, body text NOT NULL);
+        INSERT INTO upgrade_smoke VALUES (1, 'running shoes'), (2, 'winter coat');
+        CREATE INDEX upgrade_smoke_idx ON upgrade_smoke USING paradedb (id, body);
+        INSERT INTO upgrade_smoke VALUES (3, 'running shorts');
+
+        DO $$
+        BEGIN
+            IF ARRAY(SELECT id FROM upgrade_smoke WHERE body ||| 'running' ORDER BY id)
+                IS DISTINCT FROM ARRAY[1, 3] THEN
+                RAISE EXCEPTION 'New index did not return expected rows after upgrade';
+            END IF;
+        END;
+        $$;
+
+        ROLLBACK;
+        SQL
 
     # An early failure can leave the checkout on an old release without current
     # diagnostic scripts or local actions needed by post-job cache cleanup.

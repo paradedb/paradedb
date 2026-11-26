@@ -26,9 +26,9 @@ CREATE TABLE rj_comments (
     body TEXT NOT NULL,
     upvotes INT
 ) WITH (autovacuum_enabled = false);
-CREATE INDEX rj_users_bm25 ON rj_users USING bm25 (id, bio, reputation);
-CREATE INDEX rj_posts_bm25 ON rj_posts USING bm25 (id, user_id, title, views);
-CREATE INDEX rj_comments_bm25 ON rj_comments USING bm25 (id, post_id, body, upvotes);
+CREATE INDEX rj_users_bm25 ON rj_users USING paradedb (id, bio, reputation);
+CREATE INDEX rj_posts_bm25 ON rj_posts USING paradedb (id, user_id, title, views);
+CREATE INDEX rj_comments_bm25 ON rj_comments USING paradedb (id, post_id, body, upvotes);
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO rj_users
 SELECT i,
@@ -471,7 +471,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
-ORDER BY 2.0 * paradedb.score(u.id) + 3.0 * paradedb.score(p.id) DESC
+ORDER BY 2.0 * pdb.score(u.id) + 3.0 * pdb.score(p.id) DESC
 LIMIT 5;
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -497,7 +497,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' AND p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) * paradedb.score(p.id) DESC
+ORDER BY pdb.score(u.id) * pdb.score(p.id) DESC
 LIMIT 5;
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -523,7 +523,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC
 LIMIT 5;
 WARNING:  RankJoinExec not used: scored table "u" has only constant-score predicates. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                 QUERY PLAN                                                                                                
@@ -550,7 +550,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust'::pdb.boost(100) AND p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC
 LIMIT 5;
 WARNING:  RankJoinExec not used: score contribution ratio (0.010) is below balance threshold (0.20). To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                        QUERY PLAN                                                                                                       
@@ -588,7 +588,7 @@ WHERE u.bio @@@ 'rust'
    OR p.title @@@ 'fast'
    OR p.title @@@ 'columnar'
    OR p.title @@@ 'query'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                             
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -621,7 +621,7 @@ WHERE u.bio @@@ 'rust'
    OR p.title @@@ 'columnar'
    OR p.title @@@ 'query'
    OR p.title @@@ 'extra'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -654,7 +654,7 @@ WHERE u.bio @@@ 'rust'
    OR p.title @@@ 'columnar'
    OR p.title @@@ 'query'
    OR p.title @@@ 'extra'
-ORDER BY 2.0 * paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY 2.0 * pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -681,7 +681,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) DESC
+ORDER BY pdb.score(u.id) DESC
 LIMIT 5;
 WARNING:  RankJoinExec not used: ORDER BY scores only one side of a cross-table OR join; include pdb.score() from all OR branches. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                      QUERY PLAN                                                                                                                                     
@@ -749,7 +749,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id <= 1 AND p.title @@@ 'bm25'
-ORDER BY paradedb.score(p.id) DESC, p.id ASC
+ORDER BY pdb.score(p.id) DESC, p.id ASC
 LIMIT 5;
                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -773,6 +773,46 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY pdb.score(p.id) DESC, p.id ASC
+LIMIT 5;
+ u_id | p_id 
+------+------
+    1 |   50
+    1 |  100
+(2 rows)
+
+-- Same query with build size above `hash_join_inlist_max_distinct_values` (= 0) -> still plans
+-- HashJoinExec(fetch=5) over lazy_sort probe with HashTableLookupExpr pushdown
+SET paradedb.hash_join_inlist_max_distinct_values = 0;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY paradedb.score(p.id) DESC, p.id ASC
+LIMIT 5;
+                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.user_id
+   Limit: 5
+   Order By: pdb.score(p) desc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, pdb.score(p)@2 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, user_id@2)], projection=[ctid_0@0, id@1, pdb.score(p)@2, ctid_1@3, id@5], fetch=5, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=20.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
+     :     VisibilityFilterExec: tables=[u], metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1, ctids_fetched=1, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=u, segments={included=1, pruned=1}, query={"range":{"field":"id","lower_bound":null,"upper_bound":{"included":1}}}, metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, dynamic_filter_pushdown_hash_linear=1, queries=1, rows_pruned=0, rows_scanned=2]
+(14 rows)
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(p.id) DESC, p.id ASC
 LIMIT 5;
  u_id | p_id 
@@ -781,6 +821,7 @@ LIMIT 5;
     1 |  100
 (2 rows)
 
+RESET paradedb.hash_join_inlist_max_distinct_values;
 -- Non-selective RA side (u.bio @@@ 'rust' matches 25/50 = 0.50 >= 0.08) -> RankJoinExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT u.id AS u_id, p.id AS p_id
@@ -820,7 +861,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
                                                                                                                                      QUERY PLAN                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -848,7 +889,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.user_id = ANY(ARRAY[2, 4, 6])
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
                                                                                                                                      QUERY PLAN                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -874,7 +915,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.user_id = ANY(ARRAY[2, 4, 6])
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
  u_id | p_id 
 ------+------
@@ -892,7 +933,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.views >= 0
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
                                                                                                                                                   QUERY PLAN                                                                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -918,7 +959,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.views >= 0
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
  u_id | p_id 
 ------+------
@@ -936,7 +977,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.user_id = ANY(ARRAY[2, 4, 6])
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
  u_id | p_id 
 ------+------
@@ -952,7 +993,7 @@ FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
   AND p.views >= 0
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
  u_id | p_id 
 ------+------
@@ -977,13 +1018,13 @@ ALTER TABLE rj_comments ADD COLUMN user_id INT;
 UPDATE rj_comments c SET user_id = p.user_id FROM rj_posts p WHERE c.post_id = p.id;
 ANALYZE rj_users, rj_posts, rj_comments;
 SET max_parallel_maintenance_workers = 0;
-CREATE INDEX rj_users_bm25 ON rj_users USING bm25 (id, bio, reputation)
+CREATE INDEX rj_users_bm25 ON rj_users USING paradedb (id, bio, reputation)
 WITH (target_segment_count = 3, partition_by = 'id');
 WARNING:  only 0 parallel workers were available for index build
-CREATE INDEX rj_posts_bm25 ON rj_posts USING bm25 (id, user_id, title, views)
+CREATE INDEX rj_posts_bm25 ON rj_posts USING paradedb (id, user_id, title, views)
 WITH (target_segment_count = 3, partition_by = 'user_id,id');
 WARNING:  only 0 parallel workers were available for index build
-CREATE INDEX rj_comments_bm25 ON rj_comments USING bm25 (id, post_id, user_id, body, upvotes)
+CREATE INDEX rj_comments_bm25 ON rj_comments USING paradedb (id, post_id, user_id, body, upvotes)
 WITH (target_segment_count = 3, partition_by = 'user_id,post_id');
 WARNING:  only 0 parallel workers were available for index build
 SET paradedb.enable_range_partitioned_join = on;
@@ -1050,7 +1091,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
                                                                                                                                          QUERY PLAN                                                                                                                                         
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1083,7 +1124,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
  u_id | p_id 
 ------+------
@@ -1217,7 +1258,7 @@ SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
-ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+ORDER BY pdb.score(u.id) + pdb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
  u_id | p_id 
 ------+------

@@ -8,7 +8,7 @@ INSERT INTO json_phrases VALUES
     (1, '{"note": "big tv stand"}'),
     (2, '{"note": "big red tv"}'),
     (3, '{"note": "big tvs"}');
-CREATE INDEX json_phrases_idx ON json_phrases USING bm25 (id, m);
+CREATE INDEX json_phrases_idx ON json_phrases USING paradedb (id, m);
 
 SELECT id FROM json_phrases WHERE m @@@ 'note:"big tv"' ORDER BY id;
 SELECT id FROM json_phrases WHERE m @@@ 'note:"big tv"~1' ORDER BY id;

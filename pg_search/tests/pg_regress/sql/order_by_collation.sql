@@ -94,35 +94,35 @@ ANALYZE collation_test;
 \echo 'Test 1.1: ORDER BY C-collation text column -> TopK pushdown (no Sort node)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_c FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY name_c
 LIMIT 5;
 
 \echo 'Test 1.2: ORDER BY ICU-collation text column -> Sort node expected'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_icu FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY name_icu
 LIMIT 5;
 
 \echo 'Test 1.3: ORDER BY integer column -> TopK pushdown (collation is InvalidOid for non-text)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY priority
 LIMIT 5;
 
 \echo 'Test 1.4: ORDER BY with explicit COLLATE "C" on ICU column -> TopK pushdown'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_icu FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY name_icu COLLATE "C"
 LIMIT 5;
 
 \echo 'Test 1.5: ORDER BY with explicit COLLATE "test_icu" on C column -> Sort node expected'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_c FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY name_c COLLATE "test_icu"
 LIMIT 5;
 
@@ -138,14 +138,14 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 \echo 'Test 2.1: GROUP BY + ORDER BY C-collation text -> aggregate pushdown (no Sort node)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*) FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_c
 ORDER BY name_c;
 
 \echo 'Test 2.2: deterministic ICU GROUP BY stays pushed down; ORDER BY stays above'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_icu
 ORDER BY name_icu;
 
@@ -154,21 +154,21 @@ ORDER BY name_icu;
 -- cannot execute its placeholder.
 SELECT name_icu, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_icu
 ORDER BY name_icu;
 
 \echo 'Test 2.3: GROUP BY + ORDER BY integer -> aggregate pushdown (collation is InvalidOid)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT priority, COUNT(*) FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY priority
 ORDER BY priority;
 
 \echo 'Test 2.4: safe GROUP BY + unsafe ORDER BY -> Sort above AggregateScan'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*) FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_c
 ORDER BY name_c COLLATE "test_icu";
 
@@ -176,13 +176,13 @@ ORDER BY name_c COLLATE "test_icu";
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT lower(name_case_insensitive) AS name, COUNT(*)
 FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
 
 SELECT lower(name_case_insensitive) AS name, COUNT(*)
 FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
 
@@ -190,32 +190,32 @@ ORDER BY name;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*)
 FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY GROUPING SETS ((name_c), ());
 
 SELECT COUNT(*) AS group_count
 FROM (
     SELECT name_c
     FROM collation_test
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()
     GROUP BY GROUPING SETS ((name_c), ())
 ) AS grouped;
 
 SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY GROUPING SETS ((name_c), ());
 
 \echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan reads the key from a row'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*)
 FROM collation_test
-WHERE name_c = 'apple' AND id @@@ paradedb.all()
+WHERE name_c = 'apple' AND id @@@ pdb.all()
 GROUP BY name_c;
 
 SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
-WHERE name_c = 'apple' AND id @@@ paradedb.all()
+WHERE name_c = 'apple' AND id @@@ pdb.all()
 GROUP BY name_c;
 
 \echo 'Test 2.8: hash aggregation with a nondeterministic collation -> AggregateScan declined'
@@ -224,14 +224,14 @@ SET enable_sort TO off;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_case_insensitive, COUNT(*)
 FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_case_insensitive;
 
 SELECT COUNT(*) AS group_count
 FROM (
     SELECT name_case_insensitive
     FROM collation_test
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()
     GROUP BY name_case_insensitive
 ) AS grouped;
 
@@ -241,13 +241,13 @@ RESET enable_sort;
 SELECT lower(name_case_insensitive) AS name,
        pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_case_insensitive;
 
 \echo 'Test 2.10: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_c, name_case_insensitive
 ORDER BY name_c, name_case_insensitive;
 
@@ -283,13 +283,13 @@ ANALYZE collation_sortby_test;
 \echo 'Test 3.1: ORDER BY city (C collation, matches sort_by) -> no Sort node'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, city FROM collation_sortby_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY city ASC NULLS FIRST;
 
 \echo 'Test 3.2: ORDER BY city with explicit COLLATE "test_icu" -> Sort node expected'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, city FROM collation_sortby_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
 
 -- =============================================================================
@@ -301,12 +301,12 @@ ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
 
 \echo 'Test 4.1: C collation ORDER BY -> byte order (uppercase before lowercase in ASCII)'
 SELECT id, city FROM collation_sortby_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY city ASC NULLS FIRST;
 
 \echo 'Test 4.2: ICU collation ORDER BY -> linguistic order (case-insensitive from Postgres Sort)'
 SELECT id, city FROM collation_sortby_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
 
 -- =============================================================================
@@ -428,7 +428,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 \echo 'Test 6.1: GROUP BY + ORDER BY C-collation text + LIMIT -> aggregate TopK pushdown'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*) FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_c
 ORDER BY name_c
 LIMIT 3;
@@ -437,7 +437,7 @@ LIMIT 3;
 SET paradedb.max_term_agg_buckets = 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_icu
 ORDER BY name_icu
 LIMIT 3;
@@ -446,7 +446,7 @@ RESET paradedb.max_term_agg_buckets;
 \echo 'Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT priority, COUNT(*) FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY priority
 ORDER BY priority
 LIMIT 3;
@@ -464,7 +464,7 @@ RESET paradedb.enable_aggregate_custom_scan;
 \echo 'Test 7.1: ORDER BY default-collation text column -> TopK pushdown (default is C.UTF-8, safe)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_default FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY name_default
 LIMIT 5;
 
@@ -473,14 +473,14 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 \echo 'Test 7.2: GROUP BY + ORDER BY default-collation text -> aggregate pushdown (no Sort node)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_default, COUNT(*) FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_default
 ORDER BY name_default;
 
 \echo 'Test 7.3: GROUP BY + ORDER BY default-collation text + LIMIT -> aggregate TopK pushdown'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_default, COUNT(*) FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name_default
 ORDER BY name_default
 LIMIT 3;
@@ -497,28 +497,28 @@ RESET paradedb.enable_aggregate_custom_scan;
 \echo 'Test 8.1: ORDER BY safe_col (C), unsafe_col (ICU) -> Sort node (mixed is unsafe)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_c, name_icu FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY name_c, name_icu
 LIMIT 5;
 
 \echo 'Test 8.2: ORDER BY safe_col (integer), unsafe_col (ICU) -> Sort node (mixed is unsafe)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority, name_icu FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY priority, name_icu
 LIMIT 5;
 
 \echo 'Test 8.3: ORDER BY safe_col (C), safe_col (default) -> TopK pushdown (both safe)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name_c, name_default FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY name_c, name_default
 LIMIT 5;
 
 \echo 'Test 8.4: ORDER BY safe_col (integer), safe_col (default) -> TopK pushdown (both safe)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority, name_default FROM collation_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY priority, name_default
 LIMIT 5;
 

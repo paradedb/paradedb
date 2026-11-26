@@ -59,7 +59,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -70,7 +70,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -85,7 +85,7 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -96,7 +96,7 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -111,7 +111,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name
@@ -126,7 +126,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (
           e.pattern = i.name
           OR e.pattern = i.alt_name
@@ -148,7 +148,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -169,7 +169,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR length(e.pattern) > 100)
 )
 AND i.category ### 'target'
@@ -180,7 +180,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR length(e.pattern) > 100)
 )
 AND i.category ### 'target'
@@ -198,7 +198,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND e.id <> i.id
 )
 AND i.category ### 'target'
@@ -209,7 +209,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND e.id <> i.id
 )
 AND i.category ### 'target'
@@ -221,7 +221,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND e.id <> i.id
 )
 AND i.category ### 'target'
@@ -239,7 +239,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.id > i.id OR e.pattern = i.name)
 )
 AND i.category ### 'target'
@@ -250,7 +250,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.id > i.id OR e.pattern = i.name)
 )
 AND i.category ### 'target'
@@ -262,7 +262,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.id > i.id OR e.pattern = i.name)
 )
 AND i.category ### 'target'
@@ -281,7 +281,7 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.id = 42::bigint)
 )
 AND i.category ### 'target'
@@ -292,7 +292,7 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.id = 42::bigint)
 )
 AND i.category ### 'target'
@@ -304,7 +304,7 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.id = 42::bigint)
 )
 AND i.category ### 'target'
@@ -322,7 +322,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (
           (e.pattern = i.name AND e.id > i.id)
           OR e.pattern = i.alt_name
@@ -336,7 +336,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (
           (e.pattern = i.name AND e.id > i.id)
           OR e.pattern = i.alt_name
@@ -351,7 +351,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (
           (e.pattern = i.name AND e.id > i.id)
           OR e.pattern = i.alt_name
@@ -374,7 +374,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND e.pattern = i.name
 )
 AND i.category ### 'target'
@@ -385,7 +385,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND e.pattern = i.name
 )
 AND i.category ### 'target'
@@ -397,7 +397,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND e.pattern = i.name
 )
 AND i.category ### 'target'
@@ -417,7 +417,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'other'
@@ -429,7 +429,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'other'
@@ -481,7 +481,7 @@ SELECT i.id
 FROM items_vc i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions_vc e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -492,7 +492,7 @@ SELECT i.id
 FROM items_vc i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions_vc e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -504,7 +504,7 @@ SELECT i.id
 FROM items_vc i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions_vc e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
 AND i.category ### 'target'
@@ -525,7 +525,7 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND upper(e.pattern) = upper(i.name)
 )
 AND i.category ### 'target'
@@ -536,7 +536,7 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND upper(e.pattern) = upper(i.name)
 )
 AND i.category ### 'target'
@@ -548,7 +548,7 @@ SELECT i.id
 FROM items i
 WHERE EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND upper(e.pattern) = upper(i.name)
 )
 AND i.category ### 'target'
@@ -565,7 +565,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND COALESCE(e.pattern, '') = i.name
 )
 AND i.category ### 'target'
@@ -576,7 +576,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND COALESCE(e.pattern, '') = i.name
 )
 AND i.category ### 'target'
@@ -588,7 +588,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND COALESCE(e.pattern, '') = i.name
 )
 AND i.category ### 'target'
@@ -606,7 +606,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern IS NULL)
 )
 AND i.category ### 'target'
@@ -617,7 +617,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern IS NULL)
 )
 AND i.category ### 'target'
@@ -629,7 +629,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.pattern = i.name OR e.pattern IS NULL)
 )
 AND i.category ### 'target'
@@ -646,7 +646,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
 )
 AND i.category ### 'target'
@@ -657,7 +657,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
 )
 AND i.category ### 'target'
@@ -669,7 +669,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
 )
 AND i.category ### 'target'
@@ -688,7 +688,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.id * 2) > i.id
 )
 AND i.category ### 'target'
@@ -699,7 +699,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.id * 2) > i.id
 )
 AND i.category ### 'target'
@@ -711,7 +711,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (e.id * 2) > i.id
 )
 AND i.category ### 'target'
@@ -730,7 +730,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
 )
 AND i.category ### 'target'
@@ -741,7 +741,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
 )
 AND i.category ### 'target'
@@ -753,7 +753,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
 )
 AND i.category ### 'target'
@@ -778,7 +778,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
 )
 AND i.category ### 'target'
@@ -789,7 +789,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
 )
 AND i.category ### 'target'
@@ -801,7 +801,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
 )
 AND i.category ### 'target'
@@ -824,7 +824,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
 )
 AND i.category ### 'target'
@@ -835,7 +835,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
 )
 AND i.category ### 'target'
@@ -847,7 +847,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
 )
 AND i.category ### 'target'
@@ -868,7 +868,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND md5(e.pattern) = md5(i.name)
       AND to_hex(e.id) <> to_hex(i.id)
 )
@@ -880,7 +880,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND md5(e.pattern) = md5(i.name)
       AND to_hex(e.id) <> to_hex(i.id)
 )
@@ -893,7 +893,7 @@ SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
-    WHERE e.id @@@ paradedb.all()
+    WHERE e.id @@@ pdb.all()
       AND md5(e.pattern) = md5(i.name)
       AND to_hex(e.id) <> to_hex(i.id)
 )
@@ -978,11 +978,11 @@ SELECT i.id, i.name
 FROM coll_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM coll_patterns p
-    WHERE p.id @@@ paradedb.all()
+    WHERE p.id @@@ pdb.all()
       AND (p.id = i.pattern_id
            OR upper(p.pattern COLLATE "C") = upper(i.name COLLATE "C"))
 )
-AND i.id @@@ paradedb.all()
+AND i.id @@@ pdb.all()
 ORDER BY i.id
 LIMIT 10;
 
@@ -990,11 +990,11 @@ SELECT i.id, i.name
 FROM coll_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM coll_patterns p
-    WHERE p.id @@@ paradedb.all()
+    WHERE p.id @@@ pdb.all()
       AND (p.id = i.pattern_id
            OR upper(p.pattern COLLATE "C") = upper(i.name COLLATE "C"))
 )
-AND i.id @@@ paradedb.all()
+AND i.id @@@ pdb.all()
 ORDER BY i.id
 LIMIT 10;
 
@@ -1007,11 +1007,11 @@ SELECT i.id, i.name
 FROM coll_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM coll_patterns p
-    WHERE p.id @@@ paradedb.all()
+    WHERE p.id @@@ pdb.all()
       AND (p.id = i.pattern_id
            OR p.pattern = i.name)
 )
-AND i.id @@@ paradedb.all()
+AND i.id @@@ pdb.all()
 ORDER BY i.id
 LIMIT 10;
 
@@ -1024,11 +1024,11 @@ SELECT i.id, i.name
 FROM coll_items i
 WHERE NOT EXISTS (
     SELECT 1 FROM coll_patterns p
-    WHERE p.id @@@ paradedb.all()
+    WHERE p.id @@@ pdb.all()
       AND (p.id = i.pattern_id
            OR upper(p.pattern COLLATE "C") = upper(i.name COLLATE "C"))
 )
-AND i.id @@@ paradedb.all()
+AND i.id @@@ pdb.all()
 ORDER BY i.id
 LIMIT 10;
 SET paradedb.enable_join_custom_scan TO on;

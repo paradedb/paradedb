@@ -254,38 +254,38 @@ LIMIT 10;
 -- Order by score from the nested relation (Products).
 -- Products is in the child join (p join c).
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.name, paradedb.score(p.id)
+SELECT p.name, pdb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE p.description ||| 'wireless'
-ORDER BY paradedb.score(p.id) DESC
+ORDER BY pdb.score(p.id) DESC
 LIMIT 5;
 
-SELECT p.name, paradedb.score(p.id)
+SELECT p.name, pdb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE p.description ||| 'wireless'
-ORDER BY paradedb.score(p.id) DESC
+ORDER BY pdb.score(p.id) DESC
 LIMIT 5;
 
 -- Order by score from the top outer relation (Suppliers).
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT s.name, paradedb.score(s.id)
+SELECT s.name, pdb.score(s.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info ||| 'wireless'
-ORDER BY paradedb.score(s.id) DESC
+ORDER BY pdb.score(s.id) DESC
 LIMIT 5;
 
-SELECT s.name, paradedb.score(s.id)
+SELECT s.name, pdb.score(s.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info ||| 'wireless'
-ORDER BY paradedb.score(s.id) DESC
+ORDER BY pdb.score(s.id) DESC
 LIMIT 5;
 
 -- =============================================================================

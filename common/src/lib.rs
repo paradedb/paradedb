@@ -18,6 +18,10 @@
 pub use pgrx::pgrx_sql_entity_graph;
 
 pub mod api;
+#[cfg(not(feature = "dst"))]
+pub mod dst;
+#[cfg(feature = "dst")]
+pub use ::dst;
 pub mod gucs;
 pub mod index;
 pub mod parallel_worker;

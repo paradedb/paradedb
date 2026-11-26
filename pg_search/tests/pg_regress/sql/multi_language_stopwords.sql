@@ -12,21 +12,6 @@ SELECT
   'The cat in the hat le renard et'::pdb.simple::text[],
   'The cat in the hat le renard et'::pdb.simple('stopwords_language=French,English')::text[];
 
--- Test v1 paradedb.tokenizer() with stopwords_languages parameter (array form)
-SELECT * FROM paradedb.tokenize(
-    paradedb.tokenizer('default', stopwords_languages => ARRAY['English', 'French']),
-    'the quick fox and le renard et'
-);
-
--- Test v1 paradedb.tokenizer() with single stopwords_language parameter (backwards compatible)
-SELECT * FROM paradedb.tokenize(
-    paradedb.tokenizer('default', stopwords_language => 'English'),
-    'the quick fox and'
-);
-
--- Clean up
-DROP TABLE IF EXISTS test_multi_stopwords;
-
 -- Create test table
 CREATE TABLE test_multi_stopwords (
     id SERIAL PRIMARY KEY,

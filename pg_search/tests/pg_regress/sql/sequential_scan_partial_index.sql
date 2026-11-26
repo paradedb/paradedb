@@ -30,7 +30,7 @@ SELECT id, body = 'allowed' AS native_match, body === 'allowed' AS search_match
 FROM partial_index_fallback ORDER BY id;
 SELECT id FROM partial_index_fallback WHERE body === 'allowed' ORDER BY id;
 SELECT id FROM partial_index_fallback WHERE NOT (body === 'allowed') ORDER BY id;
-SELECT id FROM partial_index_fallback WHERE id @@@ paradedb.all() ORDER BY id;
+SELECT id FROM partial_index_fallback WHERE id @@@ pdb.all() ORDER BY id;
 
 -- Citus sends deparsed filters to workers; both the marker and fallback must round-trip.
 DO $$

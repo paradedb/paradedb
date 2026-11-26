@@ -48,11 +48,7 @@ BEGIN
 END $$;
 DROP TABLE IF EXISTS tel_probe;
 CREATE TABLE tel_probe (id SERIAL8 PRIMARY KEY, uuid UUID, age INTEGER, rating INTEGER);
-CREATE INDEX tel_probe_idx ON tel_probe USING paradedb (id, uuid, age)
-WITH (
-    text_fields = '{"uuid": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-    numeric_fields = '{"age": {"fast": true}}'
-);
+CREATE INDEX tel_probe_idx ON tel_probe USING paradedb (id, (uuid::pdb.literal), age);
 -- One segment per insert, so multiple workers can each claim work.
 SET paradedb.global_mutable_segment_rows TO 0;
 INSERT INTO tel_probe (uuid, age, rating)
@@ -76,8 +72,7 @@ DROP TABLE tel_probe;
 -- The leader stops at its LIMIT while a worker that ran its query is still blocked on
 -- its full tuple queue (1 kB of `pad` per row), so its shutdown hook has not run yet.
 CREATE TABLE early_probe (id SERIAL8 PRIMARY KEY, ord INTEGER, grp INTEGER, rating INTEGER, pad TEXT);
-CREATE INDEX early_probe_idx ON early_probe USING paradedb (id, ord, grp)
-WITH (numeric_fields = '{"ord": {"fast": true}, "grp": {"fast": true}}');
+CREATE INDEX early_probe_idx ON early_probe USING paradedb (id, ord, grp);
 SET paradedb.global_mutable_segment_rows TO 0;
 INSERT INTO early_probe (ord, grp, rating, pad)
 SELECT i, 1, 4, (SELECT string_agg(md5(random()::text || g::text), '') FROM generate_series(1, 32) g WHERE i > 0)

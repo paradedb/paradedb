@@ -11,7 +11,7 @@ WITH book_snippets AS (
         pdb.score(a.id) as author_score
     FROM books b
     JOIN authors a ON b.author_id = a.id
-    WHERE b.id @@@ paradedb.parse('metadata.content:test') OR a.id @@@ paradedb.parse('metadata.text:Harry')
+    WHERE b.id @@@ pdb.parse('metadata.content:test') OR a.id @@@ pdb.parse('metadata.text:Harry')
 )
 SELECT
     bs.*,
@@ -21,7 +21,7 @@ SELECT
     pdb.score(r.id) as review_score
 FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
-WHERE r.id @@@ paradedb.parse('metadata.review:test') AND r.id @@@ paradedb.parse('metadata.review:snippet')
+WHERE r.id @@@ pdb.parse('metadata.review:test') AND r.id @@@ pdb.parse('metadata.review:snippet')
 ORDER BY bs.book_id, r.id;
 
 -- Test comprehensive snippet functionality across all JSON fields
@@ -40,10 +40,10 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 LEFT JOIN reviews r ON r.book_id = b.id
-WHERE b.id @@@ paradedb.parse('metadata.content:test')
-    OR a.id @@@ paradedb.parse('metadata.text:fantasy')
-    OR r.id @@@ paradedb.parse('metadata.review:test')
-    OR r.id @@@ paradedb.parse('metadata.review:snippet')
+WHERE b.id @@@ pdb.parse('metadata.content:test')
+    OR a.id @@@ pdb.parse('metadata.text:fantasy')
+    OR r.id @@@ pdb.parse('metadata.review:test')
+    OR r.id @@@ pdb.parse('metadata.review:snippet')
 ORDER BY b.id, r.id;
 
 -- Test snippet with multiple search terms in JSON fields
@@ -54,7 +54,7 @@ SELECT
     pdb.snippet_positions(a.metadata->>'text') as text_positions,
     pdb.score(a.id) as author_score
 FROM authors a
-WHERE a.id @@@ paradedb.parse('metadata.text:author') AND a.id @@@ paradedb.parse('metadata.text:novels')
+WHERE a.id @@@ pdb.parse('metadata.text:author') AND a.id @@@ pdb.parse('metadata.text:novels')
 ORDER BY a.id;
 
 -- Test snippet with JSON array fields (titles)
@@ -65,7 +65,7 @@ SELECT
     pdb.snippet_positions(b.metadata->>'content') as content_positions,
     pdb.score(b.id) as book_score
 FROM books b
-WHERE b.id @@@ paradedb.parse('metadata.content:function') OR b.id @@@ paradedb.parse('metadata.titles:test')
+WHERE b.id @@@ pdb.parse('metadata.content:function') OR b.id @@@ pdb.parse('metadata.titles:test')
 ORDER BY b.id;
 
 -- Test complex JSON path queries with snippet
@@ -83,8 +83,8 @@ SELECT
 FROM authors a
 JOIN books b ON b.author_id = a.id
 LEFT JOIN reviews r ON r.book_id = b.id
-WHERE (a.id @@@ paradedb.parse('metadata.age:55'))
-    AND (a.id @@@ paradedb.parse('metadata.text:author') OR b.id @@@ paradedb.parse('metadata.content:test'))
+WHERE (a.id @@@ pdb.parse('metadata.age:55'))
+    AND (a.id @@@ pdb.parse('metadata.text:author') OR b.id @@@ pdb.parse('metadata.content:test'))
 ORDER BY a.id, b.id, r.id;
 
 \i common/snippet_json_advanced_cleanup.sql

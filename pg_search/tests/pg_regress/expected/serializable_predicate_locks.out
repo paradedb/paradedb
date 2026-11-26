@@ -9,16 +9,14 @@ CREATE TABLE ssi_doctors (id int PRIMARY KEY, name text, status text);
 INSERT INTO ssi_doctors
 SELECT g, 'doc' || g, CASE WHEN g <= 2 THEN 'oncall' ELSE 'offcall' END
 FROM generate_series(1, 10) g;
-CREATE INDEX ssi_doctors_idx ON ssi_doctors USING bm25 (id, name, status)
-WITH (text_fields = '{"status": {"tokenizer": {"type": "keyword"}, "fast": true}, "name": {"fast": true}}');
+CREATE INDEX ssi_doctors_idx ON ssi_doctors USING paradedb (id, (name::pdb.unicode_words('columnar=true')), (status::pdb.literal));
 -- Until the table has row stats, the base scan reports its worker selection as the row
 -- heuristic, and whether the build left stats behind varies by cluster.
 ANALYZE ssi_doctors;
 DROP TABLE IF EXISTS ssi_shifts CASCADE;
 CREATE TABLE ssi_shifts (id int PRIMARY KEY, doctor_id int, ward text);
 INSERT INTO ssi_shifts SELECT g, g, 'ward' || g FROM generate_series(1, 10) g;
-CREATE INDEX ssi_shifts_idx ON ssi_shifts USING bm25 (id, doctor_id, ward)
-WITH (text_fields = '{"ward": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+CREATE INDEX ssi_shifts_idx ON ssi_shifts USING paradedb (id, doctor_id, (ward::pdb.literal));
 ANALYZE ssi_shifts;
 -- Which scan ran is the point, and for the aggregate scan which backend, because each one
 -- takes its lock in another place. The rest of a plan (worker selection, exec method, the
@@ -182,23 +180,6 @@ GROUP BY status ORDER BY count(*) DESC LIMIT 5;
  offcall |     8
  oncall  |     2
 (2 rows)
-
-SELECT * FROM ssi_locks ORDER BY 1, 2;
- locktype |  relation   |    mode    
-----------+-------------+------------
- relation | ssi_doctors | SIReadLock
-(1 row)
-
-COMMIT;
--- the `paradedb.aggregate` function, which the planner never sees
-BEGIN ISOLATION LEVEL SERIALIZABLE;
-SELECT * FROM paradedb.aggregate(index=>'ssi_doctors_idx',
-                                 query=>paradedb.term('status', 'oncall'),
-                                 agg=>'{"matches": {"value_count": {"field": "id"}}}');
-          aggregate          
------------------------------
- {"matches": {"value": 2.0}}
-(1 row)
 
 SELECT * FROM ssi_locks ORDER BY 1, 2;
  locktype |  relation   |    mode    

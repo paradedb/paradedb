@@ -79,38 +79,38 @@ CREATE INDEX ON details USING paradedb (id, content, (metadata::pdb.unicode_word
 -- Test 1: Simple query without EXISTS - should work
 SELECT u.id, u.name
 FROM users u
-WHERE u.id @@@ paradedb.term('org_id', 1)
+WHERE u.org_id @@@ pdb.term(1)
 ORDER BY u.id;
 
 -- Test 2: Query with simple EXISTS - should work
 SELECT u.id, u.name
 FROM users u
-WHERE u.id @@@ paradedb.term('org_id', 1)
+WHERE u.org_id @@@ pdb.term(1)
 AND EXISTS(
     SELECT t.id
     FROM tasks t
     WHERE u.id = t.user_id
-    AND t.id @@@ paradedb.term('status', 'completed')
+    AND t.status === 'completed'
 )
 ORDER BY u.id;
 
 -- Test 3: Query with AND EXISTS and multiple JOINs - should work
 SELECT u.id, u.name
 FROM users u
-WHERE u.id @@@ paradedb.term('org_id', 1)
+WHERE u.org_id @@@ pdb.term(1)
 AND EXISTS(
     SELECT t.id
     FROM tasks t
     WHERE u.id = t.user_id
-    AND t.id @@@ paradedb.term('status', 'completed')
+    AND t.status === 'completed'
     AND EXISTS (
         SELECT ti.id
         FROM task_items ti
         JOIN item_details id ON ti.id = id.task_item_id
         JOIN details d ON id.detail_id = d.id
         WHERE t.id = ti.task_id
-        AND ti.id @@@ paradedb.term('item_type', 'typeA')
-        AND d.id @@@ paradedb.exists('metadata.processed')
+        AND ti.item_type === 'typeA'
+        AND (d.metadata -> 'processed') @@@ pdb.exists()
     )
 )
 ORDER BY u.id;
@@ -119,21 +119,21 @@ ORDER BY u.id;
 -- This previously caused rt_fetch out-of-bounds error
 SELECT u.id, u.name
 FROM users u
-WHERE u.id @@@ paradedb.term('org_id', 1)
+WHERE u.org_id @@@ pdb.term(1)
 AND EXISTS(
     SELECT t.id
     FROM tasks t
     WHERE u.id = t.user_id
     AND (
-        t.id @@@ paradedb.term('status', 'completed')
+        t.status === 'completed'
         OR EXISTS (
             SELECT ti.id
             FROM task_items ti
             JOIN item_details id ON ti.id = id.task_item_id
             JOIN details d ON id.detail_id = d.id
             WHERE t.id = ti.task_id
-            AND ti.id @@@ paradedb.term('item_type', 'typeA')
-            AND d.id @@@ paradedb.exists('metadata.processed')
+            AND ti.item_type === 'typeA'
+            AND (d.metadata -> 'processed') @@@ pdb.exists()
         )
     )
 )
@@ -142,20 +142,20 @@ ORDER BY u.id;
 -- Test 5: Workaround - Using native PostgreSQL clause
 SELECT u.id, u.name
 FROM users u
-WHERE u.id @@@ paradedb.term('org_id', 1)
+WHERE u.org_id @@@ pdb.term(1)
 AND EXISTS(
     SELECT t.id
     FROM tasks t
     WHERE u.id = t.user_id
     AND (
-        t.id @@@ paradedb.term('status', 'completed')
+        t.status === 'completed'
         OR EXISTS (
             SELECT ti.id
             FROM task_items ti
             JOIN item_details id ON ti.id = id.task_item_id
             JOIN details d ON id.detail_id = d.id
             WHERE t.id = ti.task_id
-            AND ti.id @@@ paradedb.term('item_type', 'typeA')
+            AND ti.item_type === 'typeA'
             AND d.metadata->>'processed' = 'true'  -- Native PostgreSQL instead of ParadeDB
         )
     )
@@ -165,20 +165,20 @@ ORDER BY u.id;
 -- Test 6: Another variation with different join order
 SELECT u.id, u.name
 FROM users u
-WHERE u.id @@@ paradedb.term('org_id', 2)
+WHERE u.org_id @@@ pdb.term(2)
 AND EXISTS(
     SELECT t.id
     FROM tasks t
     WHERE u.id = t.user_id
     AND (
-        t.id @@@ paradedb.term('priority', 3)
+        t.priority @@@ pdb.term(3)
         OR EXISTS (
             SELECT d.id
             FROM details d
             JOIN item_details id ON d.id = id.detail_id
             JOIN task_items ti ON id.task_item_id = ti.id
             WHERE t.id = ti.task_id
-            AND d.id @@@ paradedb.term('content', 'test')
+            AND d.content === 'test'
         )
     )
 )
@@ -195,7 +195,7 @@ WHERE EXISTS(
             FROM task_items ti
             JOIN item_details id ON ti.id = id.task_item_id
             JOIN details d ON id.detail_id = d.id
-            WHERE d.id @@@ paradedb.exists('metadata.processed')
+            WHERE (d.metadata -> 'processed') @@@ pdb.exists()
         )
     )
 );
@@ -203,25 +203,25 @@ WHERE EXISTS(
 -- Test 8: Edge case - deeply nested OR EXISTS
 SELECT u.id, u.name
 FROM users u
-WHERE u.id @@@ paradedb.term('org_id', 1)
+WHERE u.org_id @@@ pdb.term(1)
 AND EXISTS(
     SELECT t.id
     FROM tasks t
     WHERE u.id = t.user_id
     AND (
-        t.id @@@ paradedb.term('status', 'completed')
+        t.status === 'completed'
         OR EXISTS (
             SELECT ti.id
             FROM task_items ti
             WHERE t.id = ti.task_id
             AND (
-                ti.id @@@ paradedb.term('item_type', 'typeA')
+                ti.item_type === 'typeA'
                 OR EXISTS (
                     SELECT d.id
                     FROM details d
                     JOIN item_details id ON d.id = id.detail_id
                     WHERE ti.id = id.task_item_id
-                    AND d.id @@@ paradedb.exists('metadata.processed')
+                    AND (d.metadata -> 'processed') @@@ pdb.exists()
                 )
             )
         )

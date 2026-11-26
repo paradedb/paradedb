@@ -40,9 +40,7 @@ USING paradedb (id, name);
 -- Find all plants belonging to the 'oak' genus.
 --
 WITH genus_terms AS (
-  SELECT pdb.term_set(id) as terms
-  FROM genus
-  WHERE genus.name ||| 'oak'
+  SELECT pdb.term_set(ARRAY(SELECT id FROM genus WHERE genus.name ||| 'oak')) AS terms
 )
 SELECT plants.id, plants.name
 FROM plants, genus_terms
@@ -51,32 +49,11 @@ ORDER BY plants.id;
 
 
 --
--- Test 2: Basic paradedb.aggregate query
--- Count all plants belonging to the 'oak' genus.
---
-SELECT *
-FROM paradedb.aggregate(
-  'plants_idx',
-  paradedb.to_search_query_input(
-    'genus_id', 
-    (
-      SELECT pdb.term_set(id)
-      FROM genus
-      WHERE genus.name ||| 'oak'
-    )
-  ),
-  '{"count":{"value_count":{"field":"genus_id"}}}'
-);
-
-
---
--- Test 3: No matching genus
+-- Test 2: No matching genus
 -- Search for a genus that does not exist. Should return no plants.
 --
 WITH genus_terms AS (
-  SELECT pdb.term_set(id) as terms
-  FROM genus
-  WHERE genus.name ||| 'bamboo'
+  SELECT pdb.term_set(ARRAY(SELECT id FROM genus WHERE genus.name ||| 'bamboo')) AS terms
 )
 SELECT plants.id, plants.name
 FROM plants, genus_terms
@@ -85,7 +62,7 @@ ORDER BY plants.id;
 
 
 --
--- Test 4: Incorrect data type
+-- Test 3: Incorrect data type
 -- Attempt to use term_set on a TEXT column. This should fail.
 --
 WITH genus_terms AS (

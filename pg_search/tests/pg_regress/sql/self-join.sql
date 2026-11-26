@@ -34,17 +34,17 @@ CREATE INDEX test_items_idx ON test_items USING paradedb (id, description);
 -- a.description ||| 'bear' AND b.description ||| 'teddy bear'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id,
-       paradedb.score(a.id) as a_score,
+       pdb.score(a.id) as a_score,
        b.id,
-       paradedb.score(b.id) as b_score
+       pdb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
 WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
 
 SELECT a.id,
-       paradedb.score(a.id) as a_score,
+       pdb.score(a.id) as a_score,
        b.id,
-       paradedb.score(b.id) as b_score
+       pdb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
 WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
@@ -53,9 +53,9 @@ WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
 -- a.description ||| 'bear' OR b.description ||| 'teddy bear'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id,
-       paradedb.score(a.id) as a_score,
+       pdb.score(a.id) as a_score,
        b.id,
-       paradedb.score(b.id) as b_score
+       pdb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
 WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
@@ -63,9 +63,9 @@ ORDER BY a.id
 LIMIT 1;
 
 SELECT a.id,
-       paradedb.score(a.id) as a_score,
+       pdb.score(a.id) as a_score,
        b.id,
-       paradedb.score(b.id) as b_score
+       pdb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
 WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
@@ -75,27 +75,27 @@ LIMIT 1;
 -- Test 3: Self-join with subqueries that include score()
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, a.score, b.id, b.score
-FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
-INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+FROM (SELECT pdb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT pdb.score(id) as score, * FROM test_items) b ON a.id = b.id
 WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
 
 SELECT a.id, a.score, b.id, b.score
-FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
-INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+FROM (SELECT pdb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT pdb.score(id) as score, * FROM test_items) b ON a.id = b.id
 WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
 
 -- Test 4: Self-join with subqueries and OR condition
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, a.score, b.id, b.score
-FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
-INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+FROM (SELECT pdb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT pdb.score(id) as score, * FROM test_items) b ON a.id = b.id
 WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
 
 SELECT a.id, a.score, b.id, b.score
-FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
-INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+FROM (SELECT pdb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT pdb.score(id) as score, * FROM test_items) b ON a.id = b.id
 WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
@@ -117,17 +117,17 @@ CREATE INDEX test_orders_idx ON test_orders USING paradedb (order_id, customer);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id,
-       paradedb.score(i.id) as item_score,
+       pdb.score(i.id) as item_score,
        o.order_id,
-       paradedb.score(o.order_id) as order_score
+       pdb.score(o.order_id) as order_score
 FROM test_items i
 INNER JOIN test_orders o ON i.id = o.item_id
 WHERE i.description ||| 'teddy bear' AND o.customer ||| 'alice';
 
 SELECT i.id,
-       paradedb.score(i.id) as item_score,
+       pdb.score(i.id) as item_score,
        o.order_id,
-       paradedb.score(o.order_id) as order_score
+       pdb.score(o.order_id) as order_score
 FROM test_items i
 INNER JOIN test_orders o ON i.id = o.item_id
 WHERE i.description ||| 'teddy bear' AND o.customer ||| 'alice';

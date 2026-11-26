@@ -20,43 +20,43 @@ CREATE INDEX numeric64_high_precision_idx ON numeric64_high_precision USING para
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price = 1e-41
+WHERE id @@@ pdb.all() AND price = 1e-41
 ORDER BY id;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price > 1e-41
+WHERE id @@@ pdb.all() AND price > 1e-41
 ORDER BY id;
 
 -- Far below one step of the scale: no row equals it, and 0.00 < 1e-41 < 0.01.
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price = 1e-41 ORDER BY id;
+WHERE id @@@ pdb.all() AND price = 1e-41 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price > 1e-41 ORDER BY id;
+WHERE id @@@ pdb.all() AND price > 1e-41 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price >= 1e-41 ORDER BY id;
+WHERE id @@@ pdb.all() AND price >= 1e-41 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price < 1e-41 ORDER BY id;
+WHERE id @@@ pdb.all() AND price < 1e-41 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price <= 1e-41 ORDER BY id;
+WHERE id @@@ pdb.all() AND price <= 1e-41 ORDER BY id;
 
 -- The same on the negative side: -0.01 < -1e-41 < 0.00.
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price = -1e-41 ORDER BY id;
+WHERE id @@@ pdb.all() AND price = -1e-41 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price >= -1e-41 ORDER BY id;
+WHERE id @@@ pdb.all() AND price >= -1e-41 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price < -1e-41 ORDER BY id;
+WHERE id @@@ pdb.all() AND price < -1e-41 ORDER BY id;
 
 -- More significant digits than an i128 holds: 1.23 < literal < 1.24.
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price = 1.2300000000000000000000000000000000000000000000001
+WHERE id @@@ pdb.all() AND price = 1.2300000000000000000000000000000000000000000000001
 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price > 1.2300000000000000000000000000000000000000000000001
+WHERE id @@@ pdb.all() AND price > 1.2300000000000000000000000000000000000000000000001
 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price <= 1.2300000000000000000000000000000000000000000000001
+WHERE id @@@ pdb.all() AND price <= 1.2300000000000000000000000000000000000000000000001
 ORDER BY id;
 
 -- PostgreSQL's own answers, without the index, for comparison.
@@ -78,40 +78,40 @@ FROM numeric64_high_precision;
 -- match ordinary rows. NaN sorts above every finite literal in PostgreSQL.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price > 92233720368547758.075
+WHERE id @@@ pdb.all() AND price > 92233720368547758.075
 ORDER BY id;
 
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price > 92233720368547758.075 ORDER BY id;
+WHERE id @@@ pdb.all() AND price > 92233720368547758.075 ORDER BY id;
 
 INSERT INTO numeric64_high_precision (price) VALUES ('NaN'), (NULL);
 
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price > 92233720368547758.075 ORDER BY id;
+WHERE id @@@ pdb.all() AND price > 92233720368547758.075 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price >= 92233720368547758.075 ORDER BY id;
+WHERE id @@@ pdb.all() AND price >= 92233720368547758.075 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price < 92233720368547758.075 ORDER BY id;
+WHERE id @@@ pdb.all() AND price < 92233720368547758.075 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price <= 92233720368547758.075 ORDER BY id;
+WHERE id @@@ pdb.all() AND price <= 92233720368547758.075 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price = 92233720368547758.075 ORDER BY id;
+WHERE id @@@ pdb.all() AND price = 92233720368547758.075 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price <> 92233720368547758.075 ORDER BY id;
+WHERE id @@@ pdb.all() AND price <> 92233720368547758.075 ORDER BY id;
 
 -- An exact grid point at i64::MAX must not be mistaken for the NaN sentinel.
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price = 92233720368547758.07 ORDER BY id;
+WHERE id @@@ pdb.all() AND price = 92233720368547758.07 ORDER BY id;
 
 -- Check both sides near i64::MIN as well.
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price > -92233720368547758.075 ORDER BY id;
+WHERE id @@@ pdb.all() AND price > -92233720368547758.075 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price >= -92233720368547758.075 ORDER BY id;
+WHERE id @@@ pdb.all() AND price >= -92233720368547758.075 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price < -92233720368547758.075 ORDER BY id;
+WHERE id @@@ pdb.all() AND price < -92233720368547758.075 ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price <= -92233720368547758.075 ORDER BY id;
+WHERE id @@@ pdb.all() AND price <= -92233720368547758.075 ORDER BY id;
 
 -- PostgreSQL's own counts without pushdown, including NaN and excluding NULL.
 SELECT
@@ -136,7 +136,7 @@ CREATE INDEX numeric64_high_precision_idx ON numeric64_high_precision USING para
     id, price
 ) WITH (partition_by = 'price');
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.all() AND price <> 1e-41 ORDER BY id;
+WHERE id @@@ pdb.all() AND price <> 1e-41 ORDER BY id;
 
 -- Every term path must reject off-grid and out-of-range literals.
 TRUNCATE numeric64_high_precision RESTART IDENTITY;
@@ -150,10 +150,7 @@ WHERE id @@@ pdb.all() AND price IN (12.345, 12.34) ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
 WHERE price @@@ pdb.term_set(ARRAY[12.345::numeric]) ORDER BY id;
 SELECT id, price FROM numeric64_high_precision
-WHERE id @@@ paradedb.term_set(ARRAY[
-    paradedb.term('price', 12.345::numeric),
-    paradedb.term('price', 12.34::numeric)
-]) ORDER BY id;
+WHERE price @@@ pdb.term_set(ARRAY[12.345::numeric, 12.34::numeric]) ORDER BY id;
 
 -- Crossing i64's range must not change comparison semantics or raise an error.
 SELECT id, price FROM numeric64_high_precision

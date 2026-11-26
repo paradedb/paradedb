@@ -21,13 +21,13 @@ SET force_parallel_mode = on;
 
 -- trigger InitPlan array parameter in parallel worker
 SELECT COUNT(*) FROM issue_4598_repro
-WHERE mock_text @@@ paradedb.all()
+WHERE mock_text @@@ pdb.all()
 AND mock_hash = ANY(ARRAY(SELECT mock_hash FROM issue_4598_repro LIMIT 5));
 
 -- trigger prepared statement PARAM_EXTERN in parallel worker
 PREPARE issue_4598_prep(text) AS
 SELECT COUNT(*) FROM issue_4598_repro
-WHERE mock_text @@@ paradedb.all()
+WHERE mock_text @@@ pdb.all()
 AND mock_hash = $1;
 
 EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');
@@ -35,7 +35,7 @@ EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');
 -- trigger prepared statement PARAM_EXTERN parallel worker SIGSEGV
 PREPARE issue_4598_prep(text) AS
 SELECT COUNT(*) FROM issue_4598_repro
-WHERE text_searchable @@@ paradedb.all()
+WHERE text_searchable @@@ pdb.all()
 AND doc_id_hash = $1;
 
 EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');

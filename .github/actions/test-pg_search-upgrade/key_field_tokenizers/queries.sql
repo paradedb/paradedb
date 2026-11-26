@@ -36,11 +36,11 @@ $$;
 
 CREATE TABLE new_text_key (id TEXT, body TEXT);
 INSERT INTO new_text_key VALUES ('Original Case-ID', 'new');
-CREATE INDEX new_text_key_idx ON new_text_key USING paradedb (id, body) WITH (key_field = 'id');
+CREATE INDEX new_text_key_idx ON new_text_key USING paradedb (id, body);
 
 DO $$
 BEGIN
     ASSERT (SELECT count(*) FROM new_text_key WHERE id @@@ 'original') = 1,
-        'new indexes must use normal field defaults even with the ignored key_field option';
+        'new indexes must use normal field defaults';
 END;
 $$;

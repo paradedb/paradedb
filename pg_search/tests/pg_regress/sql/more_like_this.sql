@@ -272,7 +272,7 @@ INSERT INTO mlt_numeric VALUES
     (2, 123, 1.23, -49999),
     (3, 456, 4.56, -49990);
 
-CREATE INDEX mlt_numeric_idx ON mlt_numeric USING bm25 (id, i, n64, nb);
+CREATE INDEX mlt_numeric_idx ON mlt_numeric USING paradedb (id, i, n64, nb);
 
 -- Control: an integer field matches the two rows that share a value.
 SELECT array_agg(id ORDER BY id) FROM mlt_numeric

@@ -20,8 +20,8 @@ pub mod wakeup;
 
 pub use interrupt::{
     HeldInterrupts, MainThread, MainThreadAbort, MainThreadExecutor, MainThreadToken,
-    PgTokioRuntime, cancel_pending, catch_worker_panic_with, check_for_interrupts,
-    check_for_interrupts_or_cancel, drop_on_main_thread, run_on_main_thread,
+    PgTokioRuntime, PgTokioRuntimeShutdownHandle, cancel_pending, catch_worker_panic_with,
+    check_for_interrupts, check_for_interrupts_or_cancel, drop_on_main_thread, run_on_main_thread,
     try_run_on_main_thread_with,
 };
 

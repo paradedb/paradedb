@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795655155966,
+  "lastUpdate": 1795655182735,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -117571,6 +117571,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14962852478-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "3ae0cb2625c7b805a9c6a41a7cada99070b5d03e",
+          "message": "chore: Upgrade Antithesis CloudNativePG to 1.31.0-rc1 (#7678)\n\n## What\n\nUpgrade the CloudNativePG operator used by both Antithesis workloads to\n1.31.0-rc1.\n\n## Why\n\nExercise the [release candidate's primary lease and failover\nchanges](https://github.com/cloudnative-pg/cloudnative-pg/releases/tag/v1.31.0-rc1)\nin Antithesis.\n\n## How\n\nVendor the upstream install manifest and preserve the existing two\noperator replicas with leader election, image pull policy, and resource\nsettings. Update the Docker README with the manifest source and upgrade\nsteps.\n\n## Tests\n\n- Verified the upstream manifest's SHA-256 checksum.\n- Parsed all 35 resources and verified the operator settings and the\nworkload's Cluster API version.\n- Ran `git diff --check`.\n- Antithesis runtime and failover validation pending.",
+          "timestamp": "2026-11-25T17:15:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/3ae0cb2625c7b805a9c6a41a7cada99070b5d03e"
+        },
+        "date": 1795655177183,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 6.836,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 9.085,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 10.685,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 21.647,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 29.227,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 33.781,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p50 latency",
+            "value": 411.492,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p95 latency",
+            "value": 2402.489,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p99 latency",
+            "value": 2736.502,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.512,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 3.958,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 4.531,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.058,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 19.426,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 20.315,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 260.691,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 1097.06,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 2450.333,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "15062725892-latency"
       }
     ],
     "benchmarker msmarco-113m-8cpu-32gb (throughput)": [
@@ -117891,6 +118004,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14962852478-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "3ae0cb2625c7b805a9c6a41a7cada99070b5d03e",
+          "message": "chore: Upgrade Antithesis CloudNativePG to 1.31.0-rc1 (#7678)\n\n## What\n\nUpgrade the CloudNativePG operator used by both Antithesis workloads to\n1.31.0-rc1.\n\n## Why\n\nExercise the [release candidate's primary lease and failover\nchanges](https://github.com/cloudnative-pg/cloudnative-pg/releases/tag/v1.31.0-rc1)\nin Antithesis.\n\n## How\n\nVendor the upstream install manifest and preserve the existing two\noperator replicas with leader election, image pull policy, and resource\nsettings. Update the Docker README with the manifest source and upgrade\nsteps.\n\n## Tests\n\n- Verified the upstream manifest's SHA-256 checksum.\n- Parsed all 35 resources and verified the operator settings and the\nworkload's Cluster API version.\n- Ran `git diff --check`.\n- Antithesis runtime and failover validation pending.",
+          "timestamp": "2026-11-25T17:15:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/3ae0cb2625c7b805a9c6a41a7cada99070b5d03e"
+        },
+        "date": 1795655179437,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 140.00069592655558,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 50.95545987891926,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) QPS",
+            "value": 1.427549154465155,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 282.0240942076506,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 103.59670525579101,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 2.4709950188746137,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "15062725892-throughput"
       }
     ],
     "benchmarker msmarco-113m-8cpu-32gb (buffers)": [
@@ -118211,6 +118377,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14962852478-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "3ae0cb2625c7b805a9c6a41a7cada99070b5d03e",
+          "message": "chore: Upgrade Antithesis CloudNativePG to 1.31.0-rc1 (#7678)\n\n## What\n\nUpgrade the CloudNativePG operator used by both Antithesis workloads to\n1.31.0-rc1.\n\n## Why\n\nExercise the [release candidate's primary lease and failover\nchanges](https://github.com/cloudnative-pg/cloudnative-pg/releases/tag/v1.31.0-rc1)\nin Antithesis.\n\n## How\n\nVendor the upstream install manifest and preserve the existing two\noperator replicas with leader election, image pull policy, and resource\nsettings. Update the Docker README with the manifest source and upgrade\nsteps.\n\n## Tests\n\n- Verified the upstream manifest's SHA-256 checksum.\n- Parsed all 35 resources and verified the operator settings and the\nworkload's Cluster API version.\n- Ran `git diff --check`.\n- Antithesis runtime and failover validation pending.",
+          "timestamp": "2026-11-25T17:15:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/3ae0cb2625c7b805a9c6a41a7cada99070b5d03e"
+        },
+        "date": 1795655181036,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 2267.62,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 6991.43,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r99 shared hits/query",
+            "value": 52763.87,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 954.84,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3446.24,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 40823.03,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "15062725892-buffers"
       }
     ],
     "benchmarker msmarco-113m-8cpu-32gb (index build)": [
@@ -118441,6 +118660,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14962852478-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "3ae0cb2625c7b805a9c6a41a7cada99070b5d03e",
+          "message": "chore: Upgrade Antithesis CloudNativePG to 1.31.0-rc1 (#7678)\n\n## What\n\nUpgrade the CloudNativePG operator used by both Antithesis workloads to\n1.31.0-rc1.\n\n## Why\n\nExercise the [release candidate's primary lease and failover\nchanges](https://github.com/cloudnative-pg/cloudnative-pg/releases/tag/v1.31.0-rc1)\nin Antithesis.\n\n## How\n\nVendor the upstream install manifest and preserve the existing two\noperator replicas with leader election, image pull policy, and resource\nsettings. Update the Docker README with the manifest source and upgrade\nsteps.\n\n## Tests\n\n- Verified the upstream manifest's SHA-256 checksum.\n- Parsed all 35 resources and verified the operator settings and the\nworkload's Cluster API version.\n- Ran `git diff --check`.\n- Antithesis runtime and failover validation pending.",
+          "timestamp": "2026-11-25T17:15:52Z",
+          "url": "https://github.com/paradedb/paradedb/commit/3ae0cb2625c7b805a9c6a41a7cada99070b5d03e"
+        },
+        "date": 1795655182715,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 131.37347025041666,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 509635.3828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx peak container memory",
+            "value": 21.70438003540039,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "15062725892-index"
       }
     ]
   }

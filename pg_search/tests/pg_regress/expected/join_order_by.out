@@ -663,6 +663,7 @@ LIMIT 10;
 -- Multiple segments ensure the scan produces multiple batches so Top K can
 -- tighten its threshold between batches and the pre-filter actually prunes.
 -- =============================================================================
+SET paradedb.enable_rank_join = off;
 DROP TABLE IF EXISTS dyn_filter_t1 CASCADE;
 DROP TABLE IF EXISTS dyn_filter_t2 CASCADE;
 CREATE TABLE dyn_filter_t1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
@@ -754,6 +755,7 @@ LIMIT 10;
  val 10005 | val 10004
 (10 rows)
 
+RESET paradedb.enable_rank_join;
 -- =============================================================================
 -- TEST 5b: Top K dynamic score filter pushdown
 -- ORDER BY score DESC on the probe side allows Top K to tighten its score
@@ -799,6 +801,7 @@ RESET paradedb.enable_rank_join;
 -- has already tightened its threshold from earlier batches). This ensures the
 -- pre-filter is active when it encounters NULL values.
 -- =============================================================================
+SET paradedb.enable_rank_join = off;
 DROP TABLE IF EXISTS null_val_t1 CASCADE;
 DROP TABLE IF EXISTS null_val_t2 CASCADE;
 CREATE TABLE null_val_t1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
@@ -963,6 +966,7 @@ LIMIT 10;
  10005 | val 10005
 (10 rows)
 
+RESET paradedb.enable_rank_join;
 -- TEST 9: WHERE val IS NULL alone (no BM25 predicate)
 -- Should fetch exactly the 10 NULL rows. 
 -- Verifies the scanner can yield rows when the only filter is a NULL check.

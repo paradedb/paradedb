@@ -76,8 +76,11 @@ pub const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
 pub const DEFAULT_TARGET_LEAF_SIZE: i32 = 400;
-/// `0` chooses the training sample from `target_leaf_size` and `maintenance_work_mem`.
-pub const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = 0.32;
+/// Fraction of a segment's vectors sampled for IVF training: the default `target_leaf_size`
+/// trains at 64 vectors per leaf. `0` chooses the training sample from `target_leaf_size` and
+/// `maintenance_work_mem`. An index that does not store `training_sample_ratio` reads this value
+/// whenever it builds or merges a segment.
+pub const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = 0.16;
 /// Default `replication`: every vector of a quantized IVF field in two clusters.
 pub const DEFAULT_REPLICATION: i32 = 2;
 /// Largest `replication` the IVF writer supports.

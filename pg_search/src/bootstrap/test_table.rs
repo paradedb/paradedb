@@ -91,6 +91,17 @@ fn create_paradedb_test_table(
         if table_not_found {
             match table_type {
                 TestTable::Items => {
+                    let vector_type = client
+                        .select(
+                            "SELECT COALESCE((SELECT format('%I.vector(8)', n.nspname) \
+                         FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace \
+                         WHERE e.extname = 'vector'), 'pdb.vector(8)')",
+                            None,
+                            &[],
+                        )?
+                        .first()
+                        .get::<String>(1)?
+                        .expect("vector type must be available");
                     client.update(
                         &format!(
                             "CREATE TABLE {full_table_name} (
@@ -104,7 +115,7 @@ fn create_paradedb_test_table(
                                 last_updated_date DATE,
                                 latest_available_time TIME,
                                 weight_range INT4RANGE,
-                                embedding VECTOR(8)
+                                embedding {vector_type}
                             )"
                         ),
                         None,

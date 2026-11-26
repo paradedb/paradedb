@@ -955,11 +955,10 @@ mod tests {
 
         Spi::run(&format!(
             r#"
-            CREATE EXTENSION IF NOT EXISTS vector;
             SET paradedb.vector_clustering_threshold = {CLUSTERING_THRESHOLD};
-            CREATE TABLE vector_partition_src (id BIGINT, region INTEGER, emb vector(2));
+            CREATE TABLE vector_partition_src (id BIGINT, region INTEGER, emb pdb.vector(2));
             INSERT INTO vector_partition_src
-            SELECT i, i % 2, ARRAY[CASE WHEN i % 2 = 0 THEN -10 ELSE 10 END, (i % 7) * 0.01]::vector
+            SELECT i, i % 2, ARRAY[CASE WHEN i % 2 = 0 THEN -10 ELSE 10 END, (i % 7) * 0.01]::real[]::pdb.vector
             FROM generate_series(1, {SOURCE_ROWS}) i;
             INSERT INTO vector_partition_src VALUES ({SOURCE_ROWS} + 1, NULL, NULL), ({TOTAL_ROWS}, NULL, '[0,0]');
         "#,
@@ -972,7 +971,11 @@ mod tests {
             ))
             .unwrap();
             for partition_option in ["", ", partition_by = 'emb'"] {
-                for metric in ["vector_l2_ops", "vector_cosine_ops", "vector_ip_ops"] {
+                for metric in [
+                    "pdb.vector_l2_ops",
+                    "pdb.vector_cosine_ops",
+                    "pdb.vector_ip_ops",
+                ] {
                     Spi::run(&format!(
                         r#"
                     CREATE INDEX vector_partition_idx ON vector_partition_src
@@ -1037,8 +1040,7 @@ mod tests {
     #[pg_test]
     fn vector_partition_default_respects_explicit_options() {
         Spi::run(
-            "CREATE EXTENSION IF NOT EXISTS vector;
-             CREATE TABLE vector_partition_options (id BIGINT, emb vector(2), other vector(2));",
+            "CREATE TABLE vector_partition_options (id BIGINT, emb pdb.vector(2), other pdb.vector(2));",
         )
         .unwrap();
         for (option, expected) in [
@@ -1072,8 +1074,7 @@ mod tests {
     #[pg_test(error = "a ParadeDB index may only index one vector field")]
     fn vector_index_rejects_multiple_fields() {
         Spi::run(
-            "CREATE EXTENSION IF NOT EXISTS vector;
-             CREATE TABLE multi_vector_src (id BIGINT, emb vector(2), other vector(3));
+            "CREATE TABLE multi_vector_src (id BIGINT, emb pdb.vector(2), other pdb.vector(3));
              CREATE INDEX ON multi_vector_src USING paradedb (id, emb, other);",
         )
         .unwrap();
@@ -1082,10 +1083,9 @@ mod tests {
     #[pg_test(error = "a ParadeDB index may only index one vector field")]
     fn vector_index_rejects_multiple_fields_with_scalar_partition() {
         Spi::run(
-            "CREATE EXTENSION IF NOT EXISTS vector;
-             CREATE TABLE multi_vector_src (id BIGINT, emb vector(2), other vector(3));
+            "CREATE TABLE multi_vector_src (id BIGINT, emb pdb.vector(2), other pdb.vector(3));
              CREATE INDEX ON multi_vector_src USING paradedb
-             (id, emb vector_l2_ops, other vector_cosine_ops) WITH (partition_by = 'id');",
+             (id, emb pdb.vector_l2_ops, other pdb.vector_cosine_ops) WITH (partition_by = 'id');",
         )
         .unwrap();
     }
@@ -1094,8 +1094,7 @@ mod tests {
     fn vector_partition_rejects_mixed_fields() {
         Spi::run(
             r#"
-            CREATE EXTENSION IF NOT EXISTS vector;
-            CREATE TABLE mixed_partition_src (id BIGINT, emb vector(2));
+            CREATE TABLE mixed_partition_src (id BIGINT, emb pdb.vector(2));
             CREATE INDEX ON mixed_partition_src USING paradedb (id, emb)
             WITH (partition_by = 'id, emb');
         "#,

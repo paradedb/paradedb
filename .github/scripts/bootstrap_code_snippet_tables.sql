@@ -1,5 +1,5 @@
-CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
+SELECT format('ALTER DATABASE %I SET search_path = public, pdb', current_database()) \gexec
 DROP TABLE IF EXISTS orders CASCADE;
 DROP TABLE IF EXISTS mock_items CASCADE;
 DROP TABLE IF EXISTS array_demo CASCADE;

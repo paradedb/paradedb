@@ -245,6 +245,16 @@ def write_standalone_snippets(outputs, outside, coverage):
             + "\n"
             + outside[key]["body"]
         )
+        if entry.get("extensions"):
+            body = (
+                "BEGIN;\n"
+                + "".join(
+                    f"CREATE EXTENSION IF NOT EXISTS {extension};\n"
+                    for extension in entry["extensions"]
+                )
+                + body
+                + "\nROLLBACK;\n"
+            )
         # Standalone SQL runs with isolated fixtures, not whatever the previous example left behind.
         prefix = f"\\i {SCRIPT_DIR / 'bootstrap_code_snippet_tables.sql'}\n"
         if "CREATE INDEX" not in body:
@@ -260,10 +270,12 @@ def write_standalone_snippets(outputs, outside, coverage):
 
 
 def git(*args):
+    """Read Git output for snippet comparisons."""
     return subprocess.check_output(["git", *args])
 
 
 def snippets_unchanged(base, head):
+    """Compare executable docs fences across two revisions."""
     base = git("merge-base", base, head).decode().strip()
     paths = git("diff", "--no-renames", "--name-only", "-z", base, head).split(b"\0")
     paths = [path for path in paths if path]
@@ -274,12 +286,17 @@ def snippets_unchanged(base, head):
         return False
     with tempfile.TemporaryDirectory() as temp:
         for name, ref in (("base", base), ("head", head)):
-            with tarfile.open(fileobj=io.BytesIO(git("archive", ref, "docs"))) as archive:
+            with tarfile.open(
+                fileobj=io.BytesIO(git("archive", ref, "docs"))
+            ) as archive:
                 archive.extractall(Path(temp) / name, filter="data")
-        return inventory(Path(temp) / "base/docs") == inventory(Path(temp) / "head/docs")
+        return inventory(Path(temp) / "base/docs") == inventory(
+            Path(temp) / "head/docs"
+        )
 
 
 def main():
+    """Extract snippets or report whether they changed."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--compare", nargs=2, metavar=("BASE", "HEAD"))
     args = parser.parse_args()
@@ -287,7 +304,12 @@ def main():
         try:
             if snippets_unchanged(*args.compare):
                 print("snippets=unchanged")
-        except (OSError, ValueError, tarfile.TarError, subprocess.CalledProcessError) as error:
+        except (
+            OSError,
+            ValueError,
+            tarfile.TarError,
+            subprocess.CalledProcessError,
+        ) as error:
             print(f"Could not compare docs snippets: {error}", file=sys.stderr)
         return 0
     return extract()

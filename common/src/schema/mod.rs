@@ -21,7 +21,7 @@ pub mod range;
 
 use crate::api::tokenizers::{Typmod, type_is_alias, type_is_tokenizer};
 use crate::api::version::{Version, VersionInfo};
-use crate::postgres::catalog::{is_citext_oid, is_ltree_oid, is_pgvector_oid};
+use crate::postgres::catalog::{is_citext_oid, is_ltree_oid, is_vector_oid};
 use crate::postgres::types::is_datetime_type;
 pub use crate::postgres::utils::{FieldSource, convert_pg_date_string};
 use crate::postgres::utils::{extract_numeric_precision_scale, resolve_base_type};
@@ -58,7 +58,7 @@ pub enum SearchFieldType {
     /// bytes. The `Option<i16>` is the scale (number of decimal places), or None for unlimited
     /// precision.
     NumericBytes(pg_sys::Oid, Option<i16>),
-    /// Dense vector field (pgvector type). The usize is the number of dimensions,
+    /// Dense vector field (`pdb.vector` or pgvector). The usize is the number of dimensions,
     /// and `VectorMetric` is the distance metric (default L2).
     Vector(pg_sys::Oid, usize, VectorMetric),
 }
@@ -291,7 +291,7 @@ impl SearchFieldType {
                 SearchFieldType::Tokenized(*tokenizer_oid, typmod, inner_typoid),
             ),
 
-            PgOid::Custom(custom) if is_pgvector_oid(*custom) => {
+            PgOid::Custom(custom) if is_vector_oid(*custom) => {
                 let dims = if typmod > 0 { typmod as usize } else { 0 };
                 Ok(SearchFieldType::Vector(
                     *custom,

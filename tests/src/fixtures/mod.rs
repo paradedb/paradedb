@@ -75,9 +75,12 @@ pub fn conn(database: Db) -> PgConnection {
     block_on(async {
         let mut conn = database.connection().await;
 
-        // pg_search uses pgvector's types for vector fields in ParadeDB indexes, so
-        // pgvector must be available first. CASCADE installs it automatically.
-        sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;")
+        sqlx::query("CREATE EXTENSION IF NOT EXISTS vector;")
+            .execute(&mut conn)
+            .await
+            .expect("could not create extension vector");
+
+        sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_search;")
             .execute(&mut conn)
             .await
             .expect("could not create extension pg_search");

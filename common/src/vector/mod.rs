@@ -18,15 +18,31 @@
 
 pub mod metric;
 
-use pgrx::{FromDatum, pg_sys};
+use crate::postgres::catalog::lookup_typoid;
+use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
+use pgrx::datum::Datum;
+use pgrx::pgrx_sql_entity_graph::metadata::{
+    ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
+};
+use pgrx::{FromDatum, IntoDatum, PgSqlErrorCode, ereport, pg_sys};
+use std::ffi::c_void;
 
-/// Owned `Vec<f32>` extracted from a pgvector datum. pgvector's on-disk
-/// layout (after the varlena header) is `[int16 dim][int16 unused]
-/// [float4; dim]`. `from_datum` detoasts the datum, copies the floats
-/// out, and frees the detoasted copy if it differs from the original
-/// pointer.
+pub const MAX_VECTOR_DIMENSIONS: usize = 16_000;
+const VECTOR_METADATA_SIZE: usize = 2 * size_of::<i16>();
+const VECTOR_HEADER_SIZE: usize = size_of::<i32>() + VECTOR_METADATA_SIZE;
+
+/// An owned vector using the binary-compatible `pdb.vector` / pgvector datum layout:
+/// varlena header, int16 dimensions, int16 reserved (zero), then float32 elements.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PgVector(pub Vec<f32>);
+
+pub fn invalid_vector(message: impl Into<String>) -> ! {
+    ereport!(
+        ERROR,
+        PgSqlErrorCode::ERRCODE_DATA_EXCEPTION,
+        message.into()
+    );
+}
 
 /// Leaves non-cosine vectors unchanged. Returns false without modifying the vector
 /// when cosine normalization is undefined (zero or non-finite norm).
@@ -50,6 +66,23 @@ pub fn normalize_for_metric(vector: &mut [f32], metric: metric::VectorMetric) ->
 }
 
 impl PgVector {
+    pub fn validate(&self, typmod: i32) {
+        if self.0.is_empty() || self.0.len() > MAX_VECTOR_DIMENSIONS {
+            invalid_vector(format!(
+                "vector must have between 1 and {MAX_VECTOR_DIMENSIONS} dimensions"
+            ));
+        }
+        if typmod >= 0 && self.0.len() != typmod as usize {
+            invalid_vector(format!(
+                "expected {typmod} dimensions, not {}",
+                self.0.len()
+            ));
+        }
+        if self.0.iter().any(|value| !value.is_finite()) {
+            invalid_vector("vector elements must be finite");
+        }
+    }
+
     pub fn dot(&self, other: &[f32]) -> f32 {
         assert_eq!(self.0.len(), other.len(), "vector dimension mismatch");
         let mut sums = [0.0; 8];
@@ -78,12 +111,55 @@ impl FromDatum for PgVector {
         let detoasted = pg_sys::pg_detoast_datum(ptr);
         let data = pgrx::VARDATA_ANY!(detoasted).get();
         let dim = *(data as *const i16) as usize;
-        let floats_ptr = data.add(4) as *const f32;
+        let floats_ptr = data.add(VECTOR_METADATA_SIZE) as *const f32;
         let floats = std::slice::from_raw_parts(floats_ptr, dim).to_vec();
         if detoasted != ptr {
-            pg_sys::pfree(detoasted as *mut std::ffi::c_void);
+            pg_sys::pfree(detoasted.cast::<c_void>());
         }
         Some(Self(floats))
+    }
+}
+
+impl IntoDatum for PgVector {
+    fn into_datum(self) -> Option<pg_sys::Datum> {
+        self.validate(-1);
+        unsafe {
+            let size = VECTOR_HEADER_SIZE + self.0.len() * size_of::<f32>();
+            let ptr = pg_sys::palloc0(size).cast::<pg_sys::varlena>();
+            pgrx::SET_VARSIZE_4B!(ptr, size as i32);
+            let data = pgrx::VARDATA_ANY!(ptr).get();
+            data.cast::<i16>().write(self.0.len() as i16);
+            data.add(VECTOR_METADATA_SIZE)
+                .cast::<f32>()
+                .copy_from_nonoverlapping(self.0.as_ptr(), self.0.len());
+            Some(pg_sys::Datum::from(ptr))
+        }
+    }
+
+    fn type_oid() -> pg_sys::Oid {
+        lookup_typoid(c"pdb", c"vector").expect("pdb.vector must exist")
+    }
+}
+
+unsafe impl SqlTranslatable for PgVector {
+    const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(PgVector);
+    const TYPE_ORIGIN: TypeOrigin = TypeOrigin::ThisExtension;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        Ok(SqlMappingRef::literal("pdb.vector"));
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
+        Ok(ReturnsRef::One(SqlMappingRef::literal("pdb.vector")));
+}
+
+unsafe impl<'fcx> ArgAbi<'fcx> for PgVector {
+    unsafe fn unbox_arg_unchecked(arg: Arg<'_, 'fcx>) -> Self {
+        arg.unbox_arg_using_from_datum()
+            .expect("vector must not be NULL")
+    }
+}
+
+unsafe impl BoxRet for PgVector {
+    unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> Datum<'fcx> {
+        fcinfo.return_raw_datum(self.into_datum().expect("vector must not be NULL"))
     }
 }
 

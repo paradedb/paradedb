@@ -40,7 +40,7 @@ WHERE description @@@ ('sleek' ## 1 ## 'shoes');
 
 ## Vector Operators
 
-Vector search uses `pgvector` distance operators in `ORDER BY ... LIMIT` queries. ParadeDB can accelerate these when the vector column is in the ParadeDB index and the query also contains a ParadeDB predicate such as `id @@@ pdb.all()`.
+Vector search uses distance operators on `pdb.vector` or pgvector `vector` columns in `ORDER BY ... LIMIT` queries. ParadeDB can accelerate these when the vector column is in the ParadeDB index and the query also contains a ParadeDB predicate such as `id @@@ pdb.all()`.
 
 | Operator | Distance      | ParadeDB vector operator class |
 | -------- | ------------- | ------------------------------ |

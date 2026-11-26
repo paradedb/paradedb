@@ -340,17 +340,17 @@ mod tests {
              SET paradedb.vector_stats = on;
              SET paradedb.vector_adaptive_probing = off;
              SET paradedb.vector_cluster_max_probe = 100000;
-             CREATE TABLE router_audit (id bigint PRIMARY KEY, body text, embedding vector(3));
+             CREATE TABLE router_audit (id bigint PRIMARY KEY, body text, embedding pdb.vector(3));
              CREATE INDEX router_audit_idx ON router_audit
-             USING paradedb (id, body, embedding vector_l2_ops)
+             USING paradedb (id, body, embedding pdb.vector_l2_ops)
              WITH (target_segment_count = 2, background_layer_sizes = '0');
              INSERT INTO router_audit
              SELECT g, CASE WHEN g % 4 = 0 THEN 'kept' ELSE 'dropped' END,
-                    ARRAY[cos(g)::real, sin(g)::real, (g % 11)::real]::vector
+                    ARRAY[cos(g)::real, sin(g)::real, (g % 11)::real]::pdb.vector
              FROM generate_series(1, 400) g;
              INSERT INTO router_audit
              SELECT g, CASE WHEN g % 4 = 0 THEN 'kept' ELSE 'dropped' END,
-                    ARRAY[cos(g)::real, sin(g)::real, (g % 11)::real]::vector
+                    ARRAY[cos(g)::real, sin(g)::real, (g % 11)::real]::pdb.vector
              FROM generate_series(401, 800) g;
              REINDEX INDEX router_audit_idx;",
         )

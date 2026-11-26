@@ -31,7 +31,7 @@ use crate::query::SearchQueryInput;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField, SearchIndexSchemaQueryExt};
 use pgrx::{IntoDatum, PgBox, PgList, PgTupleDesc, direct_function_call, pg_sys};
 use std::ptr::NonNull;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use tantivy::directory::{ManagedDirectory, RamDirectory};
 use tantivy::index::SegmentReader;
 use tantivy::indexer::{AddOperation, SegmentWriter};
@@ -525,23 +525,21 @@ crate::impl_safe_drop!(RowMatcher, |self| {
 });
 
 fn ctid_is_valid_procoid() -> pg_sys::Oid {
-    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
-    *CACHE.get_or_init(|| unsafe {
+    unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
             &[c"paradedb.ctid_is_valid(tid)".into_datum()],
         )
         .expect("the `paradedb.ctid_is_valid(tid)` function should exist")
-    })
+    }
 }
 
 fn xmin_is_visible_procoid() -> pg_sys::Oid {
-    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
-    *CACHE.get_or_init(|| unsafe {
+    unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
             &[c"paradedb.xmin_is_visible(xid, oid, tid)".into_datum()],
         )
         .expect("the `paradedb.xmin_is_visible(xid, oid, tid)` function should exist")
-    })
+    }
 }

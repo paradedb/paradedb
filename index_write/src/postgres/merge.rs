@@ -1102,7 +1102,7 @@ mod tests {
         let first_inserted_row = VECTOR_METADATA_ROWS + 1;
         Spi::run(&format!(
             "INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
-             FROM generate_series(1,{VECTOR_METADATA_DIMENSIONS}) i)::vector
+             FROM generate_series(1,{VECTOR_METADATA_DIMENSIONS}) i)::pdb.vector
              FROM generate_series({first_inserted_row},{total_rows}) g",
         ))
         .unwrap();

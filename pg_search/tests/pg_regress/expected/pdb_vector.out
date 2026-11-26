@@ -1,0 +1,190 @@
+SET client_min_messages = warning;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SELECT '[1, 2.5, -3e-2]'::pdb.vector AS vector,
+       format_type('pdb.vector'::regtype, 3) AS vector_type;
+    vector     |  vector_type  
+---------------+---------------
+ [1,2.5,-0.03] | pdb.vector(3)
+(1 row)
+
+SELECT ARRAY[1, 2, 3]::real[]::pdb.vector(3)::real[] AS floats;
+ floats  
+---------
+ {1,2,3}
+(1 row)
+
+SELECT ARRAY[1, 2, 3]::double precision[]::pdb.vector(3) AS vector;
+ vector  
+---------
+ [1,2,3]
+(1 row)
+
+SELECT '[1,2]'::pdb.vector(3);
+ERROR:  expected 3 dimensions, not 2
+SELECT '[1,2]'::pdb.vector::pdb.vector(3);
+ERROR:  expected 3 dimensions, not 2
+SELECT '[]'::pdb.vector;
+ERROR:  invalid input syntax for type real: "" at character 8
+SELECT '[1,]'::pdb.vector;
+ERROR:  invalid input syntax for type real: "" at character 8
+SELECT '[NaN]'::pdb.vector;
+ERROR:  vector elements must be finite at character 8
+SELECT '[Infinity]'::pdb.vector;
+ERROR:  vector elements must be finite at character 8
+SELECT '[1] trailing'::pdb.vector;
+ERROR:  vector must start with '[' and end with ']' at character 8
+SELECT ARRAY[1, NULL]::real[]::pdb.vector;
+ERROR:  vector elements must not be NULL
+SELECT ARRAY[[1, 2], [3, 4]]::real[]::pdb.vector;
+ERROR:  vector array must be one-dimensional
+SELECT ARRAY[1e100]::double precision[]::pdb.vector;
+ERROR:  vector elements must be finite
+SELECT '[1]'::pdb.vector(0);
+ERROR:  vector dimensions must be between 1 and 16000 at character 15
+SELECT '[1]'::pdb.vector(16001);
+ERROR:  vector dimensions must be between 1 and 16000 at character 15
+SELECT '[1]'::pdb.vector(1, 2);
+ERROR:  vector requires exactly one dimension modifier at character 15
+SELECT '[1,2]'::pdb.vector < '[1,3]'::pdb.vector AS element_order,
+       '[1,2]'::pdb.vector < '[1,2,0]'::pdb.vector AS prefix_order,
+       '[0]'::pdb.vector = '[-0]'::pdb.vector AS equal_zero;
+ element_order | prefix_order | equal_zero 
+---------------+--------------+------------
+ t             | t            | t
+(1 row)
+
+SELECT '[1,0]'::pdb.vector <-> '[4,4]' AS l2,
+       '[1,2]'::pdb.vector <#> '[3,4]' AS negative_inner_product,
+       '[1,0]'::pdb.vector <=> '[0,1]' AS cosine;
+ l2 | negative_inner_product | cosine 
+----+------------------------+--------
+  5 |                    -11 |      1
+(1 row)
+
+SELECT '[1,0]'::pdb.vector <-> '[1]';
+ERROR:  vector dimensions differ: 2 and 1
+SELECT encode(paradedb.vector_send('[1,2]'::pdb.vector), 'hex') AS binary;
+          binary          
+--------------------------
+ 000200003f80000040000000
+(1 row)
+
+SELECT '[1.2345678,1e-40,3.4028235e38]'::pdb.vector::text::pdb.vector
+       = '[1.2345678,1e-40,3.4028235e38]'::pdb.vector AS text_roundtrip;
+ text_roundtrip 
+----------------
+ t
+(1 row)
+
+CREATE TABLE native_vectors (id integer PRIMARY KEY, label text, vec pdb.vector(3));
+INSERT INTO native_vectors VALUES
+    (1, 'one', '[1,0,0]'), (2, 'two', '[0,2,0]'),
+    (3, 'three', '[-1,0,0]'), (4, 'four', '[2,1,0]');
+CREATE INDEX native_vectors_idx ON native_vectors USING paradedb
+    (id, label, vec pdb.vector_cosine_ops) WITH (target_segment_count = 1);
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM native_vectors WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 3;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on native_vectors
+         Table: native_vectors
+         Index: native_vectors_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <=> vector asc
+            TopK Limit: 3
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM native_vectors WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 3;
+ id 
+----
+  1
+  4
+  2
+(3 rows)
+
+SET plan_cache_mode = force_generic_plan;
+PREPARE native_nearest(pdb.vector) AS
+SELECT id FROM native_vectors WHERE id @@@ pdb.all() ORDER BY vec <=> $1 LIMIT 3;
+EXECUTE native_nearest('[1,0,0]');
+ id 
+----
+  1
+  4
+  2
+(3 rows)
+
+EXECUTE native_nearest('[0.1,1,0]');
+ id 
+----
+  2
+  4
+  1
+(3 rows)
+
+DEALLOCATE native_nearest;
+RESET plan_cache_mode;
+SELECT id FROM native_vectors WHERE id @@@ pdb.all()
+ORDER BY vec <=> ARRAY[1,0,0]::real[]::pdb.vector LIMIT 3;
+ id 
+----
+  1
+  4
+  2
+(3 rows)
+
+UPDATE native_vectors SET vec = '[3,0.5,0]' WHERE id = 2;
+SELECT id FROM native_vectors WHERE id @@@ pdb.all() ORDER BY vec <=> '[0.1,1,0]' LIMIT 3;
+ id 
+----
+  4
+  2
+  1
+(3 rows)
+
+REINDEX INDEX native_vectors_idx;
+SELECT id FROM native_vectors WHERE id @@@ pdb.all() ORDER BY vec <=> '[0.1,1,0]' LIMIT 3;
+ id 
+----
+  4
+  2
+  1
+(3 rows)
+
+DROP INDEX native_vectors_idx;
+CREATE INDEX native_vectors_idx ON native_vectors USING paradedb (id, vec);
+SELECT id FROM native_vectors WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 3;
+ id 
+----
+  1
+  4
+  3
+(3 rows)
+
+DROP INDEX native_vectors_idx;
+CREATE INDEX native_vectors_idx ON native_vectors USING bm25 (id, vec pdb.vector_ip_ops);
+SELECT id FROM native_vectors WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 3;
+ id 
+----
+  2
+  4
+  1
+(3 rows)
+
+DROP TABLE native_vectors;
+CREATE TABLE native_vector_toast (vec pdb.vector(1024));
+INSERT INTO native_vector_toast
+SELECT array_agg((i % 13)::real ORDER BY i)::pdb.vector FROM generate_series(1,1024) i;
+SELECT paradedb.vector_dims(vec) AS dimensions,
+       vec = vec::text::pdb.vector AS text_roundtrip,
+       vec <-> vec AS self_distance FROM native_vector_toast;
+ dimensions | text_roundtrip | self_distance 
+------------+----------------+---------------
+       1024 | t              |             0
+(1 row)
+
+DROP TABLE native_vector_toast;

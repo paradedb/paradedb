@@ -25,7 +25,6 @@ use crate::postgres::node::NodeExt;
 use pgrx::{
     AnyElement, IntoDatum, PgList, default, direct_function_call, extension_sql, pg_extern, pg_sys,
 };
-use std::sync::OnceLock;
 use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
@@ -474,33 +473,24 @@ extension_sql!(
 );
 
 pub fn snippet_funcoids() -> [pg_sys::Oid; 2] {
-    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-    *OID_CACHE.get_or_init(|| {
-        resolve_funcoids(&[
-            "pdb.snippet(anyelement, text, text, int, int, int)",
-            "paradedb.snippet(anyelement, text, text, int, int, int)",
-        ])
-    })
+    resolve_funcoids(&[
+        "pdb.snippet(anyelement, text, text, int, int, int)",
+        "paradedb.snippet(anyelement, text, text, int, int, int)",
+    ])
 }
 
 pub fn snippets_funcoids() -> [pg_sys::Oid; 2] {
-    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-    *OID_CACHE.get_or_init(|| {
-        resolve_funcoids(&[
-            "pdb.snippets(anyelement, text, text, int, int, int, text)",
-            "paradedb.snippets(anyelement, text, text, int, int, int, text)",
-        ])
-    })
+    resolve_funcoids(&[
+        "pdb.snippets(anyelement, text, text, int, int, int, text)",
+        "paradedb.snippets(anyelement, text, text, int, int, int, text)",
+    ])
 }
 
 pub fn snippet_positions_funcoids() -> [pg_sys::Oid; 2] {
-    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-    *OID_CACHE.get_or_init(|| {
-        resolve_funcoids(&[
-            "pdb.snippet_positions(anyelement, int, int)",
-            "paradedb.snippet_positions(anyelement, int, int)",
-        ])
-    })
+    resolve_funcoids(&[
+        "pdb.snippet_positions(anyelement, int, int)",
+        "paradedb.snippet_positions(anyelement, int, int)",
+    ])
 }
 
 fn resolve_funcoids(signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {

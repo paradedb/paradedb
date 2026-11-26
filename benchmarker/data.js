@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795655182735,
+  "lastUpdate": 1795695997290,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -24564,6 +24564,224 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15020911656-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795695994744,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 98.295,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 321.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p50 latency",
+            "value": 59.43,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p95 latency",
+            "value": 143.942,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) p99 latency",
+            "value": 214.627,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p50 latency",
+            "value": 0.512,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p95 latency",
+            "value": 0.581,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) p99 latency",
+            "value": 0.619,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 44.416,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 136.503,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 226.932,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p50 latency",
+            "value": 100.747,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p95 latency",
+            "value": 217.907,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) p99 latency",
+            "value": 254.958,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p50 latency",
+            "value": 0.508,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p95 latency",
+            "value": 0.566,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) p99 latency",
+            "value": 0.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 66.7,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 182.423,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 214.525,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p50 latency",
+            "value": 71.133,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p95 latency",
+            "value": 185.426,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) p99 latency",
+            "value": 304.428,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p50 latency",
+            "value": 0.442,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p95 latency",
+            "value": 0.561,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) p99 latency",
+            "value": 0.608,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 28.387,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 139.257,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 215.594,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p50 latency",
+            "value": 68.136,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p95 latency",
+            "value": 142.61,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) p99 latency",
+            "value": 311.447,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p50 latency",
+            "value": 0.401,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p95 latency",
+            "value": 0.556,
+            "unit": "ms"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) p99 latency",
+            "value": 0.6,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 33.684,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 118.667,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 233.807,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "15116224788-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -54269,6 +54487,94 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15020911656-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795695997274,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 20.44,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction-concurrent-updates) QPS",
+            "value": 14.84,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-conjunction-concurrent-updates) updates/sec",
+            "value": 997,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 17.52,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction-concurrent-updates) QPS",
+            "value": 8.76,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-disjunction-concurrent-updates) updates/sec",
+            "value": 996.04,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 12.4,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed-concurrent-updates) QPS",
+            "value": 11.52,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-mixed-concurrent-updates) updates/sec",
+            "value": 996.24,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 22.2,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase-concurrent-updates) QPS",
+            "value": 12.88,
+            "unit": "queries/s"
+          },
+          {
+            "name": "updates (random_updates) (topk-phrase-concurrent-updates) updates/sec",
+            "value": 996.56,
+            "unit": "updates/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 21.4,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "15116224788-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

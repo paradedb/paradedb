@@ -17,9 +17,9 @@ USING paradedb (id, category_id, deleted_at);
 -- IS NOT NULL works (pushes to index via PushdownIsNotNull)
 -- Should show Custom Scan with Tantivy Query containing "exists"
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT * FROM products WHERE deleted_at IS NOT NULL AND id @@@ paradedb.all();
-                                                QUERY PLAN                                                
-----------------------------------------------------------------------------------------------------------
+SELECT * FROM products WHERE deleted_at IS NOT NULL AND id @@@ pdb.all();
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
@@ -27,10 +27,10 @@ SELECT * FROM products WHERE deleted_at IS NOT NULL AND id @@@ paradedb.all();
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"exists":{"field":"deleted_at"}},{"with_index":{"query":"all"}}]}}
+   Tantivy Query: {"boolean":{"must":[{"exists":{"field":"deleted_at"}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
 (8 rows)
 
-SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ paradedb.all();
+SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ pdb.all();
  count 
 -------
    700
@@ -39,9 +39,9 @@ SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ paradedb.a
 -- IS NULL should also be pushed to the index (as NOT EXISTS)
 -- Should show Custom Scan with Tantivy Query containing "must_not exists"
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT * FROM products WHERE deleted_at IS NULL AND id @@@ paradedb.all();
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT * FROM products WHERE deleted_at IS NULL AND id @@@ pdb.all();
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
@@ -49,10 +49,10 @@ SELECT * FROM products WHERE deleted_at IS NULL AND id @@@ paradedb.all();
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":"all"}}]}}
+   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
 (8 rows)
 
-SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND id @@@ paradedb.all();
+SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND id @@@ pdb.all();
  count 
 -------
    300
@@ -60,9 +60,9 @@ SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND id @@@ paradedb.all()
 
 -- Combined test: verify counts are complementary (should sum to total)
 SELECT 
-    (SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND id @@@ paradedb.all()) AS null_count,
-    (SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ paradedb.all()) AS not_null_count,
-    (SELECT COUNT(*) FROM products WHERE id @@@ paradedb.all()) AS total_count;
+    (SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND id @@@ pdb.all()) AS null_count,
+    (SELECT COUNT(*) FROM products WHERE deleted_at IS NOT NULL AND id @@@ pdb.all()) AS not_null_count,
+    (SELECT COUNT(*) FROM products WHERE id @@@ pdb.all()) AS total_count;
  null_count | not_null_count | total_count 
 ------------+----------------+-------------
         300 |            700 |        1000
@@ -73,9 +73,9 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM products 
 WHERE deleted_at IS NULL 
   AND category_id = 5 
-  AND id @@@ paradedb.all();
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  AND id @@@ pdb.all();
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
@@ -83,13 +83,13 @@ WHERE deleted_at IS NULL
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":"all"}},{"term":{"field":"category_id","value":5}}]}}
+   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"category_id","value":5}}]}}
 (8 rows)
 
 SELECT COUNT(*) FROM products 
 WHERE deleted_at IS NULL 
   AND category_id = 5 
-  AND id @@@ paradedb.all();
+  AND id @@@ pdb.all();
  count 
 -------
     30
@@ -109,9 +109,9 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM products 
 WHERE deleted_at IS NULL 
   AND category_id = 5 
-  AND id @@@ paradedb.all();
-                                                    QUERY PLAN                                                     
--------------------------------------------------------------------------------------------------------------------
+  AND id @@@ pdb.all();
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
@@ -119,13 +119,13 @@ WHERE deleted_at IS NULL
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"category_id","value":5}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"category_id","value":5}}]}}
 (8 rows)
 
 SELECT COUNT(*) FROM products 
 WHERE deleted_at IS NULL 
   AND category_id = 5 
-  AND id @@@ paradedb.all();
+  AND id @@@ pdb.all();
  count 
 -------
     30

@@ -36,14 +36,14 @@ USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.u
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
-WHERE id @@@ paradedb.exists('metadata.category')
+WHERE (metadata -> 'category') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY 1
 LIMIT 5;
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
-WHERE id @@@ paradedb.exists('metadata.category')
+WHERE (metadata -> 'category') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY 1
 LIMIT 5;
@@ -52,14 +52,14 @@ LIMIT 5;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
-WHERE id @@@ paradedb.exists('metadata.category')
+WHERE (metadata -> 'category') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
-WHERE id @@@ paradedb.exists('metadata.category')
+WHERE (metadata -> 'category') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;

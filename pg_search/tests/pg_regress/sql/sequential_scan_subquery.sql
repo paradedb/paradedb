@@ -50,7 +50,7 @@ WHERE EXISTS (SELECT 1 FROM (SELECT name, color FROM orders) AS projected
 SELECT array_agg(products.id ORDER BY products.id) FROM products
 WHERE EXISTS (SELECT 1 FROM orders
               WHERE orders.name = products.name
-                    AND orders.name @@@ paradedb.term('color', 'red'))
+                    AND orders.color === 'red')
       OR products.id = -1;
 
 DO $$

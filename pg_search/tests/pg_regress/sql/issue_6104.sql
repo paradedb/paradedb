@@ -29,14 +29,10 @@ INSERT INTO n64_probe (amount, tag)
 SELECT ((g * 53) % 10000)::numeric / 100, CASE WHEN g % 2 = 0 THEN 'even' ELSE 'odd' END
 FROM generate_series(1, 2000) g;
 
-CREATE INDEX n64_build_idx ON n64_build USING paradedb (id, amount, tag)
-WITH (partition_by = 'amount', target_segment_count = 4,
-      numeric_fields = '{"amount": {"fast": true}}',
-      text_fields = '{"tag": {"tokenizer": {"type": "keyword"}, "fast": true}}');
-CREATE INDEX n64_probe_idx ON n64_probe USING paradedb (id, amount, tag)
-WITH (partition_by = 'amount', target_segment_count = 4,
-      numeric_fields = '{"amount": {"fast": true}}',
-      text_fields = '{"tag": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+CREATE INDEX n64_build_idx ON n64_build USING paradedb (id, amount, (tag::pdb.literal))
+WITH (partition_by = 'amount', target_segment_count = 4);
+CREATE INDEX n64_probe_idx ON n64_probe USING paradedb (id, amount, (tag::pdb.literal))
+WITH (partition_by = 'amount', target_segment_count = 4);
 
 -- =====================================================================
 -- Serial baseline.
@@ -96,14 +92,10 @@ SELECT CASE WHEN g % 5 = 0 THEN -(((g * 53) % 10000)::numeric / 100)
        CASE WHEN g % 2 = 0 THEN 'even' ELSE 'odd' END
 FROM generate_series(1, 2000) g;
 
-CREATE INDEX nb_build_idx ON nb_build USING paradedb (id, amount, tag)
-WITH (partition_by = 'amount', target_segment_count = 4,
-      numeric_fields = '{"amount": {"fast": true}}',
-      text_fields = '{"tag": {"tokenizer": {"type": "keyword"}, "fast": true}}');
-CREATE INDEX nb_probe_idx ON nb_probe USING paradedb (id, amount, tag)
-WITH (partition_by = 'amount', target_segment_count = 4,
-      numeric_fields = '{"amount": {"fast": true}}',
-      text_fields = '{"tag": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+CREATE INDEX nb_build_idx ON nb_build USING paradedb (id, amount, (tag::pdb.literal))
+WITH (partition_by = 'amount', target_segment_count = 4);
+CREATE INDEX nb_probe_idx ON nb_probe USING paradedb (id, amount, (tag::pdb.literal))
+WITH (partition_by = 'amount', target_segment_count = 4);
 
 SET max_parallel_workers_per_gather TO 0;
 

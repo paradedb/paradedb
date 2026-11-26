@@ -91,4 +91,4 @@ CREATE INDEX content_segment_text_bm25 ON content_segment_text
 USING paradedb (id, routing_id, group_id, parent_id, ext_group, (filename::pdb.jieba('columnar=true')), (content::pdb.jieba('columnar=true')), (filename::pdb.literal('alias=filename_keyword')));
 
 SELECT * FROM content_segment_text  WHERE content ### '项目计划';
-SELECT * FROM content_segment_text WHERE id @@@ paradedb.phrase('content', ARRAY['项目', '计划']);
+SELECT * FROM content_segment_text WHERE content @@@ pdb.phrase(ARRAY['项目', '计划']);

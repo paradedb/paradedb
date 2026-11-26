@@ -68,9 +68,9 @@ SELECT count(*) AS mismatches FROM (
 
 -- score ordering, which is what the RRF text branch uses
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC, id) AS rank
+SELECT id, ROW_NUMBER() OVER (ORDER BY pdb.score(id) DESC, id) AS rank
 FROM wlp WHERE label ||| 'shoes'
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
 
 -- ============================================================
 -- OFFSET: the scan must fetch LIMIT + OFFSET rows, else the ranks
@@ -162,9 +162,9 @@ RESET paradedb.planner_warnings;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH a AS (
-    SELECT id, RANK() OVER (ORDER BY paradedb.score(id) DESC, id) AS rank
+    SELECT id, RANK() OVER (ORDER BY pdb.score(id) DESC, id) AS rank
     FROM wlp WHERE label ||| 'shoes'
-    ORDER BY paradedb.score(id) DESC, id LIMIT 20
+    ORDER BY pdb.score(id) DESC, id LIMIT 20
 ),
 b AS (
     SELECT id, RANK() OVER (ORDER BY n DESC) AS rank

@@ -10,7 +10,7 @@ INSERT INTO phrase_notes VALUES
     (2, 'sofa leather'),
     (3, 'sofa red leather');
 CREATE INDEX phrase_notes_idx ON phrase_notes
-    USING bm25 (id, (note::pdb.simple('stopwords_language=English')));
+    USING paradedb (id, (note::pdb.simple('stopwords_language=English')));
 SELECT id FROM phrase_notes WHERE note ### 'sofa of leather' ORDER BY id;
 SELECT id FROM phrase_notes
 WHERE note @@@ pdb.phrase(ARRAY['sofa', 'of', 'leather']) ORDER BY id;
@@ -19,7 +19,7 @@ DROP TABLE phrase_notes;
 -- The grams of one word have one position.
 CREATE TABLE phrase_names (id int PRIMARY KEY, name text);
 INSERT INTO phrase_names VALUES (1, 'sofa'), (2, 'couch'), (3, 'soda');
-CREATE INDEX phrase_names_idx ON phrase_names USING bm25 (id, (name::pdb.edge_ngram(2, 5)));
+CREATE INDEX phrase_names_idx ON phrase_names USING paradedb (id, (name::pdb.edge_ngram(2, 5)));
 SELECT id FROM phrase_names WHERE name ### 'sofa' ORDER BY id;
 
 -- A synonym of several tokens is a phrase with one token at each position, so the grams of a
@@ -38,7 +38,7 @@ WHERE name @@@ (SELECT pdb.expand('sofa', rule) FROM phrase_synonyms);
 CREATE TABLE phrase_names_st (id int PRIMARY KEY, name text);
 INSERT INTO phrase_names_st SELECT * FROM phrase_names;
 CREATE INDEX phrase_names_st_idx ON phrase_names_st
-    USING bm25 (id, (name::pdb.edge_ngram(2, 5))) WITH (search_tokenizer = 'simple');
+    USING paradedb (id, (name::pdb.edge_ngram(2, 5))) WITH (search_tokenizer = 'simple');
 SELECT id FROM phrase_names_st
 WHERE name ||| (SELECT pdb.expand('sofa', rule) FROM phrase_synonyms) ORDER BY id;
 RESET paradedb.planner_warnings;

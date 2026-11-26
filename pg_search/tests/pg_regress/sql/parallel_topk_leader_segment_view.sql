@@ -15,15 +15,12 @@ DROP TABLE IF EXISTS psv_inner CASCADE;
 CREATE TABLE psv_outer (id SERIAL8 PRIMARY KEY, age INTEGER);
 CREATE TABLE psv_inner (id SERIAL8 PRIMARY KEY, uuid UUID, age INTEGER, rating INTEGER);
 
-CREATE INDEX psv_outer_idx ON psv_outer USING paradedb (id, age)
-WITH (numeric_fields = '{"age": {"fast": true}}');
+CREATE INDEX psv_outer_idx ON psv_outer USING paradedb (id, age);
 
 -- No layers at all: a frozen or emptied mutable segment is a merge candidate on its own, and a
 -- merge that collapsed the two segments would take the plan serial and the coverage with it.
-CREATE INDEX psv_inner_idx ON psv_inner USING paradedb (id, uuid, age)
+CREATE INDEX psv_inner_idx ON psv_inner USING paradedb (id, (uuid::pdb.literal), age)
 WITH (
-    text_fields = '{"uuid": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-    numeric_fields = '{"age": {"fast": true}}',
     layer_sizes = '0',
     background_layer_sizes = '0'
 );

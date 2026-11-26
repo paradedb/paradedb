@@ -57,22 +57,22 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 
-SELECT id, paradedb.score(id)
+SELECT id, pdb.score(id)
 FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 
-SELECT id, paradedb.snippet(body)
+SELECT id, pdb.snippet(body)
 FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 
-SELECT id, paradedb.snippets(body)
+SELECT id, pdb.snippets(body)
 FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 
-SELECT id, paradedb.snippet_positions(body)
+SELECT id, pdb.snippet_positions(body)
 FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
@@ -255,13 +255,13 @@ WHERE body === 'keyboard'
 ORDER BY id;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, paradedb.score(id) > 0 AS has_score,
-       paradedb.snippet(body), paradedb.snippets(body), paradedb.snippet_positions(body)
+SELECT id, pdb.score(id) > 0 AS has_score,
+       pdb.snippet(body), pdb.snippets(body), pdb.snippet_positions(body)
 FROM projection_search_predicate
 WHERE body @@@ 'keyboard'
 ORDER BY id;
-SELECT id, paradedb.score(id) > 0 AS has_score,
-       paradedb.snippet(body), paradedb.snippets(body), paradedb.snippet_positions(body)
+SELECT id, pdb.score(id) > 0 AS has_score,
+       pdb.snippet(body), pdb.snippets(body), pdb.snippet_positions(body)
 FROM projection_search_predicate
 WHERE body @@@ 'keyboard'
 ORDER BY id;

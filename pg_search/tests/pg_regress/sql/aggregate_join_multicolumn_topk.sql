@@ -17,10 +17,10 @@ CREATE TABLE multicolumn_topk_work_items (
 );
 
 CREATE INDEX multicolumn_topk_researchers_idx ON multicolumn_topk_researchers
-USING bm25 (researcher_id, bio);
+USING paradedb (researcher_id, bio);
 
 CREATE INDEX multicolumn_topk_work_items_idx ON multicolumn_topk_work_items
-USING bm25 (
+USING paradedb (
     work_id,
     researcher_id,
     (category::pdb.literal),

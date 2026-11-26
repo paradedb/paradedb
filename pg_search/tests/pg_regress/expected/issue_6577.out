@@ -33,7 +33,7 @@ SELECT g,
        TIMETZ '00:00:00+00' + g * INTERVAL '1 minute'
 FROM generate_series(1, 500) g;
 CREATE INDEX i6577_s_idx ON i6577_s
-    USING bm25 (id, title, rating, d, ts, tstz, t, ttz);
+    USING paradedb (id, title, rating, d, ts, tstz, t, ttz);
 CREATE TABLE i6577_e
 (
     id   INT PRIMARY KEY,
@@ -42,8 +42,7 @@ CREATE TABLE i6577_e
 );
 INSERT INTO i6577_e SELECT g, 'u1', g * 2 FROM generate_series(1, 100) g;
 CREATE INDEX i6577_e_idx ON i6577_e
-    USING bm25 (id, u, s_id)
-    WITH (text_fields = '{"u": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+    USING paradedb (id, (u::pdb.literal), s_id);
 ANALYZE i6577_s;
 ANALYZE i6577_e;
 SET paradedb.enable_join_custom_scan = on;
@@ -52,10 +51,10 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -69,11 +68,11 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |     d      
 -----+------------
@@ -87,10 +86,10 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
 -- =============================================================================
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -104,11 +103,11 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |     d      
 -----+------------
@@ -119,7 +118,7 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |     d      
 -----+------------
@@ -134,10 +133,10 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 EXPLAIN (COSTS OFF)
 SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -151,11 +150,11 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |     d      
 -----+------------
@@ -166,7 +165,7 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |     d      
 -----+------------
@@ -181,11 +180,11 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.d::text AS d FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
-  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
-ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE s.title ||| 'dragon'
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.u === 'u1')
+ORDER BY pdb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s ANTI e
    Join Cond: e.s_id = s.id
@@ -199,13 +198,13 @@ ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.d::text AS d FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
-  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
-ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
+WHERE s.title ||| 'dragon'
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.u === 'u1')
+ORDER BY pdb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
  id  |     d      
 -----+------------
   99 | 04-09-2000
@@ -215,9 +214,9 @@ ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.d::text AS d FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
-  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
-ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
+WHERE s.title ||| 'dragon'
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.u === 'u1')
+ORDER BY pdb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
  id  |     d      
 -----+------------
   99 | 04-09-2000
@@ -232,10 +231,10 @@ SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -249,12 +248,12 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |            ts            |      ts_fmt      
 -----+--------------------------+------------------
@@ -266,7 +265,7 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |            ts            |      ts_fmt      
 -----+--------------------------+------------------
@@ -282,10 +281,10 @@ SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -299,12 +298,12 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |             tstz             |       tstz_fmt       
 -----+------------------------------+----------------------
@@ -316,7 +315,7 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |             tstz             |       tstz_fmt       
 -----+------------------------------+----------------------
@@ -332,10 +331,10 @@ SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: s INNER e
    Join Cond: e.s_id = s.id
@@ -349,12 +348,12 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
      :         CooperativeExec
      :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |    t     |     ttz     
 -----+----------+-------------
@@ -366,7 +365,7 @@ ORDER BY s.rating DESC, s.id LIMIT 3;
 SET paradedb.enable_join_custom_scan = off;
 SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
 FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
-WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+WHERE s.title ||| 'dragon' AND e.u === 'u1'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |    t     |     ttz     
 -----+----------+-------------
@@ -380,7 +379,7 @@ SET paradedb.enable_join_custom_scan = on;
 -- Control: d::text on a single table (base scan, PostgreSQL projects)
 -- =============================================================================
 SELECT s.id, s.d::text FROM i6577_s s
-WHERE s.id @@@ paradedb.match('title', 'dragon')
+WHERE s.title ||| 'dragon'
 ORDER BY s.rating DESC, s.id LIMIT 3;
  id  |     d      
 -----+------------

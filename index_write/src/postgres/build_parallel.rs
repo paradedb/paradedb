@@ -641,13 +641,13 @@ impl PartitionSpillFiles {
     }
 
     /// Collect `partition`'s ctids from every participant into an `int8` tuplesort on `budget`
-    /// bytes, or `None` when no participant saw a row of the partition. A packed ctid is 48
-    /// bits, so it orders the same as an `int8`.
+    /// bytes, with their count, or `None` when no participant saw a row of the partition. A
+    /// packed ctid is 48 bits, so it orders the same as an `int8`.
     unsafe fn gather(
         &mut self,
         partition: usize,
         budget: usize,
-    ) -> anyhow::Result<Option<Int8Sorter>> {
+    ) -> anyhow::Result<Option<(Int8Sorter, usize)>> {
         let readers = self.readers(partition);
         if readers.is_empty() {
             return Ok(None);
@@ -664,7 +664,7 @@ impl PartitionSpillFiles {
             pg_sys::BufFileClose(file);
         }
         sorter.performsort();
-        Ok(Some(sorter))
+        Ok(Some((sorter, total_bytes / CTID_RECORD_LEN)))
     }
 }
 
@@ -1159,12 +1159,18 @@ impl<'a> WorkerBuildState<'a> {
         );
         for partition in first_partition..first_partition + owned_partitions {
             check_for_interrupts();
-            let Some(mut sorter) = (unsafe { files.gather(partition, self.gather_budget)? }) else {
+            let Some((mut sorter, ctids)) =
+                (unsafe { files.gather(partition, self.gather_budget)? })
+            else {
                 continue;
             };
             if self.writer.is_none() {
                 self.open_partition_writer()?;
             }
+            self.writer
+                .as_mut()
+                .expect("drain_partitioned: writer should be set")
+                .begin_partition(ctids);
             // Every segment of the partition carries its box, so a reader can prune on it without
             // opening the segment.
             self.writer
@@ -2124,6 +2130,148 @@ mod tests {
             .unwrap()
             .as_deref(),
             Some("ivf")
+        );
+    }
+
+    /// A partition that reaches the clustering threshold writes its full-precision rows into the
+    /// index relation, not into temporary files: the build fits a `temp_file_limit` below the
+    /// table's vector bytes, which a build that stages its rows exceeds, clusters every segment,
+    /// and returns the rows the staged build returns.
+    #[pg_test]
+    fn test_vector_build_streams_rows_past_temp_file_limit() {
+        // 30,000 rows of 64 f32 are 7.68MB of vector bytes, 3.84MB in each of the two
+        // partitions a build process holds one at a time.
+        Spi::run(
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            SET maintenance_work_mem = '64MB';
+            SET max_parallel_maintenance_workers = 0;
+            SET max_parallel_workers_per_gather = 0;
+            SET paradedb.vector_clustering_threshold = 1;
+            SET paradedb.vector_adaptive_probing = off;
+            SET paradedb.vector_cluster_max_probe = 100000;
+            CREATE TABLE streamed_build (id BIGINT, emb vector(64));
+            INSERT INTO streamed_build
+            SELECT i, CASE WHEN i % 97 = 0 THEN NULL ELSE (
+                SELECT array_agg(
+                    sin(i * (d + 1) * 0.37)::real + CASE WHEN d = i % 64 THEN 3 ELSE 0 END
+                    ORDER BY d)
+                FROM generate_series(0, 63) d)::vector END
+            FROM generate_series(1, 30000) i;
+            "#,
+        )
+        .unwrap();
+        let create = |options: &str| {
+            format!(
+                "CREATE INDEX streamed_build_idx ON streamed_build USING paradedb \
+                 (id, emb vector_cosine_ops) WITH (target_segment_count = 2{options})"
+            )
+        };
+        let query_vector =
+            Spi::get_one::<String>("SELECT emb::text FROM streamed_build WHERE id = 12345")
+                .unwrap()
+                .unwrap();
+        let nearest = || {
+            Spi::get_one::<Vec<i64>>(&format!(
+                "SELECT array_agg(id) FROM (SELECT id FROM streamed_build \
+                 WHERE id @@@ paradedb.all() ORDER BY emb <=> '{query_vector}' LIMIT 10) q"
+            ))
+            .unwrap()
+            .unwrap()
+        };
+
+        Spi::run("SET temp_file_limit = '2MB'").unwrap();
+        Spi::run(&create("")).unwrap();
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT count(*) = 2 AND bool_and(vector_format = 'ivf') AND bool_and(quantized)
+                 AND sum(vector_num_vectors) = 30000 - 309
+                 FROM paradedb.vector_info('streamed_build_idx', 'emb')"
+            )
+            .unwrap(),
+            Some(true)
+        );
+        let streamed = nearest();
+        assert_eq!(streamed.len(), 10);
+        assert_eq!(streamed[0], 12345);
+
+        // Without a sort the build stages its rows and exceeds the limit.
+        Spi::run("DROP INDEX streamed_build_idx").unwrap();
+        Spi::run(&format!(
+            "DO $$
+             BEGIN
+                 {};
+                 RAISE EXCEPTION 'build unexpectedly succeeded';
+             EXCEPTION WHEN configuration_limit_exceeded THEN
+                 NULL;
+             END $$;",
+            create(", sort_by = 'none'")
+        ))
+        .unwrap();
+        Spi::run("SET temp_file_limit = '-1'").unwrap();
+        Spi::run(&create(", sort_by = 'none'")).unwrap();
+        assert_eq!(nearest(), streamed);
+    }
+
+    /// A partition that starts at the clustering threshold streams its rows, and stays flat when
+    /// fewer documents than ctids arrive: its segment is the one the rows opened, with the rows
+    /// as its flat data.
+    #[pg_test]
+    fn test_streamed_partition_below_threshold_stays_flat() {
+        use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
+        use crate::postgres::rel::PgSearchRelation;
+        use std::num::NonZeroUsize;
+        use tantivy::TantivyDocument;
+
+        Spi::run(
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            SET paradedb.vector_clustering_threshold = 50;
+            CREATE TABLE streamed_flat (id BIGINT, emb vector(64));
+            CREATE INDEX streamed_flat_idx ON streamed_flat USING paradedb
+                (id, emb vector_cosine_ops) WITH (target_segment_count = 1);
+            "#,
+        )
+        .unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'streamed_flat_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        let config = IndexWriterConfig::new(NonZeroUsize::new(64 << 20).unwrap());
+        let mut writer = SerialIndexWriter::for_build(&indexrel, config, 0).unwrap();
+        let schema = writer.schema().tantivy_schema().clone();
+        let (id, emb) = (
+            schema.get_field("id").unwrap(),
+            schema.get_field("emb").unwrap(),
+        );
+
+        // The scan spilled 50 ctids; 20 of their rows are left to fetch, 16 with a vector.
+        writer.begin_partition(50);
+        for doc in 0..20u64 {
+            let mut document = TantivyDocument::new();
+            document.add_i64(id, doc as i64);
+            if doc % 5 != 0 {
+                let mut vector = [0.25f32; 64];
+                vector[doc as usize] = 2.0;
+                document.add_vector(emb, &vector);
+            }
+            assert!(writer.insert(document, doc + 1, || {}).unwrap().is_none());
+        }
+        let staged = writer.finalize_nocommit().unwrap().unwrap();
+        let committed = writer
+            .persist_build_segments(std::slice::from_ref(&staged))
+            .unwrap()
+            .unwrap();
+        assert_ne!(committed.id(), staged.id());
+        assert_eq!(committed.max_doc(), 20);
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT count(*) = 1 AND bool_and(vector_format = 'flat')
+                 AND sum(vector_num_vectors) = 16
+                 FROM paradedb.vector_info('streamed_flat_idx', 'emb')"
+            )
+            .unwrap(),
+            Some(true)
         );
     }
 

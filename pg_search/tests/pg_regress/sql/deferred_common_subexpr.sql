@@ -27,15 +27,11 @@ CREATE TABLE dcs_orders (
 );
 
 CREATE INDEX dcs_users_idx ON dcs_users
-USING bm25 (id, name)
-WITH (text_fields='{"name": {"fast": true}}');
+USING paradedb (id, (name::pdb.unicode_words('columnar=true')));
 CREATE INDEX dcs_products_idx ON dcs_products
-USING bm25 (id, quantity, age, price, name)
-WITH (text_fields='{"name": {"fast": true}}',
-      numeric_fields='{"quantity": {"fast": true}, "age": {"fast": true}, "price": {"fast": true}}');
+USING paradedb (id, quantity, age, price, (name::pdb.unicode_words('columnar=true')));
 CREATE INDEX dcs_orders_idx ON dcs_orders
-USING bm25 (id, name, color)
-WITH (text_fields='{"name": {"fast": true}, "color": {"fast": true}}');
+USING paradedb (id, (name::pdb.unicode_words('columnar=true')), (color::pdb.unicode_words('columnar=true')));
 
 INSERT INTO dcs_users VALUES (1, 'bob'), (2, 'ann');
 INSERT INTO dcs_products VALUES (1, 10, 5, 9.99, 'bob'), (2, 20, 6, 19.99, 'ann');

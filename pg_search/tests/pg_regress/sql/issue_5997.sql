@@ -26,10 +26,7 @@ INSERT INTO issue_5997 (title, n, title_vc, span) VALUES
     ('doc', 11, 'h', '[6,7)');
 
 CREATE INDEX issue_5997_idx ON issue_5997
-USING paradedb (id, title, n, title_vc, span)
-WITH (
-    text_fields = '{"title_vc": {"fast": true, "tokenizer": {"type": "raw"}}}'
-);
+USING paradedb (id, title, n, (title_vc::pdb.literal_normalized('columnar=true')), span);
 
 -- bigint::text: text order is 1, 10, 100, 11 — not numeric 1, 2, 3, 4.
 EXPLAIN (COSTS OFF, TIMING OFF)

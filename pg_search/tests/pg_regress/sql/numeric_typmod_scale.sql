@@ -21,7 +21,7 @@
 -- ----------------------------------------------------------------------------
 CREATE TABLE numeric_scale_18 (id int, value numeric(3,18));
 INSERT INTO numeric_scale_18 VALUES (1, 0.000000000000000123);
-CREATE INDEX numeric_scale_18_idx ON numeric_scale_18 USING bm25 (id, value);
+CREATE INDEX numeric_scale_18_idx ON numeric_scale_18 USING paradedb (id, value);
 SELECT name, field_type FROM paradedb.schema('numeric_scale_18_idx') WHERE name = 'value';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -33,7 +33,7 @@ SELECT id, value FROM numeric_scale_18 WHERE id @@@ pdb.all() ORDER BY id;
 -- ----------------------------------------------------------------------------
 CREATE TABLE numeric_scale_19 (id int, value numeric(3,19));
 INSERT INTO numeric_scale_19 VALUES (1, 0.0000000000000000123);
-CREATE INDEX numeric_scale_19_idx ON numeric_scale_19 USING bm25 (id, value);
+CREATE INDEX numeric_scale_19_idx ON numeric_scale_19 USING paradedb (id, value);
 SELECT name, field_type FROM paradedb.schema('numeric_scale_19_idx') WHERE name = 'value';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -51,7 +51,7 @@ WHERE id @@@ pdb.all() AND value = 0.0000000000000000123 ORDER BY id;
 -- ----------------------------------------------------------------------------
 CREATE TABLE numeric_scale_neg19 (id int, value numeric(3,-19));
 INSERT INTO numeric_scale_neg19 VALUES (1, 1230000000000000000000);
-CREATE INDEX numeric_scale_neg19_idx ON numeric_scale_neg19 USING bm25 (id, value);
+CREATE INDEX numeric_scale_neg19_idx ON numeric_scale_neg19 USING paradedb (id, value);
 SELECT name, field_type FROM paradedb.schema('numeric_scale_neg19_idx') WHERE name = 'value';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -69,7 +69,7 @@ WHERE id @@@ pdb.all() AND value = 1230000000000000000000 ORDER BY id;
 -- path failed even when CREATE INDEX had succeeded
 -- ----------------------------------------------------------------------------
 CREATE TABLE numeric_scale_delayed (id int, value numeric(3,20));
-CREATE INDEX numeric_scale_delayed_idx ON numeric_scale_delayed USING bm25 (id, value);
+CREATE INDEX numeric_scale_delayed_idx ON numeric_scale_delayed USING paradedb (id, value);
 SELECT name, field_type FROM paradedb.schema('numeric_scale_delayed_idx') WHERE name = 'value';
 INSERT INTO numeric_scale_delayed VALUES (1, 0.00000000000000000123);
 
@@ -82,7 +82,7 @@ SELECT id, value FROM numeric_scale_delayed WHERE id @@@ pdb.all() ORDER BY id;
 -- ----------------------------------------------------------------------------
 CREATE TABLE numeric_precision_19 (id int, value numeric(19,2));
 INSERT INTO numeric_precision_19 VALUES (1, 1234567890123456.78);
-CREATE INDEX numeric_precision_19_idx ON numeric_precision_19 USING bm25 (id, value);
+CREATE INDEX numeric_precision_19_idx ON numeric_precision_19 USING paradedb (id, value);
 SELECT name, field_type FROM paradedb.schema('numeric_precision_19_idx') WHERE name = 'value';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

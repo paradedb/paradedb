@@ -32,7 +32,7 @@ INSERT INTO issue_6582_terms (term_id, chunk_id)
 SELECT 1 + g % 2, g FROM generate_series(21, 2000, 21) AS g;
 
 CREATE INDEX issue_6582_chunks_idx ON issue_6582_chunks
-USING bm25 (id, name, kind, body);
+USING paradedb (id, name, kind, body);
 
 ANALYZE issue_6582_chunks;
 ANALYZE issue_6582_terms;
@@ -41,26 +41,26 @@ ANALYZE issue_6582_terms;
 --    score and a snippet.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name, kind,
-       paradedb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
-       round(paradedb.score(id)::numeric, 6) AS score
+       pdb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
+       round(pdb.score(id)::numeric, 6) AS score
 FROM issue_6582_chunks
 WHERE body @@@ 'fred'
 ORDER BY (id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = ANY(ARRAY[1]))) DESC,
          (name = 'fn_84') DESC,
          (kind = 'file') ASC,
-         paradedb.score(id) DESC,
+         pdb.score(id) DESC,
          id
 LIMIT 5;
 
 SELECT id, name, kind,
-       paradedb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
-       round(paradedb.score(id)::numeric, 6) AS score
+       pdb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
+       round(pdb.score(id)::numeric, 6) AS score
 FROM issue_6582_chunks
 WHERE body @@@ 'fred'
 ORDER BY (id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = ANY(ARRAY[1]))) DESC,
          (name = 'fn_84') DESC,
          (kind = 'file') ASC,
-         paradedb.score(id) DESC,
+         pdb.score(id) DESC,
          id
 LIMIT 5;
 
@@ -77,8 +77,8 @@ $$ LANGUAGE plpgsql;
 
 SELECT issue_6582_subplan_loops($$
     SELECT id,
-           paradedb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
-           paradedb.score(id) AS score
+           pdb.snippet(body, start_tag => '', end_tag => '', max_num_chars => 64) AS snip,
+           pdb.score(id) AS score
     FROM issue_6582_chunks
     WHERE body @@@ 'fred'
     ORDER BY (id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = ANY(ARRAY[1]))) DESC,
@@ -90,7 +90,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*), sum(n), count(*) FILTER (WHERE score > 0) AS scored
 FROM (
     SELECT (SELECT count(*) FROM issue_6582_terms t WHERE t.chunk_id = c.id) AS n,
-           paradedb.score(c.id) AS score
+           pdb.score(c.id) AS score
     FROM issue_6582_chunks c
     WHERE c.body @@@ 'swing'
     OFFSET 0
@@ -99,7 +99,7 @@ FROM (
 SELECT count(*), sum(n), count(*) FILTER (WHERE score > 0) AS scored
 FROM (
     SELECT (SELECT count(*) FROM issue_6582_terms t WHERE t.chunk_id = c.id) AS n,
-           paradedb.score(c.id) AS score
+           pdb.score(c.id) AS score
     FROM issue_6582_chunks c
     WHERE c.body @@@ 'swing'
     OFFSET 0
@@ -107,13 +107,13 @@ FROM (
 
 -- 3) The score is an input of the `SubPlan`.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, paradedb.score(id) > ALL (SELECT term_id::real / 4 FROM issue_6582_terms) AS above
+SELECT id, pdb.score(id) > ALL (SELECT term_id::real / 4 FROM issue_6582_terms) AS above
 FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY above DESC, id
 LIMIT 5;
 
-SELECT id, paradedb.score(id) > ALL (SELECT term_id::real / 4 FROM issue_6582_terms) AS above
+SELECT id, pdb.score(id) > ALL (SELECT term_id::real / 4 FROM issue_6582_terms) AS above
 FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY above DESC, id
@@ -121,14 +121,14 @@ LIMIT 5;
 
 -- 4) A Top K scan.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, paradedb.score(id) AS score,
+SELECT id, pdb.score(id) AS score,
        id IN (SELECT chunk_id - 4 FROM issue_6582_terms WHERE term_id = 2) AS tagged
 FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
 ORDER BY score DESC, id
 LIMIT 5;
 
-SELECT id, paradedb.score(id) AS score,
+SELECT id, pdb.score(id) AS score,
        id IN (SELECT chunk_id - 4 FROM issue_6582_terms WHERE term_id = 2) AS tagged
 FROM issue_6582_chunks
 WHERE body @@@ 'fred' AND id <= 60
@@ -140,7 +140,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT k, x.*
 FROM generate_series(1, 2) AS k,
      LATERAL (
-         SELECT c.id, paradedb.score(c.id) AS score
+         SELECT c.id, pdb.score(c.id) AS score
          FROM issue_6582_chunks c
          WHERE c.body @@@ 'fred' AND c.id <= 100
          ORDER BY (c.id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = k)) DESC,
@@ -153,7 +153,7 @@ ORDER BY k, x.id;
 SELECT k, x.*
 FROM generate_series(1, 2) AS k,
      LATERAL (
-         SELECT c.id, paradedb.score(c.id) AS score
+         SELECT c.id, pdb.score(c.id) AS score
          FROM issue_6582_chunks c
          WHERE c.body @@@ 'fred' AND c.id <= 100
          ORDER BY (c.id IN (SELECT chunk_id FROM issue_6582_terms WHERE term_id = k)) DESC,
@@ -191,7 +191,7 @@ SELECT 'error ' || g, 'c' || (g % 500)
 FROM generate_series(1, 1200) AS g;
 
 CREATE INDEX issue_6582_logs_idx ON issue_6582_logs
-USING bm25 (id, description, (category::pdb.literal));
+USING paradedb (id, description, (category::pdb.literal));
 
 ANALYZE issue_6582_logs;
 

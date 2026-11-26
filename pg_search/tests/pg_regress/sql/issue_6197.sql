@@ -33,24 +33,24 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
 
 SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
 
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('custom.score:>990');
+WHERE id @@@ pdb.parse('custom.score:>990');
 
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('custom.score:>990');
+WHERE id @@@ pdb.parse('custom.score:>990');
 
 SET paradedb.enable_aggregate_custom_scan = off;
 
@@ -59,14 +59,14 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
 
 SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('custom.score:>990')
+    WHERE id @@@ pdb.parse('custom.score:>990')
 ) q;
 
 SET paradedb.enable_aggregate_custom_scan = on;
@@ -92,24 +92,24 @@ SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('score:>990')
+    WHERE id @@@ pdb.parse('score:>990')
 ) q;
 
 SELECT count(*), min(s), max(s)
 FROM (
     SELECT (custom->>'score')::bigint AS s
     FROM issue_6197_json_fast_field_repro
-    WHERE id @@@ paradedb.parse('score:>990')
+    WHERE id @@@ pdb.parse('score:>990')
 ) q;
 
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('score:>990');
+WHERE id @@@ pdb.parse('score:>990');
 
 SELECT count((custom->>'score')::bigint)
 FROM issue_6197_json_fast_field_repro
-WHERE id @@@ paradedb.parse('score:>990');
+WHERE id @@@ pdb.parse('score:>990');
 
 DROP TABLE issue_6197_json_fast_field_repro;
 

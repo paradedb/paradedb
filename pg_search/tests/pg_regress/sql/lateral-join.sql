@@ -130,7 +130,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- Execute the query to verify results
@@ -150,7 +150,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- =============================================================================
@@ -171,13 +171,13 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC;
+ORDER BY pdb.score(a.id) DESC;
 
 -- Execute to verify results work without LIMIT
 SELECT 
     a.id,
     a.title,
-    paradedb.score(a.id) as score,
+    pdb.score(a.id) as score,
     latest_comment.comment_id
 FROM articles a
 LEFT JOIN LATERAL (
@@ -188,7 +188,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC;
+ORDER BY pdb.score(a.id) DESC;
 
 -- =============================================================================
 -- TEST 3: LEFT JOIN LATERAL with WHERE clause referencing both tables
@@ -207,14 +207,14 @@ LEFT JOIN LATERAL (
 ) c ON true
 WHERE a.content ||| 'database'
   AND c.comment_count > 5
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- Execute to verify results
 SELECT 
     a.id,
     a.title,
-    paradedb.score(a.id) as score,
+    pdb.score(a.id) as score,
     c.comment_count
 FROM articles a
 LEFT JOIN LATERAL (
@@ -224,7 +224,7 @@ LEFT JOIN LATERAL (
 ) c ON true
 WHERE a.content ||| 'database'
   AND c.comment_count > 5
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- =============================================================================
@@ -239,19 +239,19 @@ SELECT
 FROM articles a
 LEFT JOIN authors au ON a.author_id = au.id
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- Execute to verify results
 SELECT 
     a.id,
     a.title,
-    paradedb.score(a.id) as score,
+    pdb.score(a.id) as score,
     au.name as author_name
 FROM articles a
 LEFT JOIN authors au ON a.author_id = au.id
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- =============================================================================
@@ -275,7 +275,7 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
 ) stats ON true
 WHERE a.content ||| 'machine learning'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 10;
 
 -- Execute to verify results
@@ -293,7 +293,7 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
 ) stats ON true
 WHERE a.content ||| 'machine learning'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 10;
 
 -- =============================================================================
@@ -354,7 +354,7 @@ LEFT JOIN LATERAL (
     WHERE t.article_id = a.id
 ) tag_list ON true
 WHERE a.content ||| 'database security'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
 
 -- Execute to verify
@@ -375,7 +375,7 @@ LEFT JOIN LATERAL (
     WHERE t.article_id = a.id
 ) tag_list ON true
 WHERE a.content ||| 'database security'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
 
 -- =============================================================================
@@ -396,7 +396,7 @@ LEFT JOIN LATERAL (
 ) recent_activity ON true
 WHERE a.content ||| 'machine learning'
   AND a.author_id IN (1, 2)
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- Execute to verify results
@@ -404,7 +404,7 @@ SELECT
     a.id,
     a.title,
     ROUND(a.score_value::numeric, 2) as score_value,
-    paradedb.score(a.id) as score,
+    pdb.score(a.id) as score,
     recent_activity.last_comment
 FROM articles a
 LEFT JOIN LATERAL (
@@ -414,7 +414,7 @@ LEFT JOIN LATERAL (
 ) recent_activity ON true
 WHERE a.content ||| 'machine learning'
   AND a.author_id IN (1, 2)
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- =============================================================================
@@ -438,7 +438,7 @@ LEFT JOIN LATERAL (
     HAVING COUNT(*) > 0
 ) comment_info ON true
 WHERE a.content ||| 'encryption'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- Execute to verify NULL handling
@@ -457,7 +457,7 @@ LEFT JOIN LATERAL (
     HAVING COUNT(*) > 0
 ) comment_info ON true
 WHERE a.content ||| 'encryption'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- =============================================================================
@@ -469,7 +469,7 @@ EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
     a.title,
-    paradedb.score(a.id) as relevance_score,
+    pdb.score(a.id) as relevance_score,
     stats.comment_count
 FROM articles a
 LEFT JOIN LATERAL (
@@ -478,14 +478,14 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
 ) stats ON true
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- Execute to verify score projection
 SELECT 
     a.id,
     a.title,
-    paradedb.score(a.id) as relevance_score,
+    pdb.score(a.id) as relevance_score,
     stats.comment_count
 FROM articles a
 LEFT JOIN LATERAL (
@@ -494,7 +494,7 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
 ) stats ON true
 WHERE a.content ||| 'technology'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- =============================================================================
@@ -523,7 +523,7 @@ LEFT JOIN (
     ) comment_stats ON true
 ) ON a.author_id = au.id
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- Execute to verify results
@@ -545,7 +545,7 @@ LEFT JOIN (
     ) comment_stats ON true
 ) ON a.author_id = au.id
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 5;
 
 -- =============================================================================
@@ -580,7 +580,7 @@ LEFT JOIN LATERAL (
     ) comment_stats ON true
 ) complex ON a.author_id = complex.id
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
 
 -- Execute to verify the complex nested structure works
@@ -608,18 +608,18 @@ LEFT JOIN LATERAL (
     ) comment_stats ON true
 ) complex ON a.author_id = complex.id
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
 
 -- =============================================================================
--- TEST 13: LEFT JOIN LATERAL with paradedb.snippet function
+-- TEST 13: LEFT JOIN LATERAL with pdb.snippet
 -- =============================================================================
 -- Demonstrates Top K optimization with snippet generation for matched content
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
     a.title,
-    paradedb.snippet(a.content, '<b>', '</b>') as content_snippet,
+    pdb.snippet(a.content, '<b>', '</b>') as content_snippet,
     latest_comment.comment_content
 FROM articles a
 LEFT JOIN LATERAL (
@@ -631,14 +631,14 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
 
 -- Execute to verify snippet generation works with LEFT JOIN LATERAL
 SELECT 
     a.id,
     a.title,
-    paradedb.snippet(a.content, '<b>', '</b>') as content_snippet,
+    pdb.snippet(a.content, '<b>', '</b>') as content_snippet,
     latest_comment.comment_content
 FROM articles a
 LEFT JOIN LATERAL (
@@ -650,7 +650,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) latest_comment ON true
 WHERE a.content ||| 'database'
-ORDER BY paradedb.score(a.id) DESC
+ORDER BY pdb.score(a.id) DESC
 LIMIT 3;
 
 -- =============================================================================

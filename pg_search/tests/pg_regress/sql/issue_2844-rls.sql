@@ -178,14 +178,14 @@ GRANT
 CREATE POLICY contacts_team_isolation ON app.contacts
     FOR ALL TO "app_user"
     USING (
-    contacts.org_id @@@ paradedb.boolean(
-            must := ARRAY[paradedb.term('org_id', current_setting('app.org_id'))] || (
+        contacts @@@ pdb.parse(
+            format('org_id:%s%s',
+                to_json(current_setting('app.org_id')),
                 CASE WHEN current_setting('app.has_full_contacts_access') = 'true'
-                         THEN ARRAY[]::paradedb.searchqueryinput[]
-                     ELSE ARRAY[paradedb.term('assignee', app.current_actor_id())]
-                    END
-                )
-                        )
+                     THEN ''
+                     ELSE format(' AND assignee:%s', to_json(app.current_actor_id()))
+                END)
+        )
     )
     WITH CHECK (
     org_id = current_setting('app.org_id')

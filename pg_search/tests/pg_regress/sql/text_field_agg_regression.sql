@@ -40,14 +40,14 @@ USING paradedb (id, (name::pdb.simple('columnar=true')), score);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT name AS value
 FROM test_text_agg
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name
 ORDER BY count(name) DESC, name DESC
 LIMIT 5;
 
 SELECT name AS value
 FROM test_text_agg
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name
 ORDER BY count(name) DESC, name DESC
 LIMIT 5;
@@ -62,7 +62,7 @@ SELECT
     name AS value,
     pdb.agg('{"value_count": {"field": "name"}}') AS count
 FROM test_text_agg
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name
 ORDER BY 2 DESC, name DESC
 LIMIT 5;
@@ -71,7 +71,7 @@ SELECT
     name AS value,
     pdb.agg('{"value_count": {"field": "name"}}') AS count
 FROM test_text_agg
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name
 ORDER BY 2 DESC, name DESC
 LIMIT 5;
@@ -89,7 +89,7 @@ SELECT pdb.agg('{
     }
 }')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 SELECT pdb.agg('{
     "histogram": {"field": "score", "interval": 25},
@@ -98,7 +98,7 @@ SELECT pdb.agg('{
     }
 }')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 -- =====================================================================
 -- TEST 4: Range + value_count sub-aggregation on text field
@@ -113,7 +113,7 @@ SELECT pdb.agg('{
     }
 }')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 SELECT pdb.agg('{
     "range": {"field": "score", "ranges": [{"to": 50}, {"from": 50}]},
@@ -122,7 +122,7 @@ SELECT pdb.agg('{
     }
 }')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 -- =====================================================================
 -- TEST 5: Simple value_count on text field (top-level, no bucket parent)
@@ -132,11 +132,11 @@ WHERE id @@@ paradedb.all();
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"value_count": {"field": "name"}}')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 SELECT pdb.agg('{"value_count": {"field": "name"}}')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 -- =====================================================================
 -- Cleanup

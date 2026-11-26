@@ -30,13 +30,11 @@ CREATE INDEX bigint_test_idx ON bigint_test USING paradedb (id, (value::pdb.ngra
 
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for BIGINT key'
-SELECT id, pdb.score(id) FROM bigint_test WHERE bigint_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY pdb.score(id) DESC;
+SELECT id, pdb.score(id) FROM bigint_test WHERE value === 'blue' ORDER BY pdb.score(id) DESC;
 
 -- Test no stable sort
 \echo 'Query without score sorting for BIGINT key'
-SELECT id, pdb.score(id) FROM bigint_test WHERE bigint_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY id;
+SELECT id, pdb.score(id) FROM bigint_test WHERE value === 'blue' ORDER BY id;
 
 -- Test snippet function
 \echo 'Testing pdb.snippet with BIGINT key'
@@ -67,13 +65,11 @@ CREATE INDEX uuid_test_idx ON uuid_test USING paradedb (id, (value::pdb.ngram(4,
 
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for UUID key'
-SELECT CAST(id AS TEXT), pdb.score(id) FROM uuid_test WHERE uuid_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY pdb.score(id) DESC;
+SELECT CAST(id AS TEXT), pdb.score(id) FROM uuid_test WHERE value === 'blue' ORDER BY pdb.score(id) DESC;
 
 -- Test no stable sort
 \echo 'Query without score sorting for UUID key'
-SELECT CAST(id AS TEXT), pdb.score(id) FROM uuid_test WHERE uuid_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY id;
+SELECT CAST(id AS TEXT), pdb.score(id) FROM uuid_test WHERE value === 'blue' ORDER BY id;
 
 -- Test snippet function
 \echo 'Testing pdb.snippet with UUID key'
@@ -104,13 +100,11 @@ CREATE INDEX timestamp_test_idx ON timestamp_test USING paradedb (id, (value::pd
 
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for TIMESTAMPTZ key'
-SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE timestamp_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY pdb.score(id) DESC;
+SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE value === 'blue' ORDER BY pdb.score(id) DESC;
 
 -- Test no stable sort
 \echo 'Query without score sorting for TIMESTAMPTZ key'
-SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE timestamp_test @@@
-paradedb.term(field => 'value', value => 'blue') ORDER BY id;
+SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE value === 'blue' ORDER BY id;
 
 -- Test snippet function
 \echo 'Testing pdb.snippet with TIMESTAMPTZ key'

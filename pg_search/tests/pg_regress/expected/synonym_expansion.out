@@ -19,7 +19,7 @@ INSERT INTO products VALUES
     (6, 'blue sneakers'),
     (7, 'television stand'),
     (8, 'sofa and couch set');
-CREATE INDEX products_idx ON products USING bm25 (id, description);
+CREATE INDEX products_idx ON products USING paradedb (id, description);
 -- A plain match searches only its own terms.
 SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
  id 
@@ -287,7 +287,7 @@ DELETE FROM products WHERE id IN (11, 12);
 -- lines of the plan that do not depend on its shape.
 CREATE TABLE product_groups (id int PRIMARY KEY, product_id int, note text);
 INSERT INTO product_groups VALUES (1, 1, 'big items'), (2, 2, 'large items');
-CREATE INDEX product_groups_idx ON product_groups USING bm25 (id, product_id, note);
+CREATE INDEX product_groups_idx ON product_groups USING paradedb (id, product_id, note);
 CREATE TABLE group_synonyms (rule pdb.synonym_rule NOT NULL);
 INSERT INTO group_synonyms VALUES ('big, large');
 CREATE INDEX group_synonyms_idx ON group_synonyms USING paradedb (rule);
@@ -359,7 +359,7 @@ DROP TABLE product_groups, group_synonyms;
 -- A JSON field expands the same way, with a group and with a phrase.
 CREATE TABLE json_products (id int PRIMARY KEY, attrs jsonb);
 INSERT INTO json_products VALUES (1, '{"seat": "red couch"}'), (2, '{"shoes": "running shoes"}');
-CREATE INDEX json_products_idx ON json_products USING bm25 (id, attrs);
+CREATE INDEX json_products_idx ON json_products USING paradedb (id, attrs);
 SELECT id FROM json_products
 WHERE attrs->>'seat' ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
  id 
@@ -382,7 +382,7 @@ CREATE INDEX en_synonyms_idx ON en_synonyms
     USING paradedb ((rule::pdb.simple('stemmer=english')));
 CREATE TABLE en_products (id int PRIMARY KEY, description text);
 INSERT INTO en_products VALUES (1, 'two couches'), (2, 'a sofa'), (3, 'a divan');
-CREATE INDEX en_products_idx ON en_products USING bm25 (
+CREATE INDEX en_products_idx ON en_products USING paradedb (
     id, (description::pdb.simple('stemmer=english'))
 );
 EXPLAIN (COSTS OFF)

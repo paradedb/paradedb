@@ -997,20 +997,11 @@ impl Directory for MVCCDirectory {
                                         let key =
                                             MutableCacheKey::for_segment(&self.indexrel, &entry)
                                                 .unwrap();
-                                        let cached = mutable_cache::cached_prefix(&key);
-                                        let start = cached.last().map_or(0, |(range, _)| range.end);
-                                        chunks.extend(cached.into_iter().map(
-                                            |(range, directory)| (Some(range), Some(directory)),
-                                        ));
-                                        if start < entry.max_doc() {
-                                            chunks.push((
-                                                Some(MutableChunkBounds {
-                                                    start,
-                                                    end: entry.max_doc(),
-                                                }),
-                                                None,
-                                            ));
-                                        }
+                                        chunks.extend(
+                                            mutable_cache::plan_chunks(&key)
+                                                .into_iter()
+                                                .map(|(range, directory)| (Some(range), directory)),
+                                        );
                                     }
                                     _ => chunks.push((None, None)),
                                 }
@@ -1303,6 +1294,7 @@ mod tests {
     use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::block::SegmentMetaEntryContent;
+    use crate::postgres::storage::mutable_cache::MAX_CHUNKS_PER_SEGMENT;
 
     use pgrx::prelude::*;
 
@@ -1505,8 +1497,15 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
 
+        let materialize = |reader: &SearchIndexReader| {
+            for segment in reader.segment_readers() {
+                let field = segment.schema().get_field("data").unwrap();
+                segment.inverted_index(field).unwrap();
+            }
+        };
         let origin =
             SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open origin");
+        materialize(&origin);
         let view = origin.segment_view();
         assert_eq!(view.len(), 3);
         let mutable: Vec<_> = view
@@ -1531,6 +1530,7 @@ mod tests {
         Spi::run("INSERT INTO t (data) SELECT 'd' FROM generate_series(1, 3);").unwrap();
         let fresh =
             SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open fresh");
+        materialize(&fresh);
         let fresh_view = fresh.segment_view();
         let fresh_mutable = fresh_view
             .entries()
@@ -1547,6 +1547,7 @@ mod tests {
         );
         if crate::gucs::enable_mutable_segment_cache() {
             assert_eq!(fresh_mutable.len(), 2, "reuse the prefix and add a tail");
+            let initial_chunks = fresh_mutable.len();
             let tail = fresh_mutable
                 .into_iter()
                 .find(|entry| {
@@ -1561,9 +1562,32 @@ mod tests {
             assert_eq!(replay.segment_readers().len(), 1);
             assert_eq!(replay.segment_readers()[0].max_doc(), 3);
 
-            Spi::run("INSERT INTO t (data) SELECT 'e' FROM generate_series(1, 5);").unwrap();
+            const LARGE_BATCH: u32 = 10;
+            for expected_chunks in initial_chunks + 1..=MAX_CHUNKS_PER_SEGMENT {
+                Spi::run(&format!(
+                    "INSERT INTO t (data) SELECT 'e' FROM generate_series(1, {LARGE_BATCH});"
+                ))
+                .unwrap();
+                let reader = SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot)
+                    .expect("fill the chunk budget");
+                materialize(&reader);
+                assert_eq!(
+                    reader
+                        .segment_view()
+                        .entries()
+                        .iter()
+                        .filter(|entry| entry.source_id() == mutable[0].source_id())
+                        .count(),
+                    expected_chunks,
+                );
+            }
+            Spi::run(&format!(
+                "INSERT INTO t (data) SELECT 'e' FROM generate_series(1, {LARGE_BATCH});"
+            ))
+            .unwrap();
             let combined = SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot)
                 .expect("open combined");
+            materialize(&combined);
             let combined_view = combined.segment_view();
             let combined_mutable = combined_view
                 .entries()
@@ -1572,15 +1596,38 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(
                 combined_mutable.len(),
-                1,
-                "combine the cached prefix and tail"
+                MAX_CHUNKS_PER_SEGMENT,
+                "coalesce only when exceeding the budget"
             );
-            assert_eq!(combined_mutable[0].max_doc(), 13);
+            assert!(combined_mutable.iter().any(|entry| {
+                matches!(entry.docs, SegmentViewDocs::MutableChunk(range)
+                    if range == MutableChunkBounds { start: 0, end: 8 })
+            }));
+            assert_eq!(
+                combined_mutable
+                    .iter()
+                    .map(|entry| entry.max_doc())
+                    .sum::<u32>(),
+                8 + (MAX_CHUNKS_PER_SEGMENT as u32 - 1) * LARGE_BATCH,
+            );
+            let replay =
+                SearchIndexReader::empty(&indexrel, MvccSatisfies::ParallelWorker(combined_view))
+                    .expect("replay the coalesced view");
+            materialize(&replay);
+            assert_eq!(replay.segment_ids(), combined.segment_ids());
+            for (expected, actual) in combined
+                .segment_readers()
+                .iter()
+                .zip(replay.segment_readers())
+            {
+                assert_eq!(actual.max_doc(), expected.max_doc());
+            }
         }
 
         // A replaying reader sees what the origin saw.
         let replay = SearchIndexReader::empty(&indexrel, MvccSatisfies::ParallelWorker(view))
             .expect("open replay");
+        materialize(&replay);
         let replay_ids: Vec<_> = replay
             .segment_readers()
             .iter()

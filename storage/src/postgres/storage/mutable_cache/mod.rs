@@ -42,8 +42,9 @@
 //! ### Snapshot Isolation
 //!
 //! Append-only mutable logs are cached as immutable ranges. A query reuses a contiguous
-//! cached prefix and indexes only the remaining CTIDs. Each range is exposed as a separate
-//! Tantivy segment, and parallel workers replay the leader's exact ranges.
+//! cached prefix and indexes only missing or coalesced ranges. Each mutable segment uses at most
+//! [`MAX_CHUNKS_PER_SEGMENT`] ranges, merging the smallest adjacent pairs when over budget.
+//! Each range is exposed as a separate Tantivy segment, and parallel workers replay the leader's exact ranges.
 //! Legacy logs containing removals still require an exact [`MutableSegmentVersion`].
 //!
 //! ### Concurrency Control
@@ -64,7 +65,7 @@
 //!
 //! ### Eager Reclamation
 //!
-//! - When a longer range with the same start is cached, shorter ranges transition to [`SlotState::Superseded`].
+//! - When a combined range is cached, contained ranges transition to [`SlotState::Superseded`].
 //! - Any superseded slot whose active reader count has dropped to zero is immediately freed back to the
 //!   [`SlabPool`], recycling the memory block for the next write commit.
 //! - When in-flight queries reading a superseded bound finish, [`ActiveReaderGuard::drop`] immediately
@@ -125,6 +126,9 @@ use crate::postgres::storage::block::{
 
 /// Maximum number of tracked segment slots in the shared-memory header.
 pub const MAX_SLOTS: usize = 256;
+
+/// Maximum number of chunks in a mutable segment's current query layout, excluding retired pins.
+pub const MAX_CHUNKS_PER_SEGMENT: usize = 8;
 
 /// Maximum number of concurrent in-flight segment builds tracked in shared memory.
 pub const MAX_INFLIGHT_BUILDS: usize = 16;
@@ -802,7 +806,7 @@ fn pin_cached_directory(
     )))
 }
 
-pub fn cached_prefix(key: &MutableCacheKey) -> Vec<(MutableChunkBounds, Arc<dyn Directory>)> {
+fn cached_prefix(key: &MutableCacheKey) -> Vec<(MutableChunkBounds, Arc<dyn Directory>)> {
     if !crate::gucs::enable_mutable_segment_cache() || key.bound.num_deleted_docs != 0 {
         return Vec::new();
     }
@@ -838,15 +842,6 @@ pub fn cached_prefix(key: &MutableCacheKey) -> Vec<(MutableChunkBounds, Arc<dyn 
         start = range.end;
     }
 
-    // Rebuild the suffix when it is at least as large as a preceding chunk, keeping
-    // a growing mutable segment from becoming one Tantivy segment per write.
-    if let Some(index) = chunks
-        .iter()
-        .position(|(range, _)| key.bound.max_doc - range.end >= range.num_docs())
-    {
-        chunks.truncate(index);
-    }
-
     chunks
         .into_iter()
         .map_while(|(range, slot_index)| {
@@ -854,6 +849,37 @@ pub fn cached_prefix(key: &MutableCacheKey) -> Vec<(MutableChunkBounds, Arc<dyn 
                 .map(|directory| (range, directory))
         })
         .collect()
+}
+
+/// Plan contiguous chunks within the segment budget. Missing directories must be materialized;
+/// cached directories remain pinned until the caller drops them.
+pub fn plan_chunks(key: &MutableCacheKey) -> Vec<(MutableChunkBounds, Option<Arc<dyn Directory>>)> {
+    let cached = cached_prefix(key);
+    let start = cached.last().map_or(0, |(range, _)| range.end);
+    let mut chunks: Vec<_> = cached
+        .into_iter()
+        .map(|(range, directory)| (range, Some(directory)))
+        .collect();
+    if start < key.bound.max_doc {
+        chunks.push((
+            MutableChunkBounds {
+                start,
+                end: key.bound.max_doc,
+            },
+            None,
+        ));
+    }
+    while chunks.len() > MAX_CHUNKS_PER_SEGMENT {
+        let index = chunks
+            .windows(2)
+            .enumerate()
+            .min_by_key(|(_, pair)| pair[1].0.end - pair[0].0.start)
+            .map(|(index, _)| index)
+            .expect("over-budget layout has adjacent chunks");
+        chunks[index].0.end = chunks.remove(index + 1).0.end;
+        chunks[index].1 = None;
+    }
+    chunks
 }
 
 /// Reuse an exact range or build it, publishing unless another backend already owns the build.

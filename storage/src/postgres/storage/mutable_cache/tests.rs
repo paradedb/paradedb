@@ -306,7 +306,17 @@ mod tests {
         key.bound.max_doc = 7;
         assert_eq!(cached_prefix(&key).len(), 2);
         key.bound.max_doc = 8;
-        assert!(cached_prefix(&key).is_empty());
+        assert_eq!(
+            plan_chunks(&key)
+                .iter()
+                .map(|(range, directory)| (*range, directory.is_some()))
+                .collect::<Vec<_>>(),
+            [
+                (MutableChunkBounds { start: 0, end: 4 }, true),
+                (MutableChunkBounds { start: 4, end: 6 }, true),
+                (MutableChunkBounds { start: 6, end: 8 }, false),
+            ]
+        );
         drop(
             get_or_build(&key, || {
                 let directory = RamDirectory::default();
@@ -337,50 +347,141 @@ mod tests {
         key.bound.num_deleted_docs = 0;
         assert!(cached_prefix(&key).is_empty());
 
-        const APPEND_COUNT: u32 = 128;
-        key.bound.max_doc = 0;
-        for batch in repeat_n(1, APPEND_COUNT as usize).chain((1..=APPEND_COUNT).rev()) {
-            key.bound.max_doc += batch;
-            let max_doc = key.bound.max_doc;
-            let prefix = cached_prefix(&key);
-            key.start_doc = prefix.last().map_or(0, |(range, _)| range.end);
-            let range = MutableChunkBounds {
-                start: key.start_doc,
-                end: max_doc,
-            };
+        let base_key = key;
+        let materialize = |range: MutableChunkBounds, cached: Option<Arc<dyn Directory>>| {
             let path = PathBuf::from(format!(
                 "{}.fast",
                 range.map_segment_id(segment_id).uuid_string()
             ));
             let contents: Vec<u8> = (range.start..range.end).map(|doc| doc as u8).collect();
-            drop(
+            let directory = cached.unwrap_or_else(|| {
+                let key = MutableCacheKey {
+                    start_doc: range.start,
+                    bound: MutableSegmentVersion {
+                        max_doc: range.end,
+                        num_deleted_docs: 0,
+                    },
+                    ..base_key
+                };
                 get_or_build(&key, || {
                     let directory = RamDirectory::default();
                     directory.atomic_write(&path, &contents)?;
                     Ok(directory)
                 })
-                .unwrap(),
-            );
-            key.start_doc = 0;
-            let chunks = cached_prefix(&key);
-            assert!(chunks.len() <= max_doc.ilog2() as usize + 1);
+                .unwrap()
+            });
+            assert_eq!(directory.atomic_read(&path).unwrap(), contents);
+            directory
+        };
+
+        const APPEND_COUNT: u32 = 128;
+        key.bound.max_doc = 0;
+        for (iteration, batch) in repeat_n(1, APPEND_COUNT as usize)
+            .chain((1..=APPEND_COUNT).rev())
+            .enumerate()
+        {
+            key.bound.max_doc += batch;
+            for (range, directory) in plan_chunks(&key) {
+                drop(materialize(range, directory));
+            }
+            let chunks = plan_chunks(&key);
+            assert_eq!(chunks.len(), MAX_CHUNKS_PER_SEGMENT.min(iteration + 1));
             assert!(
                 chunks
-                    .iter()
-                    .all(|(range, _)| range.num_docs() > max_doc - range.end)
-            );
-            assert_eq!(
-                chunks.last().unwrap().1.atomic_read(&path).unwrap(),
-                contents
+                    .windows(2)
+                    .all(|pair| pair[0].0.end == pair[1].0.start)
             );
             assert_eq!(
                 chunks
                     .iter()
                     .map(|(range, _)| range.num_docs())
                     .sum::<u32>(),
-                max_doc
+                key.bound.max_doc
             );
+            for (range, directory) in chunks {
+                assert!(directory.is_some());
+                drop(materialize(range, directory));
+            }
         }
+        invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
+
+        const LARGE_BATCH: u32 = 100;
+        let batches = [1, LARGE_BATCH, 2, 3];
+        key.bound.max_doc = 0;
+        for batch in batches.into_iter().chain(repeat_n(
+            LARGE_BATCH,
+            MAX_CHUNKS_PER_SEGMENT - batches.len(),
+        )) {
+            let start = key.bound.max_doc;
+            key.bound.max_doc += batch;
+            drop(materialize(
+                MutableChunkBounds {
+                    start,
+                    end: key.bound.max_doc,
+                },
+                None,
+            ));
+        }
+        let pinned = cached_prefix(&key);
+        let previous_end = key.bound.max_doc;
+        key.bound.max_doc += LARGE_BATCH;
+        let chunks = plan_chunks(&key);
+        assert_eq!(chunks.len(), MAX_CHUNKS_PER_SEGMENT);
+        assert_eq!(
+            chunks
+                .iter()
+                .filter(|(_, directory)| directory.is_none())
+                .map(|(range, _)| *range)
+                .collect::<Vec<_>>(),
+            [
+                MutableChunkBounds {
+                    start: pinned[2].0.start,
+                    end: pinned[3].0.end
+                },
+                MutableChunkBounds {
+                    start: previous_end,
+                    end: key.bound.max_doc
+                },
+            ]
+        );
+        for (range, directory) in chunks {
+            drop(materialize(range, directory));
+        }
+        for (range, directory) in &pinned {
+            drop(materialize(*range, Some(Arc::clone(directory))));
+        }
+        assert!(
+            plan_chunks(&key)
+                .iter()
+                .all(|(_, directory)| directory.is_some())
+        );
+        invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
+        drop(pinned);
+
+        const LEGACY_CHUNK_COUNT: usize = MAX_CHUNKS_PER_SEGMENT * 2 + 1;
+        for start in 0..LEGACY_CHUNK_COUNT as u32 {
+            drop(materialize(
+                MutableChunkBounds {
+                    start,
+                    end: start + 1,
+                },
+                None,
+            ));
+        }
+        key.bound.max_doc = LEGACY_CHUNK_COUNT as u32;
+        let chunks = plan_chunks(&key);
+        assert_eq!(chunks.len(), MAX_CHUNKS_PER_SEGMENT);
+        assert!(
+            chunks
+                .windows(2)
+                .all(|pair| pair[0].0.end == pair[1].0.start)
+        );
+        assert_eq!(chunks.first().unwrap().0.start, 0);
+        assert_eq!(chunks.last().unwrap().0.end, key.bound.max_doc);
+        for (range, directory) in chunks {
+            drop(materialize(range, directory));
+        }
+        assert_eq!(cached_prefix(&key).len(), MAX_CHUNKS_PER_SEGMENT);
         invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
     }
 

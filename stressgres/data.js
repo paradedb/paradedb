@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795751425731,
+  "lastUpdate": 1795751457450,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -552579,6 +552579,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15097283043-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795751455264,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3876.9340742187414,
+            "unit": "median tps",
+            "extra": "avg tps: 3874.222372494925, max tps: 4349.6659797164075, count: 58914"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4473.4483906997975,
+            "unit": "median tps",
+            "extra": "avg tps: 4480.46263176685, max tps: 5690.183490534136, count: 58914"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.76461366567439,
+            "unit": "median tps",
+            "extra": "avg tps: 164.97050142542508, max tps: 2909.2449901731693, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 13.294273496394142,
+            "unit": "median tps",
+            "extra": "avg tps: 34.16296943081316, max tps: 774.9042005309489, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 27.039953270813744,
+            "unit": "median tps",
+            "extra": "avg tps: 43.35325240897179, max tps: 752.5964766593868, count: 58914"
+          }
+        ],
+        "publication_id": "15170950461-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -569592,6 +569645,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15097283043-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795751457362,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.569253,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.486326395344179, max cpu: 4.619827, count: 58914"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 22.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 22.46895521172811, max mem: 22.62109375, count: 58914"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.5779686,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.527486645470185, max cpu: 4.626506, count: 58914"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 21.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.92912616801609, max mem: 21.93359375, count: 58914"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.17782,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.389043017838421, max cpu: 27.480915, count: 58914"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 22.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 22.83698020101334, max mem: 22.84375, count: 58914"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.870591030995, max document_count: 10002.0, count: 58914"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.055131208203, max document_count: 10002.0, count: 58914"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 22.770397,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.708147263673254, max cpu: 33.84751, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 98.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 94.29844031130122, max mem: 164.71484375, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.173214,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.359785034638573, max cpu: 32.684826, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 79.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 85.61457126595546, max mem: 167.42578125, count: 58914"
+          }
+        ],
+        "publication_id": "15170950461-other"
       }
     ]
   }

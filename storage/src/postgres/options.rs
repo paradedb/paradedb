@@ -94,11 +94,7 @@ extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
 
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
-    let json_str = cstr_to_rust_str(value);
-    if json_str.is_empty() {
-        return;
-    }
-    deserialize_config_fields(json_str, &SearchFieldConfig::text_from_json);
+    validate_tokenized_field_configs(value, &SearchFieldConfig::text_from_json);
 }
 
 #[pg_guard]
@@ -130,11 +126,25 @@ extern "C-unwind" fn validate_boolean_fields(value: *const std::os::raw::c_char)
 
 #[pg_guard]
 extern "C-unwind" fn validate_json_fields(value: *const std::os::raw::c_char) {
+    validate_tokenized_field_configs(value, &SearchFieldConfig::json_from_json);
+}
+
+fn validate_tokenized_field_configs(
+    value: *const std::os::raw::c_char,
+    parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
+) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
         return;
     }
-    deserialize_config_fields(json_str, &SearchFieldConfig::json_from_json);
+    deserialize_config_fields(json_str, &|field_config| {
+        for key in ["tokenizer", "search_tokenizer"] {
+            if let Some(tokenizer) = field_config.get(key).filter(|value| !value.is_null()) {
+                SearchTokenizer::from_json_value(tokenizer)?;
+            }
+        }
+        parser(field_config)
+    });
 }
 
 #[pg_guard]

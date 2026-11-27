@@ -493,6 +493,15 @@ fn parse_chinese_convert_json(
     Ok(Some(mode))
 }
 
+fn parse_optional_tokenizer_option<T: de::DeserializeOwned>(
+    config: &serde_json::Value,
+    name: &str,
+    expected: &str,
+) -> anyhow::Result<Option<T>> {
+    serde_json::from_value(config[name].clone())
+        .map_err(|_| anyhow::anyhow!("{name} must be {expected}"))
+}
+
 impl SearchTokenizer {
     // This is only used by the v1 api (prior to v0.20.0)
     pub fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
@@ -541,9 +550,7 @@ impl SearchTokenizer {
                     .map_err(|_| {
                         anyhow::anyhow!("ngram tokenizer requires a boolean 'prefix_only' field")
                     })?;
-                let positions: bool = value
-                    .get("positions")
-                    .and_then(|v| v.as_bool())
+                let positions = parse_optional_tokenizer_option(value, "positions", "a boolean")?
                     .unwrap_or(false);
                 Ok(SearchTokenizer::Ngram {
                     min_gram,
@@ -554,14 +561,15 @@ impl SearchTokenizer {
                 })
             }
             "edge_ngram" => {
-                let min_gram: usize =
-                    value.get("min_gram").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
-                let max_gram: usize =
-                    value.get("max_gram").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
-                let token_chars: Vec<String> = value
-                    .get("token_chars")
-                    .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    .unwrap_or_else(|| vec!["letter".to_string(), "digit".to_string()]);
+                let min_gram =
+                    parse_optional_tokenizer_option(value, "min_gram", "a non-negative integer")?
+                        .unwrap_or(1);
+                let max_gram =
+                    parse_optional_tokenizer_option(value, "max_gram", "a non-negative integer")?
+                        .unwrap_or(2);
+                let token_chars =
+                    parse_optional_tokenizer_option(value, "token_chars", "an array of strings")?
+                        .unwrap_or_else(|| vec!["letter".to_string(), "digit".to_string()]);
                 Ok(SearchTokenizer::EdgeNgram {
                     min_gram,
                     max_gram,
@@ -1088,6 +1096,7 @@ impl SearchNormalizer {
 mod tests {
     use super::*;
     use rstest::*;
+    use serde_json::json;
 
     #[rstest]
     fn test_search_tokenizer() {
@@ -1126,6 +1135,40 @@ mod tests {
                     alpha_num_only: None,
                 }
             }
+        );
+    }
+
+    #[rstest]
+    #[case("ngram", "positions", json!("true"), json!(true), "positions must be a boolean")]
+    #[case("edge_ngram", "min_gram", json!("2"), json!(2), "min_gram must be a non-negative integer")]
+    #[case("edge_ngram", "max_gram", json!(3.5), json!(3), "max_gram must be a non-negative integer")]
+    #[case("edge_ngram", "token_chars", json!(["letter", 3]), json!(["letter"]), "token_chars must be an array of strings")]
+    fn test_optional_ngram_json_options(
+        #[case] tokenizer: &str,
+        #[case] option: &str,
+        #[case] invalid: serde_json::Value,
+        #[case] valid: serde_json::Value,
+        #[case] message: &str,
+    ) {
+        let mut config = if tokenizer == "ngram" {
+            json!({"type":"ngram", "min_gram":2, "max_gram":2, "prefix_only":false})
+        } else {
+            json!({"type":"edge_ngram"})
+        };
+        let default = SearchTokenizer::from_json_value(&config).unwrap();
+
+        config[option] = serde_json::Value::Null;
+        assert_eq!(SearchTokenizer::from_json_value(&config).unwrap(), default);
+
+        config[option] = valid;
+        assert_ne!(SearchTokenizer::from_json_value(&config).unwrap(), default);
+
+        config[option] = invalid;
+        assert_eq!(
+            SearchTokenizer::from_json_value(&config)
+                .unwrap_err()
+                .to_string(),
+            message
         );
     }
 

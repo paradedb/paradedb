@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795751268396,
+  "lastUpdate": 1795751297866,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -186059,6 +186059,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15096474113-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795751295726,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 165.2664630798273,
+            "unit": "median tps",
+            "extra": "avg tps: 161.16270500516987, max tps: 181.29748251668533, count: 59082"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 544.1123052176172,
+            "unit": "median tps",
+            "extra": "avg tps: 559.5428691000618, max tps: 4910.85995324049, count: 59082"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2873.6145428085874,
+            "unit": "median tps",
+            "extra": "avg tps: 2892.320970563797, max tps: 3088.58462580563, count: 59082"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 180.98520789542113,
+            "unit": "median tps",
+            "extra": "avg tps: 176.10103755067604, max tps: 198.60003389584827, count: 59082"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 271.84454737167016,
+            "unit": "median tps",
+            "extra": "avg tps: 375.2483966969461, max tps: 2574.4695699441213, count: 118164"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 29.69009045928426,
+            "unit": "median tps",
+            "extra": "avg tps: 29.084419439023574, max tps: 47.9077167067239, count: 59082"
+          }
+        ],
+        "publication_id": "15170206873-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -237610,6 +237669,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15096474113-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795751297778,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.1211405,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.225044134023666, max cpu: 28.125, count: 59082"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 50.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.500743207004675, max mem: 50.5390625, count: 59082"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.326718922700676, max cpu: 36.44993, count: 59082"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 31.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 31.176356060221387, max mem: 31.1796875, count: 59082"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5823393,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.802760247084366, max cpu: 13.987372, count: 59082"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.4002262612767, max mem: 49.55078125, count: 59082"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2521,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2513.4843607190005, max block_count: 2521.0, count: 59082"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.9487326240527598, max cpu: 4.6021094, count: 59082"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 29.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.193659474332286, max mem: 29.30078125, count: 59082"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.597356216783453, max segment_count: 37.0, count: 59082"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.186603,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.417872642072513, max cpu: 34.754623, count: 59082"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 60.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 60.23853434104296, max mem: 60.25, count: 59082"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.430049303714634, max cpu: 36.44993, count: 118164"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.41910815556134, max mem: 52.52734375, count: 118164"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.108159,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.857794597379288, max cpu: 22.911695, count: 59082"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 45.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.28186996727007, max mem: 51.0234375, count: 59082"
+          }
+        ],
+        "publication_id": "15170206873-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

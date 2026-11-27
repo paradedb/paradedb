@@ -20,7 +20,9 @@ use crate::api::version::Version;
 use crate::gucs;
 use crate::index::stats::partition_box;
 use crate::index::synonym_index::RuleCheck;
-use crate::index::writer::index::{DiskSpaceGuard, IndexWriterConfig, SerialIndexWriter};
+use crate::index::writer::index::{
+    DiskSpaceGuard, IndexWriterConfig, SerialIndexWriter, format_bytes,
+};
 use crate::launch_parallel_process;
 use crate::parallel_worker::builder::ParallelProcessLauncher;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -59,6 +61,7 @@ use std::time::Instant;
 use tantivy::{SegmentMeta, TantivyDocument};
 
 const TUPLES_DONE_BATCH_SIZE: usize = 5;
+const BYTES_PER_KILOBYTE: u64 = 1024;
 /// General, immutable configuration used for the workers
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
@@ -111,7 +114,8 @@ type ScanDesc = (usize, *mut pg_sys::ParallelTableScanDescData);
 #[repr(C)]
 struct WorkerCoordination {
     mutex: Spinlock,
-    _pad: [u8; 4],
+    temp_file_limit_warned: u8,
+    _pad: [u8; 3],
     nstarted: usize,
     nparticipants: usize,
     ntuples_done: usize,
@@ -122,7 +126,7 @@ struct WorkerCoordination {
 }
 
 // SAFETY: WorkerCoordination is #[repr(C)] with explicit padding. All
-// fields are integer types (Spinlock = i32 wrapper, usize). Every bit
+// fields are integer types (Spinlock = i32 wrapper, u8, usize). Every bit
 // pattern is valid.
 unsafe impl bytemuck::Zeroable for WorkerCoordination {}
 unsafe impl bytemuck::Pod for WorkerCoordination {}
@@ -173,6 +177,37 @@ impl WorkerCoordination {
     fn nsegments_written(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.nsegments_written
+    }
+    fn warn_temp_file_limit(&mut self, estimated_bytes: u64) {
+        let limit_kb = unsafe { pg_sys::temp_file_limit };
+        if limit_kb < 0 {
+            return;
+        }
+        let limit_bytes = limit_kb as u64 * BYTES_PER_KILOBYTE;
+        if estimated_bytes <= limit_bytes {
+            return;
+        }
+        {
+            let _lock = self.mutex.acquire();
+            if self.temp_file_limit_warned != 0 {
+                return;
+            }
+            self.temp_file_limit_warned = 1;
+        }
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_CONFIGURATION_LIMIT_EXCEEDED,
+            "index build may exceed temp_file_limit",
+            function_name!(),
+        )
+        .set_detail(format!(
+            "estimated temporary segment size is ~{}, based on all files in the first staged segment, \
+             but temp_file_limit is {} per process; this estimate assumes evenly sized segments \
+             and excludes additional temporary files used during merging and clustering",
+            format_bytes(estimated_bytes),
+            format_bytes(limit_bytes),
+        ))
+        .set_hint("increase temp_file_limit or set it to -1 (unlimited) for this build, with sufficient temporary disk space available")
+        .report(PgLogLevel::WARNING);
     }
     fn add_spilled(&mut self) {
         let _lock = self.mutex.acquire();
@@ -890,6 +925,9 @@ impl<'a> WorkerBuildState<'a> {
             estimated_docs.saturating_sub(staged),
             estimated_docs.div_ceil(self.target_segment_count),
         )?;
+        if let Some(bytes) = self.sampled_segment_bytes {
+            self.coordination.warn_temp_file_limit(bytes);
+        }
         Ok(())
     }
 
@@ -929,6 +967,15 @@ impl<'a> WorkerBuildState<'a> {
                 return Ok(());
             }
 
+            // The initial size sample can be smaller than a normal segment.
+            if !is_last_merge
+                && unsafe { pg_sys::temp_file_limit >= 0 }
+                && self.estimated_nsegments.get().is_none()
+                && self.unmerged_metas.len() < 2
+            {
+                return Ok(());
+            }
+
             let chunk_size = if !is_last_merge {
                 // calculate the chunk size for this merge iteration
                 //
@@ -938,7 +985,13 @@ impl<'a> WorkerBuildState<'a> {
                 // for instance, imagine we have 3 segments of size [100, 100, 5]
                 // we would want the chunks to be [1,2] (merging together [100, 5]) and not [2,1] (merging together [100, 100])
                 let (_, chunk_size) = chunk_range(
-                    self.estimated_nsegments(self.unmerged_metas[0].max_doc()),
+                    self.estimated_nsegments(
+                        self.unmerged_metas
+                            .iter()
+                            .map(SegmentMeta::max_doc)
+                            .max()
+                            .unwrap(),
+                    ),
                     self.worker_segment_target,
                     // this achieves the effect of reversing the chunks
                     self.worker_segment_target.saturating_sub(self.nmerges),
@@ -1027,7 +1080,13 @@ impl<'a> WorkerBuildState<'a> {
         *self.estimated_nsegments.get_or_init(|| {
             let reltuples = plan::estimate_heap_reltuples(&self.heaprel);
             let reltuples_per_worker = reltuples / self.coordination.nparticipants as f64;
-            let nsegments = (reltuples_per_worker / docs_per_segment as f64).ceil() as usize;
+            let sample_segments = usize::from(
+                self.unmerged_metas
+                    .first()
+                    .is_some_and(|meta| meta.max_doc() < docs_per_segment),
+            );
+            let nsegments = (reltuples_per_worker / docs_per_segment as f64).ceil() as usize
+                + sample_segments;
             pgrx::debug1!("estimated that this worker will make {nsegments} segments, based on reltuples: {reltuples}, nparticipants: {}, reltuples_per_worker: {reltuples_per_worker}, docs_per_segment: {docs_per_segment}", self.coordination.nparticipants);
             nsegments
         })

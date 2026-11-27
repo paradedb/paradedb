@@ -32,6 +32,26 @@ SET maintenance_work_mem = '2GB';
   `maintenance_work_mem` is set too low, an error will be returned.
 </Note>
 
+### Checking Temporary Disk Limits
+
+Index builds stage segment files in temporary storage. Vector fields are staged without quantization, even when the final index uses quantization. Check the effective limit before starting a large build:
+
+```sql
+SHOW temp_file_limit;
+```
+
+Postgres defaults to `-1` (unlimited), but your deployment may configure a limit. The limit applies to the combined size of temporary files held by each Postgres process at one time, including each parallel indexing worker. Exceeding it cancels the build.
+
+When a limit is configured, ParadeDB stages an initial sample segment of at most 10,000 documents per writer, then estimates the temporary size of a target segment using all of the sample segment's files, including every indexed field. It warns once per build if this estimate exceeds `temp_file_limit`. The estimate assumes evenly sized segments and excludes additional temporary files used during merging and clustering; a build can require more space than this estimate. Total bytes written over the build's lifetime do not count toward the limit once their temporary files have been deleted.
+
+If needed, a user with permission to change the setting can increase it or disable it for the indexing session:
+
+```sql
+SET temp_file_limit = '-1';
+```
+
+Ensure the temporary tablespace has enough free disk space as well.
+
 ### Deferring Index Creation
 
 If possible, creating the ParadeDB index should be deferred until **after** a table has been populated. To illustrate:

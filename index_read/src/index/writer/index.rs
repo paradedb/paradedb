@@ -47,6 +47,8 @@ use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
 use std::io::Write;
 
+const TEMP_FILE_ESTIMATE_SAMPLE_DOCS: usize = 10_000;
+
 struct PendingSegment {
     segment: Segment,
     writer: SegmentWriter,
@@ -233,7 +235,7 @@ impl DiskSpaceGuard {
     }
 }
 
-fn format_bytes(bytes: u64) -> String {
+pub fn format_bytes(bytes: u64) -> String {
     let bytes = bytes.min(i64::MAX as u64) as i64;
     unsafe {
         direct_function_call::<String>(pg_sys::pg_size_pretty, &[bytes.into_datum()])
@@ -687,6 +689,16 @@ impl SerialIndexWriter {
         let mem_usage = pending_segment.mem_usage();
         let max_doc = pending_segment.max_doc();
 
+        if max_doc >= TEMP_FILE_ESTIMATE_SAMPLE_DOCS
+            && self
+                .build
+                .as_ref()
+                .is_some_and(|build| build.disk_guard.is_some() && build.sampled_docs.is_none())
+            && unsafe { pg_sys::temp_file_limit >= 0 }
+        {
+            return self.finalize_segment(on_finalize);
+        }
+
         if mem_usage >= self.config.memory_budget.into() {
             if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
                 pgrx::debug1!(
@@ -1004,6 +1016,7 @@ impl Mergeable for SearchIndexMerger {
 mod tests {
     use super::*;
     use crate::api::HashSet;
+    use crate::gucs::limits::MEMORY_BUDGET_NUM_BYTES_MIN;
     use crate::postgres::rel::PgSearchRelation;
     use pgrx::prelude::*;
     use std::num::NonZeroUsize;
@@ -1063,6 +1076,31 @@ mod tests {
 
         segment_ids.extend(writer.commit().unwrap().iter().map(|(meta, _)| meta.id()));
         segment_ids
+    }
+
+    #[pg_test]
+    fn test_build_samples_temp_usage_before_normal_segment_cutoff() {
+        Spi::run("SET LOCAL temp_file_limit = '1GB'").unwrap();
+        let indexrel = PgSearchRelation::open(get_relation_oid(false));
+        let config =
+            IndexWriterConfig::new(NonZeroUsize::new(MEMORY_BUDGET_NUM_BYTES_MIN).unwrap());
+        let mut writer = SerialIndexWriter::for_build(&indexrel, config, 0)
+            .unwrap()
+            .with_disk_guard(Some(DiskSpaceGuard::new(&indexrel)));
+        let field = writer.schema().search_field("data").unwrap().field();
+        let mut metas = Vec::new();
+        for ctid in 0..TEMP_FILE_ESTIMATE_SAMPLE_DOCS * 2 + 1 {
+            let mut doc = TantivyDocument::new();
+            doc.add_text(field, "sample");
+            metas.extend(writer.insert(doc, ctid as u64, || {}).unwrap());
+        }
+        assert_eq!(metas.len(), 1);
+        assert_eq!(metas[0].num_docs() as usize, TEMP_FILE_ESTIMATE_SAMPLE_DOCS);
+        let remaining = writer.finalize_nocommit().unwrap().unwrap();
+        assert_eq!(
+            remaining.num_docs() as usize,
+            TEMP_FILE_ESTIMATE_SAMPLE_DOCS + 1
+        );
     }
 
     #[pg_test]

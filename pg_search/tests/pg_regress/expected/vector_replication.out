@@ -95,7 +95,7 @@ RESET paradedb.vector_max_scan_levels;
 WITH plan AS (
     SELECT replication_explain(
         'SELECT id FROM replication_on '
-        'WHERE id @@@ paradedb.range(''id'', int4range(1, 11, ''[)'')) '
+        'WHERE id @@@ pdb.range(int4range(1, 11, ''[)'')) '
         'ORDER BY emb <=> replication_fixture_vector(768, 0), id LIMIT 10'
     ) AS value
 ), segment_info AS (
@@ -113,11 +113,11 @@ FROM segment_info;
 
 SELECT (SELECT array_agg(id ORDER BY id) FROM (
             SELECT id FROM replication_on
-            WHERE id @@@ paradedb.range('id', int4range(1, 11, '[)'))
+            WHERE id @@@ pdb.range(int4range(1, 11, '[)'))
             ORDER BY emb <=> replication_fixture_vector(768, 0), id LIMIT 10) s)
      = (SELECT array_agg(id ORDER BY id) FROM (
             SELECT id FROM replication_off
-            WHERE id @@@ paradedb.range('id', int4range(1, 11, '[)'))
+            WHERE id @@@ pdb.range(int4range(1, 11, '[)'))
             ORDER BY emb <=> replication_fixture_vector(768, 0), id LIMIT 10) s)
         AS located_same_ids;
  located_same_ids 

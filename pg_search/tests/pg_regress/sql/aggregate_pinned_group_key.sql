@@ -54,127 +54,127 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 \echo 'Test 1.2: no row matches -> no group'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 99 AND id @@@ paradedb.all()
+WHERE account_id = 99 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 99 AND id @@@ paradedb.all()
+WHERE account_id = 99 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 \echo 'Test 1.3: the key is not in the SELECT list'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*), SUM(price)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT COUNT(*), SUM(price)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT COUNT(*), SUM(price)
 FROM pinned_key_items
-WHERE account_id = 99 AND id @@@ paradedb.all()
+WHERE account_id = 99 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 \echo 'Test 1.4: no aggregate'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id
 FROM pinned_key_items
-WHERE account_id = 99 AND id @@@ paradedb.all()
+WHERE account_id = 99 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 \echo 'Test 1.5: two pinned keys'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT code, account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 2 AND code = 'c1' AND id @@@ paradedb.all()
+WHERE account_id = 2 AND code = 'c1' AND id @@@ pdb.all()
 GROUP BY account_id, code;
 
 SELECT code, account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 2 AND code = 'c1' AND id @@@ paradedb.all()
+WHERE account_id = 2 AND code = 'c1' AND id @@@ pdb.all()
 GROUP BY account_id, code;
 
 \echo 'Test 1.6: FILTER aggregate -> a row if a row matches the WHERE clause'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none')
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none')
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none')
 FROM pinned_key_items
-WHERE account_id = 99 AND id @@@ paradedb.all()
+WHERE account_id = 99 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 \echo 'Test 1.7: a node above the scan reads the aggregate'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT DISTINCT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, COUNT(*), SUM(COUNT(*)) OVER ()
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*), SUM(COUNT(*)) OVER ()
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, generate_series(1, 2) AS n, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 \echo 'Test 1.8: aggregate with its own ORDER BY'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, COUNT(id ORDER BY kind)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(id ORDER BY kind)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 -- =====================================================================
@@ -185,20 +185,20 @@ GROUP BY account_id;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*) AS count_all, account_id, kind
 FROM pinned_key_items
-WHERE region = 1 AND account_id = 1 AND id @@@ paradedb.all()
+WHERE region = 1 AND account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
 SELECT COUNT(*) AS count_all, account_id, kind
 FROM pinned_key_items
-WHERE region = 1 AND account_id = 1 AND id @@@ paradedb.all()
+WHERE region = 1 AND account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
 \echo 'Test 2.2: no row matches'
 SELECT COUNT(*) AS count_all, account_id, kind
 FROM pinned_key_items
-WHERE account_id = 99 AND id @@@ paradedb.all()
+WHERE account_id = 99 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
@@ -206,14 +206,14 @@ ORDER BY kind;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, kind, SUM(price)
 FROM pinned_key_items
-WHERE account_id = 2 AND id @@@ paradedb.all()
+WHERE account_id = 2 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY account_id, kind
 LIMIT 3;
 
 SELECT account_id, kind, SUM(price)
 FROM pinned_key_items
-WHERE account_id = 2 AND id @@@ paradedb.all()
+WHERE account_id = 2 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY account_id, kind
 LIMIT 3;
@@ -222,13 +222,13 @@ LIMIT 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, kind, COALESCE(SUM(price), 0) + 1 AS total
 FROM pinned_key_items
-WHERE account_id = 2 AND id @@@ paradedb.all()
+WHERE account_id = 2 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
 SELECT account_id, kind, COALESCE(SUM(price), 0) + 1 AS total
 FROM pinned_key_items
-WHERE account_id = 2 AND id @@@ paradedb.all()
+WHERE account_id = 2 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
@@ -236,33 +236,33 @@ ORDER BY kind;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, kind, pdb.agg('{"avg": {"field": "price"}}'::jsonb)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
 SELECT account_id, kind, pdb.agg('{"avg": {"field": "price"}}'::jsonb)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
 SELECT account_id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 \echo 'Test 2.6: pinned column that is not a GROUP BY key'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
 
 SELECT id, account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
@@ -270,7 +270,7 @@ LIMIT 3;
 \echo 'Test 2.7: aggregate with its own ORDER BY'
 SELECT account_id, code, COUNT(id ORDER BY kind), SUM(price ORDER BY kind)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id, code
 ORDER BY code;
 
@@ -284,7 +284,7 @@ SELECT region, pg_typeof(region), count
 FROM (
     SELECT region, COUNT(*)
     FROM pinned_key_items
-    WHERE region = 2::bigint AND id @@@ paradedb.all()
+    WHERE region = 2::bigint AND id @@@ pdb.all()
     GROUP BY region
 ) AS grouped;
 
@@ -292,56 +292,56 @@ SELECT region, pg_typeof(region), count
 FROM (
     SELECT region, COUNT(*)
     FROM pinned_key_items
-    WHERE region = 2::bigint AND id @@@ paradedb.all()
+    WHERE region = 2::bigint AND id @@@ pdb.all()
     GROUP BY region
 ) AS grouped;
 
 \echo 'Test 3.2: constant that the key cannot hold -> no row, and no cast error'
 SELECT region, COUNT(*)
 FROM pinned_key_items
-WHERE region = 100000 AND id @@@ paradedb.all()
+WHERE region = 100000 AND id @@@ pdb.all()
 GROUP BY region;
 
 SELECT region, kind, COUNT(*)
 FROM pinned_key_items
-WHERE region = 100000 AND id @@@ paradedb.all()
+WHERE region = 100000 AND id @@@ pdb.all()
 GROUP BY region, kind;
 
 \echo 'Test 3.3: varchar, date and JSON expression keys'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT code, kind, COUNT(*)
 FROM pinned_key_items
-WHERE code = 'c1' AND id @@@ paradedb.all()
+WHERE code = 'c1' AND id @@@ pdb.all()
 GROUP BY code, kind
 ORDER BY kind;
 
 SELECT code, kind, COUNT(*)
 FROM pinned_key_items
-WHERE code = 'c1' AND id @@@ paradedb.all()
+WHERE code = 'c1' AND id @@@ pdb.all()
 GROUP BY code, kind
 ORDER BY kind;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT created, COUNT(*)
 FROM pinned_key_items
-WHERE created = '2024-01-02' AND id @@@ paradedb.all()
+WHERE created = '2024-01-02' AND id @@@ pdb.all()
 GROUP BY created;
 
 SELECT created, COUNT(*)
 FROM pinned_key_items
-WHERE created = '2024-01-02' AND id @@@ paradedb.all()
+WHERE created = '2024-01-02' AND id @@@ pdb.all()
 GROUP BY created;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT metadata->>'color' AS color, kind, COUNT(*)
 FROM pinned_key_items
-WHERE metadata->>'color' = 'red' AND id @@@ paradedb.all()
+WHERE metadata->>'color' = 'red' AND id @@@ pdb.all()
 GROUP BY metadata->>'color', kind
 ORDER BY kind;
 
 SELECT metadata->>'color' AS color, kind, COUNT(*)
 FROM pinned_key_items
-WHERE metadata->>'color' = 'red' AND id @@@ paradedb.all()
+WHERE metadata->>'color' = 'red' AND id @@@ pdb.all()
 GROUP BY metadata->>'color', kind
 ORDER BY kind;
 
@@ -349,12 +349,12 @@ ORDER BY kind;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT upper(kind) AS upper_kind, COUNT(*)
 FROM pinned_key_items
-WHERE upper(kind) = 'A' AND id @@@ paradedb.all()
+WHERE upper(kind) = 'A' AND id @@@ pdb.all()
 GROUP BY upper(kind);
 
 SELECT upper(kind) AS upper_kind, COUNT(*)
 FROM pinned_key_items
-WHERE upper(kind) = 'A' AND id @@@ paradedb.all()
+WHERE upper(kind) = 'A' AND id @@@ pdb.all()
 GROUP BY upper(kind);
 
 -- =====================================================================
@@ -367,7 +367,7 @@ SET plan_cache_mode = force_generic_plan;
 PREPARE pinned_key_all(bigint) AS
 SELECT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
-WHERE account_id = $1 AND id @@@ paradedb.all()
+WHERE account_id = $1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE pinned_key_all(1);
@@ -379,7 +379,7 @@ EXECUTE pinned_key_all(NULL);
 PREPARE pinned_key_mixed(bigint) AS
 SELECT account_id, kind, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = $1 AND id @@@ paradedb.all()
+WHERE account_id = $1 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
@@ -392,7 +392,7 @@ EXECUTE pinned_key_mixed(2);
 PREPARE pinned_key_code(text) AS
 SELECT code, kind, COUNT(*)
 FROM pinned_key_items
-WHERE code = $1 AND id @@@ paradedb.all()
+WHERE code = $1 AND id @@@ pdb.all()
 GROUP BY code, kind
 ORDER BY kind;
 
@@ -408,12 +408,12 @@ RESET plan_cache_mode;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = (SELECT 3) AND id @@@ paradedb.all()
+WHERE account_id = (SELECT 3) AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = (SELECT 3) AND id @@@ paradedb.all()
+WHERE account_id = (SELECT 3) AND id @@@ pdb.all()
 GROUP BY account_id;
 
 \echo 'Test 4.3: value of an outer query, one scan for each value'
@@ -423,7 +423,7 @@ FROM (VALUES (1::bigint), (2), (99)) AS outer_values (account_id),
 LATERAL (
     SELECT account_id, COUNT(*)
     FROM pinned_key_items
-    WHERE account_id = outer_values.account_id AND id @@@ paradedb.all()
+    WHERE account_id = outer_values.account_id AND id @@@ pdb.all()
     GROUP BY account_id
 ) AS grouped
 ORDER BY 1;
@@ -433,7 +433,7 @@ FROM (VALUES (1::bigint), (2), (99)) AS outer_values (account_id),
 LATERAL (
     SELECT account_id, COUNT(*)
     FROM pinned_key_items
-    WHERE account_id = outer_values.account_id AND id @@@ paradedb.all()
+    WHERE account_id = outer_values.account_id AND id @@@ pdb.all()
     GROUP BY account_id
 ) AS grouped
 ORDER BY 1;
@@ -448,13 +448,13 @@ ORDER BY 1;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT price, kind, COUNT(*)
 FROM pinned_key_items
-WHERE price = 1 AND id @@@ paradedb.all()
+WHERE price = 1 AND id @@@ pdb.all()
 GROUP BY price, kind
 ORDER BY kind;
 
 SELECT price, kind, COUNT(*)
 FROM pinned_key_items
-WHERE price = 1 AND id @@@ paradedb.all()
+WHERE price = 1 AND id @@@ pdb.all()
 GROUP BY price, kind
 ORDER BY kind;
 
@@ -462,25 +462,25 @@ ORDER BY kind;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT label, kind, COUNT(*)
 FROM pinned_key_items
-WHERE label = 'label' AND id @@@ paradedb.all()
+WHERE label = 'label' AND id @@@ pdb.all()
 GROUP BY label, kind
 ORDER BY kind;
 
 SELECT label, kind, COUNT(*)
 FROM pinned_key_items
-WHERE label = 'label' AND id @@@ paradedb.all()
+WHERE label = 'label' AND id @@@ pdb.all()
 GROUP BY label, kind
 ORDER BY kind;
 
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT label, COUNT(*)
 FROM pinned_key_items
-WHERE label = 'label' AND id @@@ paradedb.all()
+WHERE label = 'label' AND id @@@ pdb.all()
 GROUP BY label;
 
 SELECT label, COUNT(*)
 FROM pinned_key_items
-WHERE label = 'label' AND id @@@ paradedb.all()
+WHERE label = 'label' AND id @@@ pdb.all()
 GROUP BY label;
 
 \echo 'Test 5.3: constant of a type that the key is cast to for the comparison'
@@ -491,13 +491,13 @@ SET timezone = 'UTC';
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT updated, kind, COUNT(*)
 FROM pinned_key_items
-WHERE updated = TIMESTAMPTZ '2024-01-02 00:00:00+00' AND id @@@ paradedb.all()
+WHERE updated = TIMESTAMPTZ '2024-01-02 00:00:00+00' AND id @@@ pdb.all()
 GROUP BY updated, kind
 ORDER BY kind;
 
 SELECT updated, kind, COUNT(*)
 FROM pinned_key_items
-WHERE updated = TIMESTAMPTZ '2024-01-02 00:00:00+00' AND id @@@ paradedb.all()
+WHERE updated = TIMESTAMPTZ '2024-01-02 00:00:00+00' AND id @@@ pdb.all()
 GROUP BY updated, kind
 ORDER BY kind;
 
@@ -509,12 +509,12 @@ SET pinned_key.account = '1';
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = current_setting('pinned_key.account')::bigint AND id @@@ paradedb.all()
+WHERE account_id = current_setting('pinned_key.account')::bigint AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = current_setting('pinned_key.account')::bigint AND id @@@ paradedb.all()
+WHERE account_id = current_setting('pinned_key.account')::bigint AND id @@@ pdb.all()
 GROUP BY account_id;
 
 RESET pinned_key.account;
@@ -534,17 +534,17 @@ SET timezone = 'America/New_York';
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT ts, SUM(amount)
 FROM pinned_key_dst
-WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ paradedb.all()
+WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ pdb.all()
 GROUP BY ts;
 
 SELECT ts, SUM(amount)
 FROM pinned_key_dst
-WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ paradedb.all()
+WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ pdb.all()
 GROUP BY ts;
 
 SELECT ts, kind, SUM(amount)
 FROM pinned_key_dst
-WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ paradedb.all()
+WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ pdb.all()
 GROUP BY ts, kind;
 
 RESET timezone;
@@ -552,20 +552,20 @@ RESET timezone;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT price, kind, SUM(amount)
 FROM pinned_key_items
-WHERE price = 1 AND id @@@ paradedb.all()
+WHERE price = 1 AND id @@@ pdb.all()
 GROUP BY price, kind
 ORDER BY kind;
 
 SELECT price, kind, SUM(amount)
 FROM pinned_key_items
-WHERE price = 1 AND id @@@ paradedb.all()
+WHERE price = 1 AND id @@@ pdb.all()
 GROUP BY price, kind
 ORDER BY kind;
 
 \echo 'Test 5.5: pdb.agg()'
 SELECT price, kind, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM pinned_key_items
-WHERE price = 1 AND id @@@ paradedb.all()
+WHERE price = 1 AND id @@@ pdb.all()
 GROUP BY price, kind;
 
 -- =====================================================================
@@ -576,29 +576,29 @@ GROUP BY price, kind;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, SUM(amount)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, SUM(amount)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, SUM(amount)
 FROM pinned_key_items
-WHERE account_id = 99 AND id @@@ paradedb.all()
+WHERE account_id = 99 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 \echo 'Test 6.2: pinned NUMERIC key'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT amount, COUNT(*)
 FROM pinned_key_items
-WHERE amount = 1.5 AND id @@@ paradedb.all()
+WHERE amount = 1.5 AND id @@@ pdb.all()
 GROUP BY amount;
 
 SELECT amount, COUNT(*)
 FROM pinned_key_items
-WHERE amount = 1.5 AND id @@@ paradedb.all()
+WHERE amount = 1.5 AND id @@@ pdb.all()
 GROUP BY amount;
 
 \echo 'Test 6.3: pinned key with a nondeterministic collation -> declined'
@@ -606,13 +606,13 @@ GROUP BY amount;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT kind, SUM(amount)
 FROM pinned_key_items
-WHERE label = 'label' AND id <= 12 AND id @@@ paradedb.all()
+WHERE label = 'label' AND id <= 12 AND id @@@ pdb.all()
 GROUP BY label, kind
 ORDER BY kind;
 
 SELECT kind, SUM(amount)
 FROM pinned_key_items
-WHERE label = 'label' AND id <= 12 AND id @@@ paradedb.all()
+WHERE label = 'label' AND id <= 12 AND id @@@ pdb.all()
 GROUP BY label, kind
 ORDER BY kind;
 
@@ -628,7 +628,7 @@ SELECT grouped.account_id, grouped.kind, grouped.n
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM pinned_key_items
-    WHERE account_id = 2 AND id @@@ paradedb.all()
+    WHERE account_id = 2 AND id @@@ pdb.all()
     GROUP BY account_id, kind
 ) AS grouped
 JOIN (VALUES (1::bigint), (2), (3)) AS accounts (id) ON accounts.id = grouped.account_id
@@ -638,7 +638,7 @@ SELECT grouped.account_id, grouped.kind, grouped.n
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM pinned_key_items
-    WHERE account_id = 2 AND id @@@ paradedb.all()
+    WHERE account_id = 2 AND id @@@ pdb.all()
     GROUP BY account_id, kind
 ) AS grouped
 JOIN (VALUES (1::bigint), (2), (3)) AS accounts (id) ON accounts.id = grouped.account_id
@@ -650,7 +650,7 @@ SELECT kind, SUM(n), COUNT(*)
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM pinned_key_items
-    WHERE account_id = 2 AND id @@@ paradedb.all()
+    WHERE account_id = 2 AND id @@@ pdb.all()
     GROUP BY account_id, kind
 ) AS grouped
 GROUP BY kind
@@ -660,7 +660,7 @@ SELECT kind, SUM(n), COUNT(*)
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM pinned_key_items
-    WHERE account_id = 2 AND id @@@ paradedb.all()
+    WHERE account_id = 2 AND id @@@ pdb.all()
     GROUP BY account_id, kind
 ) AS grouped
 GROUP BY kind
@@ -671,7 +671,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 WITH grouped AS MATERIALIZED (
     SELECT account_id, kind, COUNT(*) AS n
     FROM pinned_key_items
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE account_id = 2 ORDER BY kind;
@@ -679,7 +679,7 @@ SELECT * FROM grouped WHERE account_id = 2 ORDER BY kind;
 WITH grouped AS MATERIALIZED (
     SELECT account_id, kind, COUNT(*) AS n
     FROM pinned_key_items
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE account_id = 2 ORDER BY kind;
@@ -688,13 +688,13 @@ SELECT * FROM grouped WHERE account_id = 2 ORDER BY kind;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, kind, COUNT(*)
 FROM pinned_key_items
-WHERE account_id IN (2) AND id @@@ paradedb.all()
+WHERE account_id IN (2) AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
 SELECT account_id, kind, COUNT(*)
 FROM pinned_key_items
-WHERE account_id IN (2) AND id @@@ paradedb.all()
+WHERE account_id IN (2) AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
@@ -702,12 +702,12 @@ ORDER BY kind;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT account_id, kind, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 2 AND account_id = 3 AND id @@@ paradedb.all()
+WHERE account_id = 2 AND account_id = 3 AND id @@@ pdb.all()
 GROUP BY account_id, kind;
 
 SELECT account_id, kind, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 2 AND account_id = 3 AND id @@@ paradedb.all()
+WHERE account_id = 2 AND account_id = 3 AND id @@@ pdb.all()
 GROUP BY account_id, kind;
 
 -- =====================================================================
@@ -720,19 +720,19 @@ SET timezone = 'America/New_York';
 
 SELECT ts, SUM(amount)
 FROM pinned_key_dst
-WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ paradedb.all()
+WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ pdb.all()
 GROUP BY ts;
 
 SELECT ts, kind, SUM(amount)
 FROM pinned_key_dst
-WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ paradedb.all()
+WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ pdb.all()
 GROUP BY ts, kind;
 
 RESET timezone;
 
 SELECT price, kind, SUM(amount)
 FROM pinned_key_items
-WHERE price = 1 AND id @@@ paradedb.all()
+WHERE price = 1 AND id @@@ pdb.all()
 GROUP BY price, kind
 ORDER BY kind;
 
@@ -740,7 +740,7 @@ SELECT grouped.account_id, grouped.kind, grouped.n
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM pinned_key_items
-    WHERE account_id = 2 AND id @@@ paradedb.all()
+    WHERE account_id = 2 AND id @@@ pdb.all()
     GROUP BY account_id, kind
 ) AS grouped
 JOIN (VALUES (1::bigint), (2), (3)) AS accounts (id) ON accounts.id = grouped.account_id
@@ -750,7 +750,7 @@ SELECT kind, SUM(n), COUNT(*)
 FROM (
     SELECT account_id, kind, COUNT(*) AS n
     FROM pinned_key_items
-    WHERE account_id = 2 AND id @@@ paradedb.all()
+    WHERE account_id = 2 AND id @@@ pdb.all()
     GROUP BY account_id, kind
 ) AS grouped
 GROUP BY kind
@@ -759,91 +759,91 @@ ORDER BY kind;
 WITH grouped AS MATERIALIZED (
     SELECT account_id, kind, COUNT(*) AS n
     FROM pinned_key_items
-    WHERE id @@@ paradedb.all()
+    WHERE id @@@ pdb.all()
     GROUP BY account_id, kind
 )
 SELECT * FROM grouped WHERE account_id = 2 ORDER BY kind;
 
 SELECT account_id, kind, COUNT(*)
 FROM pinned_key_items
-WHERE account_id IN (2) AND id @@@ paradedb.all()
+WHERE account_id IN (2) AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
 SELECT account_id, kind, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 2 AND account_id = 3 AND id @@@ paradedb.all()
+WHERE account_id = 2 AND account_id = 3 AND id @@@ pdb.all()
 GROUP BY account_id, kind;
 
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 99 AND id @@@ paradedb.all()
+WHERE account_id = 99 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT COUNT(*), SUM(price)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT code, account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 2 AND code = 'c1' AND id @@@ paradedb.all()
+WHERE account_id = 2 AND code = 'c1' AND id @@@ pdb.all()
 GROUP BY account_id, code;
 
 SELECT COUNT(*) AS count_all, account_id, kind
 FROM pinned_key_items
-WHERE region = 1 AND account_id = 1 AND id @@@ paradedb.all()
+WHERE region = 1 AND account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
 SELECT account_id, kind, SUM(price)
 FROM pinned_key_items
-WHERE account_id = 2 AND id @@@ paradedb.all()
+WHERE account_id = 2 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY account_id, kind
 LIMIT 3;
 
 SELECT account_id, kind, COALESCE(SUM(price), 0) + 1 AS total
 FROM pinned_key_items
-WHERE account_id = 2 AND id @@@ paradedb.all()
+WHERE account_id = 2 AND id @@@ pdb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
 
 SELECT region, COUNT(*)
 FROM pinned_key_items
-WHERE region = 2::bigint AND id @@@ paradedb.all()
+WHERE region = 2::bigint AND id @@@ pdb.all()
 GROUP BY region;
 
 SELECT region, COUNT(*)
 FROM pinned_key_items
-WHERE region = 100000 AND id @@@ paradedb.all()
+WHERE region = 100000 AND id @@@ pdb.all()
 GROUP BY region;
 
 SELECT code, kind, COUNT(*)
 FROM pinned_key_items
-WHERE code = 'c1' AND id @@@ paradedb.all()
+WHERE code = 'c1' AND id @@@ pdb.all()
 GROUP BY code, kind
 ORDER BY kind;
 
 SELECT created, COUNT(*)
 FROM pinned_key_items
-WHERE created = '2024-01-02' AND id @@@ paradedb.all()
+WHERE created = '2024-01-02' AND id @@@ pdb.all()
 GROUP BY created;
 
 SELECT metadata->>'color' AS color, kind, COUNT(*)
 FROM pinned_key_items
-WHERE metadata->>'color' = 'red' AND id @@@ paradedb.all()
+WHERE metadata->>'color' = 'red' AND id @@@ pdb.all()
 GROUP BY metadata->>'color', kind
 ORDER BY kind;
 
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = (SELECT 3) AND id @@@ paradedb.all()
+WHERE account_id = (SELECT 3) AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT outer_values.account_id AS outer_account_id, grouped.*
@@ -851,66 +851,66 @@ FROM (VALUES (1::bigint), (2), (99)) AS outer_values (account_id),
 LATERAL (
     SELECT account_id, COUNT(*)
     FROM pinned_key_items
-    WHERE account_id = outer_values.account_id AND id @@@ paradedb.all()
+    WHERE account_id = outer_values.account_id AND id @@@ pdb.all()
     GROUP BY account_id
 ) AS grouped
 ORDER BY 1;
 
 SELECT account_id, SUM(amount)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT amount, COUNT(*)
 FROM pinned_key_items
-WHERE amount = 1.5 AND id @@@ paradedb.all()
+WHERE amount = 1.5 AND id @@@ pdb.all()
 GROUP BY amount;
 
 SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none')
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none')
 FROM pinned_key_items
-WHERE account_id = 99 AND id @@@ paradedb.all()
+WHERE account_id = 99 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT id, account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
 
 SELECT upper(kind) AS upper_kind, COUNT(*)
 FROM pinned_key_items
-WHERE upper(kind) = 'A' AND id @@@ paradedb.all()
+WHERE upper(kind) = 'A' AND id @@@ pdb.all()
 GROUP BY upper(kind);
 
 SELECT DISTINCT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*), SUM(COUNT(*)) OVER ()
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, generate_series(1, 2) AS n, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(id ORDER BY kind)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, code, COUNT(id ORDER BY kind), SUM(price ORDER BY kind)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id, code
 ORDER BY code;
 
@@ -925,12 +925,12 @@ DELETE FROM pinned_key_items WHERE account_id = 2 AND kind <> 'a';
 
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
-WHERE account_id = 2 AND id @@@ paradedb.all()
+WHERE account_id = 2 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -938,18 +938,18 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 \echo 'Test 8.1: every matching row is deleted -> no group'
 SELECT account_id, COUNT(*)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 SELECT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 \echo 'Test 8.2: some matching rows are deleted'
 SELECT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
-WHERE account_id = 2 AND id @@@ paradedb.all()
+WHERE account_id = 2 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 CREATE TABLE pinned_key_arrays (id SERIAL PRIMARY KEY, tags INT[], k TEXT);
@@ -962,52 +962,52 @@ USING paradedb (id, tags, (k::pdb.literal));
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT tags, COUNT(*)
 FROM pinned_key_arrays
-WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+WHERE tags = ARRAY[1] AND id @@@ pdb.all()
 GROUP BY tags;
 
 SELECT tags, COUNT(*)
 FROM pinned_key_arrays
-WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+WHERE tags = ARRAY[1] AND id @@@ pdb.all()
 GROUP BY tags;
 
 \echo 'Test 9.2: a key pinned to an array, next to a free key -> declined'
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT k, tags, COUNT(*)
 FROM pinned_key_arrays
-WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+WHERE tags = ARRAY[1] AND id @@@ pdb.all()
 GROUP BY k, tags;
 
 SELECT k, tags, COUNT(*)
 FROM pinned_key_arrays
-WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+WHERE tags = ARRAY[1] AND id @@@ pdb.all()
 GROUP BY k, tags;
 
 \echo 'Test 9.3: DISTINCT with an array condition'
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT DISTINCT k
 FROM pinned_key_arrays
-WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+WHERE tags = ARRAY[1] AND id @@@ pdb.all()
 ORDER BY k;
 
 SELECT DISTINCT k
 FROM pinned_key_arrays
-WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+WHERE tags = ARRAY[1] AND id @@@ pdb.all()
 ORDER BY k;
 
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT tags, COUNT(*)
 FROM pinned_key_arrays
-WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+WHERE tags = ARRAY[1] AND id @@@ pdb.all()
 GROUP BY tags;
 
 SELECT k, tags, COUNT(*)
 FROM pinned_key_arrays
-WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+WHERE tags = ARRAY[1] AND id @@@ pdb.all()
 GROUP BY k, tags;
 
 SELECT DISTINCT k
 FROM pinned_key_arrays
-WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+WHERE tags = ARRAY[1] AND id @@@ pdb.all()
 ORDER BY k;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -1022,20 +1022,20 @@ USING paradedb (id, row_1, (k::pdb.literal));
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT row_1, k, COUNT(*)
 FROM pinned_key_names
-WHERE k = 'a' AND id @@@ paradedb.all()
+WHERE k = 'a' AND id @@@ pdb.all()
 GROUP BY row_1, k
 ORDER BY row_1, k;
 
 SELECT row_1, k, COUNT(*)
 FROM pinned_key_names
-WHERE k = 'a' AND id @@@ paradedb.all()
+WHERE k = 'a' AND id @@@ pdb.all()
 GROUP BY row_1, k
 ORDER BY row_1, k;
 
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT row_1, k, COUNT(*)
 FROM pinned_key_names
-WHERE k = 'a' AND id @@@ paradedb.all()
+WHERE k = 'a' AND id @@@ pdb.all()
 GROUP BY row_1, k
 ORDER BY row_1, k;
 
@@ -1044,13 +1044,13 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 \echo 'Test 11.1: pdb.agg() that only the Tantivy backend runs, with a pinned key -> error'
 SELECT account_id, pdb.agg('{"percentiles": {"field": "price", "percents": [50]}}'::jsonb)
 FROM pinned_key_items
-WHERE account_id = 1 AND id @@@ paradedb.all()
+WHERE account_id = 1 AND id @@@ pdb.all()
 GROUP BY account_id;
 
 \echo 'Test 11.2: the same, with a column that the primary key decides -> error'
 SELECT id, kind, pdb.agg('{"stats": {"field": "price"}}'::jsonb)
 FROM pinned_key_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 2;
@@ -1058,14 +1058,14 @@ LIMIT 2;
 \echo 'Test 11.3: the same spec, when PostgreSQL groups on every key'
 SELECT account_id, pdb.agg('{"stats": {"field": "region"}}'::jsonb) -> 'count' AS region_count
 FROM pinned_key_items
-WHERE account_id IN (2, 3) AND id @@@ paradedb.all()
+WHERE account_id IN (2, 3) AND id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
 
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT account_id, COUNT(region) AS region_count
 FROM pinned_key_items
-WHERE account_id IN (2, 3) AND id @@@ paradedb.all()
+WHERE account_id IN (2, 3) AND id @@@ pdb.all()
 GROUP BY account_id
 ORDER BY account_id;
 
@@ -1081,13 +1081,13 @@ USING paradedb (id, agg_0, __one_group, (k::pdb.literal));
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT agg_0, k, COUNT(*)
 FROM pinned_key_internal
-WHERE agg_0 = 1 AND id @@@ paradedb.all()
+WHERE agg_0 = 1 AND id @@@ pdb.all()
 GROUP BY agg_0, k
 ORDER BY k;
 
 SELECT agg_0, k, COUNT(*)
 FROM pinned_key_internal
-WHERE agg_0 = 1 AND id @@@ paradedb.all()
+WHERE agg_0 = 1 AND id @@@ pdb.all()
 GROUP BY agg_0, k
 ORDER BY k;
 
@@ -1095,26 +1095,26 @@ ORDER BY k;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT __one_group, COUNT(*)
 FROM pinned_key_internal
-WHERE __one_group = 1 AND id @@@ paradedb.all()
+WHERE __one_group = 1 AND id @@@ pdb.all()
 GROUP BY __one_group;
 
 SELECT __one_group, COUNT(*)
 FROM pinned_key_internal
-WHERE __one_group = 1 AND id @@@ paradedb.all()
+WHERE __one_group = 1 AND id @@@ pdb.all()
 GROUP BY __one_group;
 
 \echo 'Test 12.3: a column named like an aggregate output, which the primary key decides'
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id, agg_0, COUNT(*)
 FROM pinned_key_internal
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
 
 SELECT id, agg_0, COUNT(*)
 FROM pinned_key_internal
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
@@ -1123,7 +1123,7 @@ LIMIT 3;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT agg_0, k, COUNT(*)
 FROM pinned_key_internal
-WHERE k = 'a' AND id @@@ paradedb.all()
+WHERE k = 'a' AND id @@@ pdb.all()
 GROUP BY agg_0, k
 HAVING COUNT(*) > agg_0
 ORDER BY COUNT(*) DESC, agg_0
@@ -1131,7 +1131,7 @@ LIMIT 2;
 
 SELECT agg_0, k, COUNT(*)
 FROM pinned_key_internal
-WHERE k = 'a' AND id @@@ paradedb.all()
+WHERE k = 'a' AND id @@@ pdb.all()
 GROUP BY agg_0, k
 HAVING COUNT(*) > agg_0
 ORDER BY COUNT(*) DESC, agg_0
@@ -1141,38 +1141,38 @@ LIMIT 2;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT k, agg_0, COUNT(*), pdb.agg('{"terms": {"field": "__one_group"}}'::jsonb)
 FROM pinned_key_internal
-WHERE agg_0 = 1 AND id @@@ paradedb.all()
+WHERE agg_0 = 1 AND id @@@ pdb.all()
 GROUP BY k, agg_0
 ORDER BY k;
 
 SELECT k, agg_0, COUNT(*), pdb.agg('{"terms": {"field": "__one_group"}}'::jsonb)
 FROM pinned_key_internal
-WHERE agg_0 = 1 AND id @@@ paradedb.all()
+WHERE agg_0 = 1 AND id @@@ pdb.all()
 GROUP BY k, agg_0
 ORDER BY k;
 
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT agg_0, k, COUNT(*)
 FROM pinned_key_internal
-WHERE agg_0 = 1 AND id @@@ paradedb.all()
+WHERE agg_0 = 1 AND id @@@ pdb.all()
 GROUP BY agg_0, k
 ORDER BY k;
 
 SELECT __one_group, COUNT(*)
 FROM pinned_key_internal
-WHERE __one_group = 1 AND id @@@ paradedb.all()
+WHERE __one_group = 1 AND id @@@ pdb.all()
 GROUP BY __one_group;
 
 SELECT id, agg_0, COUNT(*)
 FROM pinned_key_internal
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 3;
 
 SELECT agg_0, k, COUNT(*)
 FROM pinned_key_internal
-WHERE k = 'a' AND id @@@ paradedb.all()
+WHERE k = 'a' AND id @@@ pdb.all()
 GROUP BY agg_0, k
 HAVING COUNT(*) > agg_0
 ORDER BY COUNT(*) DESC, agg_0

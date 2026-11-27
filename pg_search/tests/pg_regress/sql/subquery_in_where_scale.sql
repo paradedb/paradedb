@@ -37,32 +37,32 @@ ANALYZE test_metadata_scale;
 -- Test 1: Scalar subquery with large dataset (benchmark pattern)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM test_pages_scale 
-WHERE id @@@ paradedb.all() 
+WHERE id @@@ pdb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id 
 LIMIT 100;
 
 SELECT * FROM test_pages_scale 
-WHERE id @@@ paradedb.all() 
+WHERE id @@@ pdb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id 
 LIMIT 100;
 
 -- Test 2: Verify result count
 SELECT COUNT(*) FROM test_pages_scale 
-WHERE id @@@ paradedb.all() 
+WHERE id @@@ pdb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max');
 
 -- Test 3: Test with DESC ordering (reverse scan)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM test_pages_scale 
-WHERE id @@@ paradedb.all() 
+WHERE id @@@ pdb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id DESC 
 LIMIT 100;
 
 SELECT * FROM test_pages_scale 
-WHERE id @@@ paradedb.all() 
+WHERE id @@@ pdb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id DESC 
 LIMIT 100;

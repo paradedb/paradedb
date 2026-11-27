@@ -16,14 +16,12 @@ INSERT INTO pc SELECT g, g + 0.10 FROM generate_series(1, 5) g;
 INSERT INTO pd SELECT g, g + 0.10 FROM generate_series(1, 5) g;
 INSERT INTO sa SELECT g, 'match', 0.50 FROM generate_series(1, 5) g;
 INSERT INTO sc SELECT g, 0.50 FROM generate_series(1, 5) g;
-CREATE INDEX pa_idx ON pa USING paradedb (id, txt, amt)
-WITH (text_fields='{"txt":{"fast":true}}', numeric_fields='{"amt":{"fast":true}}');
-CREATE INDEX pb_idx ON pb USING paradedb (id, amt) WITH (numeric_fields='{"amt":{"fast":true}}');
-CREATE INDEX pc_idx ON pc USING paradedb (id, amt) WITH (numeric_fields='{"amt":{"fast":true}}');
-CREATE INDEX pd_idx ON pd USING paradedb (id, amt) WITH (numeric_fields='{"amt":{"fast":true}}');
-CREATE INDEX sa_idx ON sa USING paradedb (id, txt, amt)
-WITH (text_fields='{"txt":{"fast":true}}', numeric_fields='{"amt":{"fast":true}}');
-CREATE INDEX sc_idx ON sc USING paradedb (id, amt) WITH (numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX pa_idx ON pa USING paradedb (id, (txt::pdb.unicode_words('columnar=true')), amt);
+CREATE INDEX pb_idx ON pb USING paradedb (id, amt);
+CREATE INDEX pc_idx ON pc USING paradedb (id, amt);
+CREATE INDEX pd_idx ON pd USING paradedb (id, amt);
+CREATE INDEX sa_idx ON sa USING paradedb (id, (txt::pdb.unicode_words('columnar=true')), amt);
+CREATE INDEX sc_idx ON sc USING paradedb (id, amt);
 -- Different scales: every pair compares equal.
 EXPLAIN (COSTS OFF)
 SELECT count(*) FROM pa a JOIN pb b ON a.id = b.id AND a.amt <> b.amt WHERE a.txt @@@ 'match';

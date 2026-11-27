@@ -37,7 +37,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT
   t.file_id,
   t.file_title,
-  paradedb.score(t.row_id) AS score
+  pdb.score(t.row_id) AS score
 FROM documents t
 WHERE
   t.doc_parents ||| 'PARENT_GROUP'
@@ -48,7 +48,7 @@ LIMIT 10;
 SELECT
   t.file_id,
   t.file_title,
-  paradedb.score(t.row_id) AS score
+  pdb.score(t.row_id) AS score
 FROM documents t
 WHERE
   t.doc_parents ||| 'PARENT_GROUP'

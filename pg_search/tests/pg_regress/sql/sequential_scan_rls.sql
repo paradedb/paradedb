@@ -45,7 +45,7 @@ WITH CHECK (true);
 
 CREATE POLICY pdb_select_policy ON rls_pdb_new_row
 FOR SELECT TO rls_new_row_user
-USING (id @@@ paradedb.term('body', 'allowed'));
+USING (body === 'allowed');
 
 CREATE POLICY pdb_update_policy ON rls_pdb_new_row
 FOR UPDATE TO rls_new_row_user

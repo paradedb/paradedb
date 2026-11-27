@@ -17,7 +17,8 @@
 
 use crate::api::{HashMap, HashSet};
 use crate::index::directory::mvcc::PgTempFile;
-use crate::postgres::buffile::{BufFileReleaseGuard, TempFileOwner};
+use crate::postgres::buffile::TempFileOwner;
+use crate::postgres::resowner::ResourceOwnerStamp;
 use crate::postgres::storage::block::SegmentFileDetails;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -25,7 +26,6 @@ use std::fmt;
 use std::io::{self, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::Arc;
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{
@@ -41,7 +41,7 @@ type SharedFile = Arc<Mutex<BuildFile>>;
 #[derive(Clone)]
 pub struct BuildDirectory {
     files: Arc<Mutex<HashMap<PathBuf, SharedFile>>>,
-    release_guard: crate::postgres::customscan::mpp::MainThread<Rc<BufFileReleaseGuard>>,
+    owner: ResourceOwnerStamp,
     #[cfg(unix)]
     temp_paths: Arc<Mutex<HashSet<PathBuf>>>,
 }
@@ -58,9 +58,7 @@ impl BuildDirectory {
     pub fn new() -> Self {
         Self {
             files: Default::default(),
-            release_guard: crate::postgres::customscan::mpp::MainThread::new(
-                BufFileReleaseGuard::register(),
-            ),
+            owner: ResourceOwnerStamp::current(),
             #[cfg(unix)]
             temp_paths: Default::default(),
         }
@@ -137,19 +135,13 @@ impl Directory for BuildDirectory {
         if files.contains_key(path) {
             return Err(OpenWriteError::FileAlreadyExists(path.to_path_buf()));
         }
-        let file = crate::postgres::customscan::mpp::run_on_main_thread(|token| {
-            let release_guard = self.release_guard.get(token);
-            assert_eq!(release_guard.owner(), unsafe {
-                pg_sys::CurrentResourceOwner
-            });
+        let file = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            assert_eq!(self.owner, ResourceOwnerStamp::current());
             Arc::new(Mutex::new(BuildFile {
-                file: TempFileOwner::new(
-                    unsafe {
-                        pg_sys::PrepareTempTablespaces();
-                        pg_sys::OpenTemporaryFile(false)
-                    },
-                    Rc::clone(release_guard),
-                ),
+                file: TempFileOwner::new(unsafe {
+                    pg_sys::PrepareTempTablespaces();
+                    pg_sys::OpenTemporaryFile(false)
+                }),
                 len: 0,
             }))
         });

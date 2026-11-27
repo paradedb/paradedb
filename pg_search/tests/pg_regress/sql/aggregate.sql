@@ -245,20 +245,20 @@ INSERT INTO products (description, rating, category, price, in_stock) VALUES
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products;
@@ -266,11 +266,11 @@ FROM products;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
 FROM products
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
 FROM products
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
 FROM products;
@@ -289,9 +289,7 @@ INSERT INTO count_array_test VALUES
     (5, '{NULL,3}', '{NULL,red}'),
     (6, '{{1,2},{3,4}}', '{{red,blue},{green,red}}');
 CREATE INDEX count_array_test_idx ON count_array_test
-USING paradedb (id, ints, words) WITH (
-    text_fields = '{"words": {"fast": true, "tokenizer": {"type": "raw"}}}'
-);
+USING paradedb (id, ints, (words::pdb.literal_normalized('columnar=true')));
 ANALYZE count_array_test;
 SET max_parallel_workers_per_gather = 0;
 RESET paradedb.max_term_agg_buckets;

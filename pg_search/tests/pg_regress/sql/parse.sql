@@ -297,7 +297,7 @@ INSERT INTO unfielded_numeric VALUES
     (2, 'beta', 123, 123),
     (3, 'gamma', 0.01, 7);
 CREATE INDEX unfielded_numeric_idx ON unfielded_numeric
-USING bm25 (id, description, fixed_precision, arbitrary_precision);
+USING paradedb (id, description, fixed_precision, arbitrary_precision);
 
 SELECT id FROM unfielded_numeric
 WHERE id @@@ pdb.parse('123') ORDER BY id;
@@ -378,7 +378,7 @@ INSERT INTO unfielded_numeric_scales VALUES
     (13, 'NaN', 'NaN', 'NaN', 'NaN'),
     (14, 0, 0, 0, 0);
 CREATE INDEX unfielded_numeric_scales_idx ON unfielded_numeric_scales
-USING bm25 (id, cents, mills, hundreds, wide);
+USING paradedb (id, cents, mills, hundreds, wide);
 
 SELECT id FROM unfielded_numeric_scales
 WHERE id @@@ pdb.parse('1.23') ORDER BY id;
@@ -439,7 +439,7 @@ DROP TABLE unfielded_numeric_scales;
 -- Unindexed NUMERIC fields must not turn a discarded literal into an empty equality.
 CREATE TABLE unfielded_numeric_unindexed (id INT PRIMARY KEY, amount NUMERIC(10,2));
 INSERT INTO unfielded_numeric_unindexed VALUES (1, 1.23);
-CREATE INDEX ON unfielded_numeric_unindexed USING bm25 (id, amount)
+CREATE INDEX ON unfielded_numeric_unindexed USING paradedb (id, amount)
 WITH (numeric_fields = '{"amount":{"indexed":false,"fast":true}}');
 SELECT id FROM unfielded_numeric_unindexed
 WHERE id @@@ pdb.parse('1.234 AND id:1', lenient => true) ORDER BY id;
@@ -450,7 +450,7 @@ DROP TABLE unfielded_numeric_unindexed;
 -- Expansion preserves aliased tokenizers, stopword removal, and score boosts.
 CREATE TABLE unfielded_numeric_tokenizer (id INT PRIMARY KEY, amount NUMERIC(10,2), title TEXT);
 INSERT INTO unfielded_numeric_tokenizer VALUES (1, 1.23, 'the alpha'), (2, 123, 'the beta');
-CREATE INDEX ON unfielded_numeric_tokenizer USING bm25 (
+CREATE INDEX ON unfielded_numeric_tokenizer USING paradedb (
     id, amount, (title::pdb.simple('alias=words', 'stopwords_language=english'))
 );
 SELECT id FROM unfielded_numeric_tokenizer
@@ -464,7 +464,7 @@ WHERE id @@@ pdb.parse('the AND alpha', lenient => true) ORDER BY id;
 SELECT id FROM unfielded_numeric_tokenizer
 WHERE id @@@ pdb.parse('the AND 1.23', lenient => true) ORDER BY id;
 SELECT
-    (SELECT paradedb.score(id) FROM unfielded_numeric_tokenizer WHERE id @@@ pdb.parse('1.23^2')) =
-    2 * (SELECT paradedb.score(id) FROM unfielded_numeric_tokenizer WHERE id @@@ pdb.parse('1.23'))
+    (SELECT pdb.score(id) FROM unfielded_numeric_tokenizer WHERE id @@@ pdb.parse('1.23^2')) =
+    2 * (SELECT pdb.score(id) FROM unfielded_numeric_tokenizer WHERE id @@@ pdb.parse('1.23'))
     AS doubled_score;
 DROP TABLE unfielded_numeric_tokenizer;

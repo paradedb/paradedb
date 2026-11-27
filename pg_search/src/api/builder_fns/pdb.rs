@@ -22,7 +22,6 @@ pub use pdb::*;
 mod pdb {
     use std::collections::Bound;
 
-    use crate::api::HashSet;
     use crate::postgres::datetime::PostgresDateTime;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::postgres::types::TantivyValue;
@@ -30,9 +29,8 @@ mod pdb {
     use crate::schema::AnyEnum;
 
     use macros::builder_fn;
-    use pgrx::aggregate::Aggregate;
     use pgrx::datum::RangeBound;
-    use pgrx::{AnyElement, AnyNumeric, Internal, Range, default, pg_extern, pg_sys};
+    use pgrx::{AnyElement, AnyNumeric, Range, default, pg_extern};
 
     #[pg_extern(immutable, parallel_safe, name = "all")]
     pub fn pdb_all() -> pdb::Query {
@@ -117,6 +115,16 @@ mod pdb {
         pdb::Query::Exists
     }
 
+    fn checked_fuzzy_distance(distance: i32) -> u8 {
+        u8::try_from(distance).unwrap_or_else(|_| {
+            pgrx::ereport!(
+                ERROR,
+                pgrx::PgSqlErrorCode::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE,
+                "distance must be between 0 and 2"
+            );
+        })
+    }
+
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "fuzzy_term")]
     pub fn fuzzy_term(
@@ -127,7 +135,7 @@ mod pdb {
     ) -> pdb::Query {
         pdb::Query::FuzzyTerm {
             value: value.expect("`value` argument is required"),
-            distance: distance.map(|n| n as u8),
+            distance: distance.map(checked_fuzzy_distance),
             transposition_cost_one,
             prefix,
         }
@@ -146,7 +154,7 @@ mod pdb {
         pdb::Query::Match {
             value,
             tokenizer: tokenizer.map(|t| t.0),
-            distance: distance.map(|n| n as u8),
+            distance: distance.map(checked_fuzzy_distance),
             transposition_cost_one,
             prefix,
             conjunction_mode,
@@ -631,55 +639,25 @@ mod pdb {
         PdbOwnedValue::Date(PostgresDateTime::try_from_raw(0).unwrap())
     );
 
-    // TODO: Remove deprecated `pdb.term_set` aggregate in a future release.
-    #[derive(pgrx::AggregateName, Default)]
-    #[aggregate_name = "term_set"]
-    pub struct TermSetAggI64;
+    // Older upgrade scripts create these C functions before the final migration drops them.
+    #[pg_extern(sql = false)]
+    fn term_set_agg_i_64_term_set_agg_i_64_state() {
+        pgrx::error!(
+            "The pdb.term_set(bigint) aggregate has been removed. Use pdb.term_set(array_agg(...))."
+        );
+    }
 
-    #[pgrx::pg_aggregate(parallel_safe)]
-    impl Aggregate<TermSetAggI64> for TermSetAggI64 {
-        type Args = i64;
-        type State = Internal;
-        type Finalize = pdb::Query;
+    #[pg_extern(sql = false)]
+    fn term_set_agg_i_64_term_set_agg_i_64_combine() {
+        pgrx::error!(
+            "The pdb.term_set(bigint) aggregate has been removed. Use pdb.term_set(array_agg(...))."
+        );
+    }
 
-        fn state(
-            mut current: Self::State,
-            arg: Self::Args,
-            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
-        ) -> Self::State {
-            let inner = unsafe { current.get_or_insert_default::<HashSet<i64>>() };
-            inner.insert(arg);
-            current
-        }
-
-        fn combine(
-            mut first: Self::State,
-            mut second: Self::State,
-            _fcinfo: pg_sys::FunctionCallInfo,
-        ) -> Self::State {
-            let first_inner = unsafe { first.get_or_insert_default::<HashSet<i64>>() };
-            let second_inner = unsafe { second.get_or_insert_default::<HashSet<i64>>() };
-
-            let unioned: HashSet<i64> = first_inner.union(second_inner).cloned().collect();
-            Internal::new(unioned)
-        }
-
-        fn finalize(
-            mut current: Self::State,
-            _direct_arg: Self::OrderedSetArgs,
-            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
-        ) -> Self::Finalize {
-            pg_sys::panic::ErrorReport::new(
-                pgrx::PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
-                "using `pdb.term_set` in aggregate position is deprecated",
-                pgrx::function_name!(),
-            )
-                .set_detail("using `pdb.term_set` in aggregate position is deprecated, because it is not faster than using `pdb.term_set` with an `array_agg`")
-                .set_hint("use `pdb.term_set` with an `array_agg`").report(pgrx::PgLogLevel::WARNING);
-            let inner = unsafe { current.get_or_insert_default::<HashSet<i64>>() };
-            pdb::Query::TermSet {
-                terms: inner.iter().cloned().map(PdbOwnedValue::I64).collect(),
-            }
-        }
+    #[pg_extern(sql = false)]
+    fn term_set_agg_i_64_term_set_agg_i_64_finalize() {
+        pgrx::error!(
+            "The pdb.term_set(bigint) aggregate has been removed. Use pdb.term_set(array_agg(...))."
+        );
     }
 }

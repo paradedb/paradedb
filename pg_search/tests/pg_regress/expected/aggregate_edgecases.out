@@ -30,7 +30,7 @@ SET parallel_tuple_cost = 0;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "data", "size": 50000}}'::jsonb) OVER ()
 FROM large_agg_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 1;
                                                                                                                                QUERY PLAN                                                                                                                               
@@ -50,12 +50,12 @@ LIMIT 1;
                   TopK Order By: id asc
                   TopK Limit: 1
                Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (16 rows)
 
 SELECT pdb.agg('{"terms": {"field": "data", "size": 50000}}'::jsonb) OVER ()
 FROM large_agg_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 1;
 ERROR:  Aggregate result is too large: 1800010 vs 1048576. Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC.
@@ -80,18 +80,18 @@ DELETE FROM delete_agg_test WHERE id > 1;
 -- Test as aggregate function
 -- Should return 1
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
-                           QUERY PLAN                            
------------------------------------------------------------------
+SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ pdb.all();
+                            QUERY PLAN                            
+------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: delete_agg_test_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
-SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
+SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ pdb.all();
  count 
 -------
      1
@@ -99,18 +99,18 @@ SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
 
 -- Should return {"value": 1.0}
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ pdb.all();
                                   QUERY PLAN                                   
 -------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: delete_agg_test_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"id"}})
      Aggregate Definition: {"0":{"value_count":{"field":"id","missing":null}}}
 (6 rows)
 
-SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ pdb.all();
       agg       
 ----------------
  {"value": 1.0}
@@ -118,18 +118,18 @@ SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test W
 
 -- Should return count: 1
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ pdb.all();
                                QUERY PLAN                                
 -------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: delete_agg_test_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: CUSTOM_AGG({"stats":{"field":"id"}})
      Aggregate Definition: {"0":{"stats":{"field":"id","missing":null}}}
 (6 rows)
 
-SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ pdb.all();
                              agg                              
 --------------------------------------------------------------
  {"avg": 1.0, "max": 1.0, "min": 1.0, "sum": 1.0, "count": 1}
@@ -142,7 +142,7 @@ SELECT
     COUNT(*) OVER (),
     pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
 FROM delete_agg_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 1;
                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                      
@@ -159,14 +159,14 @@ LIMIT 1;
             TopK Order By: id asc
             TopK Limit: 1
          Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":"all"}}
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (13 rows)
 
 SELECT
     COUNT(*) OVER (),
     pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
 FROM delete_agg_test
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 1;
  count |      agg       
@@ -189,18 +189,18 @@ INSERT INTO mvcc_agg_test (category) VALUES ('A');
 ANALYZE mvcc_agg_test;
 -- Test solve_mvcc=false in standard aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ pdb.all();
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.mvcc_agg_test
    Output: pdb.agg_fn('AGG'::text)
    Index: mvcc_agg_test_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"category"}})
      Aggregate Definition: {"0":{"value_count":{"field":"category","missing":null}}}
 (6 rows)
 
-SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ pdb.all();
       agg       
 ----------------
  {"value": 3.0}
@@ -208,19 +208,19 @@ SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc
 
 -- Test solve_mvcc=false with GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
+SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ pdb.all() GROUP BY category ORDER BY category;
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.mvcc_agg_test
    Output: category, pdb.agg_fn('AGG'::text)
    Index: mvcc_agg_test_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"id"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"id","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (7 rows)
 
-SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
+SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ pdb.all() GROUP BY category ORDER BY category;
  category |      agg       
 ----------+----------------
  A        | {"value": 2.0}
@@ -231,7 +231,7 @@ SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM 
 SELECT
     pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false),
     pdb.agg('{"value_count": {"field": "category"}}'::jsonb, true)
-FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+FROM mvcc_agg_test WHERE id @@@ pdb.all();
 ERROR:  pdb.agg() calls have contradicting visibility settings: 'raw' and 'transaction'. All pdb.agg() calls in a query must use the same visibility value, and omitting the argument selects 'transaction'.
 DROP TABLE mvcc_agg_test;
 -- =====================================================================

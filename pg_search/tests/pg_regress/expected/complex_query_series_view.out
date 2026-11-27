@@ -39,7 +39,9 @@ CREATE INDEX inventory_items_idx ON "inventory_items" USING paradedb (
 );
 SELECT "id"
 FROM "inventory_items" AS "InventoryItems"
-WHERE "InventoryItems"."id" @@@ '{"boolean":{"must":[{"term":{"field":"supplier_id","value":115}},{"boolean":{"should":[{"term":{"field":"condition","value":"new"}},{"term":{"field":"condition","value":"used"}}]}},{"term":{"field":"availability","value":"available"}}]}}'::jsonb
+WHERE "InventoryItems"."supplier_id" = 115
+  AND ("InventoryItems"."condition" === 'new' OR "InventoryItems"."condition" === 'used')
+  AND "InventoryItems"."availability" === 'available'
 ORDER BY pdb.score("InventoryItems"."id") DESC
 LIMIT 12
 OFFSET 0;

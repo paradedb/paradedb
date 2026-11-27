@@ -34,14 +34,14 @@ USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.u
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
-WHERE id @@@ paradedb.exists('metadata.category')
+WHERE (metadata -> 'category') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY category;
 
 -- Execute the query
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
-WHERE id @@@ paradedb.exists('metadata.category')
+WHERE (metadata -> 'category') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY category;
 
@@ -73,8 +73,8 @@ SELECT metadata->>'category' AS category,
        metadata->>'brand' AS brand,
        COUNT(*) AS count
 FROM json_test_multiple
-WHERE id @@@ paradedb.exists('metadata.category') 
-  AND id @@@ paradedb.exists('metadata.brand')
+WHERE (metadata -> 'category') @@@ pdb.exists()
+  AND (metadata -> 'brand') @@@ pdb.exists()
 GROUP BY metadata->>'category', metadata->>'brand'
 ORDER BY category, brand;
 
@@ -83,8 +83,8 @@ SELECT metadata->>'category' AS category,
        metadata->>'brand' AS brand,
        COUNT(*) AS count
 FROM json_test_multiple
-WHERE id @@@ paradedb.exists('metadata.category') 
-  AND id @@@ paradedb.exists('metadata.brand')
+WHERE (metadata -> 'category') @@@ pdb.exists()
+  AND (metadata -> 'brand') @@@ pdb.exists()
 GROUP BY metadata->>'category', metadata->>'brand'
 ORDER BY category, brand;
 
@@ -115,7 +115,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'brand' AS brand, 
        COUNT(*) AS count
 FROM json_test_aggregates
-WHERE id @@@ paradedb.exists('metadata.brand')
+WHERE (metadata -> 'brand') @@@ pdb.exists()
 GROUP BY metadata->>'brand'
 ORDER BY brand;
 
@@ -123,7 +123,7 @@ ORDER BY brand;
 SELECT metadata->>'brand' AS brand, 
        COUNT(*) AS count
 FROM json_test_aggregates
-WHERE id @@@ paradedb.exists('metadata.brand')
+WHERE (metadata -> 'brand') @@@ pdb.exists()
 GROUP BY metadata->>'brand'
 ORDER BY brand;
 
@@ -132,7 +132,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'category' AS category, 
        SUM((metadata->>'price')::numeric) AS total_price
 FROM json_test_aggregates
-WHERE id @@@ paradedb.exists('metadata.price')
+WHERE (metadata -> 'price') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY category;
 
@@ -140,7 +140,7 @@ ORDER BY category;
 SELECT metadata->>'category' AS category, 
        SUM((metadata->>'price')::numeric) AS total_price
 FROM json_test_aggregates
-WHERE id @@@ paradedb.exists('metadata.price')
+WHERE (metadata -> 'price') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY category;
 
@@ -150,7 +150,7 @@ SELECT metadata->>'brand' AS brand,
        AVG((metadata->>'price')::numeric) AS avg_price,
        COUNT(*) AS item_count
 FROM json_test_aggregates
-WHERE id @@@ paradedb.exists('metadata.price')
+WHERE (metadata -> 'price') @@@ pdb.exists()
 GROUP BY metadata->>'brand'
 ORDER BY brand;
 
@@ -159,7 +159,7 @@ SELECT metadata->>'brand' AS brand,
        AVG((metadata->>'price')::numeric) AS avg_price,
        COUNT(*) AS item_count
 FROM json_test_aggregates
-WHERE id @@@ paradedb.exists('metadata.price')
+WHERE (metadata -> 'price') @@@ pdb.exists()
 GROUP BY metadata->>'brand'
 ORDER BY brand;
 
@@ -170,7 +170,7 @@ SELECT metadata->>'category' AS category,
        MAX((metadata->>'price')::numeric) AS max_price,
        COUNT(*) AS item_count
 FROM json_test_aggregates
-WHERE id @@@ paradedb.exists('metadata.price')
+WHERE (metadata -> 'price') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY category;
 
@@ -180,7 +180,7 @@ SELECT metadata->>'category' AS category,
        MAX((metadata->>'price')::numeric) AS max_price,
        COUNT(*) AS item_count
 FROM json_test_aggregates
-WHERE id @@@ paradedb.exists('metadata.price')
+WHERE (metadata -> 'price') @@@ pdb.exists()
 GROUP BY metadata->>'category'
 ORDER BY category;
 
@@ -193,7 +193,7 @@ SELECT metadata->>'brand' AS brand,
        MIN((metadata->>'price')::numeric) AS min_price,
        MAX((metadata->>'price')::numeric) AS max_price
 FROM json_test_aggregates
-WHERE id @@@ paradedb.exists('metadata.price')
+WHERE (metadata -> 'price') @@@ pdb.exists()
 GROUP BY metadata->>'brand'
 ORDER BY brand;
 
@@ -205,7 +205,7 @@ SELECT metadata->>'brand' AS brand,
        MIN((metadata->>'price')::numeric) AS min_price,
        MAX((metadata->>'price')::numeric) AS max_price
 FROM json_test_aggregates
-WHERE id @@@ paradedb.exists('metadata.price')
+WHERE (metadata -> 'price') @@@ pdb.exists()
 GROUP BY metadata->>'brand'
 ORDER BY brand;
 
@@ -234,13 +234,13 @@ USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_nulls
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY metadata->>'category'
 ORDER BY category NULLS FIRST;
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_nulls
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY metadata->>'category'
 ORDER BY category NULLS FIRST;
 
@@ -272,7 +272,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata_json->>'reservation_id' AS txn_key_value,
        COUNT(*) AS count
 FROM ledger_transactions
-WHERE id @@@ paradedb.exists('metadata_json.reservation_id')
+WHERE (metadata_json -> 'reservation_id') @@@ pdb.exists()
 GROUP BY metadata_json->>'reservation_id'
 ORDER BY txn_key_value;
 
@@ -280,7 +280,7 @@ ORDER BY txn_key_value;
 SELECT metadata_json->>'reservation_id' AS txn_key_value,
        COUNT(*) AS count
 FROM ledger_transactions
-WHERE id @@@ paradedb.exists('metadata_json.reservation_id')
+WHERE (metadata_json -> 'reservation_id') @@@ pdb.exists()
 GROUP BY metadata_json->>'reservation_id'
 ORDER BY txn_key_value;
 
@@ -312,8 +312,8 @@ SELECT config->'user'->'profile'->'settings'->>'theme' AS theme,
        config->'user'->'profile'->'settings'->>'region' AS region,
        COUNT(*) AS count
 FROM json_test_deep
-WHERE id @@@ paradedb.exists('config.user.profile.settings.theme')
-  AND id @@@ paradedb.exists('config.user.profile.settings.region')
+WHERE (config -> 'user' -> 'profile' -> 'settings' -> 'theme') @@@ pdb.exists()
+  AND (config -> 'user' -> 'profile' -> 'settings' -> 'region') @@@ pdb.exists()
 GROUP BY config->'user'->'profile'->'settings'->>'theme',
          config->'user'->'profile'->'settings'->>'region'
 ORDER BY theme, region;
@@ -323,8 +323,8 @@ SELECT config->'user'->'profile'->'settings'->>'theme' AS theme,
        config->'user'->'profile'->'settings'->>'region' AS region,
        COUNT(*) AS count
 FROM json_test_deep
-WHERE id @@@ paradedb.exists('config.user.profile.settings.theme')
-  AND id @@@ paradedb.exists('config.user.profile.settings.region')
+WHERE (config -> 'user' -> 'profile' -> 'settings' -> 'theme') @@@ pdb.exists()
+  AND (config -> 'user' -> 'profile' -> 'settings' -> 'region') @@@ pdb.exists()
 GROUP BY config->'user'->'profile'->'settings'->>'theme',
          config->'user'->'profile'->'settings'->>'region'
 ORDER BY theme, region;
@@ -364,14 +364,14 @@ USING paradedb (id, (data::pdb.unicode_words('columnar=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT data->>'type' AS object_type, COUNT(*) AS count
 FROM json_test_mixed
-WHERE id @@@ paradedb.exists('data.type')
+WHERE (data -> 'type') @@@ pdb.exists()
 GROUP BY data->>'type'
 ORDER BY object_type;
 
 -- Execute the query
 SELECT data->>'type' AS object_type, COUNT(*) AS count
 FROM json_test_mixed
-WHERE id @@@ paradedb.exists('data.type')
+WHERE (data -> 'type') @@@ pdb.exists()
 GROUP BY data->>'type'
 ORDER BY object_type;
 
@@ -379,18 +379,18 @@ ORDER BY object_type;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT data->>'category' AS category, data->>'brand' AS brand, COUNT(*) AS count
 FROM json_test_mixed
-WHERE id @@@ paradedb.term('data.type', 'product')
-  AND id @@@ paradedb.exists('data.category')
-  AND id @@@ paradedb.exists('data.brand')
+WHERE (data -> 'type') === 'product'
+  AND (data -> 'category') @@@ pdb.exists()
+  AND (data -> 'brand') @@@ pdb.exists()
 GROUP BY data->>'category', data->>'brand'
 ORDER BY category, brand;
 
 -- Execute the query
 SELECT data->>'category' AS category, data->>'brand' AS brand, COUNT(*) AS count
 FROM json_test_mixed
-WHERE id @@@ paradedb.term('data.type', 'product')
-  AND id @@@ paradedb.exists('data.category')
-  AND id @@@ paradedb.exists('data.brand')
+WHERE (data -> 'type') === 'product'
+  AND (data -> 'category') @@@ pdb.exists()
+  AND (data -> 'brand') @@@ pdb.exists()
 GROUP BY data->>'category', data->>'brand'
 ORDER BY category, brand;
 
@@ -399,8 +399,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT data->'profile'->'location'->>'country' AS country, 
        COUNT(*) AS user_count
 FROM json_test_mixed
-WHERE id @@@ paradedb.term('data.type', 'user')
-  AND id @@@ paradedb.exists('data.profile.location.country')
+WHERE (data -> 'type') === 'user'
+  AND (data -> 'profile' -> 'location' -> 'country') @@@ pdb.exists()
 GROUP BY data->'profile'->'location'->>'country'
 ORDER BY country;
 
@@ -408,8 +408,8 @@ ORDER BY country;
 SELECT data->'profile'->'location'->>'country' AS country, 
        COUNT(*) AS user_count
 FROM json_test_mixed
-WHERE id @@@ paradedb.term('data.type', 'user')
-  AND id @@@ paradedb.exists('data.profile.location.country')
+WHERE (data -> 'type') === 'user'
+  AND (data -> 'profile' -> 'location' -> 'country') @@@ pdb.exists()
 GROUP BY data->'profile'->'location'->>'country'
 ORDER BY country;
 
@@ -440,7 +440,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT payload->'metadata'->>'priority' AS priority_text,
        COUNT(*) AS count
 FROM json_test_operators
-WHERE id @@@ paradedb.exists('payload.metadata.priority')
+WHERE (payload -> 'metadata' -> 'priority') @@@ pdb.exists()
 GROUP BY payload->'metadata'->>'priority'
 ORDER BY priority_text;
 
@@ -448,7 +448,7 @@ ORDER BY priority_text;
 SELECT payload->'metadata'->>'priority' AS priority_text,
        COUNT(*) AS count
 FROM json_test_operators
-WHERE id @@@ paradedb.exists('payload.metadata.priority')
+WHERE (payload -> 'metadata' -> 'priority') @@@ pdb.exists()
 GROUP BY payload->'metadata'->>'priority'
 ORDER BY priority_text;
 
@@ -457,7 +457,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT payload->>'team' AS team,
        COUNT(*) AS count
 FROM json_test_operators
-WHERE id @@@ paradedb.exists('payload.team')
+WHERE (payload -> 'team') @@@ pdb.exists()
 GROUP BY payload->>'team'
 ORDER BY team;
 
@@ -465,7 +465,7 @@ ORDER BY team;
 SELECT payload->>'team' AS team,
        COUNT(*) AS count
 FROM json_test_operators
-WHERE id @@@ paradedb.exists('payload.team')
+WHERE (payload -> 'team') @@@ pdb.exists()
 GROUP BY payload->>'team'
 ORDER BY team;
 
@@ -474,8 +474,8 @@ SELECT payload->'metadata'->>'priority' AS priority_text,
        payload->'metadata'->'assignee'->>'team' AS team,
        COUNT(*) AS count
 FROM json_test_operators
-WHERE id @@@ paradedb.exists('payload.metadata.priority')
-  AND id @@@ paradedb.exists('payload.metadata.assignee.team')
+WHERE (payload -> 'metadata' -> 'priority') @@@ pdb.exists()
+  AND (payload -> 'metadata' -> 'assignee' -> 'team') @@@ pdb.exists()
 GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
 ORDER BY priority_text, team;
 
@@ -484,8 +484,8 @@ SELECT payload->'metadata'->>'priority' AS priority_text,
        payload->'metadata'->'assignee'->>'team' AS team,
        COUNT(*) AS count
 FROM json_test_operators
-WHERE id @@@ paradedb.exists('payload.metadata.priority')
-  AND id @@@ paradedb.exists('payload.metadata.assignee.team')
+WHERE (payload -> 'metadata' -> 'priority') @@@ pdb.exists()
+  AND (payload -> 'metadata' -> 'assignee' -> 'team') @@@ pdb.exists()
 GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
 ORDER BY priority_text, team;
 
@@ -518,8 +518,8 @@ SELECT document->'source'->>'system' AS source_system,
        COUNT(*) AS count,
        AVG((document->'metrics'->>'score')::numeric) AS avg_score
 FROM json_test_complex
-WHERE id @@@ paradedb.exists('document.source.system')
-  AND id @@@ paradedb.exists('document.metrics.category')
+WHERE (document -> 'source' -> 'system') @@@ pdb.exists()
+  AND (document -> 'metrics' -> 'category') @@@ pdb.exists()
 GROUP BY document->'source'->>'system', document->'metrics'->>'category'
 ORDER BY source_system, metric_category;
 
@@ -529,8 +529,8 @@ SELECT document->'source'->>'system' AS source_system,
        COUNT(*) AS count,
        AVG((document->'metrics'->>'score')::numeric) AS avg_score
 FROM json_test_complex
-WHERE id @@@ paradedb.exists('document.source.system')
-  AND id @@@ paradedb.exists('document.metrics.category')
+WHERE (document -> 'source' -> 'system') @@@ pdb.exists()
+  AND (document -> 'metrics' -> 'category') @@@ pdb.exists()
 GROUP BY document->'source'->>'system', document->'metrics'->>'category'
 ORDER BY source_system, metric_category;
 
@@ -543,7 +543,7 @@ SELECT document->'metrics'->>'category' AS metric_category,
        MIN((document->'metrics'->>'score')::numeric) AS min_score,
        MAX((document->'metrics'->>'score')::numeric) AS max_score
 FROM json_test_complex
-WHERE id @@@ paradedb.exists('document.metrics.score')
+WHERE (document -> 'metrics' -> 'score') @@@ pdb.exists()
 GROUP BY document->'metrics'->>'category'
 ORDER BY metric_category;
 
@@ -555,7 +555,7 @@ SELECT document->'metrics'->>'category' AS metric_category,
        MIN((document->'metrics'->>'score')::numeric) AS min_score,
        MAX((document->'metrics'->>'score')::numeric) AS max_score
 FROM json_test_complex
-WHERE id @@@ paradedb.exists('document.metrics.score')
+WHERE (document -> 'metrics' -> 'score') @@@ pdb.exists()
 GROUP BY document->'metrics'->>'category'
 ORDER BY metric_category;
 
@@ -587,7 +587,7 @@ SELECT
     config->'api'->>'version' AS api_version,  -- Simpler: extract version string
     COUNT(*) AS count
 FROM json_test_reconstruction
-WHERE id @@@ paradedb.exists('config.api.version')
+WHERE (config -> 'api' -> 'version') @@@ pdb.exists()
 GROUP BY config->'api'->>'version'  -- Group by version string
 ORDER BY api_version;
 
@@ -596,7 +596,7 @@ SELECT
     config->'api'->>'version' AS api_version,
     COUNT(*) AS count
 FROM json_test_reconstruction
-WHERE id @@@ paradedb.exists('config.api.version')
+WHERE (config -> 'api' -> 'version') @@@ pdb.exists()
 GROUP BY config->'api'->>'version'
 ORDER BY api_version;
 
@@ -607,8 +607,8 @@ SELECT
     config->'api'->>'version' AS api_version,
     COUNT(*) AS count
 FROM json_test_reconstruction
-WHERE id @@@ paradedb.exists('config.database.host')
-  AND id @@@ paradedb.exists('config.api.version')
+WHERE (config -> 'database' -> 'host') @@@ pdb.exists()
+  AND (config -> 'api' -> 'version') @@@ pdb.exists()
 GROUP BY config->'database'->>'host', config->'api'->>'version'
 ORDER BY db_host, api_version;
 
@@ -618,8 +618,8 @@ SELECT
     config->'api'->>'version' AS api_version,
     COUNT(*) AS count
 FROM json_test_reconstruction
-WHERE id @@@ paradedb.exists('config.database.host')
-  AND id @@@ paradedb.exists('config.api.version')
+WHERE (config -> 'database' -> 'host') @@@ pdb.exists()
+  AND (config -> 'api' -> 'version') @@@ pdb.exists()
 GROUP BY config->'database'->>'host', config->'api'->>'version'
 ORDER BY db_host, api_version;
 
@@ -630,8 +630,8 @@ SELECT
     config->'database'->>'port' AS db_port,
     COUNT(*) AS count
 FROM json_test_reconstruction
-WHERE id @@@ paradedb.exists('config.api.endpoints.users')
-  AND id @@@ paradedb.exists('config.database.port')
+WHERE (config -> 'api' -> 'endpoints' -> 'users') @@@ pdb.exists()
+  AND (config -> 'database' -> 'port') @@@ pdb.exists()
 GROUP BY config->'api'->'endpoints'->>'users', config->'database'->>'port'
 ORDER BY users_endpoint, db_port;
 
@@ -641,8 +641,8 @@ SELECT
     config->'database'->>'port' AS db_port,
     COUNT(*) AS count
 FROM json_test_reconstruction
-WHERE id @@@ paradedb.exists('config.api.endpoints.users')
-  AND id @@@ paradedb.exists('config.database.port')
+WHERE (config -> 'api' -> 'endpoints' -> 'users') @@@ pdb.exists()
+  AND (config -> 'database' -> 'port') @@@ pdb.exists()
 GROUP BY config->'api'->'endpoints'->>'users', config->'database'->>'port'
 ORDER BY users_endpoint, db_port;
 
@@ -679,8 +679,8 @@ SELECT
     user_profile->>'role' AS role,
     COUNT(*) AS employee_count
 FROM json_test_multi_subfields
-WHERE id @@@ paradedb.exists('user_profile.department')
-  AND id @@@ paradedb.exists('user_profile.role')
+WHERE (user_profile -> 'department') @@@ pdb.exists()
+  AND (user_profile -> 'role') @@@ pdb.exists()
 GROUP BY user_profile->>'department', user_profile->>'role'
 ORDER BY department, role;
 
@@ -690,8 +690,8 @@ SELECT
     user_profile->>'role' AS role,
     COUNT(*) AS employee_count
 FROM json_test_multi_subfields
-WHERE id @@@ paradedb.exists('user_profile.department')
-  AND id @@@ paradedb.exists('user_profile.role')
+WHERE (user_profile -> 'department') @@@ pdb.exists()
+  AND (user_profile -> 'role') @@@ pdb.exists()
 GROUP BY user_profile->>'department', user_profile->>'role'
 ORDER BY department, role;
 
@@ -703,9 +703,9 @@ SELECT
     user_profile->>'location' AS location,
     COUNT(*) AS employee_count
 FROM json_test_multi_subfields
-WHERE id @@@ paradedb.exists('user_profile.department')
-  AND id @@@ paradedb.exists('user_profile.role')
-  AND id @@@ paradedb.exists('user_profile.location')
+WHERE (user_profile -> 'department') @@@ pdb.exists()
+  AND (user_profile -> 'role') @@@ pdb.exists()
+  AND (user_profile -> 'location') @@@ pdb.exists()
 GROUP BY user_profile->>'department', user_profile->>'role', user_profile->>'location'
 ORDER BY department, role, location;
 
@@ -716,9 +716,9 @@ SELECT
     user_profile->>'location' AS location,
     COUNT(*) AS employee_count
 FROM json_test_multi_subfields
-WHERE id @@@ paradedb.exists('user_profile.department')
-  AND id @@@ paradedb.exists('user_profile.role')
-  AND id @@@ paradedb.exists('user_profile.location')
+WHERE (user_profile -> 'department') @@@ pdb.exists()
+  AND (user_profile -> 'role') @@@ pdb.exists()
+  AND (user_profile -> 'location') @@@ pdb.exists()
 GROUP BY user_profile->>'department', user_profile->>'role', user_profile->>'location'
 ORDER BY department, role, location;
 
@@ -730,8 +730,8 @@ SELECT
     COUNT(*) AS order_count,
     SUM((order_details->>'quantity')::int) AS total_quantity
 FROM json_test_multi_subfields
-WHERE id @@@ paradedb.exists('user_profile.department')
-  AND id @@@ paradedb.exists('order_details.category')
+WHERE (user_profile -> 'department') @@@ pdb.exists()
+  AND (order_details -> 'category') @@@ pdb.exists()
 GROUP BY user_profile->>'department', order_details->>'category'
 ORDER BY department, product_category;
 
@@ -742,8 +742,8 @@ SELECT
     COUNT(*) AS order_count,
     SUM((order_details->>'quantity')::int) AS total_quantity
 FROM json_test_multi_subfields
-WHERE id @@@ paradedb.exists('user_profile.department')
-  AND id @@@ paradedb.exists('order_details.category')
+WHERE (user_profile -> 'department') @@@ pdb.exists()
+  AND (order_details -> 'category') @@@ pdb.exists()
 GROUP BY user_profile->>'department', order_details->>'category'
 ORDER BY department, product_category;
 
@@ -758,8 +758,8 @@ SELECT
     AVG((order_details->>'price')::numeric) AS avg_price,
     SUM((order_details->>'quantity')::int) AS total_quantity
 FROM json_test_multi_subfields
-WHERE id @@@ paradedb.exists('user_profile.department')
-  AND id @@@ paradedb.exists('order_details.category')
+WHERE (user_profile -> 'department') @@@ pdb.exists()
+  AND (order_details -> 'category') @@@ pdb.exists()
 GROUP BY user_profile->>'department', user_profile->>'location', 
          order_details->>'product', order_details->>'category'
 ORDER BY department, location, product;
@@ -774,8 +774,8 @@ SELECT
     AVG((order_details->>'price')::numeric) AS avg_price,
     SUM((order_details->>'quantity')::int) AS total_quantity
 FROM json_test_multi_subfields
-WHERE id @@@ paradedb.exists('user_profile.department')
-  AND id @@@ paradedb.exists('order_details.category')
+WHERE (user_profile -> 'department') @@@ pdb.exists()
+  AND (order_details -> 'category') @@@ pdb.exists()
 GROUP BY user_profile->>'department', user_profile->>'location', 
          order_details->>'product', order_details->>'category'
 ORDER BY department, location, product;
@@ -806,7 +806,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT content->'user-info'->>'email@domain' AS email_type,
        COUNT(*) AS count
 FROM json_test_special
-WHERE id @@@ paradedb.exists('content.user-info.email@domain')
+WHERE (content -> 'user-info' -> 'email@domain') @@@ pdb.exists()
 GROUP BY content->'user-info'->>'email@domain'
 ORDER BY email_type;
 
@@ -814,7 +814,7 @@ ORDER BY email_type;
 SELECT content->'user-info'->>'email@domain' AS email_type,
        COUNT(*) AS count
 FROM json_test_special
-WHERE id @@@ paradedb.exists('content.user-info.email@domain')
+WHERE (content -> 'user-info' -> 'email@domain') @@@ pdb.exists()
 GROUP BY content->'user-info'->>'email@domain'
 ORDER BY email_type;
 

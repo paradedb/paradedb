@@ -10,23 +10,8 @@ CREATE TABLE field_requirements (
 INSERT INTO field_requirements VALUES (1, 'Running shoes', 'shoes', '{"color":"Blue"}');
 CREATE INDEX field_requirements_idx ON field_requirements
 USING paradedb (id, description, metadata);
--- Typed queries can execute without inferring a field from the left-hand side.
-SET paradedb.planner_warnings = off;
-SELECT count(*) AS empty_matches FROM field_requirements
-WHERE omitted @@@ paradedb.empty();
- empty_matches 
----------------
-             0
-(1 row)
-
-SELECT count(*) AS all_matches FROM field_requirements
-WHERE omitted @@@ paradedb.with_index('field_requirements_idx', paradedb.all());
- all_matches 
--------------
-           1
-(1 row)
-
 -- Field-based searches still fail when performance warnings are disabled.
+SET paradedb.planner_warnings = off;
 SELECT id FROM field_requirements WHERE omitted ||| 'shoes';
 ERROR:  column "omitted" is not included in ParadeDB index "field_requirements_idx"
 HINT:  Recreate the index including column "omitted" to search it with a ParadeDB operator.
@@ -73,7 +58,7 @@ HINT:  Recreate the index with 'columnar=true' on the field's tokenizer, or use 
 -- A Top K window aggregate uses the other segment collection path.
 SELECT id, pdb.agg('{"terms":{"field":"metadata.color"}}') OVER ()
 FROM field_requirements WHERE description ||| 'shoes'
-ORDER BY paradedb.score(id) DESC LIMIT 1;
+ORDER BY pdb.score(id) DESC LIMIT 1;
 ERROR:  field "metadata.color" requires columnar storage
 HINT:  Recreate the index with 'columnar=true' on the field's tokenizer, or use pdb.literal or pdb.literal_normalized, which enable columnar storage by default. For a JSON path, configure its parent JSON field.
 -- An unrelated collection failure must retain the underlying error.
@@ -108,7 +93,7 @@ FROM field_requirements WHERE id @@@ pdb.all();
 
 SELECT id, pdb.agg('{"terms":{"field":"metadata.color"}}') OVER ()
 FROM field_requirements WHERE description ||| 'shoes'
-ORDER BY paradedb.score(id) DESC LIMIT 1;
+ORDER BY pdb.score(id) DESC LIMIT 1;
  id |                                                    agg                                                     
 ----+------------------------------------------------------------------------------------------------------------
   1 | {"buckets": [{"key": "Blue", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}

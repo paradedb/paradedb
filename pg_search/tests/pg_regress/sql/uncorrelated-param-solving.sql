@@ -29,7 +29,7 @@ SELECT id, status, created_at
 FROM items
 WHERE
     group_id = 'g1'
-    AND (id @@@ paradedb.all())
+    AND (id @@@ pdb.all())
     AND status === ARRAY['posted', 'pending']
     AND created_at <= (SELECT created_at FROM items WHERE id = '4')
     AND (
@@ -44,7 +44,7 @@ SELECT id, status, created_at
 FROM items
 WHERE
     group_id = 'g1'
-    AND (id @@@ paradedb.all())
+    AND (id @@@ pdb.all())
     AND status === ARRAY['posted', 'pending']
     AND created_at <= (SELECT created_at FROM items WHERE id = '4')
     AND (

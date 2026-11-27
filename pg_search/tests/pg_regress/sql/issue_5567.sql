@@ -56,7 +56,7 @@ SET paradedb.enable_join_custom_scan = off;
 
 SELECT p.id, p.category, p.name
 FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
-WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+WHERE p.kind === 'manga' AND c.id @@@ pdb.all()
 ORDER BY p.category DESC NULLS FIRST, p.name ASC
 LIMIT 5;
 
@@ -68,14 +68,14 @@ SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.category, p.name
 FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
-WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+WHERE p.kind === 'manga' AND c.id @@@ pdb.all()
 ORDER BY p.category DESC NULLS FIRST, p.name ASC
 LIMIT 5;
 
 -- Same rows as the reference result above.
 SELECT p.id, p.category, p.name
 FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
-WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+WHERE p.kind === 'manga' AND c.id @@@ pdb.all()
 ORDER BY p.category DESC NULLS FIRST, p.name ASC
 LIMIT 5;
 
@@ -85,7 +85,7 @@ SET paradedb.enable_join_custom_scan = off;
 
 SELECT p.id, p.kind, p.category, p.name
 FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
-WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+WHERE p.kind === 'manga' AND c.id @@@ pdb.all()
 ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
 LIMIT 5;
 
@@ -94,13 +94,13 @@ SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.kind, p.category, p.name
 FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
-WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+WHERE p.kind === 'manga' AND c.id @@@ pdb.all()
 ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
 LIMIT 5;
 
 SELECT p.id, p.kind, p.category, p.name
 FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
-WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
+WHERE p.kind === 'manga' AND c.id @@@ pdb.all()
 ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
 LIMIT 5;
 

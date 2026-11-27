@@ -36,17 +36,10 @@ CREATE TABLE spill_small_pages (
 );
 
 CREATE INDEX spill_small_files_idx ON spill_small_files
-USING bm25 (id, title, content)
-WITH (
-    text_fields = '{"title": {"fast": true}, "content": {}}'
-);
+USING paradedb (id, (title::pdb.unicode_words('columnar=true')), content);
 
 CREATE INDEX spill_small_pages_idx ON spill_small_pages
-USING bm25 (id, file_id, page_text, size_bytes)
-WITH (
-    numeric_fields = '{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
-    text_fields = '{"page_text": {}}'
-);
+USING paradedb (id, file_id, page_text, size_bytes);
 
 SET paradedb.global_mutable_segment_rows = 0;
 

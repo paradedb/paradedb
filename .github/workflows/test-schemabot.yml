@@ -11,12 +11,11 @@ on:
     branches:
       - main
     paths:
-      - ".cargo/**"
+      - ".cargo/config.toml"
       - ".github/workflows/test-schemabot.yml"
-      - "Cargo.lock"
+      - "schemabot/**"
       - "Cargo.toml"
       - "rust-toolchain.toml"
-      - "schemabot/**"
   workflow_dispatch:
 
 concurrency:

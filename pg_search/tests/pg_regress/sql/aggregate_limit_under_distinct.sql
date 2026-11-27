@@ -16,10 +16,10 @@ CREATE TABLE limit_under_distinct_work_items (
 );
 
 CREATE INDEX limit_under_distinct_researchers_idx ON limit_under_distinct_researchers
-USING bm25 (researcher_id, bio);
+USING paradedb (researcher_id, bio);
 
 CREATE INDEX limit_under_distinct_work_items_idx ON limit_under_distinct_work_items
-USING bm25 (work_id, researcher_id, item_date, abstract_text);
+USING paradedb (work_id, researcher_id, item_date, abstract_text);
 
 -- Researchers 1 and 2 share the same MAX(item_date).
 INSERT INTO limit_under_distinct_researchers (researcher_id, bio) VALUES
@@ -46,7 +46,7 @@ SELECT row_number() OVER (), 'cat_' || lpad(k::text, 2, '0')
 FROM generate_series(0, 49) k, generate_series(1, 10 * (k / 10 + 1)) n;
 
 CREATE INDEX limit_under_distinct_items_idx ON limit_under_distinct_items
-USING bm25 (id, (cat::pdb.literal));
+USING paradedb (id, (cat::pdb.literal));
 
 ANALYZE limit_under_distinct_researchers;
 ANALYZE limit_under_distinct_work_items;

@@ -39,7 +39,7 @@ Query builders return a ParadeDB query object for the right-hand side of `@@@`.
 
 `pdb.term`, `pdb.term_set`, `pdb.range`, and `pdb.range_term` are overloaded for supported Postgres scalar and range types.
 
-The aggregate form `pdb.term_set(value bigint)` still exists for compatibility, but new queries should use `pdb.term_set(array_agg(...))` instead.
+To build a term set from a group of rows, pass `array_agg(...)` to `pdb.term_set()`.
 
 ## Query Modifier Casts
 

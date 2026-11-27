@@ -33,7 +33,7 @@ SET enable_mergejoin = off;
 EXPLAIN (COSTS OFF)
 SELECT id
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND NOT EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -64,7 +64,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
 -- IDs 1-500 have entries for user1, so NOT EXISTS should return IDs >= 501
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND NOT EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -88,7 +88,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
 EXPLAIN (COSTS OFF)
 SELECT id
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -117,7 +117,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
 
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -135,21 +135,17 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
   5 | Item 5 | 4.9947444e-05
 (5 rows)
 
--- Test 3: NOT EXISTS with multiple @@@ predicates
+-- Test 3: NOT EXISTS with DisMax scoring and multiple search predicates
 -- Verify the plan uses an Anti Join with combined predicates
 EXPLAIN (COSTS OFF)
 SELECT id
 FROM score_aj_items AS s
-WHERE s.id @@@ '{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}'::jsonb
-AND s.id @@@ paradedb.boolean(
-    should => ARRAY[
-        paradedb.disjunction_max(
-            tie_breaker => 0.75,
-            disjuncts => ARRAY[
-                paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
-                paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
-            ]
-        )
+WHERE s.state === 'active'
+AND s.id @@@ paradedb.disjunction_max(
+    tie_breaker => 0.75,
+    disjuncts => ARRAY[
+        paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
+        paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
     ]
 )
 AND NOT EXISTS (
@@ -160,8 +156,8 @@ AND NOT EXISTS (
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: s, score_aj_entries)
-                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (pdb.score(s.id)) DESC, s.id
@@ -172,7 +168,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
                      Index: score_aj_items_idx
                      Exec Method: NormalScanExecState
                      Scores: true
-                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}}},{"with_index":{"query":{"boolean":{"should":[{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"title","value":"Item","tokenizer":null,"distance":1,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}},"factor":2.0}},{"match":{"field":"title","value":"Item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}}],"tie_breaker":0.75}}]}}}}]}}
+                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"state","value":"active"}}}},{"with_index":{"query":{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"title","value":"Item","tokenizer":null,"distance":1,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}},"factor":2.0}},{"match":{"field":"title","value":"Item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}}],"tie_breaker":0.75}}}}]}}
                ->  Materialize
                      ->  Seq Scan on score_aj_entries
                            Filter: (user_id = 'user1'::text)
@@ -180,16 +176,12 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
 
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
-WHERE s.id @@@ '{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}'::jsonb
-AND s.id @@@ paradedb.boolean(
-    should => ARRAY[
-        paradedb.disjunction_max(
-            tie_breaker => 0.75,
-            disjuncts => ARRAY[
-                paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
-                paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
-            ]
-        )
+WHERE s.state === 'active'
+AND s.id @@@ paradedb.disjunction_max(
+    tie_breaker => 0.75,
+    disjuncts => ARRAY[
+        paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
+        paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
     ]
 )
 AND NOT EXISTS (

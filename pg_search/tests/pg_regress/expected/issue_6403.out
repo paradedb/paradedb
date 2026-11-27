@@ -51,10 +51,10 @@ FROM memory_units WHERE bank_id = 'bank1' AND fact_type = 'observation';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
-                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
+                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on memory_units
          Table: memory_units
@@ -64,7 +64,7 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
          Scores: true
             TopK Order By: pdb.score() desc, id asc
             TopK Limit: 10
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
          ->  Bitmap Index Scan on idx_mu_bank_fact
                Index Cond: ((bank_id = 'bank1'::text) AND (fact_type = 'observation'::text))
 (12 rows)
@@ -72,8 +72,8 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 -- Serial: private iterators, so a re-claim simply opens a fresh one.
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
   id  
 ------
     9
@@ -92,8 +92,8 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 SET paradedb.enable_bitmap_intersection TO off;
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
   id  
 ------
     9
@@ -125,12 +125,12 @@ FROM drivers d
 CROSS JOIN LATERAL (
     SELECT id FROM memory_units mu
     WHERE mu.bank_id = d.bank_id AND mu.fact_type = d.fact_type
-      AND mu.id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-    ORDER BY paradedb.score(mu.id) DESC, mu.id LIMIT 3
+      AND mu.body ||| 'alpha'
+    ORDER BY pdb.score(mu.id) DESC, mu.id LIMIT 3
 ) m
 ORDER BY d.n, m.id;
-                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: d.n, mu.id
    ->  Nested Loop
@@ -144,7 +144,7 @@ ORDER BY d.n, m.id;
                      Scores: true
                         TopK Order By: pdb.score() desc, id asc
                         TopK Limit: 3
-                     Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = $1)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = $2)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+                     Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = $1)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = $2)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
                      ->  Bitmap Index Scan on idx_mu_bank_fact
                            Index Cond: ((bank_id = d.bank_id) AND (fact_type = d.fact_type))
 (16 rows)
@@ -154,8 +154,8 @@ FROM drivers d
 CROSS JOIN LATERAL (
     SELECT id FROM memory_units mu
     WHERE mu.bank_id = d.bank_id AND mu.fact_type = d.fact_type
-      AND mu.id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-    ORDER BY paradedb.score(mu.id) DESC, mu.id LIMIT 3
+      AND mu.body ||| 'alpha'
+    ORDER BY pdb.score(mu.id) DESC, mu.id LIMIT 3
 ) m
 ORDER BY d.n, m.id;
  n | id  
@@ -189,10 +189,10 @@ SET debug_parallel_query TO on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
-                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
+                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
          Workers Planned: 2
@@ -204,15 +204,15 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
                Scores: true
                   TopK Order By: pdb.score() desc, id asc
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
                ->  Bitmap Index Scan on idx_mu_bank_fact
                      Index Cond: ((bank_id = 'bank1'::text) AND (fact_type = 'observation'::text))
 (14 rows)
 
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
   id  
 ------
     9
@@ -235,10 +235,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
 FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+  AND body ||| 'alpha'
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather
          Workers Planned: 1
@@ -249,7 +249,7 @@ LIMIT 10;
                Exec Method: TopKScanExecState
                Scores: false
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"boolean":{"should":[{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}]}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(bank_id = 'bank1'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}},"always_filters":[],"recheck_filters":[{"heap_filter":"(fact_type = 'observation'::text)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
                ->  Bitmap Index Scan on idx_mu_bank_fact
                      Index Cond: ((bank_id = 'bank1'::text) AND (fact_type = 'observation'::text))
 (13 rows)
@@ -257,7 +257,7 @@ LIMIT 10;
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
 FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+  AND body ||| 'alpha'
 LIMIT 10;
        agg       
 -----------------
@@ -284,7 +284,7 @@ SET max_parallel_workers_per_gather TO 0;
 SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
 FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+  AND body ||| 'alpha'
 LIMIT 10;
   id  |       agg       
 ------+-----------------
@@ -322,8 +322,8 @@ SET debug_parallel_query TO on;
 SET paradedb.topk_retry_scale_factor TO 1;
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
   id   
 -------
      9
@@ -337,8 +337,8 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 SET paradedb.enable_bitmap_intersection TO off;
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
-  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
-ORDER BY paradedb.score(id) DESC, id LIMIT 10;
+  AND body ||| 'alpha'
+ORDER BY pdb.score(id) DESC, id LIMIT 10;
   id   
 -------
      9

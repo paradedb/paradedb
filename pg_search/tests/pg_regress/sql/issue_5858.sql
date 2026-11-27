@@ -49,10 +49,7 @@ INSERT INTO issue_5858_products VALUES
 
 CREATE INDEX issue_5858_products_idx
 ON issue_5858_products
-USING paradedb (id, name_ci, name_icu, name_c, name_default)
-WITH (
-    text_fields = '{"name_ci": {"tokenizer": {"type": "keyword"}}, "name_icu": {"tokenizer": {"type": "keyword"}}, "name_c": {"tokenizer": {"type": "keyword"}}, "name_default": {"tokenizer": {"type": "keyword"}}}'
-);
+USING paradedb (id, (name_ci::pdb.literal), (name_icu::pdb.literal), (name_c::pdb.literal), (name_default::pdb.literal));
 
 ANALYZE issue_5858_products;
 
@@ -61,7 +58,7 @@ ANALYZE issue_5858_products;
 \echo 'Test 1.1: = is a heap filter, not a Tantivy term'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_ci = 'Electronics'
 ORDER BY id;
 
@@ -71,14 +68,14 @@ WHERE name_ci = 'Electronics'
 ORDER BY id;
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_ci = 'Electronics'
 ORDER BY id;
 
 \echo 'Test 1.3: <> is a heap filter too'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_ci <> 'Electronics'
 ORDER BY id;
 
@@ -87,7 +84,7 @@ WHERE name_ci <> 'Electronics'
 ORDER BY id;
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_ci <> 'Electronics'
 ORDER BY id;
 
@@ -96,7 +93,7 @@ ORDER BY id;
 \echo 'Test 2.1: IN (...) is a heap filter, not a Tantivy term_set'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_ci IN ('Electronics', 'Books')
 ORDER BY id;
 
@@ -106,7 +103,7 @@ WHERE name_ci IN ('Electronics', 'Books')
 ORDER BY id;
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_ci IN ('Electronics', 'Books')
 ORDER BY id;
 
@@ -115,7 +112,7 @@ ORDER BY id;
 \echo 'Test 3.1: equality still pushes down, deterministic equality is byte equality'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_icu = 'Banana'
 ORDER BY id;
 
@@ -124,26 +121,26 @@ WHERE name_icu = 'Banana'
 ORDER BY id;
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_icu = 'Banana'
 ORDER BY id;
 
 \echo 'Test 3.2: IN (...) still pushes down as a term_set'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_icu IN ('apple', 'cherry')
 ORDER BY id;
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_icu IN ('apple', 'cherry')
 ORDER BY id;
 
 \echo 'Test 3.3: a range is a heap filter, en-US is not byte-ordered'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_icu > 'B'
 ORDER BY id;
 
@@ -153,7 +150,7 @@ WHERE name_icu > 'B'
 ORDER BY id;
 
 SELECT id, name_icu FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_icu > 'B'
 ORDER BY id;
 
@@ -162,7 +159,7 @@ ORDER BY id;
 \echo 'Test 4.1: a range still pushes down, C is byte-ordered'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_c > 'B'
 ORDER BY id;
 
@@ -172,14 +169,14 @@ WHERE name_c > 'B'
 ORDER BY id;
 
 SELECT id, name_c FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_c > 'B'
 ORDER BY id;
 
 \echo 'Test 4.3: COLLATE "C" on the ICU column restores range pushdown'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_icu COLLATE "C" > 'B'
 ORDER BY id;
 
@@ -189,7 +186,7 @@ WHERE name_icu COLLATE "C" > 'B'
 ORDER BY id;
 
 SELECT id, name_icu FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_icu COLLATE "C" > 'B'
 ORDER BY id;
 
@@ -198,19 +195,19 @@ ORDER BY id;
 \echo 'Test 5.1: equality pushes down under the default collation'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_default = 'Banana'
 ORDER BY id;
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_default = 'Banana'
 ORDER BY id;
 
 \echo 'Test 5.2: a range pushes down too, the default is byte-ordered here'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_default > 'B'
 ORDER BY id;
 
@@ -219,7 +216,7 @@ WHERE name_default > 'B'
 ORDER BY id;
 
 SELECT id, name_default FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND name_default > 'B'
 ORDER BY id;
 
@@ -228,12 +225,12 @@ ORDER BY id;
 \echo 'Test 6.1: an integer range pushes down, its collation is InvalidOid'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND id > 1
 ORDER BY id;
 
 SELECT id FROM issue_5858_products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
   AND id > 1
 ORDER BY id;
 
@@ -249,12 +246,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT count(*) FILTER (WHERE name_icu > 'B') AS range_count,
        count(*) FILTER (WHERE name_ci = 'Books') AS equality_count
 FROM issue_5858_products
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 SELECT count(*) FILTER (WHERE name_icu > 'B') AS range_count,
        count(*) FILTER (WHERE name_ci = 'Books') AS equality_count
 FROM issue_5858_products
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 
 RESET paradedb.enable_filter_pushdown;
 RESET paradedb.enable_aggregate_custom_scan;

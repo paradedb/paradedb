@@ -42,7 +42,7 @@ SET enable_mergejoin = off;
 EXPLAIN (COSTS OFF)
 SELECT id
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND NOT EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -55,7 +55,7 @@ LIMIT 5;
 -- IDs 1-500 have entries for user1, so NOT EXISTS should return IDs >= 501
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND NOT EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -70,7 +70,7 @@ LIMIT 5;
 EXPLAIN (COSTS OFF)
 SELECT id
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -81,7 +81,7 @@ LIMIT 5;
 
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
-WHERE s.id @@@ paradedb.term('state', 'active')
+WHERE s.state === 'active'
 AND EXISTS (
     SELECT 1 FROM score_aj_entries
     WHERE score_aj_entries.item_id = s.id
@@ -90,21 +90,17 @@ AND EXISTS (
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
 
--- Test 3: NOT EXISTS with multiple @@@ predicates
+-- Test 3: NOT EXISTS with DisMax scoring and multiple search predicates
 -- Verify the plan uses an Anti Join with combined predicates
 EXPLAIN (COSTS OFF)
 SELECT id
 FROM score_aj_items AS s
-WHERE s.id @@@ '{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}'::jsonb
-AND s.id @@@ paradedb.boolean(
-    should => ARRAY[
-        paradedb.disjunction_max(
-            tie_breaker => 0.75,
-            disjuncts => ARRAY[
-                paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
-                paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
-            ]
-        )
+WHERE s.state === 'active'
+AND s.id @@@ paradedb.disjunction_max(
+    tie_breaker => 0.75,
+    disjuncts => ARRAY[
+        paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
+        paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
     ]
 )
 AND NOT EXISTS (
@@ -117,16 +113,12 @@ LIMIT 5;
 
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
-WHERE s.id @@@ '{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}'::jsonb
-AND s.id @@@ paradedb.boolean(
-    should => ARRAY[
-        paradedb.disjunction_max(
-            tie_breaker => 0.75,
-            disjuncts => ARRAY[
-                paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
-                paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
-            ]
-        )
+WHERE s.state === 'active'
+AND s.id @@@ paradedb.disjunction_max(
+    tie_breaker => 0.75,
+    disjuncts => ARRAY[
+        paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
+        paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
     ]
 )
 AND NOT EXISTS (

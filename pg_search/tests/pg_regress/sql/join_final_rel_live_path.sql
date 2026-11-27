@@ -22,21 +22,15 @@ CREATE TABLE jflp_users (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, 
 CREATE TABLE jflp_products (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
 CREATE TABLE jflp_orders (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
 
-CREATE INDEX jflp_users_idx ON jflp_users USING bm25 (id, uuid, name, color, age, quantity) WITH (
-    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-    numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
+CREATE INDEX jflp_users_idx ON jflp_users USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), (color::pdb.literal), age, quantity) WITH (
     sort_by = 'age DESC NULLS LAST',
     target_segment_count = 2
 );
-CREATE INDEX jflp_products_idx ON jflp_products USING bm25 (id, uuid, name, color, age, quantity) WITH (
-    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-    numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
+CREATE INDEX jflp_products_idx ON jflp_products USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), (color::pdb.literal), age, quantity) WITH (
     sort_by = 'age DESC NULLS LAST',
     target_segment_count = 2
 );
-CREATE INDEX jflp_orders_idx ON jflp_orders USING bm25 (id, uuid, name, color, age, quantity) WITH (
-    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-    numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
+CREATE INDEX jflp_orders_idx ON jflp_orders USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), (color::pdb.literal), age, quantity) WITH (
     sort_by = 'age DESC NULLS LAST',
     target_segment_count = 2
 );

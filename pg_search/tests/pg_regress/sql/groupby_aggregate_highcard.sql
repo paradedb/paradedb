@@ -25,14 +25,14 @@ USING paradedb (id, rating);
 -- No LIMIT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating;
 
 -- Limit + offset exceeds max_term_agg_buckets
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 6;
@@ -40,7 +40,7 @@ LIMIT 5 OFFSET 6;
 -- Ordering on a non grouping column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating, id
 ORDER BY rating, id
 LIMIT 5 OFFSET 5;
@@ -48,13 +48,13 @@ LIMIT 5 OFFSET 5;
 -- This should be pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 5;
 
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 5;
@@ -64,13 +64,13 @@ SET paradedb.max_term_agg_buckets TO 65000;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
 
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
@@ -81,13 +81,13 @@ SET paradedb.max_term_agg_buckets TO 10;
 -- Limit 0
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 0;
 
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 0;
@@ -97,13 +97,13 @@ SET paradedb.max_term_agg_buckets TO 65000;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 10000;
 
 SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 10000;

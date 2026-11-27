@@ -155,7 +155,7 @@ runs:
       shell: bash
       run: |
         SYNTHETIC_VERSION="999.0.0"
-        ./scripts/release.sh set-version "$SYNTHETIC_VERSION" --skip-nix
+        ./scripts/release.sh set-version "$SYNTHETIC_VERSION"
         # Extend the actual chain tip, including a release commit whose tag is missing.
         PREV_VERSION=$(./scripts/release.sh latest-sql-version)
         cargo pgrx migrate assemble "$SYNTHETIC_VERSION" --package pg_search \

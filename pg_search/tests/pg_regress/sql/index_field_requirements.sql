@@ -11,13 +11,8 @@ INSERT INTO field_requirements VALUES (1, 'Running shoes', 'shoes', '{"color":"B
 CREATE INDEX field_requirements_idx ON field_requirements
 USING paradedb (id, description, metadata);
 
--- Typed queries can execute without inferring a field from the left-hand side.
-SET paradedb.planner_warnings = off;
-SELECT count(*) AS empty_matches FROM field_requirements
-WHERE omitted @@@ paradedb.empty();
-SELECT count(*) AS all_matches FROM field_requirements
-WHERE omitted @@@ paradedb.with_index('field_requirements_idx', paradedb.all());
 -- Field-based searches still fail when performance warnings are disabled.
+SET paradedb.planner_warnings = off;
 SELECT id FROM field_requirements WHERE omitted ||| 'shoes';
 RESET paradedb.planner_warnings;
 
@@ -46,7 +41,7 @@ FROM field_requirements WHERE id @@@ pdb.all();
 -- A Top K window aggregate uses the other segment collection path.
 SELECT id, pdb.agg('{"terms":{"field":"metadata.color"}}') OVER ()
 FROM field_requirements WHERE description ||| 'shoes'
-ORDER BY paradedb.score(id) DESC LIMIT 1;
+ORDER BY pdb.score(id) DESC LIMIT 1;
 
 -- An unrelated collection failure must retain the underlying error.
 \set VERBOSITY terse
@@ -65,7 +60,7 @@ SELECT pdb.agg('{"terms":{"field":"metadata.color"}}')->'buckets'
 FROM field_requirements WHERE id @@@ pdb.all();
 SELECT id, pdb.agg('{"terms":{"field":"metadata.color"}}') OVER ()
 FROM field_requirements WHERE description ||| 'shoes'
-ORDER BY paradedb.score(id) DESC LIMIT 1;
+ORDER BY pdb.score(id) DESC LIMIT 1;
 
 DROP TABLE field_requirements;
 RESET max_parallel_workers_per_gather;

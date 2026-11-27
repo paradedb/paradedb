@@ -65,13 +65,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, category, rating
 FROM partial_test
 WHERE category = 'Electronics' AND rating >= 4
-AND id @@@ paradedb.all()
+AND id @@@ pdb.all()
 ORDER BY rating DESC;
 
 SELECT id, description, category, rating
 FROM partial_test
 WHERE category = 'Electronics' AND rating >= 4
-AND id @@@ paradedb.all()
+AND id @@@ pdb.all()
 ORDER BY rating DESC;
 
 -- Cleanup

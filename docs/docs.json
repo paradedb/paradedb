@@ -16,7 +16,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.27.0",
+        "version": "v0.27.1",
         "tabs": [
           {
             "tab": "Start",
@@ -336,6 +336,7 @@
                   {
                     "group": "v0.27",
                     "pages": [
+                      "project/changelog/0.27.1",
                       "project/changelog/0.27.0"
                     ],
                     "expanded": false

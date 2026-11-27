@@ -75,12 +75,12 @@ SELECT id,
        pdb.score(id) AS score,
        pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
 FROM rls_score_bug_test
-WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
+WHERE title ||| 'sheriff';
 
 EXPLAIN (COSTS OFF)
 SELECT id, pdb.score(id)
 FROM rls_score_bug_test
-WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
+WHERE title ||| 'sheriff';
 COMMIT;
 
 DROP POLICY allow_all ON rls_score_bug_test;

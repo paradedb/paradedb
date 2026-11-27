@@ -32,12 +32,12 @@ USING paradedb (id, (name::pdb.simple('columnar=true')), score);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT name AS value
 FROM test_text_agg
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name
 ORDER BY count(name) DESC, name DESC
 LIMIT 5;
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: name, (count(name))
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -50,12 +50,12 @@ LIMIT 5;
            : SortExec: TopK(fetch=5), expr=[agg_0@1 DESC, name@0 DESC], preserve_partitioning=[false]
            :   AggregateExec: mode=Single, gby=[name@0 as name], aggr=[count(test_text_agg_0.name) as agg_0]
            :     CooperativeExec
-           :       PgSearchScan: table=test_text_agg, segments=1, eager=[name], visibility=eager, query={"with_index":{"query":"all"}}
+           :       PgSearchScan: table=test_text_agg, segments=1, eager=[name], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (13 rows)
 
 SELECT name AS value
 FROM test_text_agg
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name
 ORDER BY count(name) DESC, name DESC
 LIMIT 5;
@@ -77,12 +77,12 @@ SELECT
     name AS value,
     pdb.agg('{"value_count": {"field": "name"}}') AS count
 FROM test_text_agg
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name
 ORDER BY 2 DESC, name DESC
 LIMIT 5;
-                                                                QUERY PLAN                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: name, (pdb.agg('{"value_count": {"field": "name"}}'::jsonb))
    ->  Sort
@@ -97,14 +97,14 @@ LIMIT 5;
                DataFusion Physical Plan: 
                  : AggregateExec: mode=Single, gby=[name@0 as name], aggr=[count(test_text_agg_0.name) as __pdb_m0]
                  :   CooperativeExec
-                 :     PgSearchScan: table=test_text_agg, segments=1, eager=[name], visibility=eager, query={"with_index":{"query":"all"}}
+                 :     PgSearchScan: table=test_text_agg, segments=1, eager=[name], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (15 rows)
 
 SELECT
     name AS value,
     pdb.agg('{"value_count": {"field": "name"}}') AS count
 FROM test_text_agg
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY name
 ORDER BY 2 DESC, name DESC
 LIMIT 5;
@@ -129,13 +129,13 @@ SELECT pdb.agg('{
     }
 }')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
                                                                                                                                   QUERY PLAN                                                                                                                                  
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: test_text_agg_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: CUSTOM_AGG({"aggs":{"name_count":{"value_count":{"field":"name"}}},"histogram":{"field":"score","interval":25}})
      Aggregate Definition: {"0":{"aggs":{"name_count":{"value_count":{"field":"name","missing":null}}},"histogram":{"extended_bounds":null,"field":"score","hard_bounds":null,"interval":25.0,"is_normalized_to_ns":false,"keyed":false,"min_doc_count":null,"offset":null}}}
 (6 rows)
@@ -147,7 +147,7 @@ SELECT pdb.agg('{
     }
 }')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
                                                                                                                                        agg                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": 0.0, "doc_count": 125, "name_count": {"value": 125.0}}, {"key": 25.0, "doc_count": 125, "name_count": {"value": 125.0}}, {"key": 50.0, "doc_count": 125, "name_count": {"value": 125.0}}, {"key": 75.0, "doc_count": 125, "name_count": {"value": 125.0}}]}
@@ -165,13 +165,13 @@ SELECT pdb.agg('{
     }
 }')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: test_text_agg_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: CUSTOM_AGG({"aggs":{"name_count":{"value_count":{"field":"name"}}},"range":{"field":"score","ranges":[{"to":50},{"from":50}]}})
      Aggregate Definition: {"0":{"aggs":{"name_count":{"value_count":{"field":"name","missing":null}}},"range":{"field":"score","keyed":false,"ranges":[{"to":50.0},{"from":50.0}]}}}
 (6 rows)
@@ -183,7 +183,7 @@ SELECT pdb.agg('{
     }
 }')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
                                                                                       agg                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"to": 50.0, "key": "*-50", "doc_count": 250, "name_count": {"value": 250.0}}, {"key": "50-*", "from": 50.0, "doc_count": 250, "name_count": {"value": 250.0}}]}
@@ -196,20 +196,20 @@ WHERE id @@@ paradedb.all();
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"value_count": {"field": "name"}}')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
                                    QUERY PLAN                                    
 ---------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: test_text_agg_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"name"}})
      Aggregate Definition: {"0":{"value_count":{"field":"name","missing":null}}}
 (6 rows)
 
 SELECT pdb.agg('{"value_count": {"field": "name"}}')
 FROM test_text_agg
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
        agg        
 ------------------
  {"value": 500.0}

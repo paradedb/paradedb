@@ -507,7 +507,8 @@ fn parse_optional_tokenizer_option<T: de::DeserializeOwned>(
 }
 
 impl SearchTokenizer {
-    /// Parse legacy JSON supplied as new input.
+    // Strictly parse newly supplied tokenizer settings in the legacy JSON format
+    // used by the v1 API before v0.20.0.
     pub fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         Self::parse_json_value(value, true)
     }

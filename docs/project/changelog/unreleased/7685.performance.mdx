@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Bound the all-NULL pass-through pool in `SegmentedTopKExec` to `2 * K` between batches and keep rows with a resolved segment in the per-segment buffers, fixing severe slowdowns on Top-K queries over joins ordered by nullable columns (#7684).

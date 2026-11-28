@@ -59,8 +59,8 @@
 //!
 //!   sum_s(survivors_s) <= K * S  (when no boundary ties)
 //!
-//! where `S` is the number of segments. Pass-through rows (NULL
-//! ordinals) are emitted immediately and are not bounded by K.
+//! where `S` is the number of segments. Rows without a segment have NULLs in
+//! every deferred key and use a separate pool bounded between batches by `2 * K`.
 //!
 //! **Compound sorts:** every sort column is used, not just the primary. The
 //! per-segment buffer keys on the full compound `OwnedRow`, and the global
@@ -762,20 +762,16 @@ impl SegmentedTopKState {
         let capacity = self.buffer_capacity();
 
         for row_idx in 0..num_rows {
-            if self.pass_through_scratch[row_idx] {
-                // Keep the compound key the converter already built for this
-                // row. A row that is NULL in one deferred column but not in
-                // another keeps that column's segment for the final decode; a
-                // row with no segment is NULL in every deferred column and
-                // needs no dictionary.
-                if self.row_to_seg_scratch[row_idx].is_none() {
-                    debug_assert!(
-                        self.sort_arrays_scratch
-                            .iter()
-                            .any(|arr| arr.is_null(row_idx)),
-                        "pass-through row without resolved segment must have at least one NULL sort column"
-                    );
-                }
+            if self.pass_through_scratch[row_idx] && self.row_to_seg_scratch[row_idx].is_none() {
+                // A row with no segment is NULL in every deferred column.
+                // Within a segment, ordinal keys preserve the compound sort
+                // order, including NULLs, so those rows use the regular buffer.
+                debug_assert!(
+                    self.sort_arrays_scratch
+                        .iter()
+                        .any(|arr| arr.is_null(row_idx)),
+                    "pass-through row without resolved segment must have at least one NULL sort column"
+                );
                 self.pass_through_rows.push(PassThroughRow {
                     batch_idx,
                     row_idx,
@@ -811,7 +807,23 @@ impl SegmentedTopKState {
             }
         }
 
+        self.truncate_pass_through();
         Ok(())
+    }
+
+    fn truncate_pass_through(&mut self) {
+        if self.k == 0 {
+            self.pass_through_rows.clear();
+            return;
+        }
+        // Every deferred key is NULL, so the remaining keys are globally
+        // comparable. Wait for 2K rows to amortize selection over new input.
+        if self.pass_through_rows.len() < self.k.saturating_mul(2) {
+            return;
+        }
+        self.pass_through_rows
+            .select_nth_unstable_by(self.k - 1, |a, b| a.row_val.cmp(&b.row_val));
+        self.pass_through_rows.truncate(self.k);
     }
 
     /// Helper to extract term ordinals from a deferred column.
@@ -1086,7 +1098,7 @@ impl SegmentedTopKState {
     ///
     /// For deferred columns, converts ordinals back to materialized strings
     /// via `FFHelper::ord_to_str`. For non-deferred columns, reads the scalar
-    /// directly from the array. Returns `None` if any conversion fails.
+    /// directly from the array. Conversion failures propagate as errors.
     fn resolve_global_threshold_values(
         &self,
         arrays: &[ArrayRef],
@@ -1106,16 +1118,22 @@ impl SegmentedTopKState {
                 });
 
             let value = if let Some(deferred) = is_deferred {
-                let term_ord = arrays[i]
+                let ords = arrays[i]
                     .as_any()
                     .downcast_ref::<UInt64Array>()
                     .ok_or_else(|| {
                         datafusion::error::DataFusionError::Internal(
                             "Expected UInt64Array for deferred ordinal".to_string(),
                         )
-                    })?
-                    .value(0);
-                self.materialize_deferred_ordinal(seg_ord, term_ord, deferred)?
+                    })?;
+                if ords.is_null(0) {
+                    ScalarValue::try_from(&deferred_sort_data_type(
+                        &self.ffhelper,
+                        deferred.canonical.ff_index,
+                    ))?
+                } else {
+                    self.materialize_deferred_ordinal(seg_ord, ords.value(0), deferred)?
+                }
             } else {
                 ScalarValue::try_from_array(&arrays[i], 0)?
             };
@@ -1690,5 +1708,271 @@ mod tests {
             let expected_ids: Vec<i64> = all_selected_ids.into_iter().take(expected_limit).collect();
             prop_assert_eq!(result_ids, expected_ids);
         });
+    }
+
+    fn make_test_state(
+        schema: SchemaRef,
+        sort_exprs: LexOrdering,
+        deferred_columns: Vec<DeferredSortColumn>,
+        k: usize,
+    ) -> SegmentedTopKState {
+        let ffhelper = Arc::new(crate::index::fast_fields_helper::FFHelper::empty());
+        let sort_fields: Vec<SortField> = sort_exprs
+            .iter()
+            .map(|expr| {
+                let is_deferred = expr
+                    .expr
+                    .downcast_ref::<Column>()
+                    .is_some_and(|c| deferred_columns.iter().any(|d| d.sort_col_idx == c.index()));
+                let data_type = if is_deferred {
+                    arrow_schema::DataType::UInt64
+                } else {
+                    expr.expr.data_type(&schema).unwrap()
+                };
+                SortField::new_with_options(data_type, expr.options)
+            })
+            .collect();
+        let row_converter = RowConverter::new(sort_fields).unwrap();
+        let mat_row_converter = SegmentedTopKExec::create_mat_row_converter(
+            &sort_exprs,
+            &deferred_columns,
+            &ffhelper,
+            &schema,
+        )
+        .unwrap();
+        let metrics = ExecutionPlanMetricsSet::new();
+        let sort_len = sort_exprs.len();
+        SegmentedTopKState {
+            sort_exprs,
+            deferred_columns,
+            ffhelper,
+            k,
+            schema,
+            row_converter,
+            segment_bufs: Vec::new(),
+            segment_cutoffs: Vec::new(),
+            dynamic_filter: Arc::new(DynamicFilterPhysicalExpr::new(
+                vec![],
+                datafusion::physical_expr::expressions::lit(true),
+            )),
+            batches: Vec::new(),
+            pass_through_rows: Vec::new(),
+            last_segment_cutoffs: Vec::new(),
+            mat_row_converter,
+            last_published_global: None,
+            rows_input: MetricBuilder::new(&metrics).counter("rows_input", 0),
+            rows_output: MetricBuilder::new(&metrics).counter("rows_output", 0),
+            segments_seen: MetricBuilder::new(&metrics).counter("segments_seen", 0),
+            pass_through_scratch: Vec::new(),
+            row_to_seg_scratch: Vec::new(),
+            sort_arrays_scratch: Vec::with_capacity(sort_len),
+        }
+    }
+
+    #[pg_test]
+    fn test_all_null_pass_through_pool_is_bounded_and_compacted() {
+        use arrow_array::Int64Array;
+        use datafusion::arrow::compute::SortOptions;
+
+        let schema = Arc::new(Schema::new(vec![
+            deferred_field("badge"),
+            Field::new("id", arrow_schema::DataType::Int64, false),
+        ]));
+        let deferred_columns = vec![DeferredSortColumn {
+            sort_col_idx: 0,
+            canonical: crate::index::fast_fields_helper::CanonicalColumn {
+                indexrelid: 1,
+                ff_index: 0,
+            },
+            rebuild: None,
+        }];
+        let k = 5;
+
+        for nulls_first in [true, false] {
+            let sort_exprs = LexOrdering::new(vec![
+                PhysicalSortExpr {
+                    expr: Arc::new(Column::new("badge", 0)),
+                    options: SortOptions {
+                        descending: false,
+                        nulls_first,
+                    },
+                },
+                PhysicalSortExpr {
+                    expr: Arc::new(Column::new("id", 1)),
+                    options: SortOptions {
+                        descending: false,
+                        nulls_first: false,
+                    },
+                },
+            ])
+            .unwrap();
+
+            let mut state =
+                make_test_state(Arc::clone(&schema), sort_exprs, deferred_columns.clone(), k);
+
+            // Feed 10 batches of 40 all-NULL rows with descending IDs so winners arrive
+            // in the final batch and earlier batches must be compacted away.
+            for batch_no in 0..10usize {
+                let start = 400 - (batch_no * 40) as i64;
+                let ids: Vec<i64> = (0..40).map(|i| start - i).collect();
+                let batch = RecordBatch::try_new(
+                    Arc::clone(&schema),
+                    vec![
+                        Arc::new(UInt64Array::new_null(40)) as ArrayRef,
+                        Arc::new(Int64Array::from(ids)) as ArrayRef,
+                    ],
+                )
+                .unwrap();
+                let batch_idx = state.batches.len();
+                state.batches.push(batch.clone());
+                state.collect_batch(&batch, batch_idx).unwrap();
+                assert!(
+                    state.pass_through_rows.len() < 2 * k,
+                    "pass_through_rows grew unboundedly to {} for k={k} (nulls_first={nulls_first})",
+                    state.pass_through_rows.len()
+                );
+                state.maybe_compact().unwrap();
+            }
+
+            let stored_rows: usize = state.batches.iter().map(RecordBatch::num_rows).sum();
+            assert!(
+                stored_rows <= 4 * k,
+                "stored rows after compaction should stay bounded, got {stored_rows}"
+            );
+
+            let out = state.emit_final_topk().unwrap().unwrap();
+            let out_ids: Vec<i64> = out
+                .column(1)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .values()
+                .to_vec();
+            assert_eq!(out_ids, vec![1, 2, 3, 4, 5]);
+        }
+    }
+
+    #[pg_test]
+    fn test_partial_null_with_resolved_segment_uses_segment_buffer() {
+        use crate::scan::deferred_encode::build_state_term_ordinals;
+        use arrow_array::Int64Array;
+        use datafusion::arrow::compute::SortOptions;
+
+        let schema = Arc::new(Schema::new(vec![
+            deferred_field("badge"),
+            deferred_field("name"),
+            Field::new("id", arrow_schema::DataType::Int64, false),
+        ]));
+        let sort_exprs = LexOrdering::new(vec![
+            PhysicalSortExpr {
+                expr: Arc::new(Column::new("badge", 0)),
+                options: SortOptions {
+                    descending: false,
+                    nulls_first: true,
+                },
+            },
+            PhysicalSortExpr {
+                expr: Arc::new(Column::new("name", 1)),
+                options: SortOptions {
+                    descending: false,
+                    nulls_first: false,
+                },
+            },
+            PhysicalSortExpr {
+                expr: Arc::new(Column::new("id", 2)),
+                options: SortOptions {
+                    descending: false,
+                    nulls_first: false,
+                },
+            },
+        ])
+        .unwrap();
+        let deferred_columns = vec![
+            DeferredSortColumn {
+                sort_col_idx: 0,
+                canonical: crate::index::fast_fields_helper::CanonicalColumn {
+                    indexrelid: 1,
+                    ff_index: 0,
+                },
+                rebuild: None,
+            },
+            DeferredSortColumn {
+                sort_col_idx: 1,
+                canonical: crate::index::fast_fields_helper::CanonicalColumn {
+                    indexrelid: 1,
+                    ff_index: 1,
+                },
+                rebuild: None,
+            },
+        ];
+
+        // Keep row count below 2 * k so truncation does not need dictionary lookups.
+        let mut state = make_test_state(Arc::clone(&schema), sort_exprs, deferred_columns, 20);
+        let name_ords = UInt64Array::from_iter_values(0..15u64);
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![
+                Arc::new(UInt64Array::new_null(15)) as ArrayRef,
+                build_state_term_ordinals(0, &name_ords),
+                Arc::new(Int64Array::from_iter_values(0..15i64)) as ArrayRef,
+            ],
+        )
+        .unwrap();
+
+        state.batches.push(batch.clone());
+        state.collect_batch(&batch, 0).unwrap();
+
+        assert!(
+            state.pass_through_rows.is_empty(),
+            "rows with a resolved segment should stay in segment_bufs, not pass_through_rows"
+        );
+        assert_eq!(state.segment_bufs[0].as_ref().unwrap().rows.len(), 15);
+    }
+
+    #[pg_test]
+    fn test_resolve_global_threshold_handles_null_ordinal() {
+        use arrow_array::Int64Array;
+        use datafusion::arrow::compute::SortOptions;
+        use datafusion::common::ScalarValue;
+
+        let schema = Arc::new(Schema::new(vec![
+            deferred_field("badge"),
+            Field::new("id", arrow_schema::DataType::Int64, false),
+        ]));
+        let sort_exprs = LexOrdering::new(vec![
+            PhysicalSortExpr {
+                expr: Arc::new(Column::new("badge", 0)),
+                options: SortOptions {
+                    descending: false,
+                    nulls_first: true,
+                },
+            },
+            PhysicalSortExpr {
+                expr: Arc::new(Column::new("id", 1)),
+                options: SortOptions {
+                    descending: false,
+                    nulls_first: false,
+                },
+            },
+        ])
+        .unwrap();
+        let deferred_columns = vec![DeferredSortColumn {
+            sort_col_idx: 0,
+            canonical: crate::index::fast_fields_helper::CanonicalColumn {
+                indexrelid: 1,
+                ff_index: 0,
+            },
+            rebuild: None,
+        }];
+        let state = make_test_state(schema, sort_exprs, deferred_columns, 5);
+        let arrays: Vec<ArrayRef> = vec![
+            Arc::new(UInt64Array::from(vec![None])) as ArrayRef,
+            Arc::new(Int64Array::from(vec![42])) as ArrayRef,
+        ];
+        let vals = state.resolve_global_threshold_values(&arrays, 0).unwrap();
+        assert_eq!(
+            vals,
+            vec![ScalarValue::Utf8View(None), ScalarValue::Int64(Some(42))]
+        );
     }
 }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795868793072,
+  "lastUpdate": 1795877872651,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -107763,6 +107763,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15203129890-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "965b3e766922427eae936f591c2ab943dc33401f",
+          "message": "docs: improve the synonyms docs (#7676)\n\n## Ticket(s) Closed\n\n- N/A\n\n## What\n\nThis PR rewrites the synonyms docs to make them shorter and easier to\nread.\n\n## Why\n\nDocs improvement.\n\n## How\n\n- Review and improve.\n\n## Tests\n\nDocs only.",
+          "timestamp": "2026-11-28T08:42:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/965b3e766922427eae936f591c2ab943dc33401f"
+        },
+        "date": 1795877868509,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 3.085,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 3.446,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 3.567,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 3.892,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 4.397,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 4.681,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 7.151,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 8.177,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 8.518,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 4.054,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 4.695,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 4.845,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 5.614,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 6.375,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 6.555,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 9.851,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 10.715,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 11.166,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 2.294,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 2.622,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 2.808,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 3.209,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 3.782,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 4.023,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 8.592,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 9.635,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 10.183,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "15266475899-latency"
       }
     ],
     "benchmarker cohere-1m-8cpu-32gb (throughput)": [
@@ -108581,6 +108739,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15203129890-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "965b3e766922427eae936f591c2ab943dc33401f",
+          "message": "docs: improve the synonyms docs (#7676)\n\n## Ticket(s) Closed\n\n- N/A\n\n## What\n\nThis PR rewrites the synonyms docs to make them shorter and easier to\nread.\n\n## Why\n\nDocs improvement.\n\n## How\n\n- Review and improve.\n\n## Tests\n\nDocs only.",
+          "timestamp": "2026-11-28T08:42:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/965b3e766922427eae936f591c2ab943dc33401f"
+        },
+        "date": 1795877869521,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 319.9508891543019,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 253.7618239193718,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 137.63541666773693,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 239.37839327737353,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 179.9307909717858,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 101.09223001566076,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 430.0995358789188,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 307.2094538704173,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 130.17203670759602,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "15266475899-throughput"
       }
     ],
     "benchmarker cohere-1m-8cpu-32gb (buffers)": [
@@ -109399,6 +109625,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15203129890-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "965b3e766922427eae936f591c2ab943dc33401f",
+          "message": "docs: improve the synonyms docs (#7676)\n\n## Ticket(s) Closed\n\n- N/A\n\n## What\n\nThis PR rewrites the synonyms docs to make them shorter and easier to\nread.\n\n## Why\n\nDocs improvement.\n\n## How\n\n- Review and improve.\n\n## Tests\n\nDocs only.",
+          "timestamp": "2026-11-28T08:42:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/965b3e766922427eae936f591c2ab943dc33401f"
+        },
+        "date": 1795877870299,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 1117.46,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 1659.92,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 3850.97,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 1996.37,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 3082.93,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 6394.04,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 771.72,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 1199.4,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 3034.56,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "15266475899-buffers"
       }
     ],
     "benchmarker cohere-1m-8cpu-32gb (router)": [
@@ -109984,6 +110278,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15203129890-router"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "965b3e766922427eae936f591c2ab943dc33401f",
+          "message": "docs: improve the synonyms docs (#7676)\n\n## Ticket(s) Closed\n\n- N/A\n\n## What\n\nThis PR rewrites the synonyms docs to make them shorter and easier to\nread.\n\n## Why\n\nDocs improvement.\n\n## How\n\n- Review and improve.\n\n## Tests\n\nDocs only.",
+          "timestamp": "2026-11-28T08:42:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/965b3e766922427eae936f591c2ab943dc33401f"
+        },
+        "date": 1795877871065,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 router vs flat, clusters",
+            "value": 1.080435546188971,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 adaptive on vs off, vectors probed",
+            "value": 1,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vs flat, clusters",
+            "value": 1.0966166724799442,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 adaptive on vs off, vectors probed",
+            "value": 1,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vs flat, clusters",
+            "value": 0.9926048957962589,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 adaptive on vs off, vectors probed",
+            "value": 0.8299701312520265,
+            "unit": "ratio"
+          }
+        ],
+        "publication_id": "15266475899-router"
       }
     ],
     "benchmarker cohere-1m-8cpu-32gb (router detail)": [
@@ -110734,6 +111081,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15203129890-router-detail"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "965b3e766922427eae936f591c2ab943dc33401f",
+          "message": "docs: improve the synonyms docs (#7676)\n\n## Ticket(s) Closed\n\n- N/A\n\n## What\n\nThis PR rewrites the synonyms docs to make them shorter and easier to\nread.\n\n## Why\n\nDocs improvement.\n\n## How\n\n- Review and improve.\n\n## Tests\n\nDocs only.",
+          "timestamp": "2026-11-28T08:42:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/965b3e766922427eae936f591c2ab943dc33401f"
+        },
+        "date": 1795877871865,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 flat vectors probed",
+            "value": 14458.48,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router vectors probed, adaptive on",
+            "value": 15533.09,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router routing time",
+            "value": 0.14482825,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 flat vectors probed",
+            "value": 28619.82,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vectors probed, adaptive on",
+            "value": 31381.12,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router routing time",
+            "value": 0.23690356,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 flat vectors probed",
+            "value": 123652.21,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vectors probed, adaptive on",
+            "value": 101954.17,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router routing time",
+            "value": 0.7427312100000001,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "15266475899-router-detail"
       }
     ],
     "benchmarker cohere-1m-8cpu-32gb (index build)": [
@@ -111132,6 +111547,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15203129890-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "965b3e766922427eae936f591c2ab943dc33401f",
+          "message": "docs: improve the synonyms docs (#7676)\n\n## Ticket(s) Closed\n\n- N/A\n\n## What\n\nThis PR rewrites the synonyms docs to make them shorter and easier to\nread.\n\n## Why\n\nDocs improvement.\n\n## How\n\n- Review and improve.\n\n## Tests\n\nDocs only.",
+          "timestamp": "2026-11-28T08:42:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/965b3e766922427eae936f591c2ab943dc33401f"
+        },
+        "date": 1795877872634,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.41079544078333335,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4601.8359375,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "15266475899-index"
       }
     ],
     "benchmarker cohere-10m-8cpu-32gb (latency)": [

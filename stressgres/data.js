@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795853310497,
+  "lastUpdate": 1795853339996,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -352059,6 +352059,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15180807378-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795853336950,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 38.604683336193325,
+            "unit": "median tps",
+            "extra": "avg tps: 97.33415085983985, max tps: 1655.63199535822, count: 59045"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 38.110983654566056,
+            "unit": "median tps",
+            "extra": "avg tps: 97.99260291308414, max tps: 1829.7856813201647, count: 59045"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 38.973473512148395,
+            "unit": "median tps",
+            "extra": "avg tps: 103.66955886315853, max tps: 1948.151258392205, count: 59045"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 37.98284399214031,
+            "unit": "median tps",
+            "extra": "avg tps: 96.47965265886823, max tps: 1639.7034203662188, count: 59045"
+          }
+        ],
+        "publication_id": "15253399513-tps"
       }
     ],
     "pg_search logical-replication-fsm-merge-race.toml Performance - Other Metrics": [
@@ -378142,6 +378189,161 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15180807378-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795853339869,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 22.609514,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.007218217728006, max cpu: 49.976337, count: 59045"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 58.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.31651408618426, max mem: 68.61328125, count: 59045"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.061761382198016, max cpu: 4.5779686, count: 59045"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 20.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.806161084765858, max mem: 20.84375, count: 59045"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5605702,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.61474211307717, max cpu: 9.147213, count: 59045"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 28.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.76123163477009, max mem: 28.76171875, count: 59045"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 2696,
+            "unit": "median pages",
+            "extra": "avg pages: 2124.067067490897, max pages: 2696.0, count: 59045"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 21.0625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 16.594273964772633, max relation_size:MB: 21.0625, count: 59045"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 4,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 5.0564992802100095, max segment_count: 18.0, count: 59045"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.5283017,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.143921752932211, max cpu: 4.5823393, count: 59045"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 20.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.18155677078923, max mem: 20.22265625, count: 59045"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 4.569253,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.619624138548684, max cpu: 31.90883, count: 59045"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 56.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.16587772038276, max mem: 66.30078125, count: 59045"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 4.6087375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.201906233303012, max cpu: 36.64122, count: 59045"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 52.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.39812973685325, max mem: 62.484375, count: 59045"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 99.97427368164062,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 202.51536984252672, max replication_lag:MB: 989.754768371582, count: 59045"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.52069321853064, max cpu: 27.665707, count: 59045"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 65.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 64.39432854443645, max mem: 73.42578125, count: 59045"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.043806,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.70397652076926, max cpu: 32.15311, count: 59045"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 23.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 22.942068946354475, max mem: 23.01953125, count: 59045"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.043806,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.707860846949123, max cpu: 31.773048, count: 59045"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 23.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 22.941848642984166, max mem: 23.0234375, count: 59045"
+          }
+        ],
+        "publication_id": "15253399513-other"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - TPS": [

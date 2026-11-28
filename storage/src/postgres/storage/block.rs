@@ -247,22 +247,49 @@ pub struct DeleteEntry {
     pub num_deleted_docs: u32,
 }
 
-/// The `(max_doc, num_deleted_docs)` pair bounding a mutable segment's prefix.
+/// The captured state of a mutable segment's add/remove log, identified by
+/// `(max_doc, num_deleted_docs)`.
 ///
 /// A mutable segment is materialized from the heap on open, from the prefix of its
 /// add/remove log bounded by these two counts, so two opens agree on the segment's `DocId`
 /// space only if they use the same pair. Distinct from [`SegmentMetaEntry::mutable_snapshot`],
 /// which returns the ctid set a bound selects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-pub struct MutableSegmentBound {
+pub struct MutableSegmentVersion {
     pub max_doc: u32,
     pub num_deleted_docs: u32,
 }
 
-impl MutableSegmentBound {
+impl MutableSegmentVersion {
     /// Docs the materialized segment exposes: Adds minus Removes.
     pub fn live_docs(self) -> u32 {
         self.max_doc - self.num_deleted_docs
+    }
+}
+
+/// The half-open `[start, end)` interval of an append-only mutable segment's log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MutableChunkBounds {
+    pub start: u32,
+    pub end: u32,
+}
+
+impl MutableChunkBounds {
+    pub fn num_docs(self) -> u32 {
+        self.end - self.start
+    }
+
+    /// Reversibly map a source UUID to a chunk UUID outside the UUIDv4 namespace.
+    pub fn map_segment_id(self, id: SegmentId) -> SegmentId {
+        if self.start == 0 {
+            return id;
+        }
+        let mut bytes = *id.uuid_bytes();
+        bytes[6] ^= 0x80;
+        for (byte, offset) in bytes[..4].iter_mut().zip(self.start.to_be_bytes()) {
+            *byte ^= offset;
+        }
+        SegmentId::from_bytes(bytes)
     }
 }
 
@@ -516,8 +543,8 @@ impl SegmentMetaEntry {
         Ok(())
     }
 
-    /// Return the [`MutableSegmentBound`] if this is a mutable segment, or `None` if immutable.
-    pub fn mutable_bound(&self) -> Option<MutableSegmentBound> {
+    /// Return the [`MutableSegmentVersion`] if this is a mutable segment, or `None` if immutable.
+    pub fn mutable_bound(&self) -> Option<MutableSegmentVersion> {
         let SegmentMetaEntryContent::Mutable(SegmentMetaEntryMutable {
             header_block: _,
             num_deleted_docs,
@@ -526,16 +553,16 @@ impl SegmentMetaEntry {
         else {
             return None;
         };
-        Some(MutableSegmentBound {
+        Some(MutableSegmentVersion {
             max_doc: self.header.max_doc,
             num_deleted_docs: *num_deleted_docs,
         })
     }
 
-    /// Rewind a mutable entry to the given [`MutableSegmentBound`], so [`Self::mutable_snapshot`]
+    /// Rewind a mutable entry to the given [`MutableSegmentVersion`], so [`Self::mutable_snapshot`]
     /// replays that reader's prefix of the add/remove log.
     /// The log is append-only, so an older pair always names a prefix of what is there now.
-    pub fn rewind_mutable(&mut self, bound: MutableSegmentBound) -> Result<(), &str> {
+    pub fn rewind_mutable(&mut self, bound: MutableSegmentVersion) -> Result<(), &str> {
         let SegmentMetaEntryContent::Mutable(content) = &mut self.content else {
             return Err("Cannot rewind a non-mutable segment");
         };
@@ -578,6 +605,34 @@ impl SegmentMetaEntry {
         assert_eq!(ctid_set.len(), expected_ctids as usize);
 
         let mut ctids: Vec<_> = ctid_set.into_iter().collect();
+        ctids.sort_unstable();
+        Ok(ctids)
+    }
+
+    pub fn mutable_range(
+        &self,
+        indexrel: &PgSearchRelation,
+        range: MutableChunkBounds,
+    ) -> Result<Vec<u64>, &str> {
+        let SegmentMetaEntryContent::Mutable(content) = &self.content else {
+            return Err("Cannot read a range of a non-mutable segment");
+        };
+        if content.num_deleted_docs != 0 || range.start > range.end || range.end > self.max_doc() {
+            return Err("Invalid append-only mutable range");
+        }
+        let entries = unsafe {
+            content
+                .open(indexrel)
+                .list_range(range.start as usize..range.end as usize)
+        };
+        let mut ctids = entries
+            .into_iter()
+            .map(|entry| match entry {
+                MutableSegmentEntry::Add(ctid) => Ok(ctid),
+                MutableSegmentEntry::Remove(_) => Err("Remove in an append-only mutable range"),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(ctids.len(), range.num_docs() as usize);
         ctids.sort_unstable();
         Ok(ctids)
     }
@@ -1223,7 +1278,7 @@ mod vector_alignment_tests {
         let bound = entry.mutable_bound().expect("must have mutable bound");
         assert_eq!(
             bound,
-            MutableSegmentBound {
+            MutableSegmentVersion {
                 max_doc: 100,
                 num_deleted_docs: 10,
             }
@@ -1231,7 +1286,7 @@ mod vector_alignment_tests {
         assert_eq!(bound.live_docs(), 90);
 
         // Rewind to an earlier bound
-        let earlier = MutableSegmentBound {
+        let earlier = MutableSegmentVersion {
             max_doc: 80,
             num_deleted_docs: 5,
         };
@@ -1241,7 +1296,7 @@ mod vector_alignment_tests {
         assert_eq!(entry.num_deleted_docs(), 5);
 
         // Rewinding forward must fail
-        let forward = MutableSegmentBound {
+        let forward = MutableSegmentVersion {
             max_doc: 85,
             num_deleted_docs: 5,
         };

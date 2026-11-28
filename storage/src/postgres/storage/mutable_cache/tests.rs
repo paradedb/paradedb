@@ -17,6 +17,7 @@
 
 #[pgrx::pg_schema]
 mod tests {
+    use std::iter::repeat_n;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -31,7 +32,7 @@ mod tests {
     use super::super::pack::{PACKED_MAGIC, pack_segment, unpack_toc};
     use super::super::*;
     use crate::postgres::storage::block::{
-        MutableSegmentBound, SegmentMetaEntry, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
+        MutableSegmentVersion, SegmentMetaEntry, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
     };
 
     fn lifecycle_key(id: i32) -> MutableCacheKey {
@@ -41,7 +42,8 @@ mod tests {
             database_oid: unsafe { pg_sys::MyDatabaseId },
             index_oid: pg_sys::InvalidOid,
             segment_id,
-            bound: MutableSegmentBound {
+            start_doc: 0,
+            bound: MutableSegmentVersion {
                 max_doc: 1,
                 num_deleted_docs: 0,
             },
@@ -55,15 +57,25 @@ mod tests {
             "{}.fast",
             SegmentId::from_bytes(key.segment_id).uuid_string()
         ));
-        let directory = get_or_build(&key, || {
-            if pause_build {
-                Spi::run("SELECT pg_sleep(60)").unwrap();
-            }
-            let directory = RamDirectory::default();
-            directory.atomic_write(&path, &[1, 2, 3])?;
-            Ok(directory)
-        })
-        .unwrap();
+        let cached = (!pause_build)
+            .then(|| {
+                cached_prefix(&key)
+                    .into_iter()
+                    .next()
+                    .map(|(_, directory)| directory)
+            })
+            .flatten();
+        let directory = cached.unwrap_or_else(|| {
+            get_or_build(&key, || {
+                if pause_build {
+                    Spi::run("SELECT pg_sleep(60)").unwrap();
+                }
+                let directory = RamDirectory::default();
+                directory.atomic_write(&path, &[1, 2, 3])?;
+                Ok(directory)
+            })
+            .unwrap()
+        });
         if pause_reader {
             Spi::run("SELECT pg_sleep(60)").unwrap();
         }
@@ -209,7 +221,8 @@ mod tests {
             database_oid: unsafe { pg_sys::MyDatabaseId },
             index_oid: pg_sys::InvalidOid,
             segment_id: *segment_id.uuid_bytes(),
-            bound: MutableSegmentBound {
+            start_doc: 0,
+            bound: MutableSegmentVersion {
                 max_doc: 1,
                 num_deleted_docs: 0,
             },
@@ -233,6 +246,242 @@ mod tests {
         })
         .unwrap();
         assert_eq!(replacement.atomic_read(&path).unwrap(), [4, 5, 6]);
+        invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
+    }
+
+    #[pg_test]
+    fn test_incremental_cached_prefix() {
+        let segment_id = SegmentId::generate_random();
+        let mut key = MutableCacheKey {
+            database_oid: unsafe { pg_sys::MyDatabaseId },
+            index_oid: pg_sys::InvalidOid,
+            segment_id: *segment_id.uuid_bytes(),
+            start_doc: 0,
+            bound: MutableSegmentVersion {
+                max_doc: 4,
+                num_deleted_docs: 0,
+            },
+        };
+        let first_path = PathBuf::from(format!("{}.fast", segment_id.uuid_string()));
+        drop(
+            get_or_build(&key, || {
+                let directory = RamDirectory::default();
+                directory.atomic_write(&first_path, &[1, 2, 3, 4])?;
+                Ok(directory)
+            })
+            .unwrap(),
+        );
+        key.bound.max_doc = 5;
+        let prefix = cached_prefix(&key);
+        assert_eq!(prefix.len(), 1);
+        assert_eq!(prefix[0].0, MutableChunkBounds { start: 0, end: 4 });
+        assert_eq!(prefix[0].1.atomic_read(&first_path).unwrap(), [1, 2, 3, 4]);
+        key.start_doc = 4;
+        key.bound.max_doc = 6;
+        let tail_path = PathBuf::from(format!(
+            "{}.fast",
+            MutableChunkBounds { start: 4, end: 6 }
+                .map_segment_id(segment_id)
+                .uuid_string()
+        ));
+        drop(
+            get_or_build(&key, || {
+                let directory = RamDirectory::default();
+                directory.atomic_write(&tail_path, &[5, 6])?;
+                Ok(directory)
+            })
+            .unwrap(),
+        );
+        key.start_doc = 0;
+        let chunks = cached_prefix(&key);
+        assert_eq!(
+            chunks.iter().map(|(range, _)| *range).collect::<Vec<_>>(),
+            [
+                MutableChunkBounds { start: 0, end: 4 },
+                MutableChunkBounds { start: 4, end: 6 }
+            ]
+        );
+        assert_eq!(chunks[1].1.atomic_read(&tail_path).unwrap(), [5, 6]);
+
+        key.bound.max_doc = 7;
+        assert_eq!(cached_prefix(&key).len(), 2);
+        key.bound.max_doc = 8;
+        assert_eq!(
+            plan_chunks(&key)
+                .iter()
+                .map(|(range, directory)| (*range, directory.is_some()))
+                .collect::<Vec<_>>(),
+            [
+                (MutableChunkBounds { start: 0, end: 4 }, true),
+                (MutableChunkBounds { start: 4, end: 6 }, true),
+                (MutableChunkBounds { start: 6, end: 8 }, false),
+            ]
+        );
+        drop(
+            get_or_build(&key, || {
+                let directory = RamDirectory::default();
+                directory.atomic_write(&first_path, &[1, 2, 3, 4, 5, 6, 7, 8])?;
+                Ok(directory)
+            })
+            .unwrap(),
+        );
+        let combined = cached_prefix(&key);
+        assert_eq!(combined.len(), 1);
+        assert_eq!(combined[0].0, MutableChunkBounds { start: 0, end: 8 });
+        assert_eq!(
+            combined[0].1.atomic_read(&first_path).unwrap(),
+            [1, 2, 3, 4, 5, 6, 7, 8]
+        );
+        assert_eq!(chunks[0].1.atomic_read(&first_path).unwrap(), [1, 2, 3, 4]);
+        assert_eq!(chunks[1].1.atomic_read(&tail_path).unwrap(), [5, 6]);
+        key.bound.max_doc = 6;
+        assert!(cached_prefix(&key).is_empty());
+        key.bound.max_doc = 8;
+        key.bound.num_deleted_docs = 1;
+        assert!(cached_prefix(&key).is_empty());
+        invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
+        assert_eq!(chunks[0].1.atomic_read(&first_path).unwrap(), [1, 2, 3, 4]);
+        drop(prefix);
+        drop(chunks);
+        drop(combined);
+        key.bound.num_deleted_docs = 0;
+        assert!(cached_prefix(&key).is_empty());
+
+        let base_key = key;
+        let materialize = |range: MutableChunkBounds, cached: Option<Arc<dyn Directory>>| {
+            let path = PathBuf::from(format!(
+                "{}.fast",
+                range.map_segment_id(segment_id).uuid_string()
+            ));
+            let contents: Vec<u8> = (range.start..range.end).map(|doc| doc as u8).collect();
+            let directory = cached.unwrap_or_else(|| {
+                let key = MutableCacheKey {
+                    start_doc: range.start,
+                    bound: MutableSegmentVersion {
+                        max_doc: range.end,
+                        num_deleted_docs: 0,
+                    },
+                    ..base_key
+                };
+                get_or_build(&key, || {
+                    let directory = RamDirectory::default();
+                    directory.atomic_write(&path, &contents)?;
+                    Ok(directory)
+                })
+                .unwrap()
+            });
+            assert_eq!(directory.atomic_read(&path).unwrap(), contents);
+            directory
+        };
+
+        const APPEND_COUNT: u32 = 128;
+        key.bound.max_doc = 0;
+        for (iteration, batch) in repeat_n(1, APPEND_COUNT as usize)
+            .chain((1..=APPEND_COUNT).rev())
+            .enumerate()
+        {
+            key.bound.max_doc += batch;
+            for (range, directory) in plan_chunks(&key) {
+                drop(materialize(range, directory));
+            }
+            let chunks = plan_chunks(&key);
+            assert_eq!(chunks.len(), MAX_CHUNKS_PER_SEGMENT.min(iteration + 1));
+            assert!(
+                chunks
+                    .windows(2)
+                    .all(|pair| pair[0].0.end == pair[1].0.start)
+            );
+            assert_eq!(
+                chunks
+                    .iter()
+                    .map(|(range, _)| range.num_docs())
+                    .sum::<u32>(),
+                key.bound.max_doc
+            );
+            for (range, directory) in chunks {
+                assert!(directory.is_some());
+                drop(materialize(range, directory));
+            }
+        }
+        invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
+
+        const LARGE_BATCH: u32 = 100;
+        let batches = [1, LARGE_BATCH, 2, 3];
+        key.bound.max_doc = 0;
+        for batch in batches.into_iter().chain(repeat_n(
+            LARGE_BATCH,
+            MAX_CHUNKS_PER_SEGMENT - batches.len(),
+        )) {
+            let start = key.bound.max_doc;
+            key.bound.max_doc += batch;
+            drop(materialize(
+                MutableChunkBounds {
+                    start,
+                    end: key.bound.max_doc,
+                },
+                None,
+            ));
+        }
+        let pinned = cached_prefix(&key);
+        let previous_end = key.bound.max_doc;
+        key.bound.max_doc += LARGE_BATCH;
+        let chunks = plan_chunks(&key);
+        assert_eq!(chunks.len(), MAX_CHUNKS_PER_SEGMENT);
+        assert_eq!(
+            chunks
+                .iter()
+                .filter(|(_, directory)| directory.is_none())
+                .map(|(range, _)| *range)
+                .collect::<Vec<_>>(),
+            [
+                MutableChunkBounds {
+                    start: pinned[2].0.start,
+                    end: pinned[3].0.end
+                },
+                MutableChunkBounds {
+                    start: previous_end,
+                    end: key.bound.max_doc
+                },
+            ]
+        );
+        for (range, directory) in chunks {
+            drop(materialize(range, directory));
+        }
+        for (range, directory) in &pinned {
+            drop(materialize(*range, Some(Arc::clone(directory))));
+        }
+        assert!(
+            plan_chunks(&key)
+                .iter()
+                .all(|(_, directory)| directory.is_some())
+        );
+        invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
+        drop(pinned);
+
+        const LEGACY_CHUNK_COUNT: usize = MAX_CHUNKS_PER_SEGMENT * 2 + 1;
+        for start in 0..LEGACY_CHUNK_COUNT as u32 {
+            drop(materialize(
+                MutableChunkBounds {
+                    start,
+                    end: start + 1,
+                },
+                None,
+            ));
+        }
+        key.bound.max_doc = LEGACY_CHUNK_COUNT as u32;
+        let chunks = plan_chunks(&key);
+        assert_eq!(chunks.len(), MAX_CHUNKS_PER_SEGMENT);
+        assert!(
+            chunks
+                .windows(2)
+                .all(|pair| pair[0].0.end == pair[1].0.start)
+        );
+        assert_eq!(chunks.first().unwrap().0.start, 0);
+        assert_eq!(chunks.last().unwrap().0.end, key.bound.max_doc);
+        for (range, directory) in chunks {
+            drop(materialize(range, directory));
+        }
+        assert_eq!(cached_prefix(&key).len(), MAX_CHUNKS_PER_SEGMENT);
         invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
     }
 
@@ -275,7 +524,7 @@ mod tests {
         assert_eq!(key.segment_id, *segment_id.uuid_bytes());
         assert_eq!(
             key.bound,
-            MutableSegmentBound {
+            MutableSegmentVersion {
                 max_doc: 50,
                 num_deleted_docs: 3,
             }
@@ -399,7 +648,8 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_a,
-            bound: MutableSegmentBound {
+            start_doc: 0,
+            bound: MutableSegmentVersion {
                 max_doc: 10,
                 num_deleted_docs: 0,
             },
@@ -408,7 +658,8 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_a,
-            bound: MutableSegmentBound {
+            start_doc: 0,
+            bound: MutableSegmentVersion {
                 max_doc: 20,
                 num_deleted_docs: 0,
             },
@@ -417,7 +668,8 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_b,
-            bound: MutableSegmentBound {
+            start_doc: 0,
+            bound: MutableSegmentVersion {
                 max_doc: 5,
                 num_deleted_docs: 0,
             },
@@ -426,7 +678,8 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(200),
             segment_id: seg_a,
-            bound: MutableSegmentBound {
+            start_doc: 0,
+            bound: MutableSegmentVersion {
                 max_doc: 10,
                 num_deleted_docs: 0,
             },
@@ -516,7 +769,8 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(1),
             index_oid: pg_sys::Oid::from_u32(2),
             segment_id: [42u8; 16],
-            bound: MutableSegmentBound {
+            start_doc: 0,
+            bound: MutableSegmentVersion {
                 max_doc: 100,
                 num_deleted_docs: 0,
             },
@@ -614,25 +868,19 @@ mod backend {
                 .unwrap()
                 .get(0)
         });
-        let (waiter, keeper) = if building {
+        let keeper = if building {
             let mut waiter = connect();
-            let waiter_pid: i32 = waiter
-                .query_one("SELECT pg_backend_pid()", &[])
-                .unwrap()
-                .get(0);
             let handle = spawn(move || {
                 waiter.query_one(
                     "SELECT tests.test_mutable_cache_access($1, false, false)",
                     &[&id],
                 )
             });
-            wait_until("query waiting for cache builder", || {
-                control.query_one(
-                    "SELECT EXISTS(SELECT FROM pg_stat_activity WHERE pid=$1 AND wait_event='Extension')",
-                    &[&waiter_pid],
-                ).unwrap().get(0)
+            wait_until("reader finishing while the cache builder is parked", || {
+                handle.is_finished()
             });
-            (Some(handle), None)
+            assert!(handle.join().unwrap().unwrap().get::<_, bool>(0));
+            None
         } else {
             let mut keeper = connect();
             let keeper_pid: i32 = keeper
@@ -656,7 +904,7 @@ mod backend {
                 .unwrap()
                 .get(0);
             assert_eq!(readers, 2);
-            (None, Some((keeper_pid, handle)))
+            Some((keeper_pid, handle))
         };
         let signal = if terminate {
             "pg_terminate_backend"
@@ -670,12 +918,6 @@ mod backend {
                 .get::<_, bool>(0)
         );
         assert!(victim.join().unwrap().is_err());
-        if let Some(waiter) = waiter {
-            wait_until("waiter recovering after builder exits", || {
-                waiter.is_finished()
-            });
-            assert!(waiter.join().unwrap().unwrap().get::<_, bool>(0));
-        }
         if let Some((pid, keeper)) = keeper {
             wait_until("only the surviving reader's pin remaining", || {
                 control

@@ -173,8 +173,18 @@ fn rte_alias_bytes(rte: &pg_sys::RangeTblEntry) -> &[u8] {
 /// The entry `rti` scans, or the top parent it was expanded from, when that is a relation.
 pub(crate) unsafe fn top_parent(
     root: *mut pg_sys::PlannerInfo,
-    mut rti: pg_sys::Index,
+    rti: pg_sys::Index,
 ) -> Option<(pg_sys::Index, *mut pg_sys::RangeTblEntry)> {
+    let rti = ancestor_rti(root, rti, None)?;
+    let rte = *(*root).simple_rte_array.add(rti as usize);
+    (!rte.is_null() && (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION).then_some((rti, rte))
+}
+
+unsafe fn ancestor_rti(
+    root: *mut pg_sys::PlannerInfo,
+    mut rti: pg_sys::Index,
+    ancestor: Option<pg_sys::Index>,
+) -> Option<pg_sys::Index> {
     loop {
         if rti == 0 || rti as i32 >= (*root).simple_rel_array_size {
             return None;
@@ -185,13 +195,38 @@ pub(crate) unsafe fn top_parent(
         } else {
             *appinfos.add(rti as usize)
         };
+        if ancestor == Some(rti) || (ancestor.is_none() && appinfo.is_null()) {
+            return Some(rti);
+        }
         if appinfo.is_null() {
-            let rte = *(*root).simple_rte_array.add(rti as usize);
-            return (!rte.is_null() && (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION)
-                .then_some((rti, rte));
+            return None;
         }
         rti = (*appinfo).parent_relid;
     }
+}
+
+/// Translate an ancestor's expression into the child's heap attribute numbering.
+pub(crate) unsafe fn translate_ancestor_expression(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+    parent_rti: pg_sys::Index,
+    child_rti: pg_sys::Index,
+) -> Option<*mut pg_sys::Node> {
+    ancestor_rti(root, child_rti, Some(parent_rti))?;
+    if parent_rti == child_rti {
+        return Some(node);
+    }
+    let child = *(*root).simple_rel_array.add(child_rti as usize);
+    let parent = *(*root).simple_rel_array.add(parent_rti as usize);
+    if child.is_null() || parent.is_null() {
+        return None;
+    }
+    #[cfg(feature = "pg15")]
+    let translated =
+        pg_sys::adjust_appendrel_attrs_multilevel(root, node, (*child).relids, (*parent).relids);
+    #[cfg(not(feature = "pg15"))]
+    let translated = pg_sys::adjust_appendrel_attrs_multilevel(root, node, child, parent);
+    Some(translated)
 }
 
 /// The left operand of `node` when `node` is a search predicate as a query writes it.

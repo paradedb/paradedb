@@ -171,6 +171,13 @@ impl SourceContext {
         }
     }
 
+    // An unaliased computed expression can share a column's name without holding its value.
+    pub fn resolve_column_field(&self, name: &str) -> Option<ResolvedHeapField> {
+        let field = self.resolve_heap_field(ResTarget::Field(name))?;
+        let heap_name = self.get_attname(field.attno?)?;
+        (heap_name.into_inner() == field.name.root()).then_some(field)
+    }
+
     /// The zero-based heap attribute a composite field reads. A `ROW(...)` argument
     /// that is a column, plain or under a tokenizer cast, keeps the column's value.
     fn composite_field_heap_attno(&self, source: FieldSource) -> Option<usize> {
@@ -314,17 +321,23 @@ fn find_matching_fast_field(
         }
     };
 
-    let to_fast_field = |search_field: &SearchField, is_array: bool| -> Option<WhichFastField> {
-        if search_field.is_fast() {
-            return Some(WhichFastField::named(
-                search_field.field_name().to_string(),
-                search_field.field_type(),
-                FieldCardinality::from_arrayness(is_array),
-                FieldDelivery::Eager,
-            ));
-        }
-        None
-    };
+    let to_fast_field =
+        |search_field: &SearchField, data: &CategorizedFieldData| -> Option<WhichFastField> {
+            // A computed field must preserve PostgreSQL's value; a normalizer can change it.
+            if search_field.is_fast()
+                && (data.source.heap_attno().is_some()
+                    || !search_field.is_text()
+                    || search_field.is_raw_sortable())
+            {
+                return Some(WhichFastField::named(
+                    search_field.field_name().to_string(),
+                    search_field.field_type(),
+                    FieldCardinality::from_arrayness(data.is_array),
+                    FieldDelivery::Eager,
+                ));
+            }
+            None
+        };
 
     for (i, expr) in index.index_expressions().iter_ptr().enumerate() {
         if let Some(row_expr) = unsafe { row_expr_from_indexed_expr(expr) } {
@@ -351,7 +364,7 @@ fn find_matching_fast_field(
                         } if expression_idx == i && idx == field_idx
                     )
                 }) && matches_node(arg)
-                    && let Some(ff) = to_fast_field(search_field, data.is_array)
+                    && let Some(ff) = to_fast_field(search_field, data)
                 {
                     return Some((ff, data.is_json));
                 }
@@ -359,7 +372,7 @@ fn find_matching_fast_field(
         } else if let Some((search_field, data)) = categorized_fields.iter().find(
             |(_, data)| matches!(data.source, FieldSource::Expression { att_idx, .. } if att_idx == i),
         ) && matches_node(expr as *mut pg_sys::Node)
-            && let Some(ff) = to_fast_field(search_field, data.is_array)
+            && let Some(ff) = to_fast_field(search_field, data)
         {
             return Some((ff, data.is_json));
         }

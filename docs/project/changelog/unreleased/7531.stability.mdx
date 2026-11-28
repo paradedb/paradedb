@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Fixed incorrect sorting, grouping, and range filtering of indexed text expressions when their columnar values apply additional normalization. Base, join, and aggregate scans now fall back to PostgreSQL evaluation for these expressions, including indexes created before the upgrade (#7054).

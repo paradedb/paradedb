@@ -311,6 +311,10 @@ pub unsafe fn try_build_pushdown_qual(
                 return None;
             }
 
+            if pgsearch_operator.is_range() && search_field.is_text() && !search_field.is_raw_sortable() {
+                return None;
+            }
+
             // Tantivy doesn't support JSON range if JSON is not fast.
             if search_field.is_json() && !search_field.is_fast() && pgsearch_operator.is_range() {
                 return None;

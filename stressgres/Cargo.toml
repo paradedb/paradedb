@@ -32,6 +32,7 @@ pgrx-pg-config = "=0.20.1"
 plotters = { version = "0.3.7", optional = true }
 postgres = "0.19.13"
 postgres-openssl = "0.5.3"
+rand = { workspace = true }
 rust_decimal = { version = "1.43.0", features = ["db-postgres"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149", features = [

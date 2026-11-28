@@ -24,6 +24,8 @@ use parking_lot::{Mutex, RwLock};
 use postgres::Row;
 use postgres::error::SqlState;
 use postgres::types::ToSql;
+use rand::RngExt;
+use rand::seq::IteratorRandom;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
@@ -477,13 +479,19 @@ impl MultiTransaction<'_> {
             None => Ok(()),
         }
     }
+
+    fn rollback(&mut self) -> std::result::Result<(), postgres::Error> {
+        let mut result = Ok(());
+        for (xact, io, ..) in self.transactions.drain(..) {
+            result = result.and(io.run(xact.rollback()));
+        }
+        result
+    }
 }
 
 impl Drop for MultiTransaction<'_> {
     fn drop(&mut self) {
-        for (xact, io, ..) in self.transactions.drain(..) {
-            let _ = io.run(xact.rollback());
-        }
+        let _ = self.rollback();
     }
 }
 
@@ -535,6 +543,7 @@ pub struct SuiteRunner {
     alive: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     handles: Mutex<Vec<ThreadHandle>>,
+    cancel_sampler: Mutex<Option<JoinHandle<()>>>,
     runners: Vec<Arc<JobRunner>>,
     have_error: Arc<AtomicBool>,
     first_error_duration_bits: Arc<AtomicU64>,
@@ -543,6 +552,31 @@ pub struct SuiteRunner {
 
     monitors: Vec<Arc<JobRunner>>,
     sys: Arc<RwLock<System>>,
+}
+
+fn sample_cancels(
+    runners: Vec<Arc<JobRunner>>,
+    alive: Arc<AtomicBool>,
+    rate: f64,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut rng = rand::rng();
+        while alive.load(Ordering::Acquire) {
+            let delay = Duration::try_from_secs_f64(rng.random_range(0.5..1.5) / rate)
+                .unwrap_or(Duration::MAX)
+                .max(Duration::from_nanos(1));
+            std::thread::park_timeout(delay);
+            if alive.load(Ordering::Acquire)
+                && let Some(runner) = runners
+                    .iter()
+                    .filter(|runner| runner.running())
+                    .choose(&mut rng)
+                && runner.send_cancel(false)
+            {
+                runner.random_cancels.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    })
 }
 
 /// Run `op` against a live [`Conn`], tolerating transient connectivity faults.
@@ -611,6 +645,7 @@ impl SuiteRunner {
         paused: bool,
         reconnect_grace: GraceWindow,
         operation_timeout: Option<Duration>,
+        cancel_rate: f64,
         setup_mode: SetupMode,
     ) -> Result<Arc<Self>> {
         let suite = Arc::new(suite);
@@ -621,6 +656,7 @@ impl SuiteRunner {
             alive: Arc::new(AtomicBool::new(true)),
             paused: Arc::new(AtomicBool::new(paused)),
             handles: Default::default(),
+            cancel_sampler: Default::default(),
             runners: Default::default(),
             have_error: Arc::new(AtomicBool::new(false)),
             first_error_duration_bits: Default::default(),
@@ -653,6 +689,13 @@ impl SuiteRunner {
         }
 
         runner.init()?;
+        if setup_mode != SetupMode::SetupOnly && cancel_rate > 0.0 {
+            *runner.cancel_sampler.get_mut() = Some(sample_cancels(
+                runner.runners().chain(runner.monitor_runners()).collect(),
+                runner.alive.clone(),
+                cancel_rate,
+            ));
+        }
         let suite_runner = Arc::new(runner);
 
         // Refresh sysinfo stats very frequently. A `SetupOnly` run spawned no workers or
@@ -966,6 +1009,9 @@ impl SuiteRunner {
             timeout
         };
         self.alive.store(false, Ordering::Release);
+        if let Some(sampler) = self.cancel_sampler.lock().as_ref() {
+            sampler.thread().unpark();
+        }
         self.paused.store(false, Ordering::Release);
         // A failed cancellation connection must not prevent other jobs from being canceled
         // or stop the caller from enforcing the shutdown deadline.
@@ -1015,6 +1061,14 @@ impl SuiteRunner {
                         Arc::new(anyhow!("Job '{}' panicked: {:?}", job_title, e));
                     all_errors.push(error_with_title);
                 }
+            }
+        }
+
+        if let Some(sampler) = self.cancel_sampler.lock().take() {
+            let _ = sampler.join();
+            for runner in self.runners().chain(self.monitor_runners()) {
+                let sent = runner.random_cancels.load(Ordering::Relaxed);
+                eprintln!("Random cancels sent: {}: {sent}", runner.title());
             }
         }
 
@@ -1088,6 +1142,14 @@ impl RuntimeStats {
     pub fn tps(&self) -> f64 {
         let tps = self.count as f64 / self.cumulative_duration.as_secs_f64();
         if !tps.is_normal() { 0.0 } else { tps }
+    }
+
+    pub(crate) fn failed(&self, ignore_patterns: &[String]) -> bool {
+        self.assert_error.is_some()
+            || self
+                .results
+                .as_ref()
+                .is_err_and(|e| !is_ignorable_error(e, ignore_patterns))
     }
 
     pub fn update(
@@ -1201,6 +1263,7 @@ pub struct JobRunner {
     last_conn_generation: AtomicU64,
     runtime_stats: RwLock<BTreeMap<ConnInfo, RuntimeStats>>,
     cancel_targets: RwLock<Vec<CancelTarget>>,
+    random_cancels: AtomicU64,
 
     sys: Arc<RwLock<System>>,
 }
@@ -1236,6 +1299,7 @@ impl JobRunner {
             last_conn_generation: AtomicU64::new(0),
             runtime_stats: Default::default(),
             cancel_targets: Default::default(),
+            random_cancels: Default::default(),
             sys,
         })
     }
@@ -1346,17 +1410,16 @@ impl JobRunner {
             || self
                 .runtime_stats
                 .read()
-                .iter()
-                .any(|(_, stats)| stats.results.is_err() || stats.assert_error.is_some())
+                .values()
+                .any(|stats| stats.failed(self.suite.ignore_errors()))
     }
 
     /// Did this job encounter an error?
     pub fn connection_errored(&self, conninfo: &ConnInfo) -> bool {
         self.runtime_stats
             .read()
-            .iter()
-            .filter(|(this_conninfo, _)| *this_conninfo == conninfo)
-            .any(|(_, stats)| stats.results.is_err() || stats.assert_error.is_some())
+            .get(conninfo)
+            .is_some_and(|stats| stats.failed(self.suite.ignore_errors()))
     }
 
     pub fn worker_error(&self) -> Option<Arc<anyhow::Error>> {
@@ -1365,8 +1428,12 @@ impl JobRunner {
 
     /// Best-effort cancellation of the job's active queries.
     pub fn cancel_query(&self) {
+        self.send_cancel(true);
+    }
+
+    fn send_cancel(&self, log: bool) -> bool {
         if !self.running() {
-            return;
+            return false;
         }
         // Tokens retain the original connection's endpoint and cancellation key.
         // Unlike a SQL session, a cancel request can be sent during smart shutdown.
@@ -1374,20 +1441,29 @@ impl JobRunner {
         let runtime = match Builder::new_current_thread().enable_all().build() {
             Ok(runtime) => runtime,
             Err(error) => {
-                eprintln!("could not start cancellation runtime: {error}");
-                return;
+                if log {
+                    eprintln!("could not start cancellation runtime: {error}");
+                }
+                return false;
             }
         };
+        let mut sent = false;
         for target in targets {
+            // Only an already-started send (one per-target timeout) can outlive shutdown.
+            if !log && (!self.alive.load(Ordering::Acquire) || !self.running()) {
+                break;
+            }
             let started = Instant::now();
-            eprintln!(
-                "sending cancellation job={} state={:?} server={} configured_endpoint={} pid={}",
-                self.title(),
-                self.worker_state(),
-                target.server_name,
-                target.endpoint,
-                target.pid
-            );
+            if log {
+                eprintln!(
+                    "sending cancellation job={} state={:?} server={} configured_endpoint={} pid={}",
+                    self.title(),
+                    self.worker_state(),
+                    target.server_name,
+                    target.endpoint,
+                    target.pid
+                );
+            }
             let result = runtime.block_on(async {
                 tokio::time::timeout(
                     CANCELLATION_TIMEOUT,
@@ -1396,7 +1472,8 @@ impl JobRunner {
                 .await?
                 .map_err(anyhow::Error::new)
             });
-            if let Err(error) = result {
+            sent |= result.is_ok();
+            if log && let Err(error) = result {
                 eprintln!(
                     "could not send cancellation job={} state={:?} server={} configured_endpoint={} pid={} elapsed_ms={}: {error:#}",
                     self.title(),
@@ -1408,12 +1485,20 @@ impl JobRunner {
                 );
             }
         }
+        sent
     }
 
     /// Toggle the Job's paused state
     pub fn toggle_pause(&self) {
         let new_val = !self.paused();
         self.paused.store(new_val, Ordering::Relaxed);
+    }
+
+    fn ignores_worker_error(&self, error: &postgres::Error) -> bool {
+        if error.code() == Some(&SqlState::QUERY_CANCELED) {
+            dst::assert_reachable!("stressgres: worker received a query cancellation");
+        }
+        is_ignorable_error(error, self.suite.ignore_errors())
     }
 
     /// Execute this job once using the provided connection.
@@ -1479,10 +1564,10 @@ impl JobRunner {
                         break;
                     }
                 }
-                let commit_res = {
+                let finish_res = {
                     let mut tx = match conn.transaction() {
                         Ok(tx) => tx,
-                        Err(e) if is_ignorable_error(&e, self.suite.ignore_errors()) => {
+                        Err(e) if self.ignores_worker_error(&e) => {
                             return Ok(());
                         }
                         Err(e) => return Err(postgres_anyhow(e)),
@@ -1511,13 +1596,18 @@ impl JobRunner {
                     if should_commit {
                         tx.commit()
                     } else {
-                        drop(tx);
-                        Ok(())
+                        tx.rollback()
                     }
                 };
-                if let Err(e) = commit_res {
-                    if is_ignorable_error(&e, self.suite.ignore_errors()) {
+                if let Err(e) = finish_res {
+                    if self.ignores_worker_error(&e) {
                         conn.rollback_best_effort();
+                        // Preserve a statement error even if finalization also got canceled.
+                        if final_result.as_ref().is_some_and(|results| {
+                            results.iter().any(|(result, ..)| result.is_err())
+                        }) {
+                            break;
+                        }
                         return Ok(());
                     }
                     return Err(postgres_anyhow(e));
@@ -1555,7 +1645,7 @@ impl JobRunner {
                 let mut assert_error = None;
                 if rows.is_err() {
                     rows = rows.inspect_err(|e| {
-                        if !is_ignorable_error(e, self.suite.ignore_errors())
+                        if !self.ignores_worker_error(e)
                             && last_error
                                 .as_ref()
                                 .is_none_or(|previous: &Arc<postgres::Error>| {
@@ -1731,5 +1821,7 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod cancel_test;
 #[cfg(test)]
 mod shutdown_test;

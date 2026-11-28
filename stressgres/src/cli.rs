@@ -68,6 +68,24 @@ impl ReconnectGraceArgs {
     }
 }
 
+#[derive(Debug, Args)]
+pub struct RandomCancelArgs {
+    /// Mean number of random cancellation checks per second across the suite.
+    /// Each check can cancel one running job or monitor. Defaults to 0 (off).
+    #[arg(long, default_value_t = 0.0, value_parser = parse_cancel_rate)]
+    pub cancel_rate: f64,
+}
+
+fn parse_cancel_rate(value: &str) -> Result<f64, &'static str> {
+    let error = "cancel rate must be a finite non-negative number";
+    let rate: f64 = value.parse().map_err(|_| error)?;
+    if rate.is_finite() && rate >= 0.0 {
+        Ok(rate)
+    } else {
+        Err(error)
+    }
+}
+
 /// Stress testing for ParadeDB/PostgreSQL
 #[derive(Debug, Parser)]
 #[command(version, about = "Stress testing for ParadeDB/PostgreSQL")]
@@ -114,6 +132,9 @@ pub struct UiArgs {
 
     #[command(flatten)]
     pub grace: ReconnectGraceArgs,
+
+    #[command(flatten)]
+    pub cancel: RandomCancelArgs,
 }
 
 /// Arguments for running the suite in headless mode.
@@ -144,6 +165,8 @@ pub struct HeadlessArgs {
     pub skip_setup: bool,
     #[command(flatten)]
     pub grace: ReconnectGraceArgs,
+    #[command(flatten)]
+    pub cancel: RandomCancelArgs,
 }
 
 /// Arguments for parsing a log file and generating the desired charts.
@@ -186,4 +209,34 @@ pub struct AutoArgs {
 
     #[arg(long, default_value = "600000")]
     pub runtime: u64,
+
+    #[command(flatten)]
+    pub cancel: RandomCancelArgs,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn random_cancellation_defaults_off_and_accepts_finite_non_negative_rates() {
+        let base = ["stressgres", "headless", "suite.toml"];
+        let rate = |args: &[&str]| {
+            Cli::try_parse_from(base.into_iter().chain(args.iter().copied())).map(|cli| {
+                let Command::Headless(args) = cli.command else {
+                    unreachable!();
+                };
+                args.cancel.cancel_rate
+            })
+        };
+
+        assert_eq!(rate(&[]).unwrap(), 0.0);
+        for (flag, expected) in [("0", 0.0), ("0.2", 0.2), ("5", 5.0)] {
+            assert_eq!(rate(&["--cancel-rate", flag]).unwrap(), expected);
+        }
+        for value in ["-0.1", "NaN", "inf"] {
+            assert!(rate(&[&format!("--cancel-rate={value}")]).is_err());
+        }
+    }
 }

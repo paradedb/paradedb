@@ -7242,6 +7242,7 @@ dependencies = [
  "plotters",
  "postgres",
  "postgres-openssl",
+ "rand 0.10.3",
  "rust_decimal",
  "serde",
  "serde_json",

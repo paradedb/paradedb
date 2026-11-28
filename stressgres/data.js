@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795853229441,
+  "lastUpdate": 1795853257262,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -530719,6 +530719,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15182220207-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795853254450,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 21.346935750413046,
+            "unit": "median tps",
+            "extra": "avg tps: 61.77494348436127, max tps: 894.4282142590669, count: 58695"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 13.562773522132723,
+            "unit": "median tps",
+            "extra": "avg tps: 36.85452488076329, max tps: 631.0010640977351, count: 58695"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 63.36643366976339,
+            "unit": "median tps",
+            "extra": "avg tps: 126.13090833555592, max tps: 1225.1942993957543, count: 58695"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 12.994579107755618,
+            "unit": "median tps",
+            "extra": "avg tps: 32.667506549968266, max tps: 439.7196842485245, count: 58695"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 28.080885680650013,
+            "unit": "median tps",
+            "extra": "avg tps: 73.05628931263377, max tps: 979.1130475998606, count: 58695"
+          }
+        ],
+        "publication_id": "15254942434-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -545804,6 +545857,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15182220207-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "da0ea44610403c6367a685c09d1cc9b4e13a8f15",
+          "message": "feat: remove the deprecated pdb.term_set aggregate (#7672)\n\n## What\n\nRemove the deprecated `pdb.term_set(bigint)` aggregate. The\n`pdb.term_set(array)` functions remain available, including\n`pdb.term_set(array_agg(...))` for queries that build a term set from\nrows.\n\nDrop the aggregate and its support functions on extension upgrade.\nPreserve the C symbols historical migrations validate before the drop\nruns. Retain the term-set regression cases using the array API.\n\n## Tests\n\nFormatting and whitespace checks passed. SchemaBot, PostgreSQL\nregression, and extension upgrade validation run in CI.",
+          "timestamp": "2026-11-25T23:38:11Z",
+          "url": "https://github.com/paradedb/paradedb/commit/da0ea44610403c6367a685c09d1cc9b4e13a8f15"
+        },
+        "date": 1795853257135,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 113.5546875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 84.00417625010648, max partition_index_size:MB: 120.3515625, count: 58695"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 18.373205,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.829803503451906, max cpu: 32.65306, count: 58695"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 88.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 88.41996563272, max mem: 153.03125, count: 58695"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.955523,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.651927889252836, max cpu: 32.292168, count: 58695"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 109.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 108.87859751682426, max mem: 175.90234375, count: 58695"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.733906,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.50043709703754, max cpu: 32.214767, count: 58695"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 84.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 79.7629914840489, max mem: 155.578125, count: 58695"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.955523,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.92673860491465, max cpu: 32.36994, count: 58695"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 108.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 104.71767485784564, max mem: 176.50390625, count: 58695"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.911695,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.737696806975464, max cpu: 32.338787, count: 58695"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 101.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 102.44640840627396, max mem: 169.76953125, count: 58695"
+          }
+        ],
+        "publication_id": "15254942434-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

@@ -41,7 +41,7 @@ use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 use superkmeans::common::Y_BATCH_SIZE;
 use superkmeans::distance::l2_squared;
-use superkmeans::{SuperKMeans, SuperKMeansConfig};
+use superkmeans::{SuperKMeans, SuperKMeansConfig, Vectors};
 use tantivy::schema::{Field, FieldType, Schema, VectorOptions};
 
 use crate::api::FieldName;
@@ -285,7 +285,10 @@ impl VectorPartitioning {
                     ..Default::default()
                 },
             );
-            clusterer.train_owned(data, rows)
+            match clusterer.train(&mut Vectors::new(data, dimensions)) {
+                Ok(centroids) => centroids,
+                Err(never) => match never {},
+            }
         } else {
             Vec::new()
         };

@@ -493,9 +493,27 @@ fn parse_chinese_convert_json(
     Ok(Some(mode))
 }
 
+fn parse_optional_tokenizer_option<T: de::DeserializeOwned>(
+    config: &serde_json::Value,
+    name: &str,
+    expected: &str,
+    strict: bool,
+) -> anyhow::Result<Option<T>> {
+    match serde_json::from_value(config[name].clone()) {
+        Ok(value) => Ok(value),
+        Err(_) if !strict => Ok(None),
+        Err(_) => Err(anyhow::anyhow!("{name} must be {expected}")),
+    }
+}
+
 impl SearchTokenizer {
-    // This is only used by the v1 api (prior to v0.20.0)
+    // Strictly parse newly supplied tokenizer settings in the legacy JSON format
+    // used by the v1 API before v0.20.0.
     pub fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
+        Self::parse_json_value(value, true)
+    }
+
+    fn parse_json_value(value: &serde_json::Value, strict: bool) -> Result<Self, anyhow::Error> {
         // We use the `type` field of a JSON object to distinguish the tokenizer variant.
         // Deserialized in this "tagged enum" fashion is not supported by bincode, which
         // we use elsewhere for serialization, so we manually parse the JSON object here.
@@ -541,10 +559,9 @@ impl SearchTokenizer {
                     .map_err(|_| {
                         anyhow::anyhow!("ngram tokenizer requires a boolean 'prefix_only' field")
                     })?;
-                let positions: bool = value
-                    .get("positions")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+                let positions =
+                    parse_optional_tokenizer_option(value, "positions", "a boolean", strict)?
+                        .unwrap_or(false);
                 Ok(SearchTokenizer::Ngram {
                     min_gram,
                     max_gram,
@@ -554,14 +571,31 @@ impl SearchTokenizer {
                 })
             }
             "edge_ngram" => {
-                let min_gram: usize =
-                    value.get("min_gram").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
-                let max_gram: usize =
-                    value.get("max_gram").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
-                let token_chars: Vec<String> = value
-                    .get("token_chars")
-                    .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    .unwrap_or_else(|| vec!["letter".to_string(), "digit".to_string()]);
+                let min_gram = parse_optional_tokenizer_option(
+                    value,
+                    "min_gram",
+                    "a positive integer",
+                    strict,
+                )?
+                .unwrap_or(1);
+                let max_gram = parse_optional_tokenizer_option(
+                    value,
+                    "max_gram",
+                    "a positive integer",
+                    strict,
+                )?
+                .unwrap_or(2);
+                if strict {
+                    anyhow::ensure!(min_gram > 0, "min_gram must be a positive integer");
+                    anyhow::ensure!(max_gram > 0, "max_gram must be a positive integer");
+                }
+                let token_chars = parse_optional_tokenizer_option(
+                    value,
+                    "token_chars",
+                    "an array of strings",
+                    strict,
+                )?
+                .unwrap_or_else(|| vec!["letter".to_string(), "digit".to_string()]);
                 Ok(SearchTokenizer::EdgeNgram {
                     min_gram,
                     max_gram,
@@ -1061,7 +1095,8 @@ impl<'de> Deserialize<'de> for SearchTokenizer {
         D: Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        SearchTokenizer::from_json_value(&value).map_err(de::Error::custom)
+        // Stored index options may contain malformed values that used the defaults.
+        SearchTokenizer::parse_json_value(&value, false).map_err(de::Error::custom)
     }
 }
 
@@ -1088,6 +1123,7 @@ impl SearchNormalizer {
 mod tests {
     use super::*;
     use rstest::*;
+    use serde_json::json;
 
     #[rstest]
     fn test_search_tokenizer() {
@@ -1126,6 +1162,109 @@ mod tests {
                     alpha_num_only: None,
                 }
             }
+        );
+    }
+
+    const DEFAULT_TOKEN_CHARS: &[&str] = &["letter", "digit"];
+
+    fn ngram_tokenizer(positions: bool) -> SearchTokenizer {
+        SearchTokenizer::Ngram {
+            min_gram: 2,
+            max_gram: 2,
+            prefix_only: false,
+            positions,
+            filters: SearchTokenizerFilters::default(),
+        }
+    }
+
+    fn edge_ngram_tokenizer(
+        min_gram: usize,
+        max_gram: usize,
+        token_chars: &[&str],
+    ) -> SearchTokenizer {
+        SearchTokenizer::EdgeNgram {
+            min_gram,
+            max_gram,
+            token_chars: token_chars.iter().map(|name| (*name).to_owned()).collect(),
+            filters: SearchTokenizerFilters::default(),
+        }
+    }
+
+    #[rstest]
+    #[case::positions(
+        json!({"type": "ngram", "min_gram": 2, "max_gram": 2, "prefix_only": false}),
+        "positions", json!("true"), json!(true), "positions must be a boolean",
+        ngram_tokenizer(false), ngram_tokenizer(true),
+    )]
+    #[case::min_gram(
+        json!({"type": "edge_ngram"}),
+        "min_gram", json!("2"), json!(2), "min_gram must be a positive integer",
+        edge_ngram_tokenizer(1, 2, DEFAULT_TOKEN_CHARS),
+        edge_ngram_tokenizer(2, 2, DEFAULT_TOKEN_CHARS),
+    )]
+    #[case::max_gram(
+        json!({"type": "edge_ngram"}),
+        "max_gram", json!(3.5), json!(3), "max_gram must be a positive integer",
+        edge_ngram_tokenizer(1, 2, DEFAULT_TOKEN_CHARS),
+        edge_ngram_tokenizer(1, 3, DEFAULT_TOKEN_CHARS),
+    )]
+    #[case::token_chars(
+        json!({"type": "edge_ngram"}),
+        "token_chars", json!(["letter", 3]), json!(["letter"]),
+        "token_chars must be an array of strings",
+        edge_ngram_tokenizer(1, 2, DEFAULT_TOKEN_CHARS),
+        edge_ngram_tokenizer(1, 2, &["letter"]),
+    )]
+    fn test_optional_ngram_json_options(
+        #[case] mut config: serde_json::Value,
+        #[case] option: &str,
+        #[case] invalid: serde_json::Value,
+        #[case] valid: serde_json::Value,
+        #[case] message: &str,
+        #[case] expected_default: SearchTokenizer,
+        #[case] expected_explicit: SearchTokenizer,
+    ) {
+        assert_eq!(
+            SearchTokenizer::from_json_value(&config).unwrap(),
+            expected_default
+        );
+
+        config[option] = serde_json::Value::Null;
+        assert_eq!(
+            SearchTokenizer::from_json_value(&config).unwrap(),
+            expected_default
+        );
+
+        config[option] = valid;
+        assert_eq!(
+            SearchTokenizer::from_json_value(&config).unwrap(),
+            expected_explicit
+        );
+
+        config[option] = invalid;
+        assert_eq!(
+            SearchTokenizer::from_json_value(&config)
+                .unwrap_err()
+                .to_string(),
+            message
+        );
+        assert_eq!(
+            serde_json::from_value::<SearchTokenizer>(config).unwrap(),
+            expected_default
+        );
+    }
+
+    #[rstest]
+    #[case::min_gram("min_gram")]
+    #[case::max_gram("max_gram")]
+    fn test_edge_ngram_rejects_zero(#[case] option: &str) {
+        let mut config = json!({"type": "edge_ngram"});
+        config[option] = json!(0);
+        assert_eq!(
+            SearchTokenizer::from_json_value(&config)
+                .unwrap_err()
+                .to_string(),
+            format!("{option} must be a positive integer")
         );
     }
 

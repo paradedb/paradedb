@@ -94,11 +94,9 @@ extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
 
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
-    let json_str = cstr_to_rust_str(value);
-    if json_str.is_empty() {
-        return;
-    }
-    deserialize_config_fields(json_str, &SearchFieldConfig::text_from_json);
+    validate_tokenized_field_configs(value, &|config| {
+        SearchFieldConfig::text_from_json(config, true)
+    });
 }
 
 #[pg_guard]
@@ -130,11 +128,20 @@ extern "C-unwind" fn validate_boolean_fields(value: *const std::os::raw::c_char)
 
 #[pg_guard]
 extern "C-unwind" fn validate_json_fields(value: *const std::os::raw::c_char) {
+    validate_tokenized_field_configs(value, &|config| {
+        SearchFieldConfig::json_from_json(config, true)
+    });
+}
+
+fn validate_tokenized_field_configs(
+    value: *const std::os::raw::c_char,
+    parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
+) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
         return;
     }
-    deserialize_config_fields(json_str, &SearchFieldConfig::json_from_json);
+    deserialize_config_fields(json_str, parser);
 }
 
 #[pg_guard]
@@ -1031,7 +1038,9 @@ impl BM25IndexOptionsData {
     }
 
     pub fn text_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
-        self.deserialize_configs(self.text_fields_offset, &SearchFieldConfig::text_from_json)
+        self.deserialize_configs(self.text_fields_offset, &|config| {
+            SearchFieldConfig::text_from_json(config, false)
+        })
     }
 
     fn inet_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
@@ -1053,7 +1062,9 @@ impl BM25IndexOptionsData {
     }
 
     pub fn json_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
-        self.deserialize_configs(self.json_fields_offset, &SearchFieldConfig::json_from_json)
+        self.deserialize_configs(self.json_fields_offset, &|config| {
+            SearchFieldConfig::json_from_json(config, false)
+        })
     }
 
     pub fn range_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {

@@ -216,42 +216,8 @@ impl SearchFieldConfig {
         }
     }
 
-    pub fn text_from_json(value: serde_json::Value) -> Result<Self> {
-        let mut config: Self = serde_json::from_value(json!({
-            "Text": value
-        }))?;
-
-        match config {
-            SearchFieldConfig::Text {
-                ref tokenizer,
-                ref mut fast,
-                ref mut record,
-                ref mut fieldnorms,
-                ..
-            } => {
-                #[allow(deprecated)]
-                let is_single_token = matches!(
-                    tokenizer,
-                    SearchTokenizer::Keyword
-                        | SearchTokenizer::KeywordDeprecated
-                        | SearchTokenizer::Raw(..)
-                        | SearchTokenizer::LiteralNormalized(..)
-                );
-                if is_single_token {
-                    if value.get("fast").is_none() {
-                        *fast = true;
-                    }
-                    if value.get("record").is_none() {
-                        *record = IndexRecordOption::Basic;
-                    }
-                    if value.get("fieldnorms").is_none() {
-                        *fieldnorms = false;
-                    }
-                }
-                Ok(config)
-            }
-            _ => Err(anyhow::anyhow!("Expected Text configuration")),
-        }
+    pub fn text_from_json(value: serde_json::Value, strict: bool) -> Result<Self> {
+        Self::tokenized_from_json(value, "Text", strict)
     }
 
     pub fn inet_from_json(value: serde_json::Value) -> Result<Self> {
@@ -265,19 +231,55 @@ impl SearchFieldConfig {
         }
     }
 
-    pub fn json_from_json(value: serde_json::Value) -> Result<Self> {
-        let mut config: Self = serde_json::from_value(json!({
-            "Json": value
-        }))?;
+    pub fn json_from_json(value: serde_json::Value, strict: bool) -> Result<Self> {
+        Self::tokenized_from_json(value, "Json", strict)
+    }
 
-        match config {
-            SearchFieldConfig::Json {
-                ref tokenizer,
-                ref mut fast,
-                ref mut record,
-                ref mut fieldnorms,
+    fn tokenized_from_json(mut value: serde_json::Value, kind: &str, strict: bool) -> Result<Self> {
+        // Remove strictly parsed tokenizers so Serde only parses the remaining fields.
+        let (parsed_tokenizer, parsed_search_tokenizer) =
+            if strict && let Some(fields) = value.as_object_mut() {
+                let tokenizer = fields
+                    .remove("tokenizer")
+                    .as_ref()
+                    .map(SearchTokenizer::from_json_value)
+                    .transpose()?;
+                let search_tokenizer = fields
+                    .remove("search_tokenizer")
+                    .as_ref()
+                    .filter(|value| !value.is_null())
+                    .map(SearchTokenizer::from_json_value)
+                    .transpose()?;
+                (tokenizer, search_tokenizer)
+            } else {
+                (None, None)
+            };
+        let mut config: Self = serde_json::from_value(json!({ kind: value }))?;
+
+        match &mut config {
+            Self::Text {
+                tokenizer,
+                search_tokenizer,
+                fast,
+                record,
+                fieldnorms,
+                ..
+            }
+            | Self::Json {
+                tokenizer,
+                search_tokenizer,
+                fast,
+                record,
+                fieldnorms,
                 ..
             } => {
+                if let Some(parsed) = parsed_tokenizer {
+                    *tokenizer = parsed;
+                }
+                if let Some(parsed) = parsed_search_tokenizer {
+                    *search_tokenizer = Some(parsed);
+                }
+
                 #[allow(deprecated)]
                 let is_single_token = matches!(
                     tokenizer,
@@ -299,7 +301,7 @@ impl SearchFieldConfig {
                 }
                 Ok(config)
             }
-            _ => Err(anyhow::anyhow!("Expected Json configuration")),
+            _ => Err(anyhow::anyhow!("Expected {kind} configuration")),
         }
     }
 

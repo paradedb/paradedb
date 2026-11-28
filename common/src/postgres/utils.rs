@@ -80,6 +80,74 @@ pub fn vacuum_delay_point() {
     }
 }
 
+/// `MakeTupleTableSlot` with no slot flags; PG19 added the flags argument.
+///
+/// # Safety
+///
+/// `desc` and `ops` must be valid for `MakeTupleTableSlot`.
+pub unsafe fn make_tuple_table_slot(
+    desc: pg_sys::TupleDesc,
+    ops: *const pg_sys::TupleTableSlotOps,
+) -> *mut pg_sys::TupleTableSlot {
+    unsafe {
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+        return pg_sys::MakeTupleTableSlot(desc, ops);
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+        return pg_sys::MakeTupleTableSlot(desc, ops, 0);
+    }
+}
+
+/// `table_index_fetch_begin`; PG19 added the flags argument.
+///
+/// With `rel_read_only`, PG19 may set visibility map bits when it prunes a page it fetches
+/// from. Pass what [`scan_rel_is_read_only`] returns, or `false` outside a scan node.
+///
+/// # Safety
+///
+/// `rel` must be an open heap relation.
+pub unsafe fn table_index_fetch_begin(
+    rel: pg_sys::Relation,
+    rel_read_only: bool,
+) -> *mut pg_sys::IndexFetchTableData {
+    unsafe {
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            let _ = rel_read_only;
+            pg_sys::table_index_fetch_begin(rel)
+        }
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+        {
+            let flags = if rel_read_only {
+                pg_sys::ScanOptions::SO_HINT_REL_READ_ONLY
+            } else {
+                pg_sys::ScanOptions::SO_NONE
+            };
+            pg_sys::table_index_fetch_begin(rel, flags)
+        }
+    }
+}
+
+/// Whether the query leaves the scan node's relation unmodified, as `ScanRelIsReadOnly` reports
+/// it. Always `false` before PG19, which has no use for the answer.
+///
+/// Only for a node that scans one relation. A join's custom scan has `scanrelid` 0, which
+/// `ScanRelIsReadOnly` would report as read-only whatever the query does.
+///
+/// # Safety
+///
+/// `ss` must be a scan state whose plan and executor state are set.
+pub unsafe fn scan_rel_is_read_only(ss: *mut pg_sys::ScanState) -> bool {
+    debug_assert!(unsafe { (*(*ss).ps.plan.cast::<pg_sys::Scan>()).scanrelid } != 0);
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+    {
+        false
+    }
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+    unsafe {
+        pg_sys::ScanRelIsReadOnly(ss)
+    }
+}
+
 /// Implements `Drop` for a Postgres resource that must be cleaned up on the Postgres main thread,
 /// skipping cleanup during panic unwinding or process exit.
 ///
@@ -1310,12 +1378,12 @@ pub unsafe fn strip_placeholder_vars_deep(node: *mut pg_sys::Node) -> *mut pg_sy
             return strip_phv_mutator((*phv).phexpr.cast(), context);
         }
 
-        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        #[cfg(feature = "pg15")]
         {
             pg_sys::expression_tree_mutator(node, Some(strip_phv_mutator), context)
         }
 
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(feature = "pg15"))]
         {
             pg_sys::expression_tree_mutator_impl(node, Some(strip_phv_mutator), context)
         }

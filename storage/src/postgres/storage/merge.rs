@@ -21,7 +21,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, block_number_is_valid, bm25_max_free_space,
 };
-use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
+use crate::postgres::storage::buffer::{BufferManager, BufferMut, Item, PinnedBuffer};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::{StringInfo, pg_sys};
@@ -260,7 +260,7 @@ impl From<MergeEntry> for PgItem {
         let mut buf = StringInfo::new();
         let len = bincode::serde::encode_into_std_write(value, &mut buf, bincode::config::legacy())
             .expect("expected to serialize valid MergeEntry");
-        PgItem(buf.into_char_ptr() as pg_sys::Item, len as pg_sys::Size)
+        PgItem(buf.into_char_ptr() as Item, len as pg_sys::Size)
     }
 }
 

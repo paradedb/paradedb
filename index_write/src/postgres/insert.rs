@@ -92,7 +92,7 @@ pub struct InsertState {
 impl InsertState {
     unsafe fn new(indexrel: &PgSearchRelation) -> anyhow::Result<Self> {
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
-            if cfg!(any(feature = "pg17", feature = "pg18")) {
+            if cfg!(not(any(feature = "pg15", feature = "pg16"))) {
                 if IsLogicalWorker() {
                     PgMemoryContexts::TopTransactionContext.value()
                 } else {
@@ -140,7 +140,7 @@ impl InsertState {
     }
 }
 
-#[cfg(not(any(feature = "pg17", feature = "pg18")))]
+#[cfg(any(feature = "pg15", feature = "pg16"))]
 unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: &mut pg_sys::IndexInfo,
@@ -159,7 +159,7 @@ unsafe fn init_insert_state(
     get_insert_state((*index_relation).rd_id).expect("should have a pending insert state")
 }
 
-#[cfg(any(feature = "pg17", feature = "pg18"))]
+#[cfg(not(any(feature = "pg15", feature = "pg16")))]
 #[allow(static_mut_refs)]
 unsafe fn logical_worker_state() -> &'static mut crate::api::HashMap<pg_sys::Oid, InsertState> {
     static mut LOGICAL_WORKER_STATE: Option<crate::api::HashMap<pg_sys::Oid, InsertState>> = None;
@@ -185,7 +185,7 @@ unsafe fn logical_worker_state() -> &'static mut crate::api::HashMap<pg_sys::Oid
     LOGICAL_WORKER_STATE.as_mut().unwrap()
 }
 
-#[cfg(any(feature = "pg17", feature = "pg18"))]
+#[cfg(not(any(feature = "pg15", feature = "pg16")))]
 pub unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: &mut pg_sys::IndexInfo,
@@ -400,7 +400,7 @@ unsafe fn validate_date_fields(
     }
 }
 
-#[cfg(any(feature = "pg17", feature = "pg18"))]
+#[cfg(not(any(feature = "pg15", feature = "pg16")))]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn aminsertcleanup(
     _index_relation: pg_sys::Relation,

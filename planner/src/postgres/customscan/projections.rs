@@ -187,12 +187,12 @@ pub fn create_placeholder_targetlist(
         }
 
         // For all other nodes, use the standard mutator to walk children
-        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        #[cfg(feature = "pg15")]
         {
             pg_sys::expression_tree_mutator(node, Some(placeholder_mutator), context)
         }
 
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(feature = "pg15"))]
         {
             pg_sys::expression_tree_mutator_impl(node, Some(placeholder_mutator), context)
         }
@@ -574,12 +574,12 @@ pub unsafe fn inject_placeholders(
             return replacement;
         }
 
-        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        #[cfg(feature = "pg15")]
         {
             pg_sys::expression_tree_mutator(node, Some(walker), context)
         }
 
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(feature = "pg15"))]
         {
             pg_sys::expression_tree_mutator_impl(node, Some(walker), context)
         }

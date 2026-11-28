@@ -13,6 +13,7 @@ pg15 = ["pgrx/pg15", "common/pg15", "index_read/pg15"]
 pg16 = ["pgrx/pg16", "common/pg16", "index_read/pg16"]
 pg17 = ["pgrx/pg17", "common/pg17", "index_read/pg17"]
 pg18 = ["pgrx/pg18", "common/pg18", "index_read/pg18"]
+pg19 = ["pgrx/pg19", "common/pg19", "index_read/pg19"]
 pg_test = ["dep:proptest", "common/pg_test", "index_read/pg_test"]
 
 # Keep this crate focused on shared DataFusion physical operators and MPP stream primitives.

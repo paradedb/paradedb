@@ -87,6 +87,54 @@ fn mvcc_snippet(mut conn: PgConnection) {
     }
 }
 
+/// From PG19, a Base Scan whose query only reads the table lets on-access pruning set
+/// visibility map bits, as the core scans do. A scan that locks rows must not.
+#[rstest]
+fn read_only_scan_sets_visibility_map(mut conn: PgConnection) {
+    if pg_major_version(&mut conn) < 19 {
+        return;
+    }
+
+    // Pruning a page clears its prune hint whether or not it set the bit, so each scan gets a
+    // table no scan has pruned yet.
+    fn all_visible_pages_after(conn: &mut PgConnection, table: &str, scan_suffix: &str) -> i32 {
+        format!(
+            r#"
+            CREATE TABLE {table} (id serial8 PRIMARY KEY, body text, pad text)
+                WITH (autovacuum_enabled = off);
+            INSERT INTO {table} (body, pad)
+                SELECT 'apple', repeat('x', 200) FROM generate_series(1, 4000);
+            CREATE INDEX {table}_idx ON {table} USING paradedb (id, body);
+            "#
+        )
+        .execute(conn);
+
+        // PostgreSQL's own scans pass the hint too, so the plan has to be ours.
+        let query = format!("SELECT pad FROM {table} WHERE body @@@ 'apple' {scan_suffix}");
+        let plan: Vec<(String,)> = format!("EXPLAIN (COSTS OFF) {query}").fetch(conn);
+        assert!(
+            plan.iter()
+                .any(|(line,)| line.contains("ParadeDB Base Scan")),
+            "{plan:?}"
+        );
+        let rows: Vec<(String,)> = query.fetch(conn);
+        assert_eq!(rows.len(), 4000);
+
+        // ANALYZE counts the visibility map's bits into `relallvisible` and sets none itself.
+        format!("ANALYZE {table}").execute(conn);
+        format!("SELECT relallvisible FROM pg_class WHERE oid = '{table}'::regclass")
+            .fetch_one::<(i32,)>(conn)
+            .0
+    }
+
+    "SET max_parallel_workers_per_gather = 0".execute(&mut conn);
+    assert_eq!(
+        all_visible_pages_after(&mut conn, "vm_locked", "FOR UPDATE"),
+        0
+    );
+    assert!(all_visible_pages_after(&mut conn, "vm_read", "") > 0);
+}
+
 #[rstest]
 #[tokio::test]
 async fn visibility_map_shortcuts(database: Db) {

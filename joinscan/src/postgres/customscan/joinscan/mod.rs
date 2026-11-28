@@ -1843,8 +1843,10 @@ impl CustomScan for JoinScan {
                     let visibility_checker =
                         VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
                     let slot_owner = crate::postgres::resowner::ResourceOwnerStamp::current();
-                    let fetch_slot =
-                        pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
+                    let fetch_slot = crate::postgres::utils::make_tuple_table_slot(
+                        heaprel.rd_att,
+                        &pg_sys::TTSOpsBufferHeapTuple,
+                    );
                     state.custom_state_mut().relations.insert(
                         plan_position,
                         scan_state::RelationState {
@@ -3114,7 +3116,7 @@ impl JoinScan {
                         {
                             (*target_tupdesc).attrs.as_slice(natts)[i].atttypid
                         }
-                        #[cfg(feature = "pg18")]
+                        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
                         {
                             (*pg_sys::TupleDescAttr(target_tupdesc, i as i32)).atttypid
                         }

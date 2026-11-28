@@ -45,7 +45,7 @@ cargo install --locked cargo-pgrx --version 0.20.1
 cargo pgrx init
 ```
 
-`cargo pgrx init` builds every supported Postgres version this project targets (currently 15–18) into `~/.pgrx/<version>/pgrx-install/` and points future `cargo pgrx` commands at it — no system Postgres required. To target only a single version, pass e.g. `cargo pgrx init --pg18 download`.
+`cargo pgrx init` builds every supported Postgres version this project targets (currently 15–19) into `~/.pgrx/<version>/pgrx-install/` and points future `cargo pgrx` commands at it — no system Postgres required. To target only a single version, pass e.g. `cargo pgrx init --pg18 download`.
 
 ### pgvector
 

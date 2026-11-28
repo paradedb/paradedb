@@ -549,7 +549,13 @@ unsafe fn errno_ptr() -> *mut libc::c_int {
 /// then writes a wakeup notification to [`TOKIO_PARKED_WAKEUP_FD`] if a
 /// [`super::interrupt::PgTokioRuntime`] is currently parking or parked in `mio::Poll::poll`.
 #[cfg(not(test))]
-extern "C" fn pg_tokio_signal_trampoline(signo: libc::c_int) {
+extern "C" fn pg_tokio_signal_trampoline(
+    signo: libc::c_int,
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+    info: *mut libc::siginfo_t,
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+    context: *mut libc::c_void,
+) {
     unsafe {
         let saved_errno = *errno_ptr();
         let orig = match signo {
@@ -559,8 +565,22 @@ extern "C" fn pg_tokio_signal_trampoline(signo: libc::c_int) {
             _ => 0,
         };
         if orig != 0 && orig != libc::SIG_DFL && orig != libc::SIG_IGN {
-            let handler: extern "C" fn(libc::c_int) = std::mem::transmute(orig);
-            handler(signo);
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+            {
+                let handler: extern "C" fn(libc::c_int) = std::mem::transmute(orig);
+                handler(signo);
+            }
+            #[cfg(not(any(
+                feature = "pg15",
+                feature = "pg16",
+                feature = "pg17",
+                feature = "pg18"
+            )))]
+            {
+                let handler: extern "C" fn(libc::c_int, *mut libc::siginfo_t, *mut libc::c_void) =
+                    std::mem::transmute(orig);
+                handler(signo, info, context);
+            }
         }
         let fd = TOKIO_PARKED_WAKEUP_FD.load(Ordering::SeqCst);
         if fd >= 0 {
@@ -579,6 +599,13 @@ pub(crate) fn ensure_signal_wakeup_hooks_installed() {
         return;
     }
     let trampoline_addr = pg_tokio_signal_trampoline as *const () as usize;
+    // PostgreSQL installs its handlers with `SA_SIGINFO` from 19 on, and without it before.
+    let pg_takes_siginfo = cfg!(not(any(
+        feature = "pg15",
+        feature = "pg16",
+        feature = "pg17",
+        feature = "pg18"
+    )));
     for (signo, slot) in [
         (libc::SIGINT, &ORIG_SIGINT_HANDLER),
         (libc::SIGTERM, &ORIG_SIGTERM_HANDLER),
@@ -594,7 +621,8 @@ pub(crate) fn ensure_signal_wakeup_hooks_installed() {
                 || cur == libc::SIG_DFL
                 || cur == libc::SIG_IGN
                 || cur == trampoline_addr
-                || (old_act.sa_flags & libc::SA_SIGINFO) != 0
+                // A handler in the other form is not one we know how to call.
+                || ((old_act.sa_flags & libc::SA_SIGINFO) != 0) != pg_takes_siginfo
             {
                 continue;
             }

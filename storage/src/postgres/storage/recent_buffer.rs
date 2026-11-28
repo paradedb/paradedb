@@ -279,7 +279,7 @@ mod tests {
                 pg_sys::ReadBufferMode::RBM_NORMAL,
                 std::ptr::null_mut(),
             );
-            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as _);
             // The range `Page::as_slice` covers: the line pointers up to `pd_lower`.
             let page = pg_sys::BufferGetPage(buffer) as *const u8;
             let start = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);

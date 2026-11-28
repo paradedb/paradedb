@@ -113,7 +113,7 @@ pub mod linked_items;
 pub mod merge;
 pub mod metadata;
 pub mod mutable_cache;
-#[cfg(feature = "pg18")]
+#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
 mod recent_buffer;
 pub mod utils;
 mod xlog;

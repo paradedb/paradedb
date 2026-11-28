@@ -1,0 +1,165 @@
+-- A semijoin whose right-hand side is a join can be planned as an inner join over a
+-- unique-ified right-hand side. JoinScan must still read the join predicates below that node.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+DROP TABLE IF EXISTS semi_uniq_p, semi_uniq_c, semi_uniq_d CASCADE;
+CREATE TABLE semi_uniq_p (id int PRIMARY KEY, company_id int NOT NULL, description text);
+CREATE TABLE semi_uniq_c (id int PRIMARY KEY, name text);
+CREATE TABLE semi_uniq_d (id int PRIMARY KEY, company_id int NOT NULL, name text);
+INSERT INTO semi_uniq_p
+SELECT i, i % 500, CASE WHEN i % 3 = 0 THEN 'widget' ELSE 'gadget' END
+FROM generate_series(1, 20000) i;
+INSERT INTO semi_uniq_c SELECT i, 'company ' || i FROM generate_series(0, 499) i;
+INSERT INTO semi_uniq_d
+SELECT i, i % 40, CASE WHEN i % 2 = 0 THEN 'Engineering' ELSE 'Sales' END
+FROM generate_series(1, 2000) i;
+CREATE INDEX semi_uniq_p_company ON semi_uniq_p (company_id);
+CREATE INDEX semi_uniq_p_idx ON semi_uniq_p USING bm25 (id, company_id, description);
+CREATE INDEX semi_uniq_c_idx ON semi_uniq_c USING bm25 (id, name);
+CREATE INDEX semi_uniq_d_idx ON semi_uniq_d USING bm25 (id, company_id, name);
+ANALYZE semi_uniq_p;
+ANALYZE semi_uniq_c;
+ANALYZE semi_uniq_d;
+SET enable_sort = off;
+SET enable_incremental_sort = off;
+SET enable_hashjoin = off;
+SET enable_mergejoin = off;
+SET enable_memoize = off;
+SET enable_material = off;
+-- The plan Postgres picks: a HashAggregate makes the right-hand side unique.
+SET paradedb.enable_join_custom_scan = off;
+EXPLAIN (COSTS OFF)
+SELECT p.id
+FROM semi_uniq_p p
+WHERE p.company_id IN (
+    SELECT c.id
+    FROM semi_uniq_c c
+    JOIN semi_uniq_d d ON d.company_id = c.id
+    WHERE d.name ||| 'Engineering'
+)
+AND p.description ||| 'widget'
+ORDER BY p.company_id, p.id
+LIMIT 10;
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Disabled: true
+         Sort Key: p.company_id, p.id
+         ->  Nested Loop
+               Join Filter: (p.company_id = d.company_id)
+               ->  HashAggregate
+                     Group Key: c.id
+                     ->  Nested Loop
+                           ->  Custom Scan (ParadeDB Base Scan) on semi_uniq_d d
+                                 Table: semi_uniq_d
+                                 Index: semi_uniq_d_idx
+                                 Exec Method: ColumnarExecState
+                                 Columnar: company_id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"Engineering","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                           ->  Index Only Scan using semi_uniq_c_pkey on semi_uniq_c c
+                                 Index Cond: (id = d.company_id)
+               ->  Custom Scan (ParadeDB Base Scan) on semi_uniq_p p
+                     Table: semi_uniq_p
+                     Index: semi_uniq_p_idx
+                     Exec Method: ColumnarExecState
+                     Columnar: company_id, id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(25 rows)
+
+SELECT p.id
+FROM semi_uniq_p p
+WHERE p.company_id IN (
+    SELECT c.id
+    FROM semi_uniq_c c
+    JOIN semi_uniq_d d ON d.company_id = c.id
+    WHERE d.name ||| 'Engineering'
+)
+AND p.description ||| 'widget'
+ORDER BY p.company_id, p.id
+LIMIT 10;
+  id   
+-------
+  1500
+  3000
+  4500
+  6000
+  7500
+  9000
+ 10500
+ 12000
+ 13500
+ 15000
+(10 rows)
+
+-- JoinScan replaces it and returns the same rows.
+SET paradedb.enable_join_custom_scan = on;
+EXPLAIN (COSTS OFF)
+SELECT p.id
+FROM semi_uniq_p p
+WHERE p.company_id IN (
+    SELECT c.id
+    FROM semi_uniq_c c
+    JOIN semi_uniq_d d ON d.company_id = c.id
+    WHERE d.name ||| 'Engineering'
+)
+AND p.description ||| 'widget'
+ORDER BY p.company_id, p.id
+LIMIT 10;
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p SEMI (c INNER d)
+   Join Cond: p.company_id = c.id, p.company_id = d.company_id, d.company_id = c.id
+   Limit: 10
+   Order By: p.company_id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, company_id@1 as col_2, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[company_id@1 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p]
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0), (company_id@1, company_id@1)]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         VisibilityFilterExec: tables=[c, d], pruned=[c, d]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_id@0)]
+     :             CooperativeExec
+     :               PgSearchScan: table=c, segments=1, query="all"
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"name","value":"Engineering","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(18 rows)
+
+SELECT p.id
+FROM semi_uniq_p p
+WHERE p.company_id IN (
+    SELECT c.id
+    FROM semi_uniq_c c
+    JOIN semi_uniq_d d ON d.company_id = c.id
+    WHERE d.name ||| 'Engineering'
+)
+AND p.description ||| 'widget'
+ORDER BY p.company_id, p.id
+LIMIT 10;
+  id   
+-------
+  1500
+  3000
+  4500
+  6000
+  7500
+  9000
+ 10500
+ 12000
+ 13500
+ 15000
+(10 rows)
+
+RESET enable_sort;
+RESET enable_incremental_sort;
+RESET enable_hashjoin;
+RESET enable_mergejoin;
+RESET enable_memoize;
+RESET enable_material;
+RESET max_parallel_workers_per_gather;
+DROP TABLE semi_uniq_p, semi_uniq_c, semi_uniq_d CASCADE;

@@ -227,7 +227,7 @@ impl RelationBufferAccess {
 
             debug_assert!(buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
             if let Some(lock) = lock {
-                pg_sys::LockBuffer(buffer, lock as i32);
+                pg_sys::LockBuffer(buffer, lock as _);
             }
             buffer
         };
@@ -246,7 +246,7 @@ impl RelationBufferAccess {
         buffer_mode: pg_sys::ReadBufferMode::Type,
         lock: Option<u32>,
     ) -> pg_sys::Buffer {
-        #[cfg(feature = "pg18")]
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
         if lock == Some(pg_sys::BUFFER_LOCK_SHARE)
             && buffer_mode == pg_sys::ReadBufferMode::RBM_NORMAL
             && strategy.is_null()
@@ -259,7 +259,7 @@ impl RelationBufferAccess {
             // on the main thread.
             return super::recent_buffer::read(self.rel.as_ptr(), blockno);
         }
-        #[cfg(not(feature = "pg18"))]
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
         let _ = lock;
         pg_sys::ReadBufferExtended(
             self.rel.as_ptr(),
@@ -294,7 +294,7 @@ unsafe fn extend_by_one_buffer(
         )
     }
 
-    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    #[cfg(not(feature = "pg15"))]
     {
         pg_sys::ExtendBufferedRel(
             pg_sys::BufferManagerRelation {
@@ -359,7 +359,7 @@ unsafe fn bulk_extend_relation(
         && (pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
             || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND);
 
-    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    #[cfg(not(feature = "pg15"))]
     {
         // `ExtendBufferedRelBy` is only allowed from certain backends
         if is_backend_bulk_compatible {

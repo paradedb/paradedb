@@ -27,7 +27,7 @@ use std::sync::atomic::AtomicBool;
 
 use crate::api::HashSet;
 use crate::postgres::PgSearchRelation;
-use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut};
+use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut, Item};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 
 use pgrx::*;
@@ -162,7 +162,7 @@ impl From<MutableSegmentEntry> for PgItem {
         let mut buf = pgrx::StringInfo::new();
         let len = bincode::serde::encode_into_std_write(val, &mut buf, bincode::config::legacy())
             .expect("expected to serialize valid MutableSegmentEntry");
-        PgItem(buf.into_char_ptr() as pg_sys::Item, len as pg_sys::Size)
+        PgItem(buf.into_char_ptr() as Item, len as pg_sys::Size)
     }
 }
 
@@ -845,7 +845,7 @@ impl SegmentMetaEntry {
 
 /// Wrapper for pg_sys::Item that also stores its size
 #[derive(Clone)]
-pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
+pub struct PgItem(pub Item, pub pg_sys::Size);
 
 impl From<SegmentMetaEntry> for PgItem {
     fn from(val: SegmentMetaEntry) -> Self {
@@ -868,7 +868,7 @@ impl From<SegmentMetaEntry> for PgItem {
             }
         };
 
-        PgItem(buf.into_char_ptr() as pg_sys::Item, len as pg_sys::Size)
+        PgItem(buf.into_char_ptr() as Item, len as pg_sys::Size)
     }
 }
 
@@ -1129,7 +1129,7 @@ mod tests {
     }
 
     fn decoded(bytes: &[u8]) -> SegmentMetaEntry {
-        PgItem(bytes.as_ptr() as pg_sys::Item, bytes.len()).into()
+        PgItem(bytes.as_ptr() as Item, bytes.len()).into()
     }
 
     /// Entries written before a trailing component existed are shorter by that component's

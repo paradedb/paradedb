@@ -119,7 +119,7 @@ fn is_byte_ordered_collation(collation: pg_sys::Oid) -> bool {
     };
 
     match locale {
-        #[cfg(any(feature = "pg17", feature = "pg18"))]
+        #[cfg(not(any(feature = "pg15", feature = "pg16")))]
         Some(CollationLocale {
             provider: CollationProvider::Builtin,
             ..

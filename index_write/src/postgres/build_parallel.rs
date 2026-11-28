@@ -321,7 +321,19 @@ impl ParallelWorker for BuildWorker<'_> {
                 PgSearchRelation::with_lock(config.heaprelid, heap_lock as pg_sys::LOCKMODE);
             let mut indexrel =
                 PgSearchRelation::with_lock(config.indexrelid, index_lock as pg_sys::LOCKMODE);
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
             let table_scan_desc = pg_sys::table_beginscan_parallel(heaprel.as_ptr(), scandesc);
+            #[cfg(not(any(
+                feature = "pg15",
+                feature = "pg16",
+                feature = "pg17",
+                feature = "pg18"
+            )))]
+            let table_scan_desc = pg_sys::table_beginscan_parallel(
+                heaprel.as_ptr(),
+                scandesc,
+                pg_sys::ScanOptions::SO_NONE,
+            );
 
             indexrel.set_is_create_index();
             indexrel.set_need_wal(config.need_wal());

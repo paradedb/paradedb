@@ -343,7 +343,11 @@ fn gated_by_min_rows(
 /// `estate` must be either null or point to a valid, mutable `EState` for the duration of this call.
 pub unsafe fn launch_mpp(
     // `es_parallel_workers_to_launch` / `es_parallel_workers_launched` were added in PG18.
-    #[cfg_attr(not(feature = "pg18"), allow(unused_variables))] estate: *mut pg_sys::EState,
+    #[cfg_attr(
+        any(feature = "pg15", feature = "pg16", feature = "pg17"),
+        allow(unused_variables)
+    )]
+    estate: *mut pg_sys::EState,
     budget: MppBudget,
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
@@ -409,7 +413,7 @@ pub unsafe fn launch_mpp(
         requested_bg.get(),
         budget.leader
     );
-    #[cfg(feature = "pg18")]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     if !estate.is_null() {
         unsafe { (*estate).es_parallel_workers_to_launch += requested_bg.get() as i32 };
     }
@@ -420,7 +424,7 @@ pub unsafe fn launch_mpp(
     let finish = attach.wait_for_attach()?;
     timing.attach_us = t_attach.elapsed().as_micros() as u64;
     let launched = BgWorkerCount::new(finish.launched_workers() as u32);
-    #[cfg(feature = "pg18")]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     if !estate.is_null() {
         unsafe { (*estate).es_parallel_workers_launched += launched.get() as i32 };
     }

@@ -1089,7 +1089,7 @@ pub(crate) unsafe fn find_live_lower_path(
 
 /// Same preference order as `set_cheapest`.
 unsafe fn cheaper_path(a: *mut pg_sys::Path, b: *mut pg_sys::Path) -> bool {
-    #[cfg(feature = "pg18")]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     if (*a).disabled_nodes != (*b).disabled_nodes {
         return (*a).disabled_nodes < (*b).disabled_nodes;
     }
@@ -2028,7 +2028,7 @@ unsafe fn pathkey_is_asc(pathkey: *const pg_sys::PathKey) -> bool {
             _ => true,
         }
     }
-    #[cfg(feature = "pg18")]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     {
         match (*pathkey).pk_cmptype {
             pg_sys::CompareType::COMPARE_LT => true,

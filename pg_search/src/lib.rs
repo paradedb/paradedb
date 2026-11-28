@@ -185,7 +185,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
         postgres::storage::mutable_cache::init();
     }
 
-    #[cfg(not(any(feature = "pg17", feature = "pg18")))]
+    #[cfg(any(feature = "pg15", feature = "pg16"))]
     postgres::fake_aminsertcleanup::register();
 
     postgres::index_only::register_hook();

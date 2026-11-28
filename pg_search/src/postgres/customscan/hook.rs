@@ -470,23 +470,15 @@ fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
 /// and before any path generation. It performs a one-time replacement of window
 /// functions with placeholder function calls that our custom scans can detect
 /// and handle during execution.
-#[pg_guard]
-unsafe extern "C-unwind" fn paradedb_planner_hook(
+unsafe fn paradedb_planner_hook_impl(
     parse: *mut pg_sys::Query,
-    query_string: *const ::core::ffi::c_char,
-    cursor_options: ::core::ffi::c_int,
-    bound_params: pg_sys::ParamListInfo,
+    plan: impl FnOnce() -> *mut pg_sys::PlannedStmt,
 ) -> *mut pg_sys::PlannedStmt {
     // Clear any existing warnings for this planning cycle
     clear_planner_warnings();
 
     if !pg_search_extension_installed() {
-        let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
-            prev_hook(parse, query_string, cursor_options, bound_params)
-        } else {
-            pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
-        };
-        return result;
+        return plan();
     }
 
     // Check if we should replace window functions and do so if needed
@@ -514,18 +506,49 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     //
     // The relations the query applies a search operator to are recorded while the quals are
     // still as written, for the scans planned inside this call.
-    let result = search_operator_relations::record_during(parse, || {
-        if let Some(prev_hook) = PREV_PLANNER_HOOK {
-            prev_hook(parse, query_string, cursor_options, bound_params)
-        } else {
-            pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
-        }
-    });
+    let result = search_operator_relations::record_during(parse, plan);
 
     // Emit collected warnings
     emit_planner_warnings();
 
     result
+}
+
+// One entry point per signature: `#[pg_guard]` forwards every parameter, including one that a
+// `cfg` removes.
+#[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18"))]
+#[pg_guard]
+unsafe extern "C-unwind" fn paradedb_planner_hook(
+    parse: *mut pg_sys::Query,
+    query_string: *const ::core::ffi::c_char,
+    cursor_options: ::core::ffi::c_int,
+    bound_params: pg_sys::ParamListInfo,
+) -> *mut pg_sys::PlannedStmt {
+    paradedb_planner_hook_impl(parse, || {
+        if let Some(prev_hook) = PREV_PLANNER_HOOK {
+            prev_hook(parse, query_string, cursor_options, bound_params)
+        } else {
+            pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
+        }
+    })
+}
+
+#[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17", feature = "pg18")))]
+#[pg_guard]
+unsafe extern "C-unwind" fn paradedb_planner_hook(
+    parse: *mut pg_sys::Query,
+    query_string: *const ::core::ffi::c_char,
+    cursor_options: ::core::ffi::c_int,
+    bound_params: pg_sys::ParamListInfo,
+    es: *mut pg_sys::ExplainState,
+) -> *mut pg_sys::PlannedStmt {
+    paradedb_planner_hook_impl(parse, || {
+        if let Some(prev_hook) = PREV_PLANNER_HOOK {
+            prev_hook(parse, query_string, cursor_options, bound_params, es)
+        } else {
+            pg_sys::standard_planner(parse, query_string, cursor_options, bound_params, es)
+        }
+    })
 }
 
 /// Check if the query (or any subquery/CTE) contains window functions (WindowFunc nodes)

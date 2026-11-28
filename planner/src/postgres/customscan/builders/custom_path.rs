@@ -67,7 +67,7 @@ impl OrderByStyle {
             pg_sys::BTGreaterStrategyNumber => false,
             value => panic!("unrecognized sort strategy number: {value}"),
         };
-        #[cfg(feature = "pg18")]
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
         let is_asc = match pathkey.pk_cmptype {
             pg_sys::CompareType::COMPARE_LT => true,
             pg_sys::CompareType::COMPARE_GT => false,

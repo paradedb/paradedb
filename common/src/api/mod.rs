@@ -307,7 +307,7 @@ impl SortDirection {
         }
     }
 
-    #[cfg(feature = "pg18")]
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     pub unsafe fn from_sort_op(sortop: pg_sys::Oid, nulls_first: bool) -> Option<Self> {
         let mut opfamily = pg_sys::InvalidOid;
         let mut opcintype = pg_sys::InvalidOid;

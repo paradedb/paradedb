@@ -222,6 +222,7 @@ impl VisibilityStats {
 ///    resolving the CTID only when necessary (e.g. in cardinality aggregations).
 pub struct VisibilityChecker {
     scan: *mut pg_sys::IndexFetchTableData,
+    rel_read_only: bool,
     snapshot: pg_sys::Snapshot,
     tid: pg_sys::ItemPointerData,
     owner: crate::postgres::resowner::ResourceOwnerStamp,
@@ -265,7 +266,7 @@ pub struct VisibilityChecker {
 // TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
 impl Clone for VisibilityChecker {
     fn clone(&self) -> Self {
-        let mut checker = Self::with_rel_and_snap(&self.heaprel, self.snapshot);
+        let mut checker = Self::for_scan(&self.heaprel, self.snapshot, self.rel_read_only);
         checker.check_visibility = self.check_visibility;
         checker.ffhelper = self.ffhelper.clone();
         checker.visibility_stats = self.visibility_stats.clone();
@@ -408,12 +409,23 @@ impl VisibilityChecker {
     /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
     /// `relation` and `snapshot`
     pub fn with_rel_and_snap(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) -> Self {
+        Self::for_scan(heaprel, snapshot, false)
+    }
+
+    /// As [`Self::with_rel_and_snap`], for a scan node that knows whether its query modifies
+    /// `heaprel`. See [`utils::table_index_fetch_begin`] for `rel_read_only`.
+    pub fn for_scan(
+        heaprel: &PgSearchRelation,
+        snapshot: pg_sys::Snapshot,
+        rel_read_only: bool,
+    ) -> Self {
         let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
             let nblocks =
                 pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), heaprel.fork_number());
             Self {
-                scan: pg_sys::table_index_fetch_begin(heaprel.as_ptr()),
+                scan: utils::table_index_fetch_begin(heaprel.as_ptr(), rel_read_only),
+                rel_read_only,
                 snapshot,
                 tid: pg_sys::ItemPointerData::default(),
                 owner,
@@ -1395,11 +1407,17 @@ pub struct HeapFetchState {
 impl HeapFetchState {
     /// Create a HeapFetchState which will fetch the entire content of the given relation.
     pub fn new(heaprel: &PgSearchRelation) -> Self {
+        Self::for_scan(heaprel, false)
+    }
+
+    /// As [`Self::new`], for a scan node that knows whether its query modifies `heaprel`. See
+    /// [`utils::table_index_fetch_begin`] for `rel_read_only`.
+    pub fn for_scan(heaprel: &PgSearchRelation, rel_read_only: bool) -> Self {
         let owner = crate::postgres::resowner::ResourceOwnerStamp::current();
         unsafe {
-            let scan = pg_sys::table_index_fetch_begin(heaprel.as_ptr());
-            let slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
-            let virtual_slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsVirtual);
+            let scan = utils::table_index_fetch_begin(heaprel.as_ptr(), rel_read_only);
+            let slot = utils::make_tuple_table_slot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
+            let virtual_slot = utils::make_tuple_table_slot(heaprel.rd_att, &pg_sys::TTSOpsVirtual);
             let nblocks =
                 pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), heaprel.fork_number());
             Self {
@@ -1960,7 +1978,7 @@ impl<'a> HeapDocFetcher<'a> {
                             (*tuple).t_data,
                             &mut self.snapshot_conflict_horizon,
                         );
-                        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                        #[cfg(not(feature = "pg15"))]
                         pg_sys::HeapTupleHeaderAdvanceConflictHorizon(
                             (*tuple).t_data,
                             &mut self.snapshot_conflict_horizon,

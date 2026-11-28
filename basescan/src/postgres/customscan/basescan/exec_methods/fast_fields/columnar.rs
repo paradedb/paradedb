@@ -70,7 +70,7 @@ impl Inner {
             self.tupdesc = Some(PgTupleDesc::from_pg_unchecked(
                 (*cstate).ss.ps.ps_ResultTupleDesc,
             ));
-            self.slot = pg_sys::MakeTupleTableSlot(
+            self.slot = crate::postgres::utils::make_tuple_table_slot(
                 (*cstate).ss.ps.ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
             );

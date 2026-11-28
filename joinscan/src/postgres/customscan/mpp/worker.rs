@@ -262,7 +262,7 @@ pub(crate) enum MppMetricsCollection {
 }
 
 impl MppMetricsCollection {
-    pub(crate) fn from_instrument(instrument: *mut pg_sys::Instrumentation) -> Self {
+    pub(crate) fn from_instrument<T>(instrument: *mut T) -> Self {
         if instrument.is_null() {
             Self::Disabled
         } else {

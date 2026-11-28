@@ -97,7 +97,7 @@ pub unsafe fn project_aggregate_row_to_slot(
             {
                 (*tupdesc).attrs.as_slice(natts)[pg_idx].atttypid
             }
-            #[cfg(feature = "pg18")]
+            #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
             {
                 (*pg_sys::TupleDescAttr(tupdesc, pg_idx as i32)).atttypid
             }

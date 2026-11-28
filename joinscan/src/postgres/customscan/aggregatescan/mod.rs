@@ -1244,8 +1244,10 @@ impl CustomScan for AggregateScan {
 
             // Create a reusable tuple slot for aggregate results
             // This avoids per-row MakeTupleTableSlot calls which leak memory
-            let scan_slot =
-                pg_sys::MakeTupleTableSlot((*planstate).ps_ResultTupleDesc, &pg_sys::TTSOpsVirtual);
+            let scan_slot = crate::postgres::utils::make_tuple_table_slot(
+                (*planstate).ps_ResultTupleDesc,
+                &pg_sys::TTSOpsVirtual,
+            );
             state.custom_state_mut().scan_slot = Some(scan_slot);
 
             // Set up the projection for wrapped aggregate expressions.
@@ -3148,12 +3150,12 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
         }
 
         // For all other nodes, use the standard mutator to walk children
-        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        #[cfg(feature = "pg15")]
         {
             pg_sys::expression_tree_mutator(node, Some(aggref_mutator), context)
         }
 
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(feature = "pg15"))]
         {
             pg_sys::expression_tree_mutator_impl(node, Some(aggref_mutator), context)
         }

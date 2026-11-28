@@ -1053,7 +1053,7 @@ impl CustomScan for BaseScan {
 
             #[cfg(feature = "pg15")]
             let baserels = (*builder.args().root).all_baserels;
-            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            #[cfg(not(feature = "pg15"))]
             let baserels = (*builder.args().root).all_query_rels;
 
             // Detect if we are in a join context (more than 1 base relation in the query)
@@ -1832,7 +1832,7 @@ impl CustomScan for BaseScan {
         // (matching what begin_custom_scan will use via table_slot_callbacks).
         // This ensures ExecInitQual compiles plan.qual expressions for the
         // correct slot type, avoiding TTS_IS_VIRTUAL assertion failures.
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(feature = "pg15"))]
         unsafe {
             (*state).csstate.slotOps =
                 pg_sys::table_slot_callbacks((*state).custom_state().heaprel().as_ptr());
@@ -2106,13 +2106,18 @@ impl CustomScan for BaseScan {
             }
 
             // setup the structures we need to do mvcc checking and heap fetching
-            state.custom_state_mut().visibility_checker =
-                Some(VisibilityChecker::with_rel_and_snap(
-                    state.custom_state().heaprel(),
-                    pg_sys::GetActiveSnapshot(),
-                ));
-            state.custom_state_mut().doc_from_heap_state =
-                Some(HeapFetchState::new(state.custom_state().heaprel()));
+            let rel_read_only =
+                crate::postgres::utils::scan_rel_is_read_only(&raw mut state.csstate.ss);
+            state.custom_state_mut().rel_read_only = rel_read_only;
+            state.custom_state_mut().visibility_checker = Some(VisibilityChecker::for_scan(
+                state.custom_state().heaprel(),
+                pg_sys::GetActiveSnapshot(),
+                rel_read_only,
+            ));
+            state.custom_state_mut().doc_from_heap_state = Some(HeapFetchState::for_scan(
+                state.custom_state().heaprel(),
+                rel_read_only,
+            ));
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
@@ -2122,6 +2127,16 @@ impl CustomScan for BaseScan {
                 addr_of_mut!(state.csstate.ss),
                 tupdesc,
                 pg_sys::table_slot_callbacks(state.custom_state().heaprel().as_ptr()),
+                // No `TTS_FLAG_OBEYS_NOT_NULL_CONSTRAINTS`: a snapshot older than a `SET NOT NULL`
+                // can still see deleted rows with a NULL in that column, and the flag would
+                // deform them at the wrong offsets.
+                #[cfg(not(any(
+                    feature = "pg15",
+                    feature = "pg16",
+                    feature = "pg17",
+                    feature = "pg18"
+                )))]
+                0,
             );
 
             // On PG15, ExecInitCustomScan hardcodes &TTSOpsVirtual for the scan slot

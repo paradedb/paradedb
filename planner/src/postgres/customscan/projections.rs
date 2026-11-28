@@ -37,12 +37,11 @@ use crate::postgres::customscan::basescan::projections::snippet::{
     SnippetType, extract_snippet, extract_snippet_positions, extract_snippets,
 };
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
-use crate::postgres::node::{NodeExt, WalkControl};
+use crate::postgres::node::{MutateControl, NodeExt, WalkControl};
 use crate::postgres::var::VarContext;
 use crate::postgres::var::find_one_fieldname;
 use crate::postgres::var::find_one_var;
-use pgrx::{Internal, PgList, pg_extern, pg_guard, pg_sys};
-use std::ptr::addr_of_mut;
+use pgrx::{Internal, PgList, pg_extern, pg_sys};
 use tantivy::snippet::SnippetGenerator;
 
 /// Get the Oid of a placeholder function to use in the target list of aggregate custom scans.
@@ -135,77 +134,7 @@ pub fn create_placeholder_targetlist(
         grouping_slots.push((te.expr.cast(), (i + 1) as pg_sys::AttrNumber));
     }
 
-    // Context for the placeholder mutator (defined inside function since only used here)
-    struct PlaceholderContext<'a> {
-        current_te_idx: usize,
-        placeholder_funcid: pg_sys::Oid,
-        columns: &'a mut PlaceholderColumns,
-        placeholders: Vec<Option<(PlaceholderColumn, pg_sys::Oid)>>,
-        grouping_slots: &'a [(*mut pg_sys::Node, pg_sys::AttrNumber)],
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn placeholder_mutator(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> *mut pg_sys::Node {
-        if node.is_null() {
-            return std::ptr::null_mut();
-        }
-
-        let ctx = &mut *(context as *mut PlaceholderContext);
-
-        // If this is our placeholder FuncExpr, replace it with a placeholder Var
-        if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
-            let funcexpr = node as *mut pg_sys::FuncExpr;
-            if (*funcexpr).funcid == ctx.placeholder_funcid {
-                let result_type = (*funcexpr).funcresulttype;
-                let (column, var) = ctx.columns.add(result_type, (*funcexpr).funccollid);
-                debug_assert!(
-                    ctx.placeholders[ctx.current_te_idx].is_none(),
-                    "AggregateScan supports only one aggregate per target entry"
-                );
-                ctx.placeholders[ctx.current_te_idx] = Some((column, result_type));
-                return var as *mut pg_sys::Node;
-            }
-        }
-
-        // Mixed agg+group exprs: read a whole grouping expression from the virtual slot.
-        if let Some(&(expr, slot_attr)) = ctx
-            .grouping_slots
-            .iter()
-            .find(|&&(expr, _)| pg_sys::equal(node.cast(), expr.cast()))
-        {
-            return pg_sys::makeVar(
-                pg_sys::INDEX_VAR,
-                slot_attr,
-                pg_sys::exprType(expr),
-                pg_sys::exprTypmod(expr),
-                pg_sys::exprCollation(expr),
-                0,
-            ) as *mut pg_sys::Node;
-        }
-
-        // For all other nodes, use the standard mutator to walk children
-        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
-        {
-            pg_sys::expression_tree_mutator(node, Some(placeholder_mutator), context)
-        }
-
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-        {
-            pg_sys::expression_tree_mutator_impl(node, Some(placeholder_mutator), context)
-        }
-    }
-
-    let list_len = targetlist_pg.len();
-    let mut ctx = PlaceholderContext {
-        current_te_idx: 0,
-        placeholder_funcid,
-        columns,
-        placeholders: vec![None; list_len],
-        grouping_slots: &grouping_slots,
-    };
+    let mut placeholders = vec![None; targetlist_pg.len()];
 
     // Build a new target list with ALL FuncExpr placeholders replaced by placeholder Vars.
     // This is critical for mixed wrapped/unwrapped cases like:
@@ -216,8 +145,6 @@ pub fn create_placeholder_targetlist(
     for (i, te) in targetlist_pg.iter_ptr().enumerate() {
         let new_te = unsafe { pg_sys::flatCopyTargetEntry(te) };
         let te = unsafe { &*te };
-
-        ctx.current_te_idx = i;
 
         // The plan target list may end with resjunk entries (e.g. a GROUP BY key that is not
         // selected); they come after all real columns, so resnos stay contiguous.
@@ -234,12 +161,40 @@ pub fn create_placeholder_targetlist(
             is_top_level_placeholder || te.expr.contains_functions(&[placeholder_funcid]);
 
         if contains_placeholder {
-            // Replace ALL placeholder FuncExprs with placeholder Vars (both wrapped and top-level)
-            // For top-level: the mutator will replace the FuncExpr directly with a Var
-            // For wrapped: the mutator will walk the tree and replace nested FuncExprs
-            let ctx_ptr = &mut ctx as *mut PlaceholderContext as *mut core::ffi::c_void;
-            let new_expr = unsafe { placeholder_mutator(te.expr as *mut pg_sys::Node, ctx_ptr) };
-            unsafe { (*new_te).expr = new_expr as *mut pg_sys::Expr };
+            unsafe {
+                (*new_te).expr = te
+                    .expr
+                    .mutate(|node| {
+                        if let Some(func) = nodecast!(FuncExpr, node)
+                            && (*func).funcid == placeholder_funcid
+                        {
+                            let result_type = (*func).funcresulttype;
+                            let (column, var) = columns.add(result_type, (*func).funccollid);
+                            debug_assert!(
+                                placeholders[i].is_none(),
+                                "AggregateScan supports only one aggregate per target entry"
+                            );
+                            placeholders[i] = Some((column, result_type));
+                            return MutateControl::Replace(var.cast());
+                        }
+                        if let Some(&(expr, slot_attr)) = grouping_slots
+                            .iter()
+                            .find(|&&(expr, _)| pg_sys::equal(node.cast(), expr.cast()))
+                        {
+                            let var = pg_sys::makeVar(
+                                pg_sys::INDEX_VAR,
+                                slot_attr,
+                                pg_sys::exprType(expr),
+                                pg_sys::exprTypmod(expr),
+                                pg_sys::exprCollation(expr),
+                                0,
+                            );
+                            return MutateControl::Replace(var.cast());
+                        }
+                        MutateControl::Continue
+                    })
+                    .cast();
+            }
         } else if has_no_vars(te.expr) {
             // No Vars and no placeholders: keep the expression so ExecProject evaluates it
             // (resolving Params at execution time).
@@ -265,7 +220,7 @@ pub fn create_placeholder_targetlist(
         new_targetlist = unsafe { pg_sys::lappend(new_targetlist, new_te.cast()) };
     }
 
-    (new_targetlist, ctx.placeholders, true)
+    (new_targetlist, placeholders, true)
 }
 
 // Anchored in `_SUBCRATE_PGRX_ANCHORS` in `pg_search/src/lib.rs` so the `cdylib` linker retains
@@ -500,135 +455,43 @@ pub unsafe fn inject_placeholders(
     PlaceholderColumn,
     HashMap<SnippetType, Vec<PlaceholderColumn>>,
 ) {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut std::ffi::c_void,
-    ) -> *mut pg_sys::Node {
-        if node.is_null() {
-            return std::ptr::null_mut();
-        }
-
-        #[inline(always)]
-        unsafe fn inner(node: *mut pg_sys::Node, data: &mut Data) -> Option<*mut pg_sys::Node> {
-            let funcexpr = nodecast!(FuncExpr, node)?;
-
-            if data.score_funcoids.contains(&(*funcexpr).funcid) {
-                return Some(data.score_var.cast());
-            }
-            if (*funcexpr).funcid == data.explain_score_funcoid {
-                return Some(data.score_explanation_var.cast());
-            }
-
-            let mut this_snippet_type = None;
-
-            if let Some(snippet_type) = extract_snippet(
-                funcexpr,
-                data.rti,
-                data.snippet_funcoids,
-                data.attname_lookup,
-            ) {
-                this_snippet_type = Some(snippet_type);
-            }
-
-            if let Some(snippet_type) = extract_snippets(
-                funcexpr,
-                data.rti,
-                data.snippets_funcoids,
-                data.attname_lookup,
-            ) {
-                this_snippet_type = Some(snippet_type);
-            }
-
-            if let Some(snippet_type) = extract_snippet_positions(
-                funcexpr,
-                data.rti,
-                data.snippet_positions_funcoids,
-                data.attname_lookup,
-            ) {
-                this_snippet_type = Some(snippet_type);
-            }
-
-            if let Some(this_snippet_type) = this_snippet_type {
-                for snippet_type in data.snippet_generators.keys() {
-                    if this_snippet_type == *snippet_type {
-                        let (column, var) = data
-                            .columns
-                            .add(snippet_type.nodeoid(), pg_sys::DEFAULT_COLLATION_OID);
-
-                        data.snippet_placeholders
-                            .entry(snippet_type.clone())
-                            .or_default()
-                            .push(column);
-
-                        return Some(var.cast());
-                    }
-                }
-            }
-
-            None
-        }
-
-        let data = &mut *context.cast::<Data>();
-        if let Some(replacement) = inner(node, data) {
-            return replacement;
-        }
-
-        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
-        {
-            pg_sys::expression_tree_mutator(node, Some(walker), context)
-        }
-
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-        {
-            pg_sys::expression_tree_mutator_impl(node, Some(walker), context)
-        }
-    }
-
-    struct Data<'a> {
-        rti: pg_sys::Index,
-
-        score_funcoids: [pg_sys::Oid; 2],
-        score_var: *mut pg_sys::Var,
-
-        explain_score_funcoid: pg_sys::Oid,
-        score_explanation_var: *mut pg_sys::Var,
-
-        snippet_funcoids: [pg_sys::Oid; 2],
-        snippets_funcoids: [pg_sys::Oid; 2],
-        snippet_positions_funcoids: [pg_sys::Oid; 2],
-        attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
-
-        snippet_generators: &'a HashMap<SnippetType, Option<SnippetGenerator>>,
-        columns: &'a mut PlaceholderColumns,
-        snippet_placeholders: HashMap<SnippetType, Vec<PlaceholderColumn>>,
-    }
-
     let (score_placeholder, score_var) = columns.add(pg_sys::FLOAT4OID, pg_sys::Oid::INVALID);
     let (score_explanation_placeholder, score_explanation_var) =
         columns.add(pg_sys::JSONBOID, pg_sys::Oid::INVALID);
-    let mut data = Data {
-        rti,
+    let mut snippet_placeholders = HashMap::<SnippetType, Vec<PlaceholderColumn>>::default();
+    let targetlist = targetlist.mutate(|node| {
+        let Some(funcexpr) = nodecast!(FuncExpr, node) else {
+            return MutateControl::Continue;
+        };
+        if score_funcoids.contains(&(*funcexpr).funcid) {
+            return MutateControl::Replace(score_var.cast());
+        }
+        if (*funcexpr).funcid == explain_score_funcoid {
+            return MutateControl::Replace(score_explanation_var.cast());
+        }
 
-        score_funcoids,
-        score_var,
-
-        explain_score_funcoid,
-        score_explanation_var,
-
-        snippet_funcoids,
-        snippets_funcoids,
-        snippet_positions_funcoids,
-        attname_lookup,
-        snippet_generators,
-        columns,
-        snippet_placeholders: Default::default(),
-    };
-    let targetlist = walker(targetlist.cast(), addr_of_mut!(data).cast());
+        let mut snippet = extract_snippet(funcexpr, rti, snippet_funcoids, attname_lookup);
+        if let Some(kind) = extract_snippets(funcexpr, rti, snippets_funcoids, attname_lookup) {
+            snippet = Some(kind);
+        }
+        if let Some(kind) =
+            extract_snippet_positions(funcexpr, rti, snippet_positions_funcoids, attname_lookup)
+        {
+            snippet = Some(kind);
+        }
+        if let Some(kind) = snippet
+            && snippet_generators.contains_key(&kind)
+        {
+            let (column, var) = columns.add(kind.nodeoid(), pg_sys::DEFAULT_COLLATION_OID);
+            snippet_placeholders.entry(kind).or_default().push(column);
+            return MutateControl::Replace(var.cast());
+        }
+        MutateControl::Continue
+    });
     (
         targetlist.cast(),
         score_placeholder,
         score_explanation_placeholder,
-        data.snippet_placeholders,
+        snippet_placeholders,
     )
 }

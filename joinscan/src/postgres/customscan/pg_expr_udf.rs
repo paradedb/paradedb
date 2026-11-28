@@ -44,6 +44,7 @@ use datafusion::logical_expr::{
 use pgrx::PgMemoryContexts;
 
 use crate::postgres::customscan::datafusion::pdb_agg_udaf::debug_assert_single_document;
+use crate::postgres::node::NodeExt;
 use crate::postgres::types_arrow::udf_pg_type_to_arrow;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
@@ -196,31 +197,23 @@ impl PgExprUdf {
     pub unsafe fn stable_name(tag: &str, expr: *mut pg_sys::Node) -> String {
         use std::hash::{Hash, Hasher};
 
-        #[pgrx::pg_guard]
-        unsafe extern "C-unwind" fn hash_constants(
-            node: *mut pg_sys::Node,
-            context: *mut core::ffi::c_void,
-        ) -> bool {
+        let mut hasher = rustc_hash::FxHasher::default();
+        let expr = pg_sys::copyObjectImpl(expr.cast()).cast::<pg_sys::Node>();
+        expr.visit(|node| {
             if let Some(constant) = crate::nodecast!(Const, node) {
                 let constant = &mut *constant;
-                let hasher = &mut *context.cast::<rustc_hash::FxHasher>();
-                constant.constisnull.hash(hasher);
+                constant.constisnull.hash(&mut hasher);
                 if !constant.constisnull {
                     pg_sys::datum_image_hash(
                         constant.constvalue,
                         constant.constbyval,
                         constant.constlen,
                     )
-                    .hash(hasher);
+                    .hash(&mut hasher);
                     constant.constisnull = true;
                 }
             }
-            pg_sys::expression_tree_walker(node, Some(hash_constants), context)
-        }
-
-        let mut hasher = rustc_hash::FxHasher::default();
-        let expr = pg_sys::copyObjectImpl(expr.cast()).cast::<pg_sys::Node>();
-        hash_constants(expr, std::ptr::from_mut(&mut hasher).cast());
+        });
         crate::postgres::deparse::node_to_string_owned(expr).hash(&mut hasher);
         let short_hash = hasher.finish() as u32;
         format!("{PG_EXPR_UDF_PREFIX}{tag}_{short_hash:08x}")

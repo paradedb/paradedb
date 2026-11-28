@@ -25,7 +25,7 @@ use crate::api::version::Version;
 use crate::nodecast;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::datetime::PostgresDateTime;
-use crate::postgres::node::NodeExt;
+use crate::postgres::node::{MutateControl, NodeExt};
 use crate::postgres::types::{TantivyValue, TantivyValueError};
 
 use crate::schema::{CategorizedFieldData, SearchFieldType};
@@ -654,39 +654,28 @@ pub struct ExtractedFieldAttribute {
     pub normalizer: Option<SearchNormalizer>,
 }
 
-/// Recursively strips tokenizer casts (e.g. `pdb.literal`, `pdb.alias`) from an expression.
-///
-/// This is used both for schema building (determining the inner type of an indexed expression)
-/// and for Top-K query planning (canonicalizing an indexed expression to match against an ORDER BY clause).
-pub fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    if node.is_null() {
-        return node;
-    }
-
-    if let Some(func) = unsafe { nodecast!(FuncExpr, node) } {
-        let func = unsafe { &*func };
-        if type_is_tokenizer(func.funcresulttype) {
-            let args = unsafe { PgList::<pg_sys::Node>::from_pg(func.args) };
-            if let Some(arg) = args.get_ptr(0) {
-                return strip_tokenizer_cast(arg);
+/// Schema lookup and sort planning must agree on the input to a tokenizer cast.
+pub fn strip_tokenizer_cast(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    unsafe {
+        loop {
+            if let Some(func) = nodecast!(FuncExpr, node)
+                && type_is_tokenizer((*func).funcresulttype)
+                && let Some(arg) = PgList::<pg_sys::Node>::from_pg((*func).args).get_ptr(0)
+            {
+                node = arg;
+            } else if let Some(relabel) = nodecast!(RelabelType, node) {
+                node = (*relabel).arg.cast();
+            } else if let Some(domain) = nodecast!(CoerceToDomain, node) {
+                node = (*domain).arg.cast();
+            } else if let Some(coerce) = nodecast!(CoerceViaIO, node)
+                && type_is_tokenizer((*coerce).resulttype)
+            {
+                node = (*coerce).arg.cast();
+            } else {
+                return node;
             }
         }
-    } else if let Some(relabel) = unsafe { nodecast!(RelabelType, node) } {
-        // RelabelType doesn't change physical datum representation, so it is safe to strip.
-        return strip_tokenizer_cast(unsafe { (*relabel).arg }.cast());
-    } else if let Some(coerce) = unsafe { nodecast!(CoerceToDomain, node) } {
-        // CoerceToDomain doesn't change physical datum representation, so it is safe to strip.
-        return strip_tokenizer_cast(unsafe { (*coerce).arg }.cast());
-    } else if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, node) } {
-        // CoerceViaIO (e.g. `text::int`) CAN change the underlying physical representation.
-        // We must only strip it if it explicitly targets a tokenizer type.
-        let coerce = unsafe { &*coerce };
-        if type_is_tokenizer(coerce.resulttype) {
-            return strip_tokenizer_cast(coerce.arg.cast());
-        }
     }
-
-    node
 }
 
 /// The one-based heap attribute that `node` reads, when `node` is a column, plain or under a
@@ -1284,47 +1273,13 @@ pub fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
 /// nested `PlaceHolderVar` nodes (such as those introduced by `paradedb.placeholder_support`
 /// around `pdb.score(...)` in join/aggregate queries) unwrapped to their `phexpr` first.
 pub unsafe fn strip_placeholder_vars_deep(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn contains_phv_walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        if (*node).type_ == pg_sys::NodeTag::T_PlaceHolderVar {
-            return true;
-        }
-        pg_sys::expression_tree_walker(node, Some(contains_phv_walker), context)
-    }
-
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn strip_phv_mutator(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> *mut pg_sys::Node {
-        if node.is_null() {
-            return std::ptr::null_mut();
-        }
-        if let Some(phv) = crate::nodecast!(PlaceHolderVar, node) {
-            return strip_phv_mutator((*phv).phexpr.cast(), context);
-        }
-
-        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
-        {
-            pg_sys::expression_tree_mutator(node, Some(strip_phv_mutator), context)
-        }
-
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-        {
-            pg_sys::expression_tree_mutator_impl(node, Some(strip_phv_mutator), context)
-        }
-    }
-
-    if !contains_phv_walker(node, std::ptr::null_mut()) {
+    if !node.contains_type(pg_sys::NodeTag::T_PlaceHolderVar) {
         return node;
     }
-    strip_phv_mutator(node, std::ptr::null_mut())
+    node.mutate(|node| match crate::nodecast!(PlaceHolderVar, node) {
+        Some(phv) => MutateControl::VisitChild((*phv).phexpr.cast()),
+        None => MutateControl::Continue,
+    })
 }
 
 /// Unwraps `PlaceHolderVar` nodes (if any) and checks if the underlying node is a `FuncExpr`

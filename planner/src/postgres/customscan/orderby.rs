@@ -37,6 +37,7 @@ use crate::postgres::customscan::collation_semantics::{CollationOperation, colla
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::index::is_partitioned_index;
+use crate::postgres::node::{NodeExt, WalkControl};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
@@ -164,40 +165,22 @@ unsafe fn extract_lower_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var>
     None
 }
 
-/// Extract any `Var` node from an arbitrary expression tree.
-///
-/// This is needed for `IndexedExpression` handling, where we need a `Var` to check
-/// relation membership via `is_varno_valid_for_relation`. Returns the first `Var` found
-/// by recursively walking the expression tree.
+/// Indexed sort expressions need a `Var` to identify their relation.
 fn extract_any_var_from_expr(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    if node.is_null() {
-        return None;
-    }
-    match unsafe { (*node).type_ } {
-        pg_sys::NodeTag::T_Var => Some(node as *mut pg_sys::Var),
-        pg_sys::NodeTag::T_FuncExpr => {
-            let args =
-                unsafe { PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::FuncExpr)).args) };
-
-            args.iter_ptr().find_map(extract_any_var_from_expr)
+    let mut found = None;
+    node.walk(|node| match unsafe { (*node).type_ } {
+        pg_sys::NodeTag::T_Var => {
+            found = Some(node.cast());
+            WalkControl::Break
         }
-        pg_sys::NodeTag::T_OpExpr => {
-            let args =
-                unsafe { PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::OpExpr)).args) };
-
-            args.iter_ptr().find_map(extract_any_var_from_expr)
-        }
-        pg_sys::NodeTag::T_RelabelType => {
-            extract_any_var_from_expr(unsafe { (*(node as *mut pg_sys::RelabelType)).arg }.cast())
-        }
-        pg_sys::NodeTag::T_CoerceViaIO => {
-            extract_any_var_from_expr(unsafe { (*(node as *mut pg_sys::CoerceViaIO)).arg }.cast())
-        }
-        pg_sys::NodeTag::T_CoerceToDomain => extract_any_var_from_expr(
-            unsafe { (*(node as *mut pg_sys::CoerceToDomain)).arg }.cast(),
-        ),
-        _ => None,
-    }
+        pg_sys::NodeTag::T_FuncExpr
+        | pg_sys::NodeTag::T_OpExpr
+        | pg_sys::NodeTag::T_RelabelType
+        | pg_sys::NodeTag::T_CoerceViaIO
+        | pg_sys::NodeTag::T_CoerceToDomain => WalkControl::Continue,
+        _ => WalkControl::SkipChildren,
+    });
+    found
 }
 
 /// Analyzes an ORDER BY expression to determine its type and extract the underlying variable.

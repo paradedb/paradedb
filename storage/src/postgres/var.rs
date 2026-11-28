@@ -23,10 +23,10 @@
 use crate::api::{CTID_FIELD_NAME, FieldName, HashSet};
 use crate::customscan::operator_oid;
 use crate::postgres::node::NodeExt;
-use crate::postgres::utils::is_a;
+use crate::postgres::utils::{is_a, strip_relabel};
 use crate::postgres::var::identity_ops::IdentityOp;
-use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
-use pgrx::pg_sys::{CoerceViaIO, Const, OpExpr, RelabelType, Var};
+use pgrx::pg_sys::NodeTag::{T_Const, T_OpExpr, T_Var};
+use pgrx::pg_sys::{CoerceViaIO, Const, OpExpr, PgNode, Var};
 use pgrx::{AnyNumeric, PgOid};
 use pgrx::{FromDatum, PgList, pg_sys};
 use std::ffi::CStr;
@@ -512,20 +512,21 @@ pub unsafe fn fieldname_from_var(
     }
 }
 
+pub unsafe fn strip_field_casts(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    let mut node = strip_relabel(node);
+    while let Some(cast) = node.as_ref().and_then(CoerceViaIO::try_cast) {
+        node = strip_relabel(cast.arg.cast());
+    }
+    node
+}
+
 // should be kept in sync with find_one_resolved_var_and_fieldname
 pub unsafe fn find_one_fieldname(
     context: VarContext,
     node: *mut pg_sys::Node,
 ) -> Option<FieldName> {
-    if is_a(node, T_CoerceViaIO) {
-        let expr = node.cast::<CoerceViaIO>();
-        let arg = (*expr).arg;
-        find_one_fieldname(context, arg as *mut pg_sys::Node)
-    } else if is_a(node, T_RelabelType) {
-        let relabel_type = node.cast::<RelabelType>();
-        let arg = (*relabel_type).arg;
-        find_one_fieldname(context, arg as *mut pg_sys::Node)
-    } else if is_a(node, T_Var) {
+    let node = strip_field_casts(node);
+    if is_a(node, T_Var) {
         let (heaprelid, varattno) = context.var_relation(node.cast::<pg_sys::Var>());
         fieldname_from_var(heaprelid, varattno)
     } else {
@@ -537,15 +538,8 @@ pub unsafe fn find_one_var(
     context: VarContext,
     node: *mut pg_sys::Node,
 ) -> Option<*mut pg_sys::Var> {
-    if is_a(node, T_CoerceViaIO) {
-        let expr = node.cast::<CoerceViaIO>();
-        let arg = (*expr).arg;
-        find_one_var(context, arg as *mut pg_sys::Node)
-    } else if is_a(node, T_RelabelType) {
-        let relabel_type = node.cast::<RelabelType>();
-        let arg = (*relabel_type).arg;
-        find_one_var(context, arg as *mut pg_sys::Node)
-    } else if is_a(node, T_Var) {
+    let node = strip_field_casts(node);
+    if is_a(node, T_Var) {
         let var = node.cast::<pg_sys::Var>();
         Some(var)
     } else if unsafe { json_path_fieldname(context, node).is_some() } || is_a(node, T_OpExpr) {
@@ -578,50 +572,52 @@ pub unsafe fn json_path_fieldname(
 #[inline(always)]
 pub unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> Vec<String> {
     let mut path = Vec::new();
-
-    if is_a(node, T_Var) {
-        let node = node as *mut Var;
-        let (heaprelid, varattno) = context.var_relation(node);
-        // Return empty path if we can't get a valid field name (e.g., due to out-of-bounds varno)
-        if let Some(field_name) = fieldname_from_var(heaprelid, varattno) {
-            path.push(field_name.root());
-        }
-        return path;
-    } else if is_a(node, T_Const) {
-        let node = node as *mut Const;
-        if let PgOid::BuiltIn(oid) = PgOid::from((*node).consttype) {
-            match oid {
-                pg_sys::BuiltinOid::TEXTOID | pg_sys::BuiltinOid::VARCHAROID => {
-                    if let Some(s) = String::from_datum((*node).constvalue, (*node).constisnull) {
-                        path.push(s);
-                    }
+    let mut pending = vec![node];
+    while let Some(node) = pending.pop() {
+        let Some(tag) = node.as_ref().map(|node| node.type_) else {
+            continue;
+        };
+        let start = pending.len();
+        let args = match tag {
+            T_Var => {
+                let (heaprelid, varattno) = context.var_relation(node.cast::<Var>());
+                if let Some(field_name) = fieldname_from_var(heaprelid, varattno) {
+                    path.push(field_name.root());
                 }
-                pg_sys::BuiltinOid::TEXTARRAYOID | pg_sys::BuiltinOid::VARCHARARRAYOID => {
-                    if let Some(array) =
-                        pgrx::Array::<String>::from_datum((*node).constvalue, (*node).constisnull)
-                    {
-                        path.extend(array.iter().flatten());
-                    }
-                }
-                _ => {}
+                continue;
             }
-        }
-
-        return path;
-    } else if is_a(node, T_OpExpr) {
-        let node = node as *mut OpExpr;
-        for expr in PgList::from_pg((*node).args).iter_ptr() {
-            path.extend(find_json_path(context, expr));
-        }
-    } else if is_a(node, pg_sys::NodeTag::T_SubscriptingRef) {
-        let node = node as *mut pg_sys::SubscriptingRef;
-        // Extract container and subscript expressions for bracket notation
-        path.extend(find_json_path(context, (*node).refexpr.cast()));
-        for expr in PgList::from_pg((*node).refupperindexpr).iter_ptr() {
-            path.extend(find_json_path(context, expr));
-        }
+            T_Const => {
+                let node = &*node.cast::<Const>();
+                if let PgOid::BuiltIn(oid) = PgOid::from(node.consttype) {
+                    match oid {
+                        pg_sys::BuiltinOid::TEXTOID | pg_sys::BuiltinOid::VARCHAROID => {
+                            if let Some(s) = String::from_datum(node.constvalue, node.constisnull) {
+                                path.push(s);
+                            }
+                        }
+                        pg_sys::BuiltinOid::TEXTARRAYOID | pg_sys::BuiltinOid::VARCHARARRAYOID => {
+                            if let Some(array) =
+                                pgrx::Array::<String>::from_datum(node.constvalue, node.constisnull)
+                            {
+                                path.extend(array.iter().flatten());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+            T_OpExpr => (*node.cast::<OpExpr>()).args,
+            pg_sys::NodeTag::T_SubscriptingRef => {
+                let subscript = &*node.cast::<pg_sys::SubscriptingRef>();
+                pending.push(subscript.refexpr.cast());
+                subscript.refupperindexpr
+            }
+            _ => continue,
+        };
+        pending.extend(PgList::<pg_sys::Node>::from_pg(args).iter_ptr());
+        pending[start..].reverse();
     }
-
     path
 }
 

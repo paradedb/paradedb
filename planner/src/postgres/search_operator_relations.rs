@@ -33,6 +33,7 @@
 
 use std::cell::RefCell;
 use std::ffi::CStr;
+use std::rc::Rc;
 
 use pgrx::{PgList, pg_sys};
 
@@ -64,22 +65,16 @@ struct SearchedRelation {
 const MAX_QUERY_DEPTH: usize = 64;
 
 thread_local! {
-    /// One record per planner invocation in progress, innermost last. The planner re-enters
-    /// itself when it evaluates a SQL function while folding constants.
-    static RECORDS: RefCell<Vec<Vec<SearchedRelation>>> = const { RefCell::new(Vec::new()) };
+    static RECORD: RefCell<Option<Rc<[SearchedRelation]>>> = const { RefCell::new(None) };
 }
 
 /// Runs `plan` with the record for `parse` in place, for [`applies_to`] to consult.
 pub unsafe fn record_during<T>(parse: *mut pg_sys::Query, plan: impl FnOnce() -> T) -> T {
-    RECORDS.with(|records| records.borrow_mut().push(searched_relations_in(parse)));
-    // Pops the record once planning ends, by error too.
-    // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body only pops a thread
-    // local, and the record has to go when the planner raises too.
-    let _scope = std::mem::DropGuard::new((), |()| {
-        RECORDS.with(|records| {
-            records.borrow_mut().pop();
-        });
-    });
+    let relations = searched_relations_in(parse);
+    let record = (!relations.is_empty()).then(|| Rc::from(relations));
+    let previous = RECORD.replace(record);
+    // We do not use `impl_safe_drop!` because nested planning must restore the outer record on error.
+    let _scope = std::mem::DropGuard::new(previous, |previous| RECORD.set(previous));
     plan()
 }
 
@@ -103,51 +98,43 @@ unsafe fn applies_to_matching(
     rti: pg_sys::Index,
     matches_scope: impl Fn(&SearchedRelation) -> bool,
 ) -> bool {
-    RECORDS.with(|records| {
-        let records = records.borrow();
-        let Some(record) = records.last() else {
-            return false;
-        };
-        if record.is_empty() {
-            return false;
-        }
-        // Partitions and inheritance children scan under their own relid and alias, and the
-        // planner rebuilds their `Var`s without a location. The record names the parent, and
-        // the parent's own relation still carries the `Var`s as written.
-        let Some((rti, rte)) = top_parent(root, rti) else {
-            return false;
-        };
-        let rel = *(*root).simple_rel_array.add(rti as usize);
-        if rel.is_null() {
-            return false;
-        }
-        let alias = rte_alias_bytes(&*rte);
-        let candidates: Vec<&SearchedRelation> = record
-            .iter()
-            .filter(|searched| {
-                searched.relid == (*rte).relid && searched.alias == alias && matches_scope(searched)
+    let Some(record) = RECORD.with_borrow(Clone::clone) else {
+        return false;
+    };
+    // Postgres builds child `Var`s without parser locations. The parent has the original locations.
+    let Some((rti, rte)) = top_parent(root, rti) else {
+        return false;
+    };
+    let rel = *(*root).simple_rel_array.add(rti as usize);
+    if rel.is_null() {
+        return false;
+    }
+    let alias = rte_alias_bytes(&*rte);
+    let candidates: Vec<&SearchedRelation> = record
+        .iter()
+        .filter(|searched| {
+            searched.relid == (*rte).relid && searched.alias == alias && matches_scope(searched)
+        })
+        .collect();
+    if candidates.is_empty() {
+        return false;
+    }
+    let references_entry = |node: *mut pg_sys::Node| {
+        node.any(|node| {
+            nodecast!(Var, node).is_some_and(|var| {
+                (*var).varno as pg_sys::Index == rti
+                    && (*var).location >= 0
+                    && candidates
+                        .iter()
+                        .any(|searched| searched.var_locations.contains(&(*var).location))
             })
-            .collect();
-        if candidates.is_empty() {
-            return false;
-        }
-        let references_entry = |node: *mut pg_sys::Node| {
-            node.any(|node| {
-                nodecast!(Var, node).is_some_and(|var| {
-                    (*var).varno as pg_sys::Index == rti
-                        && (*var).location >= 0
-                        && candidates
-                            .iter()
-                            .any(|searched| searched.var_locations.contains(&(*var).location))
-                })
-            })
-        };
-        (!(*rel).reltarget.is_null() && references_entry((*(*rel).reltarget).exprs.cast()))
-            || PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo)
-                .iter_ptr()
-                .chain(PgList::<pg_sys::RestrictInfo>::from_pg((*rel).joininfo).iter_ptr())
-                .any(|ri| references_entry((*ri).clause.cast()))
-    })
+        })
+    };
+    (!(*rel).reltarget.is_null() && references_entry((*(*rel).reltarget).exprs.cast()))
+        || PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo)
+            .iter_ptr()
+            .chain(PgList::<pg_sys::RestrictInfo>::from_pg((*rel).joininfo).iter_ptr())
+            .any(|ri| references_entry((*ri).clause.cast()))
 }
 
 /// True if `node` contains a search predicate. At plan time the operator may already be in its
@@ -234,6 +221,7 @@ unsafe fn query_applies_search_operator(query: *mut pg_sys::Query, depth: usize)
     if query.is_null() || depth >= MAX_QUERY_DEPTH {
         return false;
     }
+    pg_sys::check_stack_depth();
     // A `SubLink` hands its `subselect`, a `Query`, to the walker. That is the only way a
     // `Query` shows up inside an expression.
     let predicates = |node: *mut pg_sys::Node| {
@@ -322,6 +310,7 @@ unsafe fn visit_expr(
     entries: &mut [Entry],
     found: &mut Vec<SearchedRelation>,
 ) {
+    pg_sys::check_stack_depth();
     node.walk(|node| {
         if let Some(subquery) = nodecast!(Query, node) {
             collect_searched_relations(subquery, depth + 1, found);
@@ -404,6 +393,7 @@ unsafe fn collect_searched_relations(
     if query.is_null() || depth >= MAX_QUERY_DEPTH {
         return;
     }
+    pg_sys::check_stack_depth();
     let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*query).rtable);
     let mut entries: Vec<Entry> = (0..=rtable.len()).map(|_| Entry::default()).collect();
     let entry_count = entries.len();

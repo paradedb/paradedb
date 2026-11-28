@@ -36,12 +36,11 @@ use crate::postgres::customscan::collation_semantics::{CollationOperation, colla
 use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, RelationAlias};
 pub use crate::postgres::customscan::joinscan::window_func::SupportedWindowAggType;
 use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
-use crate::postgres::node::NodeExt;
+use crate::postgres::node::{NodeExt, WalkControl};
 use crate::postgres::utils::strip_relabel;
 use crate::postgres::var::{VarContext, find_one_fieldname, find_one_var};
 use crate::schema::SearchFieldType;
 use pgrx::PgList;
-use pgrx::pg_guard;
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -570,56 +569,32 @@ unsafe fn collect_output_nodes(
     aggrefs: &mut Vec<*mut pg_sys::Aggref>,
     window_funcs: &mut Vec<*mut pg_sys::WindowFunc>,
 ) {
-    struct WalkerContext<'a> {
-        combine_agg_funcoid: pg_sys::Oid,
-        group_exprs: &'a mut Vec<*mut pg_sys::Node>,
-        aggrefs: &'a mut Vec<*mut pg_sys::Aggref>,
-        window_funcs: &'a mut Vec<*mut pg_sys::WindowFunc>,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        let ctx = &mut *(context as *mut WalkerContext<'_>);
-        if position_equal(ctx.group_exprs, node).is_some() {
-            return false;
+    expr.walk(|node| {
+        if position_equal(group_exprs, node).is_some() {
+            return WalkControl::SkipChildren;
         }
         match (*node).type_ {
             pg_sys::NodeTag::T_WindowFunc => {
                 let wf = node.cast::<pg_sys::WindowFunc>();
-                push_unique(ctx.window_funcs, wf);
-                if ctx.combine_agg_funcoid != pg_sys::InvalidOid
-                    && (*wf).winfnoid == ctx.combine_agg_funcoid
+                push_unique(window_funcs, wf);
+                if combine_agg_funcoid != pg_sys::InvalidOid
+                    && (*wf).winfnoid == combine_agg_funcoid
                 {
-                    false
-                } else {
-                    pg_sys::expression_tree_walker(node, Some(walker), context)
+                    return WalkControl::SkipChildren;
                 }
             }
             pg_sys::NodeTag::T_Aggref => {
-                push_unique(ctx.aggrefs, node.cast());
-                false
+                push_unique(aggrefs, node.cast());
+                return WalkControl::SkipChildren;
             }
             pg_sys::NodeTag::T_Var => {
-                ctx.group_exprs.push(node);
-                false
+                group_exprs.push(node);
+                return WalkControl::SkipChildren;
             }
-            _ => pg_sys::expression_tree_walker(node, Some(walker), context),
+            _ => {}
         }
-    }
-
-    let mut context = WalkerContext {
-        combine_agg_funcoid,
-        group_exprs,
-        aggrefs,
-        window_funcs,
-    };
-    walker(expr, (&mut context as *mut WalkerContext).cast());
+        WalkControl::Continue
+    });
 }
 
 /// Extract the DataFusion runtime metadata and raw tuple description for a

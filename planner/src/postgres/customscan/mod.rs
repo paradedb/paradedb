@@ -447,6 +447,51 @@ pub fn wrap_custom_scan_state<CS: CustomScan>(
         .expect("`CustomScanState` node should not be null")
 }
 
+pub enum QueryWalk {
+    Descend,
+    CtesOnly,
+    SkipChildren,
+    Break,
+}
+
+/// The window planner handles range-table subqueries and CTEs at their own query level.
+/// A `SubLink` needs an expression walk.
+pub unsafe fn walk_query_levels(
+    mut query: *mut pg_sys::Query,
+    mut visit: impl FnMut(*mut pg_sys::Query) -> QueryWalk,
+) -> bool {
+    let mut pending = Vec::new();
+    while !query.is_null() {
+        match visit(query) {
+            QueryWalk::Break => return true,
+            QueryWalk::SkipChildren => {}
+            children => {
+                let start = pending.len();
+                if matches!(children, QueryWalk::Descend) {
+                    let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*query).rtable);
+                    for rte in rtable.iter_ptr() {
+                        if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
+                            && !(*rte).subquery.is_null()
+                        {
+                            pending.push((*rte).subquery);
+                        }
+                    }
+                }
+                let ctes = PgList::<pg_sys::CommonTableExpr>::from_pg((*query).cteList);
+                for cte in ctes.iter_ptr() {
+                    if !(*cte).ctequery.is_null() {
+                        pending.push((*cte).ctequery.cast());
+                    }
+                }
+                pending[start..].reverse();
+            }
+        }
+        let Some(next) = pending.pop() else { break };
+        query = next;
+    }
+    false
+}
+
 pub unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool) -> bool {
     let paradedb_agg_oids = agg_funcoids();
     let window_agg_proc_oid = window_agg_oid();
@@ -462,39 +507,13 @@ pub unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool)
                         .is_some_and(|expr| (*expr).funcid == window_agg_proc_oid))
         })
     };
-    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
-    if target_list
-        .iter_ptr()
-        .any(|te| contains_agg((*te).expr.cast()))
-        || contains_agg((*parse).havingQual)
-    {
-        return true;
-    }
-
-    if recursive {
-        if !(*parse).rtable.is_null() {
-            let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
-            for rte in rtable.iter_ptr() {
-                if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
-                    && !(*rte).subquery.is_null()
-                    && query_has_paradedb_agg((*rte).subquery, recursive)
-                {
-                    return true;
-                }
-            }
+    walk_query_levels(parse, |query| {
+        if contains_agg((*query).targetList.cast()) || contains_agg((*query).havingQual) {
+            QueryWalk::Break
+        } else if recursive {
+            QueryWalk::Descend
+        } else {
+            QueryWalk::SkipChildren
         }
-
-        if !(*parse).cteList.is_null() {
-            let ctelist = PgList::<pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
-            for cte in ctelist.iter_ptr() {
-                if !(*cte).ctequery.is_null()
-                    && query_has_paradedb_agg((*cte).ctequery.cast(), recursive)
-                {
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
+    })
 }

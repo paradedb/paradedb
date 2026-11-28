@@ -29,7 +29,7 @@ use crate::postgres::customscan::pushdown::{PushdownField, try_build_pushdown_qu
 use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::index::{any_leaf_partition_index, is_partitioned_index};
-use crate::postgres::node::NodeExt;
+use crate::postgres::node::{NodeExt, WalkControl};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::search_operator_relations::top_parent;
@@ -40,9 +40,7 @@ use crate::query::pdb_query::pdb;
 use crate::schema::SearchIndexSchemaQueryExt;
 use pg_sys::BoolExprType;
 use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{
-    FromDatum, IntoDatum, PgList, PgLogLevel, PgSqlErrorCode, function_name, pg_guard, pg_sys,
-};
+use pgrx::{FromDatum, IntoDatum, PgList, PgLogLevel, PgSqlErrorCode, function_name, pg_sys};
 use std::ops::Bound;
 
 #[derive(Debug, Clone)]
@@ -752,27 +750,6 @@ pub struct QualExtractState {
 /// Check if a clause contains node types that extract_quals cannot handle
 /// (e.g., SubPlan from RLS policies) and thus needs plan.qual evaluation.
 pub fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        _data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        match (*node).type_ {
-            pg_sys::NodeTag::T_SubPlan | pg_sys::NodeTag::T_AlternativeSubPlan => true,
-            // RestrictInfo is a planner node, not an expression node, so
-            // expression_tree_walker doesn't know how to handle it. Unwrap
-            // to the inner clause before recursing.
-            pg_sys::NodeTag::T_RestrictInfo => {
-                let ri = node as *mut pg_sys::RestrictInfo;
-                walker((*ri).clause.cast(), _data)
-            }
-            _ => pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut()),
-        }
-    }
-
     if node.is_null() {
         return false;
     }
@@ -801,7 +778,12 @@ pub fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo) -> bo
         }
     }
 
-    unsafe { walker(node, std::ptr::null_mut()) }
+    inner.any(|node| unsafe {
+        matches!(
+            (*node).type_,
+            pg_sys::NodeTag::T_SubPlan | pg_sys::NodeTag::T_AlternativeSubPlan
+        )
+    })
 }
 
 /// Whether a WHERE clause can be pushed into the scan without breaking RLS ordering.
@@ -980,6 +962,8 @@ pub fn extract_quals(
     if node.is_null() {
         return None;
     }
+
+    unsafe { pg_sys::check_stack_depth() };
 
     if let Some(predicate) = unsafe { SearchPredicate::from_node(node) } {
         return unsafe {
@@ -1777,29 +1761,17 @@ pub fn collect_implicit_and_conjuncts(
     node: *mut pg_sys::Node,
     conjuncts: &mut Vec<*mut pg_sys::Node>,
 ) {
-    if node.is_null() {
-        return;
-    }
-
-    if unsafe { (*node).type_ } == pg_sys::NodeTag::T_List {
-        let list = unsafe { PgList::<pg_sys::Node>::from_pg(node.cast::<pg_sys::List>()) };
-        for item in list.iter_ptr() {
-            collect_implicit_and_conjuncts(item, conjuncts);
+    node.walk(|node| unsafe {
+        if (*node).type_ == pg_sys::NodeTag::T_List
+            || nodecast!(BoolExpr, node)
+                .is_some_and(|expr| (*expr).boolop == BoolExprType::AND_EXPR)
+        {
+            WalkControl::Continue
+        } else {
+            conjuncts.push(node);
+            WalkControl::SkipChildren
         }
-        return;
-    }
-
-    if let Some(bool_expr) = unsafe { nodecast!(BoolExpr, node) }
-        && unsafe { (*bool_expr).boolop } == pg_sys::BoolExprType::AND_EXPR
-    {
-        let args = unsafe { PgList::<pg_sys::Node>::from_pg((*bool_expr).args) };
-        for arg in args.iter_ptr() {
-            collect_implicit_and_conjuncts(arg, conjuncts);
-        }
-        return;
-    }
-
-    conjuncts.push(node);
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1946,6 +1918,7 @@ fn simplify_join_clause_for_relation(
         return None;
     }
 
+    unsafe { pg_sys::check_stack_depth() };
     match unsafe { (*node).type_ } {
         pg_sys::NodeTag::T_OpExpr => unsafe { simplify_node_for_relation(node, current_rti) },
 

@@ -26,6 +26,7 @@ pub use interrupt::{
 };
 
 pub mod glue {
+    use crate::postgres::node::NodeExt;
     use pgrx::pg_sys;
 
     use crate::postgres::customscan::mpp::dsm_stream::{
@@ -215,42 +216,20 @@ pub mod glue {
         unsafe { pg_sys::func_parallel(func_id) != pg_sys::PROPARALLEL_SAFE as std::ffi::c_char }
     }
 
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn expr_has_mpp_parallel_hazard_walker(
-        node: *mut pg_sys::Node,
-        context: *mut std::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        unsafe {
-            if pg_sys::check_functions_in_node(
+    unsafe fn expr_has_mpp_parallel_hazard(expr: *mut pg_sys::Node) -> bool {
+        expr.any(|node| unsafe {
+            pg_sys::check_functions_in_node(
                 node,
                 Some(non_parallel_safe_func_checker),
                 std::ptr::null_mut(),
-            ) {
-                return true;
-            }
-            match (*node).type_ {
+            ) || matches!(
+                (*node).type_,
                 pg_sys::NodeTag::T_CoerceToDomain
-                | pg_sys::NodeTag::T_NextValueExpr
-                | pg_sys::NodeTag::T_WindowFunc
-                | pg_sys::NodeTag::T_SubLink => true,
-                pg_sys::NodeTag::T_RestrictInfo => {
-                    let rinfo = node.cast::<pg_sys::RestrictInfo>();
-                    expr_has_mpp_parallel_hazard_walker((*rinfo).clause.cast(), context)
-                }
-                // `T_Param` (both `PARAM_EXTERN` and correlated `PARAM_EXEC`) is solved on the
-                // leader before worker dispatch on first pull and on every `rescan_custom_scan`,
-                // and `T_SubPlan` only reaches `PostgresExpression` (also solved on the leader;
-                // `expression_tree_walker` still inspects its `testexpr` and `args`).
-                _ => pg_sys::expression_tree_walker(
-                    node,
-                    Some(expr_has_mpp_parallel_hazard_walker),
-                    context,
-                ),
-            }
-        }
+                    | pg_sys::NodeTag::T_NextValueExpr
+                    | pg_sys::NodeTag::T_WindowFunc
+                    | pg_sys::NodeTag::T_SubLink
+            )
+        })
     }
 
     /// Verify that `root` permits parallel mode, every absorbed source relation `heaprelid` is
@@ -284,14 +263,9 @@ pub mod glue {
                 return false;
             }
         }
-        for expr in exprs {
-            if !expr.is_null()
-                && unsafe { expr_has_mpp_parallel_hazard_walker(expr, std::ptr::null_mut()) }
-            {
-                return false;
-            }
-        }
-        true
+        !exprs
+            .into_iter()
+            .any(|expr| unsafe { expr_has_mpp_parallel_hazard(expr) })
     }
 
     pub fn spsc_ring_capacity(bg_workers: BgWorkerCount) -> Result<usize, String> {

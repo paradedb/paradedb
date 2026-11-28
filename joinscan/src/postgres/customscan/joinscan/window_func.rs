@@ -37,6 +37,7 @@ use crate::postgres::customscan::joinscan::planning::resolve_fast_field_from_joi
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use crate::postgres::customscan::pullup::SourceContext;
 use crate::postgres::deparse::deparse_planner_expr;
+use crate::postgres::node::{MutateControl, NodeExt};
 use crate::postgres::utils::strip_relabel;
 use crate::schema::SearchFieldType;
 use datafusion::common::DataFusionError;
@@ -594,12 +595,6 @@ pub fn is_supported_window_agg_node(node: *mut pg_sys::Node) -> bool {
     false
 }
 
-struct SentinelRewriteCtx<'a> {
-    resno: pg_sys::AttrNumber,
-    next_ordinal: usize,
-    window_aggs: &'a WindowAggList,
-}
-
 /// Copy `expr`, replacing each embedded `WindowFunc` (in expression-walker
 /// visit order, matching the ordinals assigned during extraction) with a
 /// sentinel Var: `varno = WINDOW_SENTINEL_VARNO`, `varattno` encoding the
@@ -613,12 +608,30 @@ pub unsafe fn rewrite_window_funcs_to_sentinels(
     resno: pg_sys::AttrNumber,
     window_aggs: &WindowAggList,
 ) -> *mut pg_sys::Node {
-    let mut ctx = SentinelRewriteCtx {
-        resno,
-        next_ordinal: 0,
-        window_aggs,
-    };
-    sentinel_mutator(expr, std::ptr::addr_of_mut!(ctx).cast())
+    let mut next_ordinal = 0;
+    expr.mutate(|node| {
+        let Some(wf) = nodecast!(WindowFunc, node) else {
+            return MutateControl::Continue;
+        };
+        let ordinal = next_ordinal;
+        next_ordinal += 1;
+        let id = WindowAggId::nested(resno, ordinal);
+        let index = window_aggs.find_index(id).unwrap_or_else(|| {
+            panic!(
+                "BUG: window function (resno={resno}, ordinal={ordinal}) was not \
+                 extracted during path validation"
+            )
+        });
+        let var = pg_sys::makeVar(
+            WINDOW_SENTINEL_VARNO as _,
+            index.to_sentinel_attno(),
+            (*wf).wintype,
+            -1,
+            (*wf).wincollid,
+            0,
+        );
+        MutateControl::Replace(var.cast())
+    })
 }
 
 /// Rewrites embedded `WindowFunc` nodes into `paradedb.window_agg('<description>')`
@@ -650,7 +663,18 @@ impl PlaceholderRewriter {
     }
 
     pub unsafe fn rewrite_expr(&mut self, expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
-        placeholder_mutator(expr, std::ptr::from_mut(self).cast())
+        expr.mutate(|node| {
+            let Some(wf) = nodecast!(WindowFunc, node) else {
+                return MutateControl::Continue;
+            };
+            let id = self.placeholder_id(wf);
+            // Postgres 18 needs a `WindowAgg` plan node to deparse the window function.
+            let description = deparse_planner_expr(self.root, node)
+                .unwrap_or_else(|| describe_window_func(&*wf, self.root));
+            let placeholder =
+                make_window_agg_placeholder(&description, Some(id), (*wf).wintype, (*wf).wincollid);
+            MutateControl::Replace(placeholder.map_or(node, |value| value.cast()))
+        })
     }
 
     unsafe fn placeholder_id(&mut self, wf: *mut pg_sys::WindowFunc) -> PlaceholderId {
@@ -665,50 +689,6 @@ impl PlaceholderRewriter {
             self.seen.push(wf);
             PlaceholderId(idx)
         }
-    }
-}
-
-#[pgrx::pg_guard]
-unsafe extern "C-unwind" fn placeholder_mutator(
-    node: *mut pg_sys::Node,
-    context: *mut core::ffi::c_void,
-) -> *mut pg_sys::Node {
-    if node.is_null() {
-        return std::ptr::null_mut();
-    }
-
-    if let Some(wf) = nodecast!(WindowFunc, node) {
-        let ctx = &mut *context.cast::<PlaceholderRewriter>();
-        let placeholder_id = ctx.placeholder_id(wf);
-
-        // A ruleutils deparse of the WindowFunc hits the same PG18 error
-        // this rewrite exists to avoid (deparse_planner_expr catches it and
-        // returns None on PG18; on older versions it renders `OVER (?)`),
-        // so fall back to a description built from the node itself.
-        let description = deparse_planner_expr(ctx.root, node)
-            .unwrap_or_else(|| describe_window_func(&*wf, ctx.root));
-
-        match make_window_agg_placeholder(
-            &description,
-            Some(placeholder_id),
-            (*wf).wintype,
-            (*wf).wincollid,
-        ) {
-            Some(placeholder) => return placeholder.cast(),
-            // Should not happen once the extension is installed; leave the
-            // node for PostgreSQL to complain about rather than panicking.
-            None => return node,
-        }
-    }
-
-    #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
-    {
-        pg_sys::expression_tree_mutator(node, Some(placeholder_mutator), context)
-    }
-
-    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-    {
-        pg_sys::expression_tree_mutator_impl(node, Some(placeholder_mutator), context)
     }
 }
 
@@ -812,47 +792,4 @@ fn var_column_name(var: &pg_sys::Var, root: *mut pg_sys::PlannerInfo) -> Option<
             .to_string_lossy()
             .into_owned(),
     )
-}
-
-#[pgrx::pg_guard]
-unsafe extern "C-unwind" fn sentinel_mutator(
-    node: *mut pg_sys::Node,
-    context: *mut core::ffi::c_void,
-) -> *mut pg_sys::Node {
-    if node.is_null() {
-        return std::ptr::null_mut();
-    }
-
-    if let Some(wf) = nodecast!(WindowFunc, node) {
-        let ctx = context.cast::<SentinelRewriteCtx>();
-        let ordinal = (*ctx).next_ordinal;
-        (*ctx).next_ordinal += 1;
-        let id = WindowAggId::nested((*ctx).resno, ordinal);
-        let index = (*ctx).window_aggs.find_index(id).unwrap_or_else(|| {
-            panic!(
-                "BUG: window function (resno={}, ordinal={ordinal}) was not \
-                 extracted during path validation",
-                (*ctx).resno
-            )
-        });
-        return pg_sys::makeVar(
-            WINDOW_SENTINEL_VARNO as _,
-            index.to_sentinel_attno(),
-            (*wf).wintype,
-            -1,
-            (*wf).wincollid,
-            0,
-        )
-        .cast();
-    }
-
-    #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
-    {
-        pg_sys::expression_tree_mutator(node, Some(sentinel_mutator), context)
-    }
-
-    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-    {
-        pg_sys::expression_tree_mutator_impl(node, Some(sentinel_mutator), context)
-    }
 }

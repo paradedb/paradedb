@@ -15,21 +15,26 @@ INSERT INTO projection_search_predicate VALUES
 CREATE INDEX projection_search_predicate_idx
 ON projection_search_predicate USING paradedb (id, body);
 
--- PostgreSQL drops the redundant branch, and the search predicate with it. The scan runs on
--- what remains and the projections see no search terms, as with `pdb.all()`.
+-- Constant folding starts a second planner call. The outer scan still needs its search predicate.
+CREATE FUNCTION pg_temp.handled_planning_error() RETURNS boolean
+LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+    PERFORM 1 / 0;
+    RETURN false;
+EXCEPTION WHEN division_by_zero THEN
+    RETURN true;
+END;
+$$;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, pdb.score(id)
 FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+WHERE pg_temp.handled_planning_error()
+  AND (category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard'))
 ORDER BY id;
 SELECT id, pdb.score(id)
 FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-
-SELECT id, pdb.score(id)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
+WHERE pg_temp.handled_planning_error()
+  AND (category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard'))
 ORDER BY id;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

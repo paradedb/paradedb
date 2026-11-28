@@ -34,7 +34,7 @@ use super::privdat::{OutputColumnInfo, PrivateData};
 use super::window_func::{WindowAggDef, WindowAggId, WindowAggList, extract_window_agg};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::node::CustomScanNodeExt;
-use crate::postgres::node::NodeExt;
+use crate::postgres::node::{NodeExt, WalkControl};
 
 use crate::api::operator::expr_contains_search_predicate;
 use crate::api::version::VersionInfo;
@@ -887,12 +887,7 @@ pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<
         return Err("contains a subplan".to_string());
     }
 
-    let mut deps = ExprDeps {
-        vars: Vec::new(),
-        score_rtis: Vec::new(),
-        window_funcs: Vec::new(),
-    };
-    expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
+    let deps = collect_expr_deps(expr);
 
     if !deps.window_funcs.is_empty() {
         pgrx::debug1!(
@@ -2522,44 +2517,30 @@ pub fn resolve_fast_field_from_join_sources(
     })
 }
 
+#[derive(Default)]
 struct ExprDeps {
     vars: Vec<*mut pg_sys::Var>,
     score_rtis: Vec<pg_sys::Index>,
     window_funcs: Vec<*mut pg_sys::WindowFunc>,
 }
 
-#[pgrx::pg_guard]
-unsafe extern "C-unwind" fn expr_deps_walker(
-    node: *mut pg_sys::Node,
-    context: *mut core::ffi::c_void,
-) -> bool {
-    if node.is_null() {
-        return false;
-    }
-    let deps = context.cast::<ExprDeps>();
-    let stripped = strip_wrappers(node);
-
-    // If this node is paradedb.score(var), record the score RTI and DO NOT
-    // recurse into the argument Var.
-    if let Some(rti) = get_score_func_rti(stripped.cast()) {
-        (*deps).score_rtis.push(rti);
-        return false;
-    }
-
-    // A window function is an opaque input: the scan's window step
-    // computes it, so its argument Vars are NOT expression inputs.
-    // Record the node and DO NOT recurse into it.
-    if let Some(wf) = nodecast!(WindowFunc, stripped) {
-        (*deps).window_funcs.push(wf);
-        return false;
-    }
-
-    if let Some(var) = nodecast!(Var, stripped) {
-        (*deps).vars.push(var);
-        return false;
-    }
-
-    pg_sys::expression_tree_walker(node, Some(expr_deps_walker), context)
+unsafe fn collect_expr_deps(expr: *mut pg_sys::Node) -> ExprDeps {
+    let mut deps = ExprDeps::default();
+    expr.walk(|node| {
+        let stripped = strip_wrappers(node);
+        if let Some(rti) = get_score_func_rti(stripped.cast()) {
+            deps.score_rtis.push(rti);
+        } else if let Some(wf) = nodecast!(WindowFunc, stripped) {
+            deps.window_funcs.push(wf);
+        } else if let Some(var) = nodecast!(Var, stripped) {
+            deps.vars.push(var);
+        } else {
+            return WalkControl::Continue;
+        }
+        // The scan computes scores and window results independently of their argument columns.
+        WalkControl::SkipChildren
+    });
+    deps
 }
 
 /// Check if all DISTINCT columns are fast fields in their respective ParadeDB indexes.
@@ -2682,12 +2663,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         });
     }
 
-    let mut deps = ExprDeps {
-        vars: Vec::new(),
-        score_rtis: Vec::new(),
-        window_funcs: Vec::new(),
-    };
-    expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
+    let deps = collect_expr_deps(expr);
     let has_score_deps = !deps.score_rtis.is_empty();
 
     // Each embedded window function must itself be absorbable (supported

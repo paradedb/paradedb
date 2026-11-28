@@ -21,7 +21,7 @@ pub use index_read::postgres::var::*;
 use crate::api::FieldName;
 use crate::postgres::customscan::pullup::{Access, ResTarget, ResolvedFastField, SourceContext};
 use common::postgres::utils::is_a;
-use pgrx::pg_sys::{self, CoerceViaIO, NodeTag::*, RelabelType};
+use pgrx::pg_sys;
 
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the [`pg_sys::Var`] and
 /// the [`FieldName`] that it references.
@@ -33,15 +33,8 @@ pub unsafe fn find_one_resolved_var_and_fieldname(
     node: *mut pg_sys::Node,
     access: Access,
 ) -> (Option<ResolvedFastField>, Option<FieldName>) {
-    if is_a(node, T_CoerceViaIO) {
-        let expr = node.cast::<CoerceViaIO>();
-        let arg = (*expr).arg;
-        find_one_resolved_var_and_fieldname(context, source, arg as *mut pg_sys::Node, access)
-    } else if is_a(node, T_RelabelType) {
-        let relabel_type = node.cast::<RelabelType>();
-        let arg = (*relabel_type).arg;
-        find_one_resolved_var_and_fieldname(context, source, arg as *mut pg_sys::Node, access)
-    } else if is_a(node, T_Var) {
+    let node = strip_field_casts(node);
+    if is_a(node, pg_sys::NodeTag::T_Var) {
         let (_, varattno) = context.var_relation(node.cast::<pg_sys::Var>());
         let name = source
             .tupdesc()

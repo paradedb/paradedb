@@ -19,7 +19,6 @@
 use crate::api::operator::anyelement_search_opoids;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
-use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::basescan::projections::window_agg;
 use crate::postgres::customscan::builders::custom_path::{
@@ -752,63 +751,51 @@ unsafe fn replace_windowfuncs_in_query(
 // TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
 // See https://github.com/paradedb/paradedb/issues/3455
 fn replace_in_node(node: *mut pg_sys::Node, window_tl: &TargetList) -> *mut pg_sys::Node {
-    if node.is_null() {
-        return node;
-    }
+    use pgrx::pg_guard;
 
-    // Check if this is a WindowFunc
-    if unsafe { nodecast!(WindowFunc, node) }.is_some() {
-        // Replace with a window_agg(json) placeholder call
-        let json =
-            serde_json::to_string(window_tl).expect("Failed to serialize WindowSpecification");
-
-        match crate::api::window_aggregate::make_window_agg_placeholder(
-            &json,
-            None,
-            window_tl.singleton_result_type_oid(),
-            pg_sys::InvalidOid,
-        ) {
-            Some(placeholder) => return placeholder.cast(),
-            // The caller checked the placeholder function exists; an
-            // interior NUL in serialized JSON cannot happen.
-            None => return node,
-        }
-    }
-
-    // Check if this is a FuncExpr that might contain a WindowFunc
-    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, node) } {
-        let funcexpr = unsafe { &*funcexpr };
-        let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
-        let mut new_args = PgList::<pg_sys::Node>::new();
-        let mut modified = false;
-
-        // Recursively process arguments
-        for arg in args.iter_ptr() {
-            let new_arg = replace_in_node(arg, window_tl);
-            if new_arg != arg {
-                modified = true;
-            }
-            new_args.push(new_arg);
+    // PostgreSQL invokes this callback for each node in the expression tree.
+    // The TargetList is passed through context so that matching WindowFunc
+    // nodes can be converted using the corresponding window specification.
+    #[pg_guard]
+    unsafe extern "C-unwind" fn window_func_mutator(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> *mut pg_sys::Node {
+        if node.is_null() {
+            return std::ptr::null_mut();
         }
 
-        if modified {
-            // Create a new FuncExpr with the modified arguments
-            let new_funcexpr = unsafe {
-                pg_sys::makeFuncExpr(
-                    funcexpr.funcid,
-                    funcexpr.funcresulttype,
-                    new_args.into_pg(),
-                    funcexpr.funccollid,
-                    funcexpr.inputcollid,
-                    funcexpr.funcformat,
-                )
+        if (*node).type_ == pg_sys::NodeTag::T_WindowFunc {
+            let window_tl = &*context.cast::<TargetList>();
+
+            let json =
+                serde_json::to_string(window_tl).expect("Failed to serialize WindowSpecification");
+
+            return match crate::api::window_aggregate::make_window_agg_placeholder(
+                &json,
+                None,
+                window_tl.singleton_result_type_oid(),
+                pg_sys::InvalidOid,
+            ) {
+                Some(placeholder) => placeholder.cast(),
+                None => node,
             };
-            return new_funcexpr.cast();
+        }
+
+        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        {
+            pg_sys::expression_tree_mutator(node, Some(window_func_mutator), context)
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            pg_sys::expression_tree_mutator_impl(node, Some(window_func_mutator), context)
         }
     }
 
-    // No replacement needed
-    node
+    // Start traversing the expression tree, passing the TargetList as the
+    // callback context so every nested WindowFunc can access its specification.
+    unsafe { window_func_mutator(node, (window_tl as *const TargetList).cast_mut().cast()) }
 }
 
 /// Register a `set_rel_pathlist_hook` callback that checks for SubPlan-based

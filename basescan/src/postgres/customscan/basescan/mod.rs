@@ -3125,61 +3125,69 @@ fn replace_window_agg_with_placeholder(
     result_type_oid: pg_sys::Oid,
     columns: &mut PlaceholderColumns,
 ) -> (*mut pg_sys::Node, Option<PlaceholderColumn>) {
-    if node.is_null() {
-        return (node, None);
+    use pgrx::pg_guard;
+
+    // Holds the information needed to identify and replace window aggregates
+    // while traversing the expression tree.
+    struct Context<'a> {
+        window_agg_procid: pg_sys::Oid,
+        result_type_oid: pg_sys::Oid,
+        columns: &'a mut PlaceholderColumns,
+        placeholder: Option<PlaceholderColumn>,
     }
 
-    // Check if this is the window_agg FuncExpr
-    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, node) } {
-        let funcexpr = unsafe { &*funcexpr };
-        if funcexpr.funcid == window_agg_procid {
-            // Found it! Replace with a placeholder Var node
-            let (column, var) =
-                unsafe { columns.add(result_type_oid, pg_sys::DEFAULT_COLLATION_OID) };
-
-            return (var.cast(), Some(column));
+    #[pg_guard]
+    unsafe extern "C-unwind" fn mutator(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> *mut pg_sys::Node {
+        if node.is_null() {
+            return std::ptr::null_mut();
         }
 
-        // Not window_agg, but might have window_agg as an argument
-        let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
-        let mut new_args = PgList::<pg_sys::Node>::new();
-        let mut found_placeholder = None;
-        let mut modified = false;
+        let context = &mut *context.cast::<Context>();
 
-        for arg in args.iter_ptr() {
-            let (new_arg, placeholder_opt) = replace_window_agg_with_placeholder(
-                arg,
-                window_agg_procid,
-                result_type_oid,
-                columns,
-            );
-            if placeholder_opt.is_some() {
-                found_placeholder = placeholder_opt;
-                modified = true;
+        // Check whether the current node is a function call to pdb.agg().
+        if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
+            let funcexpr = &*node.cast::<pg_sys::FuncExpr>();
+            if funcexpr.funcid == context.window_agg_procid {
+                // Register a new virtual column in our custom scan for this aggregate
+                let (column, var) = context
+                    .columns
+                    .add(context.result_type_oid, pg_sys::DEFAULT_COLLATION_OID);
+                context.placeholder = Some(column);
+                return var.cast();
             }
-            if new_arg != arg {
-                modified = true;
-            }
-            new_args.push(new_arg);
         }
 
-        if modified {
-            // Create a new FuncExpr with modified arguments
-            let new_funcexpr = unsafe {
-                pg_sys::makeFuncExpr(
-                    funcexpr.funcid,
-                    funcexpr.funcresulttype,
-                    new_args.into_pg(),
-                    funcexpr.funccollid,
-                    funcexpr.inputcollid,
-                    funcexpr.funcformat,
-                )
-            };
-            return (new_funcexpr.cast(), found_placeholder);
+        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        {
+            pg_sys::expression_tree_mutator(node, Some(mutator), (context as *mut Context).cast())
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            pg_sys::expression_tree_mutator_impl(
+                node,
+                Some(mutator),
+                (context as *mut Context).cast(),
+            )
         }
     }
 
-    (node, None)
+    let mut context = Context {
+        window_agg_procid,
+        result_type_oid,
+        columns,
+        placeholder: None,
+    };
+    let replaced = unsafe {
+        mutator(
+            node,
+            (&mut context as *mut Context).cast::<core::ffi::c_void>(),
+        )
+    };
+    (replaced, context.placeholder)
 }
 
 /// Determine whether there are any pathkeys at all, and whether we might be able to push down

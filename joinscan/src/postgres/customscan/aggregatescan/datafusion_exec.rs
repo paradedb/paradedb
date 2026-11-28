@@ -78,6 +78,7 @@ use datafusion::catalog::default_table_source::DefaultTableSource;
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{Column, DataFusionError, NullHandling, Result, ScalarValue};
 use datafusion::functions::core::expr_fn::{coalesce, get_field};
+use datafusion::functions::math::expr_fn::sqrt;
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
@@ -280,6 +281,11 @@ pub async fn build_join_aggregate_plan(
                 }),
                 AggKind::Min => agg_field_col(agg, plan).map(min),
                 AggKind::Max => agg_field_col(agg, plan).map(max),
+                // DataFusion's stddev has no DISTINCT accumulator, but its
+                // variance does: build VAR(DISTINCT x) here and take the square
+                // root below, after DISTINCT and FILTER are applied.
+                AggKind::StddevSamp if agg.distinct => agg_field_col(agg, plan).map(var_sample),
+                AggKind::StddevPop if agg.distinct => agg_field_col(agg, plan).map(var_pop),
                 AggKind::StddevSamp => agg_field_col(agg, plan).map(stddev),
                 AggKind::StddevPop => agg_field_col(agg, plan).map(stddev_pop),
                 AggKind::VarSamp => agg_field_col(agg, plan).map(var_sample),
@@ -334,6 +340,16 @@ pub async fn build_join_aggregate_plan(
             let agg_expr = match df_filter {
                 Some(df_filter) => with_filter(agg_expr, df_filter),
                 None => agg_expr,
+            };
+            // STDDEV(DISTINCT x) = sqrt(VAR(DISTINCT x)); see the match above.
+            // This must come after `with_distinct`/`with_filter`, which only
+            // apply to a bare aggregate function.
+            let agg_expr = if agg.distinct
+                && matches!(agg.agg_kind, AggKind::StddevSamp | AggKind::StddevPop)
+            {
+                sqrt(agg_expr)
+            } else {
+                agg_expr
             };
             // Alias for stable reference
             Ok(Some(agg_expr.alias(targetlist.aggregate_name(i))))

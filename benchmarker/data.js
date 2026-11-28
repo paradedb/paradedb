@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795868772322,
+  "lastUpdate": 1795868793072,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -94566,6 +94566,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15194915994-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "965b3e766922427eae936f591c2ab943dc33401f",
+          "message": "docs: improve the synonyms docs (#7676)\n\n## Ticket(s) Closed\n\n- N/A\n\n## What\n\nThis PR rewrites the synonyms docs to make them shorter and easier to\nread.\n\n## Why\n\nDocs improvement.\n\n## How\n\n- Review and improve.\n\n## Tests\n\nDocs only.",
+          "timestamp": "2026-11-28T08:42:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/965b3e766922427eae936f591c2ab943dc33401f"
+        },
+        "date": 1795868792010,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) p50 latency",
+            "value": 0.611,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p95 latency",
+            "value": 0.678,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p99 latency",
+            "value": 73.619,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p50 latency",
+            "value": 0.558,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p95 latency",
+            "value": 0.612,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p99 latency",
+            "value": 73.559,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p50 latency",
+            "value": 0.63,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p95 latency",
+            "value": 0.898,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p99 latency",
+            "value": 2.249,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "15262620109-latency"
       }
     ],
     "benchmarker hackernews (throughput)": [
@@ -95480,6 +95548,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "15194915994-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "965b3e766922427eae936f591c2ab943dc33401f",
+          "message": "docs: improve the synonyms docs (#7676)\n\n## Ticket(s) Closed\n\n- N/A\n\n## What\n\nThis PR rewrites the synonyms docs to make them shorter and easier to\nread.\n\n## Why\n\nDocs improvement.\n\n## How\n\n- Review and improve.\n\n## Tests\n\nDocs only.",
+          "timestamp": "2026-11-28T08:42:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/965b3e766922427eae936f591c2ab943dc33401f"
+        },
+        "date": 1795868793052,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) QPS",
+            "value": 6887.645690146032,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (closed_loop_single) QPS",
+            "value": 7526.221424113182,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (open_loop) QPS",
+            "value": 50.03230234950275,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "15262620109-throughput"
       }
     ],
     "benchmarker msmarco-113m (latency)": [

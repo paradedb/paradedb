@@ -1,0 +1,6 @@
+---
+header: performance
+---
+
+- The default `training_sample_ratio` for vector indexes is `0.16`, down from `0.32`, so IVF training samples half as many vectors. The default `target_leaf_size` of `400` now trains at `64` vectors per leaf instead of `128`. `training_sample_ratio = 0` still sizes the sample automatically, and an explicit ratio behaves as before.
+- An index created without `training_sample_ratio` stores no value for it and reads the current default whenever it builds or merges a segment: after upgrading, `REINDEX` and every new or merged segment train with `0.16`, while existing segments keep the centroids they were built with.

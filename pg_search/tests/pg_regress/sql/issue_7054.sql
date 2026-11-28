@@ -70,11 +70,25 @@ ORDER BY lower(category) COLLATE "C", id LIMIT 2;
 SELECT * FROM pg_temp.check_7054_order('lower(category) COLLATE "C", id', 2);
 SELECT * FROM pg_temp.check_7054_order('lower(category) COLLATE "C", id', 1);
 SELECT * FROM pg_temp.check_7054_order('lower(category) COLLATE "C" DESC, id', 2);
+EXPLAIN (COSTS OFF)
+SELECT id FROM issue_7054
+WHERE body ||| 'wireless' AND lower(category) >= 'ä' ORDER BY id;
+SELECT pg_temp.check_7054_query($q$
+    SELECT id FROM issue_7054
+    WHERE body ||| 'wireless' AND lower(category) >= 'ä' ORDER BY id
+$q$);
 
+
+EXPLAIN (COSTS OFF)
 SELECT id, count(*) OVER () AS total
 FROM issue_7054
 WHERE body ||| 'wireless'
-ORDER BY lower(category) COLLATE "C", id
+ORDER BY lower(category), id
+LIMIT 1;
+SELECT id, count(*) OVER () AS total
+FROM issue_7054
+WHERE body ||| 'wireless'
+ORDER BY lower(category), id
 LIMIT 1;
 
 INSERT INTO issue_7054 VALUES (3, 'wireless', 'a'), (4, 'wireless', 'Z');
@@ -111,6 +125,26 @@ SELECT id FROM issue_7054 WHERE body ||| 'wireless'
 ORDER BY lower(category) COLLATE "C", id LIMIT 2;
 SELECT * FROM pg_temp.check_7054_order('lower(category) COLLATE "C", id', 2);
 SELECT * FROM pg_temp.check_7054_order('lower(category) COLLATE "C", id', 1);
+EXPLAIN (COSTS OFF)
+SELECT id FROM issue_7054
+WHERE body ||| 'wireless' AND lower(category) >= 'ä' ORDER BY id;
+SELECT pg_temp.check_7054_query($q$
+    SELECT id FROM issue_7054
+    WHERE body ||| 'wireless' AND lower(category) >= 'ä' ORDER BY id
+$q$);
+SELECT pg_temp.check_7054_query($q$
+    SELECT id FROM issue_7054
+    WHERE body ||| 'wireless' AND lower(category) > 'ä' ORDER BY id
+$q$);
+SELECT pg_temp.check_7054_query($q$
+    SELECT id FROM issue_7054
+    WHERE body ||| 'wireless' AND lower(category) <= 'ä' ORDER BY id
+$q$);
+SELECT pg_temp.check_7054_query($q$
+    SELECT id FROM issue_7054
+    WHERE body ||| 'wireless' AND lower(category) < 'ä' ORDER BY id
+$q$);
+
 EXPLAIN (COSTS OFF)
 SELECT a.id, lower(a.category)
 FROM issue_7054 a JOIN issue_7054_other b ON a.id = b.bug_id
@@ -231,6 +265,46 @@ SELECT pg_temp.check_7054_query($q$
     ) sub ORDER BY price DESC LIMIT 2
 $q$);
 DROP TABLE issue_7054_subquery;
+
+CREATE TABLE issue_7054_docs (
+    id integer PRIMARY KEY, title text COLLATE "C", author text COLLATE "C", body text
+);
+INSERT INTO issue_7054_docs
+SELECT i, 't' || i, 'a' || i, 'foo' FROM generate_series(1, 50) i;
+CREATE INDEX issue_7054_docs_idx ON issue_7054_docs USING paradedb (
+    id, (title::pdb.literal), body
+);
+CREATE VIEW issue_7054_docs_v AS SELECT id, author, body FROM issue_7054_docs;
+EXPLAIN (COSTS OFF)
+SELECT author, count(*) OVER () FROM issue_7054_docs_v
+WHERE body ||| 'foo' ORDER BY author LIMIT 3;
+SELECT pg_temp.check_7054_query($q$
+    SELECT author, count(*) OVER () FROM issue_7054_docs_v
+    WHERE body ||| 'foo' ORDER BY author LIMIT 3
+$q$);
+EXPLAIN (COSTS OFF)
+SELECT author, count(*) OVER () FROM issue_7054_docs_v
+WHERE body ||| 'foo' ORDER BY id, author LIMIT 3;
+SELECT pg_temp.check_7054_query($q$
+    SELECT author, count(*) OVER () FROM issue_7054_docs_v
+    WHERE body ||| 'foo' ORDER BY id, author LIMIT 3
+$q$);
+EXPLAIN (COSTS OFF)
+SELECT author, count(*) OVER () FROM (
+    SELECT id, author, body FROM issue_7054_docs
+) sub WHERE body ||| 'foo' ORDER BY author LIMIT 3;
+SELECT pg_temp.check_7054_query($q$
+    SELECT author, count(*) OVER () FROM (
+        SELECT id, author, body FROM issue_7054_docs
+    ) sub WHERE body ||| 'foo' ORDER BY author LIMIT 3
+$q$);
+SELECT pg_temp.check_7054_query($q$
+    SELECT author, count(*) OVER () FROM (
+        SELECT id, author, body FROM issue_7054_docs
+    ) sub WHERE body ||| 'foo' ORDER BY id, author LIMIT 3
+$q$);
+DROP VIEW issue_7054_docs_v;
+DROP TABLE issue_7054_docs;
 
 DROP TABLE issue_7054;
 DROP TABLE issue_7054_other;

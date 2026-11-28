@@ -32,7 +32,7 @@ use crate::postgres::index::{any_leaf_partition_index, is_partitioned_index};
 use crate::postgres::node::NodeExt;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::search_operator_relations::top_parent;
+use crate::postgres::search_operator_relations::{top_parent, translate_ancestor_expression};
 use crate::postgres::utils::strip_relabel;
 use crate::query::SearchQueryInput;
 use crate::query::heap_field_filter::HeapFieldFilter;
@@ -945,24 +945,16 @@ unsafe fn parent_clause(
         return None;
     }
     let rel = |rti: pg_sys::Index| unsafe { *(*root).simple_rel_array.add(rti as usize) };
-    let (child, parent) = (rel(rti), rel(parent_rti));
-    if child.is_null() || parent.is_null() {
+    let parent = rel(parent_rti);
+    if parent.is_null() {
         return None;
     }
     unsafe { PgList::<pg_sys::RestrictInfo>::from_pg((*parent).baserestrictinfo) }
         .iter_ptr()
         .find(|&parent_ri| unsafe {
             let clause = (*parent_ri).clause.cast();
-            #[cfg(feature = "pg15")]
-            let translated = pg_sys::adjust_appendrel_attrs_multilevel(
-                root,
-                clause,
-                (*child).relids,
-                (*parent).relids,
-            );
-            #[cfg(not(feature = "pg15"))]
-            let translated = pg_sys::adjust_appendrel_attrs_multilevel(root, clause, child, parent);
-            pg_sys::equal(translated.cast(), ri.clause.cast())
+            translate_ancestor_expression(root, clause, parent_rti, rti)
+                .is_some_and(|translated| pg_sys::equal(translated.cast(), ri.clause.cast()))
         })
 }
 

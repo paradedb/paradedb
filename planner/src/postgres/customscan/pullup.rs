@@ -171,6 +171,7 @@ impl SourceContext {
         }
     }
 
+    // An unaliased computed expression can share a column's name without holding its value.
     pub fn resolve_column_field(&self, name: &str) -> Option<ResolvedHeapField> {
         let field = self.resolve_heap_field(ResTarget::Field(name))?;
         let heap_name = self.get_attname(field.attno?)?;
@@ -322,6 +323,7 @@ fn find_matching_fast_field(
 
     let to_fast_field =
         |search_field: &SearchField, data: &CategorizedFieldData| -> Option<WhichFastField> {
+            // A computed field must preserve PostgreSQL's value; a normalizer can change it.
             if search_field.is_fast()
                 && (data.source.heap_attno().is_some()
                     || !search_field.is_text()

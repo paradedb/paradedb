@@ -39,6 +39,7 @@ use crate::postgres::customscan::score_funcoids;
 use crate::postgres::index::is_partitioned_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::search_operator_relations::translate_ancestor_expression;
 use crate::postgres::var::{
     VarContext, fieldname_from_var, find_one_fieldname, find_one_var, strip_identity_wrappers,
 };
@@ -414,33 +415,6 @@ fn extract_funcexpr_from_placeholder(
     None
 }
 
-/// Check if a varno is valid for the current relation (rti).
-///
-/// Returns true if:
-/// 1. varno matches rti (exact match)
-/// 2. varno is the parent of rti (partitioned/inheritance case)
-unsafe fn is_varno_valid_for_relation(
-    root: *mut pg_sys::PlannerInfo,
-    varno: pg_sys::Index,
-    current_rti: pg_sys::Index,
-) -> bool {
-    let mut rti = current_rti;
-    while rti != varno {
-        if rti == 0
-            || rti as i32 >= (*root).simple_rel_array_size
-            || (*root).append_rel_array.is_null()
-        {
-            return false;
-        }
-        let appinfo = *(*root).append_rel_array.add(rti as usize);
-        if appinfo.is_null() {
-            return false;
-        }
-        rti = (*appinfo).parent_relid;
-    }
-    true
-}
-
 /// Find TargetEntry by ressortgroupref
 unsafe fn find_target_entry_by_ref(
     target_list: &PgList<pg_sys::TargetEntry>,
@@ -508,31 +482,15 @@ where
                 continue;
             };
             let varno = (*var).varno as pg_sys::Index;
-            if !is_varno_valid_for_relation(root, varno, context.heap_rti) {
+            let Some(translated) = translate_ancestor_expression(
+                root,
+                expr_to_analyze.cast(),
+                varno,
+                context.heap_rti,
+            ) else {
                 continue;
-            }
-            if varno != context.heap_rti {
-                let child = *(*root).simple_rel_array.add(context.heap_rti as usize);
-                let parent = *(*root).simple_rel_array.add(varno as usize);
-                if child.is_null() || parent.is_null() {
-                    continue;
-                }
-                #[cfg(feature = "pg15")]
-                let translated = pg_sys::adjust_appendrel_attrs_multilevel(
-                    root,
-                    expr_to_analyze.cast(),
-                    (*child).relids,
-                    (*parent).relids,
-                );
-                #[cfg(not(feature = "pg15"))]
-                let translated = pg_sys::adjust_appendrel_attrs_multilevel(
-                    root,
-                    expr_to_analyze.cast(),
-                    child,
-                    parent,
-                );
-                expr_to_analyze = translated.cast();
-            }
+            };
+            expr_to_analyze = translated.cast();
 
             if let Some((sort_type, _, field_name_opt)) = analyze_sort_expression(
                 expr_to_analyze.cast(),
@@ -738,8 +696,15 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
 
         // Validate sortability
         let context = target_relation_context.as_ref().unwrap();
+        let reads_heap = unsafe { PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable) }
+            .get_ptr(varno as usize - 1)
+            .is_some_and(|rte| unsafe { (*rte).rtekind } == pg_sys::RTEKind::RTE_RELATION);
         let Some((sort_type, _, field_name_opt)) = (unsafe {
-            analyze_sort_expression(expr, VarContext::from_query(parse), Some(context))
+            analyze_sort_expression(
+                expr,
+                VarContext::from_query(parse),
+                reads_heap.then_some(context),
+            )
         }) else {
             return false;
         };

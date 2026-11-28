@@ -97,10 +97,54 @@ SELECT * FROM pg_temp.check_7054_order('lower(category) COLLATE "C" DESC, id', 2
  {1,2}      | {1,2}        | t
 (1 row)
 
+EXPLAIN (COSTS OFF)
+SELECT id FROM issue_7054
+WHERE body ||| 'wireless' AND lower(category) >= 'ä' ORDER BY id;
+                                                                                                                                                 QUERY PLAN                                                                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Base Scan) on issue_7054
+         Table: issue_7054
+         Index: issue_7054_idx
+         Exec Method: ColumnarExecState
+         Columnar: id
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"category","lower_bound":{"included":"ä"},"upper_bound":null}}]}}
+(9 rows)
+
+SELECT pg_temp.check_7054_query($q$
+    SELECT id FROM issue_7054
+    WHERE body ||| 'wireless' AND lower(category) >= 'ä' ORDER BY id
+$q$);
+ check_7054_query 
+------------------
+ [{"id": 1}]
+(1 row)
+
+EXPLAIN (COSTS OFF)
 SELECT id, count(*) OVER () AS total
 FROM issue_7054
 WHERE body ||| 'wireless'
-ORDER BY lower(category) COLLATE "C", id
+ORDER BY lower(category), id
+LIMIT 1;
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on issue_7054
+         Table: issue_7054
+         Index: issue_7054_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: category asc, id asc
+            TopK Limit: 1
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+
+SELECT id, count(*) OVER () AS total
+FROM issue_7054
+WHERE body ||| 'wireless'
+ORDER BY lower(category), id
 LIMIT 1;
  id | total 
 ----+-------
@@ -193,6 +237,58 @@ SELECT * FROM pg_temp.check_7054_order('lower(category) COLLATE "C", id', 1);
  custom_ids | postgres_ids | topk 
 ------------+--------------+------
  {2}        | {2}          | f
+(1 row)
+
+EXPLAIN (COSTS OFF)
+SELECT id FROM issue_7054
+WHERE body ||| 'wireless' AND lower(category) >= 'ä' ORDER BY id;
+                                                                                                                                                                       QUERY PLAN                                                                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Base Scan) on issue_7054
+         Table: issue_7054
+         Index: issue_7054_idx
+         Exec Method: ColumnarExecState
+         Columnar: id
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(lower(category) >= 'ä'::text)"}]}}]}}
+(9 rows)
+
+SELECT pg_temp.check_7054_query($q$
+    SELECT id FROM issue_7054
+    WHERE body ||| 'wireless' AND lower(category) >= 'ä' ORDER BY id
+$q$);
+    check_7054_query    
+------------------------
+ [{"id": 1}, {"id": 3}]
+(1 row)
+
+SELECT pg_temp.check_7054_query($q$
+    SELECT id FROM issue_7054
+    WHERE body ||| 'wireless' AND lower(category) > 'ä' ORDER BY id
+$q$);
+ check_7054_query 
+------------------
+ [{"id": 3}]
+(1 row)
+
+SELECT pg_temp.check_7054_query($q$
+    SELECT id FROM issue_7054
+    WHERE body ||| 'wireless' AND lower(category) <= 'ä' ORDER BY id
+$q$);
+    check_7054_query    
+------------------------
+ [{"id": 1}, {"id": 2}]
+(1 row)
+
+SELECT pg_temp.check_7054_query($q$
+    SELECT id FROM issue_7054
+    WHERE body ||| 'wireless' AND lower(category) < 'ä' ORDER BY id
+$q$);
+ check_7054_query 
+------------------
+ [{"id": 2}]
 (1 row)
 
 EXPLAIN (COSTS OFF)
@@ -502,6 +598,110 @@ $q$);
 (1 row)
 
 DROP TABLE issue_7054_subquery;
+CREATE TABLE issue_7054_docs (
+    id integer PRIMARY KEY, title text COLLATE "C", author text COLLATE "C", body text
+);
+INSERT INTO issue_7054_docs
+SELECT i, 't' || i, 'a' || i, 'foo' FROM generate_series(1, 50) i;
+CREATE INDEX issue_7054_docs_idx ON issue_7054_docs USING paradedb (
+    id, (title::pdb.literal), body
+);
+CREATE VIEW issue_7054_docs_v AS SELECT id, author, body FROM issue_7054_docs;
+EXPLAIN (COSTS OFF)
+SELECT author, count(*) OVER () FROM issue_7054_docs_v
+WHERE body ||| 'foo' ORDER BY author LIMIT 3;
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: issue_7054_docs.author COLLATE "C"
+         ->  WindowAgg
+               Window: w1 AS ()
+               ->  Custom Scan (ParadeDB Base Scan) on issue_7054_docs
+                     Table: issue_7054_docs
+                     Index: issue_7054_docs_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"foo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(11 rows)
+
+SELECT pg_temp.check_7054_query($q$
+    SELECT author, count(*) OVER () FROM issue_7054_docs_v
+    WHERE body ||| 'foo' ORDER BY author LIMIT 3
+$q$);
+                                        check_7054_query                                         
+-------------------------------------------------------------------------------------------------
+ [{"count": 50, "author": "a1"}, {"count": 50, "author": "a10"}, {"count": 50, "author": "a11"}]
+(1 row)
+
+EXPLAIN (COSTS OFF)
+SELECT author, count(*) OVER () FROM issue_7054_docs_v
+WHERE body ||| 'foo' ORDER BY id, author LIMIT 3;
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: issue_7054_docs.id, issue_7054_docs.author COLLATE "C"
+         ->  WindowAgg
+               Window: w1 AS ()
+               ->  Custom Scan (ParadeDB Base Scan) on issue_7054_docs
+                     Table: issue_7054_docs
+                     Index: issue_7054_docs_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"foo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(11 rows)
+
+SELECT pg_temp.check_7054_query($q$
+    SELECT author, count(*) OVER () FROM issue_7054_docs_v
+    WHERE body ||| 'foo' ORDER BY id, author LIMIT 3
+$q$);
+                                       check_7054_query                                        
+-----------------------------------------------------------------------------------------------
+ [{"count": 50, "author": "a1"}, {"count": 50, "author": "a2"}, {"count": 50, "author": "a3"}]
+(1 row)
+
+EXPLAIN (COSTS OFF)
+SELECT author, count(*) OVER () FROM (
+    SELECT id, author, body FROM issue_7054_docs
+) sub WHERE body ||| 'foo' ORDER BY author LIMIT 3;
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: issue_7054_docs.author COLLATE "C"
+         ->  WindowAgg
+               Window: w1 AS ()
+               ->  Custom Scan (ParadeDB Base Scan) on issue_7054_docs
+                     Table: issue_7054_docs
+                     Index: issue_7054_docs_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"foo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(11 rows)
+
+SELECT pg_temp.check_7054_query($q$
+    SELECT author, count(*) OVER () FROM (
+        SELECT id, author, body FROM issue_7054_docs
+    ) sub WHERE body ||| 'foo' ORDER BY author LIMIT 3
+$q$);
+                                        check_7054_query                                         
+-------------------------------------------------------------------------------------------------
+ [{"count": 50, "author": "a1"}, {"count": 50, "author": "a10"}, {"count": 50, "author": "a11"}]
+(1 row)
+
+SELECT pg_temp.check_7054_query($q$
+    SELECT author, count(*) OVER () FROM (
+        SELECT id, author, body FROM issue_7054_docs
+    ) sub WHERE body ||| 'foo' ORDER BY id, author LIMIT 3
+$q$);
+                                       check_7054_query                                        
+-----------------------------------------------------------------------------------------------
+ [{"count": 50, "author": "a1"}, {"count": 50, "author": "a2"}, {"count": 50, "author": "a3"}]
+(1 row)
+
+DROP VIEW issue_7054_docs_v;
+DROP TABLE issue_7054_docs;
 DROP TABLE issue_7054;
 DROP TABLE issue_7054_other;
 DROP FUNCTION pg_temp.check_7054_order(text, integer);

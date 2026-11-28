@@ -2,4 +2,4 @@
 header: breaking
 ---
 
-- Indexes on unaliased `lower(text)` expressions no longer infer a Unicode lowercase columnar normalizer. Existing indexes with the inferred normalizer fall back to PostgreSQL evaluation and lose Top K optimization until rebuilt with `REINDEX`. Explicitly configured normalizers are retained; changing them requires recreating the index (#7054).
+- Indexes on unaliased `lower(text)` expressions no longer infer a Unicode lowercase columnar normalizer. Existing indexes with the inferred normalizer fall back to PostgreSQL evaluation and lose Top K, join, and aggregate optimizations on these expressions until rebuilt with `REINDEX`. Inspect `SELECT name, normalizer FROM paradedb.schema('<index>');` for `lowercase` fields and check the index definition for `lower(text)` expressions to identify affected indexes. Explicitly configured normalizers are retained; changing them requires recreating the index (#7054).
